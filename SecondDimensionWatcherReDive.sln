@@ -1,0 +1,31 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.6.33723.286
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SecondDimensionWatcherReDive", "SecondDimensionWatcherReDive\SecondDimensionWatcherReDive.csproj", "{0318C40D-0F03-4C78-BAC2-114916FBEFE8}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SecondDimensionWatcherReDive.Test", "SecondDimensionWatcherReDive.Test\SecondDimensionWatcherReDive.Test.csproj", "{40BFB998-6B62-46E9-B53F-19CE579F2946}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{0318C40D-0F03-4C78-BAC2-114916FBEFE8}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{0318C40D-0F03-4C78-BAC2-114916FBEFE8}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{0318C40D-0F03-4C78-BAC2-114916FBEFE8}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{0318C40D-0F03-4C78-BAC2-114916FBEFE8}.Release|Any CPU.Build.0 = Release|Any CPU
+		{40BFB998-6B62-46E9-B53F-19CE579F2946}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{40BFB998-6B62-46E9-B53F-19CE579F2946}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{40BFB998-6B62-46E9-B53F-19CE579F2946}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{40BFB998-6B62-46E9-B53F-19CE579F2946}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {13AF3A4D-4405-4865-84F2-7A63EE359992}
+	EndGlobalSection
+EndGlobal

@@ -1,0 +1,34 @@
+{
+  "dependencies": {
+    "@elastic/datemath": "^5.0.3",
+    "@elastic/eui": "^94.5.2",
+    "@emotion/css": "^11.11.2",
+    "@emotion/react": "^11.11.4",
+    "dayjs": "^1.11.11",
+    "moment": "^2.30.1",
+    "prop-types": "^15.8.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.23.1",
+    "swr": "^2.2.5"
+  },
+  "devDependencies": {
+    "@parcel/core": "^2.12.0",
+    "@trivago/prettier-plugin-sort-imports": "^4.3.0",
+    "@types/prop-types": "^15.7.12",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "parcel": "^2.12.0",
+    "prettier": "^3.2.5",
+    "process": "^0.11.10",
+    "rimraf": "^5.0.7",
+    "typescript": "^5.4.5"
+  },
+  "name": "@hcgstudio/sdwr-client",
+  "packageManager": "yarn@4.2.2",
+  "scripts": {
+    "start": "parcel --no-cache",
+    "build": "rimraf dist && parcel build --no-source-maps"
+  },
+  "source": "src/index.html"
+}
