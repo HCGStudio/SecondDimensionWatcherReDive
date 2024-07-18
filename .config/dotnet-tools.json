@@ -8,6 +8,13 @@
         "dotnet-ef"
       ],
       "rollForward": false
+    },
+    "aspirate": {
+      "version": "8.0.7",
+      "commands": [
+        "aspirate"
+      ],
+      "rollForward": false
     }
   }
 }
