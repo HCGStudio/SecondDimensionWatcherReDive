@@ -2,19 +2,26 @@ using System.Net.Http.Headers;
 using System.Reflection;
 using System.Text;
 using System.Threading.Channels;
+using AspSpaService;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.Net.Http.Headers;
 using SecondDimensionWatcherReDive.Data;
+using SecondDimensionWatcherReDive.Framework.Feed;
+using SecondDimensionWatcherReDive.Framework.FileDownload;
+using SecondDimensionWatcherReDive.Framework.FileStore;
 using SecondDimensionWatcherReDive.Models;
+using SecondDimensionWatcherReDive.Plugin;
 using SecondDimensionWatcherReDive.Services;
 using SecondDimensionWatcherReDive.Utils.Feed;
 using SecondDimensionWatcherReDive.Utils.FileDownload;
 using SecondDimensionWatcherReDive.Utils.FileStore;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.AddServiceDefaults();
 
 // Add services to the container.
 
@@ -23,11 +30,14 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Configuration.AddJsonFile("password.json", true, true);
 
-builder.Services.AddDbContext<ApplicationContext>(options =>
-{
-    options.UseNpgsql(builder.Configuration.GetConnectionString("sdw"),
-        optionsBuilder => { optionsBuilder.EnableRetryOnFailure(5, TimeSpan.FromSeconds(5), null); });
-});
+
+builder.AddNpgsqlDbContext<ApplicationContext>("sdw");
+
+// builder.Services.AddDbContext<ApplicationContext>(options =>
+// {
+//     options.UseNpgsql(builder.Configuration.GetConnectionString("sdw"),
+//         optionsBuilder => { optionsBuilder.EnableRetryOnFailure(5, TimeSpan.FromSeconds(5), null); });
+// });
 
 builder.Services.AddCors(options =>
 {
@@ -125,6 +135,15 @@ builder.Services.AddScoped<IFileStoreProvider, FileStoreProvider>();
 //Add feed
 builder.Services.AddTransient<IFeedService, MikananiFeedService>();
 
+//Add SPA Hosting
+builder.Services.AddSpaStaticFiles(options =>
+{
+    options.RootPath = "wwwroot";
+});
+
+//Initialize Plugin
+builder.InitializePlugin();
+
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
@@ -136,17 +155,46 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
-app.UseAuthorization();
+app.UseRouting();
 
 app.MapControllers();
 
+// if (builder.Environment.IsDevelopment())
+// {
+//     app.UseWhen(
+//         context => !context.Request.Path.StartsWithSegments("/api"),
+//         then =>
+//         {
+//             then.UseSpa(config =>
+//             {
+//                 var workingDirectory = Path.Combine(Directory.GetCurrentDirectory(), "ClientApp");
+//                 config.UseAspSpaDevelopmentServer(
+//                     app.Lifetime,
+//                     "yarn",
+//                     "start",
+//                     workingDirectory,
+//                     new Dictionary<string, string>(),
+//                     TimeSpan.FromSeconds(15));
+//                 config.Options.SourcePath = "ClientApp";
+//                 config.UseProxyToSpaDevelopmentServer("http://localhost:1234/");
+//             });
+//         });
+// }
+// else
+// {
+//     app.UseSpaStaticFiles();
+//     app.MapFallbackToFile("index.html");
+// }
+
+app.UseAuthorization();
+
 if (app.Configuration.GetValue<bool?>("DisableCors") is true) app.UseCors("all");
+
 
 await using (var scope = app.Services.CreateAsyncScope())
 {
     await using var context = scope.ServiceProvider.GetRequiredService<ApplicationContext>();
     await context.Database.MigrateAsync();
 }
-
 
 await app.RunAsync();

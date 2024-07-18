@@ -36,6 +36,7 @@ public class CompleteDownload : BackgroundService
             }
 
             info.IsDownloadFinished = true;
+            info.DownloadEndTime = DateTimeOffset.Now;
             info.FileStore = request.FileStore;
             info.StorePath = request.StorePath;
 

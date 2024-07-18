@@ -1,4 +1,6 @@
-﻿namespace SecondDimensionWatcherReDive.Utils.FileStore;
+﻿using SecondDimensionWatcherReDive.Framework.FileStore;
+
+namespace SecondDimensionWatcherReDive.Utils.FileStore;
 
 public class FileStoreProvider(IServiceProvider serviceProvider) : IFileStoreProvider
 {

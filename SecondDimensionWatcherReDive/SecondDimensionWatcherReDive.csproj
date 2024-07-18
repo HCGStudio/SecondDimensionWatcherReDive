@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+<Project Sdk="Microsoft.NET.Sdk.Web">
 
     <PropertyGroup>
         <TargetFramework>net8.0</TargetFramework>
@@ -7,15 +7,23 @@
         <UserSecretsId>0e827b46-7c5a-4230-9e45-d9abf65902aa</UserSecretsId>
         <AssemblyVersion>2.0.0</AssemblyVersion>
         <FileVersion>2.0.0</FileVersion>
+        <ContainerRegistry>ghcr.io</ContainerRegistry>
     </PropertyGroup>
 
     <ItemGroup>
+        <PackageReference Include="Aspire.Npgsql.EntityFrameworkCore.PostgreSQL" Version="8.0.2" />
+        <PackageReference Include="AspSpaService" Version="1.0.6" />
         <PackageReference Include="BCrypt.Net-Next" Version="4.0.3"/>
         <PackageReference Include="BencodeNET" Version="5.0.0"/>
         <PackageReference Include="Mapster" Version="7.4.0"/>
         <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.6"/>
         <PackageReference Include="Microsoft.AspNetCore.Identity.UI" Version="8.0.6"/>
         <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="8.0.6"/>
+        <PackageReference Include="Microsoft.AspNetCore.SpaProxy" Version="8.0.6" />
+        <PackageReference Include="Microsoft.AspNetCore.SpaServices.Extensions" Version="8.0.6" />
+        <PackageReference Include="Microsoft.ClearScript.Complete" Version="7.4.5" />
+        <PackageReference Include="Microsoft.ClearScript.Core" Version="7.4.5" />
+        <PackageReference Include="Microsoft.ClearScript.V8" Version="7.4.5" />
         <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.6">
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
             <PrivateAssets>all</PrivateAssets>
@@ -28,6 +36,7 @@
     </ItemGroup>
 
     <ItemGroup>
-        <Folder Include="Migrations\"/>
+      <ProjectReference Include="..\SecondDimensionWatcherReDive.Framework\SecondDimensionWatcherReDive.Framework.csproj" />
+      <ProjectReference Include="..\SecondDimensionWatcherReDive.ServiceDefaults\SecondDimensionWatcherReDive.ServiceDefaults.csproj" />
     </ItemGroup>
 </Project>

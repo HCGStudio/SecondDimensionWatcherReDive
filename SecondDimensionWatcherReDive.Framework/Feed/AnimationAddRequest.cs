@@ -1,6 +1,6 @@
-﻿using SecondDimensionWatcherReDive.Models;
+﻿using SecondDimensionWatcherReDive.Framework.Animation;
 
-namespace SecondDimensionWatcherReDive.Data;
+namespace SecondDimensionWatcherReDive.Framework.Feed;
 
 public record AnimationAddRequest(
     DateTimeOffset PublishTime,

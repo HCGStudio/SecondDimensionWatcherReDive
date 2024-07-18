@@ -1,4 +1,4 @@
-﻿namespace SecondDimensionWatcherReDive.Utils.FileStore;
+﻿namespace SecondDimensionWatcherReDive.Framework.FileStore;
 
 public record FileStoreInfo(bool IsDirectory, string Path, string FileName);
 

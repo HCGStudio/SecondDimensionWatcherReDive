@@ -1,0 +1,11 @@
+{
+  "TemplatePath": null,
+  "ContainerSettings": {
+    "Registry": "ghcr.io",
+    "RepositoryPrefix": "HCGStudio/SecondDimensionWatcherReDive",
+    "Tags": [
+      "latest"
+    ],
+    "Builder": "docker"
+  }
+}

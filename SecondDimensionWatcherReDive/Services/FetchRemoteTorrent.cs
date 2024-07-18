@@ -2,34 +2,27 @@
 using System.Threading.Channels;
 using Microsoft.EntityFrameworkCore;
 using SecondDimensionWatcherReDive.Data;
+using SecondDimensionWatcherReDive.Framework.FileDownload;
+using SecondDimensionWatcherReDive.Framework.FileStore;
 using SecondDimensionWatcherReDive.Models;
 using SecondDimensionWatcherReDive.Utils.FileDownload;
 using SecondDimensionWatcherReDive.Utils.FileStore;
 
 namespace SecondDimensionWatcherReDive.Services;
 
-public class FetchRemoteTorrent : BackgroundService
+public class FetchRemoteTorrent(
+    Channel<RemoteTorrentTrackRequest> remoteTorrentTrackRequest,
+    IHttpClientFactory httpClientFactory,
+    Channel<DownloadCompleteRequest> downloadCompleteRequest,
+    Channel<FileDownloadStatus> fileDownloadStatus,
+    IServiceScopeFactory scopeFactory)
+    : BackgroundService
 {
-    private readonly Channel<DownloadCompleteRequest> _downloadCompleteRequest;
-    private readonly Channel<FileDownloadStatus> _fileDownloadStatus;
-    private readonly HttpClient _httpClient;
-    private readonly Channel<RemoteTorrentTrackRequest> _remoteTorrentTrackRequest;
-    private readonly IServiceScopeFactory _scopeFactory;
-
-    public FetchRemoteTorrent(Channel<RemoteTorrentTrackRequest> remoteTorrentTrackRequest,
-        IHttpClientFactory httpClientFactory, Channel<DownloadCompleteRequest> downloadCompleteRequest,
-        Channel<FileDownloadStatus> fileDownloadStatus, IServiceScopeFactory scopeFactory)
-    {
-        _remoteTorrentTrackRequest = remoteTorrentTrackRequest;
-        _downloadCompleteRequest = downloadCompleteRequest;
-        _fileDownloadStatus = fileDownloadStatus;
-        _scopeFactory = scopeFactory;
-        _httpClient = httpClientFactory.CreateClient(nameof(RemoteTorrentDownloadClient));
-    }
+    private readonly HttpClient _httpClient = httpClientFactory.CreateClient(nameof(RemoteTorrentDownloadClient));
 
     private async IAsyncEnumerable<RemoteTorrentTrackRequest> FetchUnfinishedTaskFromDb()
     {
-        await using var scope = _scopeFactory.CreateAsyncScope();
+        await using var scope = scopeFactory.CreateAsyncScope();
         await using var applicationContext = scope.ServiceProvider.GetRequiredService<ApplicationContext>();
         var unfinished =
             applicationContext.AnimationInfo
@@ -44,7 +37,7 @@ public class FetchRemoteTorrent : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken cancellationToken)
     {
-        var reader = _remoteTorrentTrackRequest.Reader;
+        var reader = remoteTorrentTrackRequest.Reader;
         var tracked = new ConcurrentDictionary<string, RemoteTorrentTrackRequest>();
 
         // Add unfinished to track
@@ -75,14 +68,14 @@ public class FetchRemoteTorrent : BackgroundService
                 var request = tracked[torrentInfo.Hash];
                 var state = torrentInfo.State.ToDownloadState();
 
-                await _fileDownloadStatus.Writer.WriteAsync(new FileDownloadStatus(request.ItemId, torrentInfo.Progress,
+                await fileDownloadStatus.Writer.WriteAsync(new FileDownloadStatus(request.ItemId, torrentInfo.Progress,
                     torrentInfo.Eta, torrentInfo.Speed,
                     state), cancellationToken);
 
                 if (state != FileDownloadState.Finished) continue;
 
                 //Write complete request and stop tracking.
-                await _downloadCompleteRequest.Writer.WriteAsync(
+                await downloadCompleteRequest.Writer.WriteAsync(
                     new DownloadCompleteRequest(request.ItemId, torrentInfo.SavePath, FileStores.LocalDiskStore),
                     cancellationToken);
                 tracked.TryRemove(torrentInfo.Hash, out _);

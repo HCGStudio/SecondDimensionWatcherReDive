@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using SecondDimensionWatcherReDive.Data;
+using SecondDimensionWatcherReDive.Framework.Animation;
 using SecondDimensionWatcherReDive.Models;
 using SecondDimensionWatcherReDive.Utils.FileDownload;
 
@@ -97,6 +98,7 @@ public class AnimationInfoController(
         if (!success) return BadRequest();
 
         info.IsDownloadTracked = true;
+        info.DownloadStartTime = DateTimeOffset.Now;
         await applicationContext.SaveChangesAsync();
         return Ok();
     }

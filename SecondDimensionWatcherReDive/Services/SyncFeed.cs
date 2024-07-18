@@ -3,6 +3,9 @@ using BencodeNET.Objects;
 using BencodeNET.Parsing;
 using Microsoft.EntityFrameworkCore;
 using SecondDimensionWatcherReDive.Data;
+using SecondDimensionWatcherReDive.Exceptions;
+using SecondDimensionWatcherReDive.Framework.Feed;
+using SecondDimensionWatcherReDive.Framework.FileDownload;
 using SecondDimensionWatcherReDive.Models;
 using SecondDimensionWatcherReDive.Utils.Feed;
 using SecondDimensionWatcherReDive.Utils.FileDownload;
@@ -20,12 +23,16 @@ public class SyncFeed(
     : BackgroundService
 {
     private readonly HttpClient _httpClient = httpClientFactory.CreateClient("Feed");
-    private readonly ILogger<SyncFeed> _logger = logger;
 
-    private async Task<(byte[], string)> DownloadTorrentData(AnimationAddRequest request,
+    private async Task<(byte[], string)> DownloadTorrentData(
+        AnimationAddRequest request,
         CancellationToken cancellationToken)
     {
         var data = await _httpClient.GetByteArrayAsync(request.DownloadUrl, cancellationToken);
+        if (data.Length == 0)
+        {
+            throw new InvalidTorrentDataException(request.DownloadUrl);
+        }
         var parser = new BencodeParser();
         var hash = BitConverter
             .ToString(SHA1.HashData(
@@ -42,8 +49,10 @@ public class SyncFeed(
         await using var applicationContext = scope.ServiceProvider.GetRequiredService<ApplicationContext>();
 
         //Only process non-exist items
-        if (await applicationContext.AnimationInfo.FirstOrDefaultAsync(i => i.Title == request.Title,
-                cancellationToken) == null)
+        if (await applicationContext.AnimationInfo
+                .FirstOrDefaultAsync(
+                    i => i.Title == request.Title,
+                    cancellationToken) == null)
         {
             // Link Animation if request have correct TMDB id 
             var animation = request.Animation == null
@@ -58,27 +67,34 @@ public class SyncFeed(
                     g => g.Name == request.Group.Name,
                     cancellationToken);
 
-            var (cachedDownloadData, additionalDownloadInfo) = request.DownloadType switch
+            try
             {
-                FileDownloadTypes.TorrentDownload => await DownloadTorrentData(request, cancellationToken),
-                _ => ([], string.Empty)
-            };
-
-            await applicationContext.AnimationInfo.AddAsync(
-                new AnimationInfo
+                var (cachedDownloadData, additionalDownloadInfo) = request.DownloadType switch
                 {
-                    Animation = animation,
-                    Group = animationGroup,
-                    Title = request.Title,
-                    PublishTime = request.PublishTime,
-                    Description = request.Description,
-                    DownloadUrl = request.DownloadUrl,
-                    DownloadType = request.DownloadType,
-                    CachedDownloadData = cachedDownloadData,
-                    AdditionalDownloadInfo = additionalDownloadInfo
-                },
-                cancellationToken);
-            await applicationContext.SaveChangesAsync(cancellationToken);
+                    FileDownloadTypes.TorrentDownload => await DownloadTorrentData(request, cancellationToken),
+                    _ => ([], string.Empty)
+                };
+
+                await applicationContext.AnimationInfo.AddAsync(
+                    new AnimationInfo
+                    {
+                        Animation = animation,
+                        Group = animationGroup,
+                        Title = request.Title,
+                        PublishTime = request.PublishTime,
+                        Description = request.Description,
+                        DownloadUrl = request.DownloadUrl,
+                        DownloadType = request.DownloadType,
+                        CachedDownloadData = cachedDownloadData,
+                        AdditionalDownloadInfo = additionalDownloadInfo
+                    },
+                    cancellationToken);
+                await applicationContext.SaveChangesAsync(cancellationToken);
+            }
+            catch (InvalidTorrentDataException e)
+            {
+                logger.LogWarning(e.Message);
+            }
         }
     }
 

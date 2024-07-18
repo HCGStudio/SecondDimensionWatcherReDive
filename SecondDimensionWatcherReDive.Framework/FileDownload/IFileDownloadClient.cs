@@ -1,4 +1,4 @@
-﻿namespace SecondDimensionWatcherReDive.Utils.FileDownload;
+﻿namespace SecondDimensionWatcherReDive.Framework.FileDownload;
 
 /// <summary>
 ///     Provides a contract for performing various file download operations.
@@ -84,4 +84,23 @@ public interface IFileDownloadClient
         string downloadUrl,
         byte[] cachedDownloadData,
         string additionalDownloadInfo);
+
+    /// <summary>
+    ///     Cancels a download task.
+    /// </summary>
+    /// <param name="itemId">Identifier of the item being downloaded.</param>
+    /// <param name="downloadUrl">URL from which the item is being downloaded.</param>
+    /// <param name="cachedDownloadData">Cached data for the download.</param>
+    /// <param name="additionalDownloadInfo">Additional information for the download.</param>
+    /// <param name="removeFile">True to remove the downloaded file from the file store, false otherwise.</param>
+    /// <returns>
+    ///     A task that represents the asynchronous operation. The task result contains a CancelDownloadResult object
+    ///     that indicates whether the cancellation was successful and if the file needs to be removed from the file store.
+    /// </returns>
+    public Task<CancelDownloadResult> CancelDownloadTask(
+        Guid itemId,
+        string downloadUrl,
+        byte[] cachedDownloadData,
+        string additionalDownloadInfo,
+        bool removeFile);
 }

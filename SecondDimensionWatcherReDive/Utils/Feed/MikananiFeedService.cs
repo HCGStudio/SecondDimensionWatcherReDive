@@ -2,6 +2,8 @@
 using System.Runtime.InteropServices;
 using System.Xml.Serialization;
 using SecondDimensionWatcherReDive.Data;
+using SecondDimensionWatcherReDive.Framework.Feed;
+using SecondDimensionWatcherReDive.Framework.FileDownload;
 using SecondDimensionWatcherReDive.Utils.FileDownload;
 
 namespace SecondDimensionWatcherReDive.Utils.Feed;
@@ -54,7 +56,9 @@ public class MikananiFeedService(IHttpClientFactory httpClientFactory, IConfigur
                              i.Description,
                              i.Enclosure.Url,
                              FileDownloadTypes.TorrentDownload,
-                             string.Empty, null, null)))
+                             string.Empty,
+                             null,
+                             null)))
                 _animations.Add(animationAddRequest);
         }
         catch (Exception e)
@@ -63,7 +67,6 @@ public class MikananiFeedService(IHttpClientFactory httpClientFactory, IConfigur
             throw;
         }
     }
-
 #nullable disable
     [XmlRoot(ElementName = "guid")]
     public class SourceGuid

@@ -1,6 +1,4 @@
-﻿using SecondDimensionWatcherReDive.Data;
-
-namespace SecondDimensionWatcherReDive.Utils.Feed;
+﻿namespace SecondDimensionWatcherReDive.Framework.Feed;
 
 /// <summary>
 ///     Interface for Feed Service.

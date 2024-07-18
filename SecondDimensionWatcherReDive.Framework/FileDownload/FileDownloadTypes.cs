@@ -1,4 +1,4 @@
-﻿namespace SecondDimensionWatcherReDive.Utils.FileDownload;
+﻿namespace SecondDimensionWatcherReDive.Framework.FileDownload;
 
 public static class FileDownloadTypes
 {

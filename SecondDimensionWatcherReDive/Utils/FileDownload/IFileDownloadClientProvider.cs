@@ -1,4 +1,6 @@
-﻿namespace SecondDimensionWatcherReDive.Utils.FileDownload;
+﻿using SecondDimensionWatcherReDive.Framework.FileDownload;
+
+namespace SecondDimensionWatcherReDive.Utils.FileDownload;
 
 /// <summary>
 ///     Defines a contract for providing clients to download files.

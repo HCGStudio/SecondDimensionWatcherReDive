@@ -1,5 +1,7 @@
 ﻿using System.Threading.Channels;
 using SecondDimensionWatcherReDive.Data;
+using SecondDimensionWatcherReDive.Framework.FileDownload;
+using SecondDimensionWatcherReDive.Framework.FileStore;
 using SecondDimensionWatcherReDive.Utils.FileStore;
 
 namespace SecondDimensionWatcherReDive.Utils.FileDownload;
@@ -69,5 +71,18 @@ public class RemoteTorrentDownloadClient(
             new FormUrlEncodedContent([new KeyValuePair<string, string>("hashes", additionalDownloadInfo)]);
         using var response = await _httpClient.PostAsync("/api/v2/torrents/resume?", content);
         return response.IsSuccessStatusCode;
+    }
+
+    public override async Task<CancelDownloadResult> CancelDownloadTask(
+        Guid itemId,
+        string downloadUrl,
+        byte[] cachedDownloadData,
+        string additionalDownloadInfo,
+        bool removeFile)
+    {
+        using var response = await _httpClient.DeleteAsync($"/api/v2/torrents/delete?hashes={additionalDownloadInfo}");
+
+        // TODO: NeedRemoveFromFileStore should be updated after this supports external storage.
+        return new CancelDownloadResult(true, false);
     }
 }

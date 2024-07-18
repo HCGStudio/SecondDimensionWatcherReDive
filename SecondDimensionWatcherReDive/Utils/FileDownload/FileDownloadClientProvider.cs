@@ -1,34 +1,29 @@
-﻿namespace SecondDimensionWatcherReDive.Utils.FileDownload;
+﻿using SecondDimensionWatcherReDive.Framework.FileDownload;
 
-public class FileDownloadClientProvider : IFileDownloadClientProvider
+namespace SecondDimensionWatcherReDive.Utils.FileDownload;
+
+public class FileDownloadClientProvider(IServiceProvider serviceProvider) : IFileDownloadClientProvider
 {
-    private readonly IServiceProvider _serviceProvider;
-
-    public FileDownloadClientProvider(IServiceProvider serviceProvider)
-    {
-        _serviceProvider = serviceProvider;
-    }
-
     public IFileDownloadClient GetRequiredClient(string downloadType)
     {
-        return _serviceProvider.GetServices<IFileDownloadClient>().First(c => c.FileDownloadType == downloadType);
+        return serviceProvider.GetServices<IFileDownloadClient>().First(c => c.FileDownloadType == downloadType);
     }
 
     public IFileDownloadClient? GetClient(string downloadType)
     {
-        return _serviceProvider.GetServices<IFileDownloadClient>()
+        return serviceProvider.GetServices<IFileDownloadClient>()
             .FirstOrDefault(c => c.FileDownloadType == downloadType);
     }
 
     public IFileDownloadClient GetRequiredClient(string downloadType, string fileStoreType)
     {
-        return _serviceProvider.GetServices<IFileDownloadClient>()
+        return serviceProvider.GetServices<IFileDownloadClient>()
             .First(c => c.FileDownloadType == downloadType && c.SupportedFileStoreType == fileStoreType);
     }
 
     public IFileDownloadClient? GetClient(string downloadType, string fileStoreType)
     {
-        return _serviceProvider.GetServices<IFileDownloadClient>()
+        return serviceProvider.GetServices<IFileDownloadClient>()
             .FirstOrDefault(c => c.FileDownloadType == downloadType && c.SupportedFileStoreType == fileStoreType);
     }
 }
