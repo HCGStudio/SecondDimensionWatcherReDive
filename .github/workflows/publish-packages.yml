@@ -25,4 +25,4 @@ jobs:
     - name: Build the Docker image
       run: |
         cd SecondDimensionWatcherReDive.AppHost
-        dotnet aspirate build --container-image-tag=$(git rev-parse --short HEAD) --disable-secrets --non-interactive
+        dotnet aspirate build --container-image-tag=$(git rev-parse --short HEAD) --disable-secrets --non-interactive --aspire-manifest=manifest.json
