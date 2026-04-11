@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using SecondDimensionWatcherReDive.Exceptions;
 using SecondDimensionWatcherReDive.Framework.Feed;
 using SecondDimensionWatcherReDive.Framework.FileDownload;
+using SecondDimensionWatcherReDive.Framework.Inference;
 using SecondDimensionWatcherReDive.Models;
 
 namespace SecondDimensionWatcherReDive.Services;
@@ -51,25 +52,74 @@ public class SyncFeed(
                     i => i.Title == request.Title,
                     cancellationToken) == null)
         {
-            // Link Animation if request have correct TMDB id 
-            var animation = request.Animation == null
-                ? null
-                : await applicationContext.Animations.FirstOrDefaultAsync(
-                    a => a.TmdbId == request.Animation.TmdbId,
-                    cancellationToken);
+            Animation? animation = null;
+            AnimationGroup? animationGroup = null;
+            int? season = null;
+            int? episode = null;
 
-            var animationGroup = request.Group == null
-                ? null
-                : await applicationContext.AnimationGroups.FirstOrDefaultAsync(
-                    g => g.Name == request.Group.Name,
-                    cancellationToken);
+            // AI Inference: extract metadata from title and description
+            var inferenceEngine = scope.ServiceProvider.GetService<IInferenceEngine>();
+            if (inferenceEngine != null)
+            {
+                try
+                {
+                    var inferenceResult = await inferenceEngine.InferAsync(
+                        request.Title, request.Description, cancellationToken);
+
+                    if (inferenceResult != null)
+                    {
+                        season = inferenceResult.Season;
+                        episode = inferenceResult.Episode;
+
+                        // Resolve or create Animation from inference result
+                        if (!string.IsNullOrEmpty(inferenceResult.TmdbId))
+                        {
+                            animation = await applicationContext.Animations
+                                .FirstOrDefaultAsync(
+                                    a => a.TmdbId == inferenceResult.TmdbId,
+                                    cancellationToken);
+
+                            if (animation == null)
+                            {
+                                animation = new Animation
+                                {
+                                    TmdbId = inferenceResult.TmdbId,
+                                    Name = inferenceResult.AnimationName,
+                                    OriginalName = inferenceResult.OriginalName
+                                };
+                                await applicationContext.Animations.AddAsync(animation, cancellationToken);
+                            }
+                        }
+
+                        // Resolve or create AnimationGroup from inference result
+                        if (!string.IsNullOrEmpty(inferenceResult.GroupName))
+                        {
+                            animationGroup = await applicationContext.AnimationGroups
+                                .FirstOrDefaultAsync(
+                                    g => g.Name == inferenceResult.GroupName,
+                                    cancellationToken);
+
+                            if (animationGroup == null)
+                            {
+                                animationGroup = new AnimationGroup { Name = inferenceResult.GroupName };
+                                await applicationContext.AnimationGroups.AddAsync(animationGroup, cancellationToken);
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex,
+                        "AI inference failed for title: {Title}. Proceeding without metadata.", request.Title);
+                }
+            }
 
             try
             {
                 var (cachedDownloadData, additionalDownloadInfo) = request.DownloadType switch
                 {
                     FileDownloadTypes.TorrentDownload => await DownloadTorrentData(request, cancellationToken),
-                    _ => ([], string.Empty)
+                    _ => (Array.Empty<byte>(), string.Empty)
                 };
 
                 await applicationContext.AnimationInfo.AddAsync(
@@ -77,6 +127,8 @@ public class SyncFeed(
                     {
                         Animation = animation,
                         Group = animationGroup,
+                        Season = season,
+                        Episode = episode,
                         Title = request.Title,
                         PublishTime = request.PublishTime,
                         Description = request.Description,

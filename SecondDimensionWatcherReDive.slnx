@@ -2,4 +2,8 @@
   <Project Path="SecondDimensionWatcherReDive.Framework/SecondDimensionWatcherReDive.Framework.csproj" />
   <Project Path="SecondDimensionWatcherReDive.Test/SecondDimensionWatcherReDive.Test.csproj" />
   <Project Path="SecondDimensionWatcherReDive/SecondDimensionWatcherReDive.csproj" />
+  <Folder Name="/Plugins/">
+    <Project Path="Plugins/SecondDimensionWatcherReDive.Inference.AI/SecondDimensionWatcherReDive.Inference.AI.csproj" />
+    <Project Path="Plugins/SecondDimensionWatcherReDive.Plugin.FileRenamer/SecondDimensionWatcherReDive.Plugin.FileRenamer.csproj" />
+  </Folder>
 </Solution>

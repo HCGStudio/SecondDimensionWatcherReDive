@@ -12,8 +12,10 @@ using SecondDimensionWatcherReDive.Data;
 using SecondDimensionWatcherReDive.Framework.Feed;
 using SecondDimensionWatcherReDive.Framework.FileDownload;
 using SecondDimensionWatcherReDive.Framework.FileStore;
+using SecondDimensionWatcherReDive.Inference.AI;
 using SecondDimensionWatcherReDive.Models;
 using SecondDimensionWatcherReDive.Plugin;
+using SecondDimensionWatcherReDive.Plugin.FileRenamer;
 using SecondDimensionWatcherReDive.Services;
 using SecondDimensionWatcherReDive.Utils.Feed;
 using SecondDimensionWatcherReDive.Utils.FileDownload;
@@ -124,12 +126,22 @@ builder.Services.AddHostedService<SyncFeed>();
 //Add download and store
 builder.Services.AddScoped<IFileDownloadClient, RemoteTorrentDownloadClient>();
 builder.Services.AddScoped<IFileStore, LocalFileStore>();
+builder.Services.AddScoped<IFileOperator, LocalFileOperator>();
 
 builder.Services.AddScoped<IFileDownloadClientProvider, FileDownloadClientProvider>();
 builder.Services.AddScoped<IFileStoreProvider, FileStoreProvider>();
 
 //Add feed
 builder.Services.AddTransient<IFeedService, MikananiFeedService>();
+
+//Add AI Inference
+if (!string.IsNullOrEmpty(builder.Configuration["Inference:ApiKey"]))
+{
+    builder.Services.AddAIInference(builder.Configuration);
+}
+
+//Add File Renamer
+builder.Services.AddFileRenamer();
 
 //Add SPA Hosting
 builder.Services.AddSpaStaticFiles(options =>

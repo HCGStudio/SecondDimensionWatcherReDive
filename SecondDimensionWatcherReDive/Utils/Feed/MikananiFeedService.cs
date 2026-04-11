@@ -54,9 +54,7 @@ public class MikananiFeedService(IHttpClientFactory httpClientFactory, IConfigur
                              i.Description,
                              i.Enclosure.Url,
                              FileDownloadTypes.TorrentDownload,
-                             string.Empty,
-                             null,
-                             null)))
+                             string.Empty)))
                 _animations.Add(animationAddRequest);
         }
         catch (Exception e)

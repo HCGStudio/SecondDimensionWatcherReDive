@@ -28,6 +28,10 @@ public class AnimationInfo
 
     public string? StorePath { get; set; }
 
+    public int? Season { get; set; }
+
+    public int? Episode { get; set; }
+
     public AnimationGroup? Group { get; set; }
 
     public Animation? Animation { get; set; }
