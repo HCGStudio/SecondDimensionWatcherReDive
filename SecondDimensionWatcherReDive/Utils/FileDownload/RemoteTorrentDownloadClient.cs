@@ -79,9 +79,10 @@ public class RemoteTorrentDownloadClient(
         string additionalDownloadInfo,
         bool removeFile)
     {
-        using var response = await _httpClient.DeleteAsync($"/api/v2/torrents/delete?hashes={additionalDownloadInfo}");
+        var deleteFiles = removeFile ? "true" : "false";
+        using var response = await _httpClient.DeleteAsync(
+            $"/api/v2/torrents/delete?hashes={additionalDownloadInfo}&deleteFiles={deleteFiles}");
 
-        // TODO: NeedRemoveFromFileStore should be updated after this supports external storage.
-        return new CancelDownloadResult(true, false);
+        return new CancelDownloadResult(response.IsSuccessStatusCode, false);
     }
 }

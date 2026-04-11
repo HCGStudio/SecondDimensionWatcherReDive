@@ -8,6 +8,5 @@ public interface IFileStore
     public Task<Stream> OpenReadStream(string path);
     public Task<FileStoreInfo> FileInfo(string path);
     public Task<bool> Exist(string path);
-    public Task<bool> Rename(string oldName, string newName);
     IAsyncEnumerable<FileStoreInfo> EnumerateDirectory(string path);
 }

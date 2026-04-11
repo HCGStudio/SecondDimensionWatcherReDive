@@ -77,14 +77,19 @@ public class FileDownloadClientProxy : IFileDownloadClient
             additionalDownloadInfo);
     }
 
-    public Task<CancelDownloadResult> CancelDownloadTask(
+    public async Task<CancelDownloadResult> CancelDownloadTask(
         Guid itemId,
         string downloadUrl,
         byte[] cachedDownloadData,
         string additionalDownloadInfo,
         bool removeFile)
     {
-        throw new NotImplementedException();
+        return await _poxyObject.CancelDownloadTask(
+            itemId,
+            downloadUrl,
+            cachedDownloadData,
+            additionalDownloadInfo,
+            removeFile);
     }
 
     public static FileDownloadClientProxy Create(IFileDownloadClient client, IServiceProvider serviceProvider)

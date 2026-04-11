@@ -11,11 +11,6 @@ public class LocalFileStore : IFileStore
         return Task.FromResult<Stream>(File.OpenRead(path));
     }
 
-    public Task<bool> Rename(string oldName, string newName)
-    {
-        throw new NotImplementedException();
-    }
-
     public async IAsyncEnumerable<FileStoreInfo> EnumerateDirectory(string path)
     {
         var fileInfo = new FileInfo(path);
