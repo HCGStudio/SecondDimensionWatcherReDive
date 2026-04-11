@@ -2,13 +2,10 @@
 using BencodeNET.Objects;
 using BencodeNET.Parsing;
 using Microsoft.EntityFrameworkCore;
-using SecondDimensionWatcherReDive.Data;
 using SecondDimensionWatcherReDive.Exceptions;
 using SecondDimensionWatcherReDive.Framework.Feed;
 using SecondDimensionWatcherReDive.Framework.FileDownload;
 using SecondDimensionWatcherReDive.Models;
-using SecondDimensionWatcherReDive.Utils.Feed;
-using SecondDimensionWatcherReDive.Utils.FileDownload;
 
 namespace SecondDimensionWatcherReDive.Services;
 

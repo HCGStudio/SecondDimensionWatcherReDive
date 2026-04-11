@@ -14,15 +14,14 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-    - name: Restore tool
-      run: dotnet tool restore
     - name: Docker Login
       uses: docker/login-action@v3.2.0
       with:
         registry: ghcr.io
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
-    - name: Build the Docker image
+    - name: Publish Backend Container
       run: |
-        cd SecondDimensionWatcherReDive.AppHost
-        dotnet aspirate build --container-image-tag=$(git rev-parse --short HEAD) --disable-secrets --non-interactive --aspire-manifest=manifest.json
+        dotnet publish SecondDimensionWatcherReDive/SecondDimensionWatcherReDive.csproj \
+          /t:PublishContainer \
+          -p:ContainerImageTag=$(git rev-parse --short HEAD)

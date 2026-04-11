@@ -1,10 +1,8 @@
 ﻿using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 using System.Xml.Serialization;
-using SecondDimensionWatcherReDive.Data;
 using SecondDimensionWatcherReDive.Framework.Feed;
 using SecondDimensionWatcherReDive.Framework.FileDownload;
-using SecondDimensionWatcherReDive.Utils.FileDownload;
 
 namespace SecondDimensionWatcherReDive.Utils.Feed;
 

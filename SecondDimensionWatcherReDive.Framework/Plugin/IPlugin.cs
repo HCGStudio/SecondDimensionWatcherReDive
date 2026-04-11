@@ -1,5 +1,3 @@
-using SecondDimensionWatcherReDive.Framework.Attributes;
-
 namespace SecondDimensionWatcherReDive.Framework.Plugin;
 
 public interface IPlugin

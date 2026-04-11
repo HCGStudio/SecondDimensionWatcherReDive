@@ -1,6 +1,6 @@
 import { createProxyMiddleware } from "http-proxy-middleware";
 
-const url = `${process.env["services__backend__https__0"] ?? process.env["services__backend__http__0"]}/api`;
+const url = process.env["BACKEND_URL"] ?? "http://localhost:5097";
 
 export default function (app) {
   app.use(
