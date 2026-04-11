@@ -2,13 +2,12 @@
 
 ## Backend
 
-### Plugin System (未实现)
+### Plugin System
 
 - [ ] **实现 `IJavaScriptPluginLoader`** — `Framework/Plugin/IJavaScriptPluginLoader.cs` 定义了接口但无具体实现，需集成 ClearScript 或其他 JS 引擎加载插件
-- [ ] **实现 `IPluginServices`** — `Framework/Plugin/IPluginServices.cs` 定义了插件服务接口，无实现且未注册到 DI 容器
-- [ ] **实现 `IPluginEventRegister<TParam>`** — `Framework/Plugin/IPluginEventRegister.cs` 定义了插件事件注册接口，无实现
-- [ ] **实现 `IPluginEventTrigger<TParams>`** — `Plugin/IPluginEventTrigger.cs` 在 `FileDownloadClientProxy` 中被注入但无实现，运行时会导致 DI 解析失败
-- [ ] **完成 `PluginHelper.InitializePlugin()`** — `Plugin/PluginHelper.cs:5-8` 当前为空操作，需实现插件发现、加载和事件系统初始化
+- [x] **实现 `IPluginServices`** — 已通过 `Plugin/PluginServices.cs` 实现，持有事件名到事件实例的映射
+- [x] **实现 `IPluginEventRegister<TParam>` 和 `IPluginEventTrigger<TParams>`** — 已通过 `Plugin/PluginEvent.cs` 统一实现
+- [x] **完成 `PluginHelper.InitializePlugin()`** — 已注册事件单例和 PluginServices 到 DI 容器
 
 ### FileStore
 
