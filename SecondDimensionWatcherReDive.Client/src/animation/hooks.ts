@@ -12,6 +12,20 @@ export const useAnimationInfo = (skip: number, take: number) =>
     { refreshInterval: 100 },
   );
 
+export const useDownloadingAnimations = (skip: number, take: number) =>
+  useSWR<IResponseArrayData<IAnimationInfo>>(
+    `/api/animationinfo/downloading?skip=${skip}&take=${take}`,
+    fetcher,
+    { refreshInterval: 1000 },
+  );
+
+export const useDownloadedAnimations = (skip: number, take: number) =>
+  useSWR<IResponseArrayData<IAnimationInfo>>(
+    `/api/animationinfo/downloaded?skip=${skip}&take=${take}`,
+    fetcher,
+    { refreshInterval: 5000 },
+  );
+
 export const useAnimationDownloadStatus = (id: string) =>
   useSWR<IFileDownloadStatus>(`/api/animationinfo/status/${id}`, fetcher, {
     refreshInterval: 100,

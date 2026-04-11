@@ -34,8 +34,12 @@ export const PageTemplate: React.FC<IPageTemplateProps> = ({ children }) => {
               >
                 主页
               </EuiHeaderLink>
-              <EuiHeaderLink iconType="download">下载列表</EuiHeaderLink>
-              <EuiHeaderLink iconType="list">已下载</EuiHeaderLink>
+              <EuiHeaderLink iconType="download" onClick={() => navigate("/downloading")}>
+                下载列表
+              </EuiHeaderLink>
+              <EuiHeaderLink iconType="list" onClick={() => navigate("/downloaded")}>
+                已下载
+              </EuiHeaderLink>
             </EuiHeaderLinks>
           </EuiHeaderSectionItem>
         </EuiHeaderSection>

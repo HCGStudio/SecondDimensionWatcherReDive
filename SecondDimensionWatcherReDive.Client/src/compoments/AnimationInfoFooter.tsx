@@ -4,6 +4,7 @@ import React from "react";
 import { IAnimationInfo } from "../animation/IAnimationInfo";
 import { useAnimationDownloadStatus } from "../animation/hooks";
 import {
+  cancelDownload,
   pauseDownload,
   resumeDownload,
   submitDownload,
@@ -46,6 +47,12 @@ const TrackingButtonSet: React.FC<IButtonSetProps> = ({ id }) => {
     resumeDownload(id).catch(console.error);
   }, [id]);
 
+  const cancel = React.useCallback(() => {
+    if (window.confirm("确定要取消下载并删除文件吗？")) {
+      cancelDownload(id, true).catch(console.error);
+    }
+  }, [id]);
+
   return (
     <>
       {status ? (
@@ -72,7 +79,7 @@ const TrackingButtonSet: React.FC<IButtonSetProps> = ({ id }) => {
           ) : null}
 
           <EuiFlexItem grow={false}>
-            <EuiButton size="s" fill color="danger">
+            <EuiButton size="s" fill color="danger" onClick={cancel}>
               删除
             </EuiButton>
           </EuiFlexItem>

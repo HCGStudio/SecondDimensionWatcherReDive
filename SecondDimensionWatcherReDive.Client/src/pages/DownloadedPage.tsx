@@ -1,19 +1,19 @@
-import { EuiFlexGroup, EuiPagination } from "@elastic/eui";
+import { EuiFlexGroup, EuiPagination, EuiEmptyPrompt } from "@elastic/eui";
 import React from "react";
 import { useSearchParams } from "react-router-dom";
 
-import { useAnimationInfo } from "../animation/hooks";
+import { useDownloadedAnimations } from "../animation/hooks";
 import { AnimationInfo } from "../compoments/AnimationInfo";
 import { PAGE_SIZE } from "../config";
 import { PageTemplate } from "./PageTemplate";
 
-export const MainPage: React.FC = () => {
+export const DownloadedPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const actualPage = Math.max(
     1,
     Number.parseInt(searchParams.get("page") ?? "1") ?? 1,
   );
-  const { data: info } = useAnimationInfo(
+  const { data: info } = useDownloadedAnimations(
     (actualPage - 1) * PAGE_SIZE,
     PAGE_SIZE,
   );
@@ -34,10 +34,12 @@ export const MainPage: React.FC = () => {
 
   return (
     <PageTemplate>
-      {info
-        ? info.data.map((i) => <AnimationInfo value={i} key={i.id} />)
-        : null}
-      {info ? (
+      {info && info.data.length > 0 ? (
+        info.data.map((i) => <AnimationInfo value={i} key={i.id} />)
+      ) : info ? (
+        <EuiEmptyPrompt title={<h2>暂无已下载的项目</h2>} />
+      ) : null}
+      {info && pageCount > 1 ? (
         <EuiFlexGroup justifyContent="spaceAround">
           <EuiPagination
             aria-label="Pagination"

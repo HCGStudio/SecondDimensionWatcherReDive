@@ -4,7 +4,9 @@ import relativeTime from "dayjs/plugin/relativeTime";
 
 const localeMap: Record<string, (() => Promise<ILocale>) | undefined> = {
   "zh-cn": () => import("dayjs/locale/zh-cn"),
-  //TODO: Add more locale
+  ja: () => import("dayjs/locale/ja"),
+  "ko": () => import("dayjs/locale/ko"),
+  "zh-tw": () => import("dayjs/locale/zh-tw"),
 };
 
 const currentLocale = async () => {

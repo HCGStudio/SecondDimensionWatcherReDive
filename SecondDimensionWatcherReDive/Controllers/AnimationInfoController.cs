@@ -39,35 +39,41 @@ public class AnimationInfoController(
     }
 
     [HttpGet("downloading")]
-    public async Task<ActionResult<IEnumerable<AnimationDto>>> GetDownloadingAsync(
+    public async Task<ActionResult<ResponseData<List<AnimationInfoDto>>>> GetDownloadingAsync(
         [FromQuery] int skip = 0,
         [FromQuery] int take = 10)
     {
-        var data = await applicationContext.AnimationInfo
+        var coreQuery = applicationContext.AnimationInfo
             .AsNoTracking()
             .Where(i => i.IsDownloadTracked && !i.IsDownloadFinished)
-            .OrderByDescending(i => i.PublishTime)
+            .OrderByDescending(i => i.PublishTime);
+
+        var totalCount = await coreQuery.CountAsync();
+        var data = await coreQuery
             .Skip(skip)
             .Take(take)
-            .ProjectToType<AnimationDto>()
+            .ProjectToType<AnimationInfoDto>()
             .ToListAsync();
-        return Ok(data.ToResponseData());
+        return Ok(data.ToResponseData(totalCount));
     }
 
     [HttpGet("downloaded")]
-    public async Task<ActionResult<IEnumerable<AnimationDto>>> GetDownloadedAsync(
+    public async Task<ActionResult<ResponseData<List<AnimationInfoDto>>>> GetDownloadedAsync(
         [FromQuery] int skip = 0,
         [FromQuery] int take = 10)
     {
-        var data = await applicationContext.AnimationInfo
+        var coreQuery = applicationContext.AnimationInfo
             .AsNoTracking()
             .Where(i => i.IsDownloadFinished)
-            .OrderByDescending(i => i.PublishTime)
+            .OrderByDescending(i => i.PublishTime);
+
+        var totalCount = await coreQuery.CountAsync();
+        var data = await coreQuery
             .Skip(skip)
             .Take(take)
-            .ProjectToType<AnimationDto>()
+            .ProjectToType<AnimationInfoDto>()
             .ToListAsync();
-        return Ok(data.ToResponseData());
+        return Ok(data.ToResponseData(totalCount));
     }
 
     [HttpGet("status/{id:guid}")]
@@ -147,5 +153,33 @@ public class AnimationInfoController(
         {
             return StatusCode(StatusCodes.Status501NotImplemented);
         }
+    }
+
+    [HttpDelete("cancel/{id:guid}")]
+    public async Task<IActionResult> CancelDownload([FromRoute] Guid id, [FromQuery] bool removeFile = false)
+    {
+        var info = await applicationContext.AnimationInfo.FindAsync(id);
+
+        if (info is null)
+            return NotFound();
+
+        if (!info.IsDownloadTracked)
+            return Conflict();
+
+        var downloadClient = fileDownloadClientProvider.GetRequiredClient(info.DownloadType);
+        var result = await downloadClient.CancelDownloadTask(
+            id,
+            info.DownloadUrl,
+            info.CachedDownloadData,
+            info.AdditionalDownloadInfo,
+            removeFile);
+
+        if (!result.IsSuccess)
+            return StatusCode(StatusCodes.Status500InternalServerError);
+
+        info.IsDownloadTracked = false;
+        info.IsDownloadFinished = false;
+        await applicationContext.SaveChangesAsync();
+        return Ok();
     }
 }

@@ -11,3 +11,10 @@ export const resumeDownload = async (id: string) => {
 export const pauseDownload = async (id: string) => {
   return await fetcher(`/api/animationinfo/pause/${id}`, { method: "POST" });
 };
+
+export const cancelDownload = async (id: string, removeFile = false) => {
+  return await fetcher(
+    `/api/animationinfo/cancel/${id}?removeFile=${removeFile}`,
+    { method: "DELETE" },
+  );
+};

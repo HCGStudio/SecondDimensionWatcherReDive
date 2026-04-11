@@ -22,16 +22,16 @@
 
 ### UI 功能缺失
 
-- [ ] **实现删除按钮功能** — `src/compoments/AnimationInfoFooter.tsx:74-78` 删除按钮无 `onClick` 处理，且 `src/animation/utils.ts` 中缺少对应的 `deleteDownload` API 函数
-- [ ] **实现"下载列表"导航** — `src/pages/PageTemplate.tsx:37` 导航链接无 `onClick` 处理，无对应路由和页面
-- [ ] **实现"已下载"导航** — `src/pages/PageTemplate.tsx:38` 导航链接无 `onClick` 处理，无对应路由和页面
+- [x] **实现删除按钮功能** — 后端添加 `DELETE cancel/{id}` endpoint，前端添加 `cancelDownload` API 并绑定删除按钮（带确认对话框）
+- [x] **实现"下载列表"导航** — 添加 `DownloadingPage`，注册 `/downloading` 路由，绑定导航链接
+- [x] **实现"已下载"导航** — 添加 `DownloadedPage`，注册 `/downloaded` 路由，绑定导航链接
 
 ### 错误处理
 
-- [ ] **为下载/暂停/恢复操作添加用户可见的错误提示** — `src/compoments/AnimationInfoFooter.tsx:26,42,46` 当前仅 `console.error`，用户无法感知操作失败
-- [ ] **添加路由错误页面** — `src/Main.tsx:11,16` 路由错误时直接显示 `MainPage`，无错误反馈
+- [ ] **为下载/暂停/恢复操作添加用户可见的错误提示** — `src/compoments/AnimationInfoFooter.tsx` 当前仅 `console.error`，用户无法感知操作失败
+- [x] **添加路由错误页面** — 添加 `ErrorPage` 组件，所有路由使用独立错误页面替代 `MainPage`
 
 ### 代码清理
 
-- [ ] **移除调试日志** — `src/pages/MainPage.tsx:35` 残留 `console.log("pageCount", pageCount)`
-- [ ] **添加更多语言支持** — `src/utils/initDayjs.ts:7` TODO 注释标注需添加更多 locale，当前仅支持 `zh-cn`
+- [x] **移除调试日志** — 已移除 `MainPage.tsx` 中的 `console.log`
+- [x] **添加更多语言支持** — 已添加 ja、ko、zh-tw locale
