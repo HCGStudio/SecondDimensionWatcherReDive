@@ -34,6 +34,7 @@ import { appendIconComponentCache } from "@elastic/eui/es/components/icon/icon";
 
 import { Main } from "./Main";
 import fetcher from "./auth/httpClient";
+import { ToastProvider } from "./compoments/ToastProvider";
 import { initDayjs } from "./utils/initDayjs";
 
 initDayjs();
@@ -85,7 +86,9 @@ root.render(
     <EuiProvider colorMode="light" modify={themeModify}>
       <EuiThemeProvider>
         <SWRConfig value={{ fetcher: fetcher }}>
-          <Main />
+          <ToastProvider>
+            <Main />
+          </ToastProvider>
         </SWRConfig>
       </EuiThemeProvider>
     </EuiProvider>

@@ -28,7 +28,7 @@
 
 ### 错误处理
 
-- [ ] **为下载/暂停/恢复操作添加用户可见的错误提示** — `src/compoments/AnimationInfoFooter.tsx` 当前仅 `console.error`，用户无法感知操作失败
+- [x] **为下载/暂停/恢复操作添加用户可见的错误提示** — 添加 ToastProvider（基于 EuiGlobalToastList），操作失败时弹出错误 Toast
 - [x] **添加路由错误页面** — 添加 `ErrorPage` 组件，所有路由使用独立错误页面替代 `MainPage`
 
 ### 代码清理

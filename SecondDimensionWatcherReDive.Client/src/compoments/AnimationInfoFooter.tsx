@@ -13,6 +13,7 @@ import {
   FinishedAnimationDownloadStatus,
   TrackingAnimationDownloadStatus,
 } from "./AnimationDownloadStatus";
+import { useToast } from "./ToastProvider";
 
 export interface IAnimationInfoFooterProps {
   value: IAnimationInfo;
@@ -23,9 +24,13 @@ interface IButtonSetProps {
 }
 
 const UntrackedButtonSet: React.FC<IButtonSetProps> = ({ id }) => {
+  const { addToast } = useToast();
+
   const startDownload = React.useCallback(() => {
-    submitDownload(id).catch(console.error);
-  }, [id]);
+    submitDownload(id).catch(() => {
+      addToast({ title: "下载失败", color: "danger", text: "无法提交下载任务" });
+    });
+  }, [id, addToast]);
 
   return (
     <EuiFlexItem grow={false}>
@@ -38,20 +43,27 @@ const UntrackedButtonSet: React.FC<IButtonSetProps> = ({ id }) => {
 
 const TrackingButtonSet: React.FC<IButtonSetProps> = ({ id }) => {
   const { data: status } = useAnimationDownloadStatus(id);
+  const { addToast } = useToast();
 
   const pause = React.useCallback(() => {
-    pauseDownload(id).catch(console.error);
-  }, [id]);
+    pauseDownload(id).catch(() => {
+      addToast({ title: "暂停失败", color: "danger", text: "无法暂停下载任务" });
+    });
+  }, [id, addToast]);
 
   const resume = React.useCallback(() => {
-    resumeDownload(id).catch(console.error);
-  }, [id]);
+    resumeDownload(id).catch(() => {
+      addToast({ title: "恢复失败", color: "danger", text: "无法恢复下载任务" });
+    });
+  }, [id, addToast]);
 
   const cancel = React.useCallback(() => {
     if (window.confirm("确定要取消下载并删除文件吗？")) {
-      cancelDownload(id, true).catch(console.error);
+      cancelDownload(id, true).catch(() => {
+        addToast({ title: "删除失败", color: "danger", text: "无法取消下载任务" });
+      });
     }
-  }, [id]);
+  }, [id, addToast]);
 
   return (
     <>
