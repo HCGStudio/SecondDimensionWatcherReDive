@@ -14,4 +14,5 @@ public class ApplicationContext : DbContext
     public DbSet<Animation> Animations { get; set; }
     public DbSet<AnimationGroup> AnimationGroups { get; set; }
     public DbSet<AnimationInfo> AnimationInfo { get; set; }
+    public DbSet<Feed> Feeds { get; set; }
 }

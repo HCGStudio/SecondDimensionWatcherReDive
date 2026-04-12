@@ -2,7 +2,9 @@
 using Microsoft.EntityFrameworkCore;
 using SecondDimensionWatcherReDive.Data;
 using SecondDimensionWatcherReDive.Framework.FileStore;
+using SecondDimensionWatcherReDive.Framework.PluginParams;
 using SecondDimensionWatcherReDive.Models;
+using SecondDimensionWatcherReDive.Plugin;
 
 namespace SecondDimensionWatcherReDive.Services;
 
@@ -46,6 +48,19 @@ public class CompleteDownload(
 
         await applicationContext.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
+
+        // Fire plugin event
+        try
+        {
+            var eventTrigger = scope.ServiceProvider
+                .GetRequiredService<IPluginEventTrigger<FileDownloadCompleteParam>>();
+            await eventTrigger.Invoke(new FileDownloadCompleteParam(
+                request.ItemId, request.StorePath, request.FileStore));
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "OnFileDownloadCompleted event failed for {ItemId}", request.ItemId);
+        }
 
         // Rename files after download completes
         var fileRenamer = scope.ServiceProvider.GetService<IFileRenamer>();

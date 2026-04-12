@@ -1,4 +1,4 @@
-import { EuiButton, EuiFlexGroup, EuiFlexItem } from "@elastic/eui";
+import { EuiButton, EuiFlexGroup, EuiFlexItem, EuiFlyout, EuiFlyoutHeader, EuiFlyoutBody, EuiTitle } from "@elastic/eui";
 import React from "react";
 
 import { IAnimationInfo } from "../animation/IAnimationInfo";
@@ -13,6 +13,7 @@ import {
   FinishedAnimationDownloadStatus,
   TrackingAnimationDownloadStatus,
 } from "./AnimationDownloadStatus";
+import { FileBrowser } from "./FileBrowser";
 import { useToast } from "./ToastProvider";
 
 export interface IAnimationInfoFooterProps {
@@ -104,6 +105,8 @@ const TrackingButtonSet: React.FC<IButtonSetProps> = ({ id }) => {
 export const AnimationInfoFooter: React.FC<IAnimationInfoFooterProps> = ({
   value,
 }) => {
+  const [isFlyoutOpen, setIsFlyoutOpen] = React.useState(false);
+
   return (
     <EuiFlexGroup direction="column">
       <EuiFlexItem>
@@ -124,8 +127,27 @@ export const AnimationInfoFooter: React.FC<IAnimationInfoFooterProps> = ({
           {value.isDownloadTracked && !value.isDownloadFinished ? (
             <TrackingButtonSet id={value.id} />
           ) : null}
+          {value.isDownloadTracked && value.isDownloadFinished ? (
+            <EuiFlexItem grow={false}>
+              <EuiButton size="s" iconType="folderOpen" onClick={() => setIsFlyoutOpen(true)}>
+                浏览文件
+              </EuiButton>
+            </EuiFlexItem>
+          ) : null}
         </EuiFlexGroup>
       </EuiFlexItem>
+      {isFlyoutOpen ? (
+        <EuiFlyout onClose={() => setIsFlyoutOpen(false)} size="m">
+          <EuiFlyoutHeader hasBorder>
+            <EuiTitle size="s">
+              <h3>{value.title}</h3>
+            </EuiTitle>
+          </EuiFlyoutHeader>
+          <EuiFlyoutBody>
+            <FileBrowser animationId={value.id} />
+          </EuiFlyoutBody>
+        </EuiFlyout>
+      ) : null}
     </EuiFlexGroup>
   );
 };

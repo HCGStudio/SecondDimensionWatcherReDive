@@ -1,4 +1,4 @@
-import { EuiFlexGroup, EuiPagination } from "@elastic/eui";
+import { EuiFlexGroup, EuiPagination, EuiEmptyPrompt } from "@elastic/eui";
 import React from "react";
 import { useSearchParams } from "react-router-dom";
 
@@ -13,7 +13,7 @@ export const MainPage: React.FC = () => {
     1,
     Number.parseInt(searchParams.get("page") ?? "1") ?? 1,
   );
-  const { data: info } = useAnimationInfo(
+  const { data: info, error } = useAnimationInfo(
     (actualPage - 1) * PAGE_SIZE,
     PAGE_SIZE,
   );
@@ -34,18 +34,26 @@ export const MainPage: React.FC = () => {
 
   return (
     <PageTemplate>
-      {info
-        ? info.data.map((i) => <AnimationInfo value={i} key={i.id} />)
-        : null}
-      {info ? (
-        <EuiFlexGroup justifyContent="spaceAround">
-          <EuiPagination
-            aria-label="Pagination"
-            pageCount={pageCount}
-            activePage={actualPage - 1}
-            onPageClick={navigateToPage}
-          />
-        </EuiFlexGroup>
+      {error ? (
+        <EuiEmptyPrompt
+          iconType="warning"
+          title={<h2>加载失败</h2>}
+          body={<p>无法获取数据，请稍后重试</p>}
+        />
+      ) : info ? (
+        <>
+          {info.data.map((i) => <AnimationInfo value={i} key={i.id} />)}
+          {pageCount > 1 ? (
+            <EuiFlexGroup justifyContent="spaceAround">
+              <EuiPagination
+                aria-label="Pagination"
+                pageCount={pageCount}
+                activePage={actualPage - 1}
+                onPageClick={navigateToPage}
+              />
+            </EuiFlexGroup>
+          ) : null}
+        </>
       ) : null}
     </PageTemplate>
   );

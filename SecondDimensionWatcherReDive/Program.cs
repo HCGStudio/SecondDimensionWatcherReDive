@@ -126,7 +126,7 @@ builder.Services.AddHostedService<SyncFeed>();
 //Add download and store
 builder.Services.AddScoped<IFileDownloadClient, RemoteTorrentDownloadClient>();
 builder.Services.AddScoped<IFileStore, LocalFileStore>();
-builder.Services.AddScoped<IFileOperator, LocalFileOperator>();
+builder.Services.AddScoped<IFileOperator, TorrentFileOperator>();
 
 builder.Services.AddScoped<IFileDownloadClientProvider, FileDownloadClientProvider>();
 builder.Services.AddScoped<IFileStoreProvider, FileStoreProvider>();

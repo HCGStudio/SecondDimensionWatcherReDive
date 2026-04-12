@@ -30,6 +30,12 @@ import { icon as sortDown } from "@elastic/eui/es/components/icon/assets/sort_do
 import { icon as user } from "@elastic/eui/es/components/icon/assets/user";
 import { icon as videoPlayer } from "@elastic/eui/es/components/icon/assets/video_player";
 import { icon as warning } from "@elastic/eui/es/components/icon/assets/warning";
+import { icon as trash } from "@elastic/eui/es/components/icon/assets/trash";
+import { icon as plus } from "@elastic/eui/es/components/icon/assets/plus";
+import { icon as folderOpen } from "@elastic/eui/es/components/icon/assets/folder_open";
+import { icon as document } from "@elastic/eui/es/components/icon/assets/document";
+import { icon as returnKey } from "@elastic/eui/es/components/icon/assets/return_key";
+import { icon as link } from "@elastic/eui/es/components/icon/assets/link";
 import { appendIconComponentCache } from "@elastic/eui/es/components/icon/icon";
 
 import { Main } from "./Main";
@@ -63,6 +69,12 @@ appendIconComponentCache({
   arrowEnd,
   arrowUp,
   arrowDown,
+  trash,
+  plus,
+  folderOpen,
+  document,
+  returnKey,
+  link,
 });
 
 // Success from eui is too ugly, overriding color from bootstrap

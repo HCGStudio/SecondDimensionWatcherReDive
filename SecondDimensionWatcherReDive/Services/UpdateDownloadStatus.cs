@@ -21,7 +21,10 @@ public class UpdateDownloadStatus : BackgroundService
         while (!cancellationToken.IsCancellationRequested)
         {
             var status = await reader.ReadAsync(cancellationToken);
-            _memoryCache.Set(status.ItemId, status);
+            if (status.State == FileDownloadState.Finished)
+                _memoryCache.Set(status.ItemId, status, TimeSpan.FromMinutes(5));
+            else
+                _memoryCache.Set(status.ItemId, status);
         }
     }
 }

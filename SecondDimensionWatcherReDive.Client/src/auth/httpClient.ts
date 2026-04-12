@@ -39,6 +39,12 @@ export default async function fetcher<JSON = any>(
       },
     });
 
+    if (tryAgain.status === 401) {
+      authResult = null;
+      localStorage.removeItem("auth");
+      throw new Error("Unauthorized");
+    }
+
     return await tryAgain.json();
   }
 

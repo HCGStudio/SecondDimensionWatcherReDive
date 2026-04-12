@@ -2,7 +2,7 @@ using SecondDimensionWatcherReDive.Framework.FileStore;
 
 namespace SecondDimensionWatcherReDive.Utils.FileStore;
 
-public class LocalFileOperator : IFileOperator
+public class LocalFileOperator(ILogger<LocalFileOperator> logger) : IFileOperator
 {
     public Task<bool> Rename(string oldName, string newName)
     {
@@ -11,8 +11,9 @@ public class LocalFileOperator : IFileOperator
             File.Move(oldName, newName);
             return Task.FromResult(true);
         }
-        catch
+        catch (Exception ex)
         {
+            logger.LogWarning(ex, "Failed to rename file from {OldName} to {NewName}", oldName, newName);
             return Task.FromResult(false);
         }
     }

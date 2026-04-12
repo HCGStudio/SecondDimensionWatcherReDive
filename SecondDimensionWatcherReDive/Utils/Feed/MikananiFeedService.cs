@@ -1,15 +1,20 @@
 ﻿using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 using System.Xml.Serialization;
+using Microsoft.EntityFrameworkCore;
 using SecondDimensionWatcherReDive.Framework.Feed;
 using SecondDimensionWatcherReDive.Framework.FileDownload;
+using SecondDimensionWatcherReDive.Models;
 
 namespace SecondDimensionWatcherReDive.Utils.Feed;
 
 /// <summary>
 ///     Implements IFeedService interface, a service for handling animation feeds from Mikanani.
 /// </summary>
-public class MikananiFeedService(IHttpClientFactory httpClientFactory, IConfiguration configuration)
+public class MikananiFeedService(
+    IHttpClientFactory httpClientFactory,
+    IConfiguration configuration,
+    IServiceScopeFactory scopeFactory)
     : IFeedService
 {
     private readonly ConcurrentBag<AnimationAddRequest> _animations = [];
@@ -21,8 +26,15 @@ public class MikananiFeedService(IHttpClientFactory httpClientFactory, IConfigur
 
     public async Task<ICollection<AnimationAddRequest>> Sync(CancellationToken cancellationToken)
     {
-        var feedUrls = configuration.GetSection("MikananiFeeds").Get<string[]>();
-        if (feedUrls is null || feedUrls.Length == 0)
+        var configUrls = configuration.GetSection("MikananiFeeds").Get<string[]>() ?? [];
+
+        // Also read feed URLs from DB
+        await using var scope = scopeFactory.CreateAsyncScope();
+        await using var context = scope.ServiceProvider.GetRequiredService<ApplicationContext>();
+        var dbUrls = await context.Feeds.Select(f => f.Url).ToArrayAsync(cancellationToken);
+
+        var feedUrls = configUrls.Concat(dbUrls).Distinct().ToArray();
+        if (feedUrls.Length == 0)
             return Array.Empty<AnimationAddRequest>();
         await Task.WhenAll(feedUrls.Select(url => ProcessFeed(url, cancellationToken)));
 

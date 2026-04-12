@@ -13,7 +13,7 @@ export const DownloadedPage: React.FC = () => {
     1,
     Number.parseInt(searchParams.get("page") ?? "1") ?? 1,
   );
-  const { data: info } = useDownloadedAnimations(
+  const { data: info, error } = useDownloadedAnimations(
     (actualPage - 1) * PAGE_SIZE,
     PAGE_SIZE,
   );
@@ -34,7 +34,13 @@ export const DownloadedPage: React.FC = () => {
 
   return (
     <PageTemplate>
-      {info && info.data.length > 0 ? (
+      {error ? (
+        <EuiEmptyPrompt
+          iconType="warning"
+          title={<h2>加载失败</h2>}
+          body={<p>无法获取数据，请稍后重试</p>}
+        />
+      ) : info && info.data.length > 0 ? (
         info.data.map((i) => <AnimationInfo value={i} key={i.id} />)
       ) : info ? (
         <EuiEmptyPrompt title={<h2>暂无已下载的项目</h2>} />

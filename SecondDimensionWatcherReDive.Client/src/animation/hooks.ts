@@ -9,7 +9,7 @@ export const useAnimationInfo = (skip: number, take: number) =>
   useSWR<IResponseArrayData<IAnimationInfo>>(
     `/api/animationinfo?skip=${skip}&take=${take}`,
     fetcher,
-    { refreshInterval: 100 },
+    { refreshInterval: 5000 },
   );
 
 export const useDownloadingAnimations = (skip: number, take: number) =>
@@ -28,5 +28,5 @@ export const useDownloadedAnimations = (skip: number, take: number) =>
 
 export const useAnimationDownloadStatus = (id: string) =>
   useSWR<IFileDownloadStatus>(`/api/animationinfo/status/${id}`, fetcher, {
-    refreshInterval: 100,
+    refreshInterval: 1000,
   });

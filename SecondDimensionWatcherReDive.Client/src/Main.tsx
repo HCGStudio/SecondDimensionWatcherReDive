@@ -1,31 +1,38 @@
 import React from "react";
 import { RouterProvider, createBrowserRouter } from "react-router-dom";
 
+import { ProtectedRoute } from "./compoments/ProtectedRoute";
 import { DownloadedPage } from "./pages/DownloadedPage";
 import { DownloadingPage } from "./pages/DownloadingPage";
 import { ErrorPage } from "./pages/ErrorPage";
+import { FeedsPage } from "./pages/FeedsPage";
 import { LoginPage } from "./pages/LoginPage";
 import { MainPage } from "./pages/MainPage";
 
 const router = createBrowserRouter([
   {
     path: "/",
-    element: <MainPage />,
+    element: <ProtectedRoute><MainPage /></ProtectedRoute>,
     errorElement: <ErrorPage />,
   },
   {
     path: "/main",
-    element: <MainPage />,
+    element: <ProtectedRoute><MainPage /></ProtectedRoute>,
     errorElement: <ErrorPage />,
   },
   {
     path: "/downloading",
-    element: <DownloadingPage />,
+    element: <ProtectedRoute><DownloadingPage /></ProtectedRoute>,
     errorElement: <ErrorPage />,
   },
   {
     path: "/downloaded",
-    element: <DownloadedPage />,
+    element: <ProtectedRoute><DownloadedPage /></ProtectedRoute>,
+    errorElement: <ErrorPage />,
+  },
+  {
+    path: "/feeds",
+    element: <ProtectedRoute><FeedsPage /></ProtectedRoute>,
     errorElement: <ErrorPage />,
   },
   {

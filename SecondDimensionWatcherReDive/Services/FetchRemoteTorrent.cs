@@ -14,7 +14,8 @@ public class FetchRemoteTorrent(
     IHttpClientFactory httpClientFactory,
     Channel<DownloadCompleteRequest> downloadCompleteRequest,
     Channel<FileDownloadStatus> fileDownloadStatus,
-    IServiceScopeFactory scopeFactory)
+    IServiceScopeFactory scopeFactory,
+    ILogger<FetchRemoteTorrent> logger)
     : BackgroundService
 {
     private readonly HttpClient _httpClient = httpClientFactory.CreateClient(nameof(RemoteTorrentDownloadClient));
@@ -58,8 +59,18 @@ public class FetchRemoteTorrent(
             if (tracked.Count == 0)
                 continue;
 
-            var info = await _httpClient.GetFromJsonAsync<RemoteTorrentInfo[]>(
-                $"/api/v2/torrents/info?hashes={string.Join('|', tracked.Keys)}", cancellationToken);
+            var info = default(RemoteTorrentInfo[]);
+            try
+            {
+                info = await _httpClient.GetFromJsonAsync<RemoteTorrentInfo[]>(
+                    $"/api/v2/torrents/info?hashes={string.Join('|', tracked.Keys)}", cancellationToken);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogWarning(ex, "Failed to fetch torrent status from remote client");
+                continue;
+            }
+
             if (info is null) continue;
 
             foreach (var torrentInfo in info)
