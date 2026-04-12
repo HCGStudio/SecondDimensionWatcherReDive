@@ -1,6 +1,5 @@
 using System.Text;
 using Moq;
-using Moq.Protected;
 using SecondDimensionWatcherReDive.Utils.Feed;
 
 namespace SecondDimensionWatcherReDive.Test;
