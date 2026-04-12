@@ -28,11 +28,13 @@ public abstract class InferenceEngineBase(
         3. Extract the season number (default to 1 if not explicitly specified)
         4. Extract the episode number. If the torrent contains multiple episodes (e.g. batch release "01-12", "Vol.1", "Complete"), set episode to null.
         5. Use the search_tmdb tool to look up the anime and get its TMDB ID
+        6. Write a brief description of the anime (1-2 sentences in the same language as the title, summarizing the show's premise)
 
         Return your final answer as a JSON object with these keys:
         {
             "animation_name": "string - the anime name",
             "original_name": "string - original Japanese/Chinese name if available, otherwise same as animation_name",
+            "description": "string or null - a brief 1-2 sentence description of the anime",
             "tmdb_id": "string or null - TMDB ID from search results",
             "group_name": "string or null - the subtitle group name",
             "season": "integer or null - season number",
@@ -44,6 +46,9 @@ public abstract class InferenceEngineBase(
 
     protected const int MaxToolRounds = 5;
 
+    private static readonly SemaphoreSlim RateLimitSemaphore = new(1, 1);
+    private static DateTime _lastCallTime = DateTime.MinValue;
+
     protected InferenceOptions Options => options.Value;
 
     protected abstract ILogger Logger { get; }
@@ -52,14 +57,41 @@ public abstract class InferenceEngineBase(
 
     public async Task<InferenceResult?> InferAsync(string title, string description, CancellationToken cancellationToken)
     {
+        Logger.LogInformation("[{Provider}] Starting inference for title: {Title}", ProviderName, title);
+
+        await RateLimitSemaphore.WaitAsync(cancellationToken);
         try
         {
-            return await InferCoreAsync(title, description, cancellationToken);
+            var elapsed = DateTime.UtcNow - _lastCallTime;
+            var minInterval = TimeSpan.FromMilliseconds(Options.RateLimitDelayMs);
+            if (elapsed < minInterval)
+            {
+                var delay = minInterval - elapsed;
+                Logger.LogDebug("[{Provider}] Rate limiting: waiting {DelayMs}ms before next API call",
+                    ProviderName, (int)delay.TotalMilliseconds);
+                await Task.Delay(delay, cancellationToken);
+            }
+
+            var result = await InferCoreAsync(title, description, cancellationToken);
+            _lastCallTime = DateTime.UtcNow;
+
+            if (result != null)
+                Logger.LogInformation(
+                    "[{Provider}] Inference succeeded for title: {Title} -> {AnimationName} (TMDB: {TmdbId}, S{Season}E{Episode})",
+                    ProviderName, title, result.AnimationName, result.TmdbId ?? "N/A",
+                    result.Season, result.Episode);
+            else
+                Logger.LogWarning("[{Provider}] Inference returned no result for title: {Title}", ProviderName, title);
+            return result;
         }
         catch (Exception ex)
         {
-            Logger.LogWarning(ex, "{Provider} inference failed for title: {Title}", ProviderName, title);
+            Logger.LogWarning(ex, "[{Provider}] Inference failed for title: {Title}", ProviderName, title);
             return null;
+        }
+        finally
+        {
+            RateLimitSemaphore.Release();
         }
     }
 
@@ -74,13 +106,18 @@ public abstract class InferenceEngineBase(
         using var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
         configureRequest(request);
         request.Content = new StringContent(requestBody.ToJsonString(), Encoding.UTF8, "application/json");
+        Logger.LogDebug("[{Provider}] Sending request to {Endpoint}", ProviderName, endpoint);
         return await httpClient.SendAsync(request, cancellationToken);
     }
 
     protected async Task<string> ExecuteToolCallAsync(
         string? query, string fallbackTitle, CancellationToken cancellationToken)
     {
-        return await tmdbTool.SearchAsync(query ?? fallbackTitle, cancellationToken);
+        var actualQuery = query ?? fallbackTitle;
+        Logger.LogDebug("[{Provider}] Executing TMDB search with query: {Query}", ProviderName, actualQuery);
+        var result = await tmdbTool.SearchAsync(actualQuery, cancellationToken);
+        Logger.LogDebug("[{Provider}] TMDB search returned: {Result}", ProviderName, result);
+        return result;
     }
 
     protected static InferenceResult? ParseInferenceResult(string? content)
@@ -96,7 +133,16 @@ public abstract class InferenceEngineBase(
             jsonStr = jsonStr.Trim();
         }
 
-        var json = JsonNode.Parse(jsonStr);
+        JsonNode? json;
+        try
+        {
+            json = JsonNode.Parse(jsonStr);
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return null;
+        }
+
         if (json == null) return null;
 
         var animationName = json["animation_name"]?.GetValue<string>();
@@ -105,6 +151,7 @@ public abstract class InferenceEngineBase(
         return new InferenceResult(
             AnimationName: animationName,
             OriginalName: json["original_name"]?.GetValue<string>() ?? animationName,
+            Description: json["description"]?.GetValue<string>(),
             TmdbId: json["tmdb_id"]?.GetValue<string>(),
             GroupName: json["group_name"]?.GetValue<string>(),
             Season: json["season"]?.GetValue<int?>(),

@@ -6,6 +6,7 @@ namespace SecondDimensionWatcherReDive.Framework.Inference;
 public record InferenceResult(
     string AnimationName,
     string OriginalName,
+    string? Description,
     string? TmdbId,
     string? GroupName,
     int? Season,

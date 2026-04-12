@@ -8,6 +8,8 @@ export interface IAnimationInfo {
   publishTime: string;
   isDownloadTracked: boolean;
   isDownloadFinished: boolean;
+  season?: number | null;
+  episode?: number | null;
   group?: IAnimationGroup;
   animation?: IAnimation;
 }

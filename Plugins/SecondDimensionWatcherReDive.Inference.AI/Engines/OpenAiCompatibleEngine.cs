@@ -59,6 +59,9 @@ public class OpenAiCompatibleEngine(
 
         for (var round = 0; round < MaxToolRounds; round++)
         {
+            logger.LogDebug("[OpenAI] Inference round {Round}/{MaxRounds} for title: {Title}",
+                round + 1, MaxToolRounds, title);
+
             var requestBody = new JsonObject
             {
                 ["model"] = opts.Model,
@@ -84,6 +87,7 @@ public class OpenAiCompatibleEngine(
             var choice = json?["choices"]?[0];
             var message = choice?["message"];
             var finishReason = choice?["finish_reason"]?.GetValue<string>();
+            logger.LogDebug("[OpenAI] Response finish_reason: {FinishReason}", finishReason);
 
             if (message == null)
             {
@@ -108,6 +112,7 @@ public class OpenAiCompatibleEngine(
                     {
                         var args = JsonNode.Parse(arguments);
                         var query = args?["query"]?.GetValue<string>();
+                        logger.LogDebug("[OpenAI] Tool call: {Function}, query: {Query}", functionName, query);
                         var result = await ExecuteToolCallAsync(query, title, cancellationToken);
 
                         messages.Add(new JsonObject

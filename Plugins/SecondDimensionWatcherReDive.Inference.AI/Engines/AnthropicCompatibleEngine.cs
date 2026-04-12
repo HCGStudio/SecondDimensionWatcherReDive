@@ -54,6 +54,9 @@ public class AnthropicCompatibleEngine(
 
         for (var round = 0; round < MaxToolRounds; round++)
         {
+            logger.LogDebug("[Anthropic] Inference round {Round}/{MaxRounds} for title: {Title}",
+                round + 1, MaxToolRounds, title);
+
             var requestBody = new JsonObject
             {
                 ["model"] = opts.Model,
@@ -81,6 +84,7 @@ public class AnthropicCompatibleEngine(
             var json = JsonNode.Parse(responseBody);
             var contentBlocks = json?["content"]?.AsArray();
             var stopReason = json?["stop_reason"]?.GetValue<string>();
+            logger.LogDebug("[Anthropic] Response stop_reason: {StopReason}", stopReason);
 
             if (contentBlocks == null)
             {
@@ -109,6 +113,7 @@ public class AnthropicCompatibleEngine(
                     if (toolName == "search_tmdb" && input != null)
                     {
                         var query = input["query"]?.GetValue<string>();
+                        logger.LogDebug("[Anthropic] Tool call: {ToolName}, query: {Query}", toolName, query);
                         var result = await ExecuteToolCallAsync(query, title, cancellationToken);
 
                         toolResultBlocks.Add(new JsonObject

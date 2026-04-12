@@ -70,6 +70,9 @@ namespace SecondDimensionWatcherReDive.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<int>("AiRetryCount")
+                        .HasColumnType("integer");
+
                     b.Property<Guid?>("AnimationId")
                         .HasColumnType("uuid");
 
@@ -103,6 +106,9 @@ namespace SecondDimensionWatcherReDive.Migrations
 
                     b.Property<Guid?>("GroupId")
                         .HasColumnType("uuid");
+
+                    b.Property<bool>("IsAiProcessed")
+                        .HasColumnType("boolean");
 
                     b.Property<bool>("IsDownloadFinished")
                         .HasColumnType("boolean");

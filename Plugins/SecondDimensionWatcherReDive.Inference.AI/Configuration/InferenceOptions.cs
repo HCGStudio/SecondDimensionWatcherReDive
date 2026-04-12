@@ -18,4 +18,7 @@ public class InferenceOptions
 
     /// <summary>Maximum tokens for the response</summary>
     public int MaxTokens { get; set; } = 1024;
+
+    /// <summary>Minimum interval in milliseconds between API calls to avoid rate limiting (default: 1000ms)</summary>
+    public int RateLimitDelayMs { get; set; } = 1000;
 }

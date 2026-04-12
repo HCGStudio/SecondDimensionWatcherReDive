@@ -9,7 +9,19 @@ export interface IAnimationInfoProps {
   value: IAnimationInfo;
 }
 
+function formatEpisodeTag(
+  season?: number | null,
+  episode?: number | null,
+): string | null {
+  if (season == null && episode == null) return null;
+  const s = season != null ? `S${String(season).padStart(2, "0")}` : "";
+  const e = episode != null ? `E${String(episode).padStart(2, "0")}` : "";
+  return s + e;
+}
+
 export const AnimationInfo: React.FC<IAnimationInfoProps> = ({ value }) => {
+  const tag = formatEpisodeTag(value.season, value.episode);
+
   return (
     <div className="mb-3">
       <Card
@@ -18,9 +30,14 @@ export const AnimationInfo: React.FC<IAnimationInfoProps> = ({ value }) => {
         description={value.description}
         footer={<AnimationInfoFooter value={value} />}
       >
-        <p className="text-sm text-subtle">
-          {new Date(value.publishTime).toLocaleString()}
-        </p>
+        <div className="flex items-center gap-3 text-sm text-subtle">
+          <span>{new Date(value.publishTime).toLocaleString()}</span>
+          {tag ? (
+            <span className="rounded bg-accent/10 px-1.5 py-0.5 font-mono text-xs text-accent">
+              {tag}
+            </span>
+          ) : null}
+        </div>
       </Card>
     </div>
   );

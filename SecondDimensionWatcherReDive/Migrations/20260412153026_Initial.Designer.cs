@@ -12,8 +12,8 @@ using SecondDimensionWatcherReDive.Models;
 namespace SecondDimensionWatcherReDive.Migrations
 {
     [DbContext(typeof(ApplicationContext))]
-    [Migration("20260411162426_AddSeasonAndEpisode")]
-    partial class AddSeasonAndEpisode
+    [Migration("20260412153026_Initial")]
+    partial class Initial
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -73,6 +73,9 @@ namespace SecondDimensionWatcherReDive.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<int>("AiRetryCount")
+                        .HasColumnType("integer");
+
                     b.Property<Guid?>("AnimationId")
                         .HasColumnType("uuid");
 
@@ -107,6 +110,9 @@ namespace SecondDimensionWatcherReDive.Migrations
                     b.Property<Guid?>("GroupId")
                         .HasColumnType("uuid");
 
+                    b.Property<bool>("IsAiProcessed")
+                        .HasColumnType("boolean");
+
                     b.Property<bool>("IsDownloadFinished")
                         .HasColumnType("boolean");
 
@@ -133,6 +139,27 @@ namespace SecondDimensionWatcherReDive.Migrations
                     b.HasIndex("GroupId");
 
                     b.ToTable("AnimationInfo");
+                });
+
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.Feed", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Name")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Url")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("Feeds");
                 });
 
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.AnimationInfo", b =>

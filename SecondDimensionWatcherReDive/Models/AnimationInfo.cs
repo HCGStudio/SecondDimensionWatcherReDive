@@ -35,4 +35,8 @@ public class AnimationInfo
     public AnimationGroup? Group { get; set; }
 
     public Animation? Animation { get; set; }
+
+    public bool IsAiProcessed { get; set; }
+
+    public int AiRetryCount { get; set; }
 }

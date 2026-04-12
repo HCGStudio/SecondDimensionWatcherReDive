@@ -138,6 +138,7 @@ builder.Services.AddTransient<IFeedService, MikananiFeedService>();
 if (!string.IsNullOrEmpty(builder.Configuration["Inference:ApiKey"]))
 {
     builder.Services.AddAIInference(builder.Configuration);
+    builder.Services.AddHostedService<InferAnimationMetadata>();
 }
 
 //Add File Renamer

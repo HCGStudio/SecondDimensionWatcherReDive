@@ -38,6 +38,20 @@ namespace SecondDimensionWatcherReDive.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "Feeds",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false),
+                    Url = table.Column<string>(type: "text", nullable: false),
+                    Name = table.Column<string>(type: "text", nullable: true),
+                    CreatedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_Feeds", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "AnimationInfo",
                 columns: table => new
                 {
@@ -55,8 +69,12 @@ namespace SecondDimensionWatcherReDive.Migrations
                     IsDownloadFinished = table.Column<bool>(type: "boolean", nullable: false),
                     FileStore = table.Column<string>(type: "text", nullable: true),
                     StorePath = table.Column<string>(type: "text", nullable: true),
+                    Season = table.Column<int>(type: "integer", nullable: true),
+                    Episode = table.Column<int>(type: "integer", nullable: true),
                     GroupId = table.Column<Guid>(type: "uuid", nullable: true),
-                    AnimationId = table.Column<Guid>(type: "uuid", nullable: true)
+                    AnimationId = table.Column<Guid>(type: "uuid", nullable: true),
+                    IsAiProcessed = table.Column<bool>(type: "boolean", nullable: false),
+                    AiRetryCount = table.Column<int>(type: "integer", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -89,6 +107,9 @@ namespace SecondDimensionWatcherReDive.Migrations
         {
             migrationBuilder.DropTable(
                 name: "AnimationInfo");
+
+            migrationBuilder.DropTable(
+                name: "Feeds");
 
             migrationBuilder.DropTable(
                 name: "AnimationGroups");
