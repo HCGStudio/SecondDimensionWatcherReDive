@@ -42,6 +42,48 @@ public class VideoFileRenamerTests
     }
 
     [TestMethod]
+    public async Task RenameAsync_SingleEpisode_RenamesMatchingSubtitles()
+    {
+        var storePath = "/downloads/anime";
+        _fileStoreMock.Setup(s => s.Exist(storePath)).ReturnsAsync(true);
+        _fileStoreMock.Setup(s => s.EnumerateDirectory(storePath))
+            .Returns(ToAsyncEnumerable(
+                new FileStoreInfo(false, "/downloads/anime/[Group] Title - 05.mkv", "[Group] Title - 05.mkv"),
+                new FileStoreInfo(false, "/downloads/anime/[Group] Title - 05.srt", "[Group] Title - 05.srt"),
+                new FileStoreInfo(false, "/downloads/anime/[Group] Title - 05.zh.ass", "[Group] Title - 05.zh.ass"),
+                new FileStoreInfo(false, "/downloads/anime/unrelated.srt", "unrelated.srt")));
+        _fileOperatorMock.Setup(o => o.Rename(It.IsAny<string>(), It.IsAny<string>())).ReturnsAsync(true);
+
+        var renamer = new VideoFileRenamer(_fileStoreMock.Object, _fileOperatorMock.Object, _loggerMock.Object);
+        var context = new FileRenameContext("My Anime", 1, 5, "[Group] Title - 05", storePath);
+
+        await renamer.RenameAsync(context, CancellationToken.None);
+
+        // Video renamed
+        _fileOperatorMock.Verify(
+            o => o.Rename(
+                "/downloads/anime/[Group] Title - 05.mkv",
+                "/downloads/anime/My Anime S01E05.mkv"),
+            Times.Once);
+        // Plain subtitle renamed
+        _fileOperatorMock.Verify(
+            o => o.Rename(
+                "/downloads/anime/[Group] Title - 05.srt",
+                "/downloads/anime/My Anime S01E05.srt"),
+            Times.Once);
+        // Subtitle with language tag renamed, tag preserved
+        _fileOperatorMock.Verify(
+            o => o.Rename(
+                "/downloads/anime/[Group] Title - 05.zh.ass",
+                "/downloads/anime/My Anime S01E05.zh.ass"),
+            Times.Once);
+        // Unrelated subtitle NOT renamed (3 total renames: 1 video + 2 subtitles)
+        _fileOperatorMock.Verify(
+            o => o.Rename(It.IsAny<string>(), It.IsAny<string>()),
+            Times.Exactly(3));
+    }
+
+    [TestMethod]
     public async Task RenameAsync_NoVideoFiles_DoesNotRename()
     {
         var storePath = "/downloads/anime";
