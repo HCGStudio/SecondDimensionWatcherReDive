@@ -1,19 +1,13 @@
-import {
-  EuiBasicTable,
-  EuiButtonEmpty,
-  EuiButtonIcon,
-  EuiFlexGroup,
-  EuiFlexItem,
-  EuiIcon,
-  EuiLoadingSpinner,
-  EuiText,
-} from "@elastic/eui";
+import { CornerDownLeft, File, FolderOpen, Play } from "lucide-react";
 import React from "react";
 
 import { useFileList } from "../file/hooks";
 import { generatePlaybackLink } from "../file/utils";
 import { IFileStoreListResult } from "../file/IFileStoreListResult";
 import { useToast } from "./ToastProvider";
+import { Button } from "./ui/Button";
+import { Spinner } from "./ui/Spinner";
+import { Table, type TableColumn } from "./ui/Table";
 
 interface FileBrowserProps {
   animationId: string;
@@ -55,46 +49,44 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({ animationId }) => {
 
   if (error) {
     return (
-      <EuiText color="danger" size="s">
-        加载文件列表失败
-      </EuiText>
+      <p className="text-sm text-error">加载文件列表失败</p>
     );
   }
 
   if (!files) {
-    return <EuiLoadingSpinner size="m" />;
+    return <Spinner size={24} />;
   }
 
-  const columns = [
+  const columns: TableColumn<IFileStoreListResult>[] = [
     {
       field: "fileName",
       name: "文件名",
       render: (value: string, item: IFileStoreListResult) => (
-        <EuiFlexGroup alignItems="center" gutterSize="s" responsive={false}>
-          <EuiFlexItem grow={false}>
-            <EuiIcon type={item.isDirectory ? "folderOpen" : "document"} />
-          </EuiFlexItem>
-          <EuiFlexItem>
-            {item.isDirectory ? (
-              <EuiButtonEmpty
-                size="s"
-                onClick={() => onNavigate(item.relative)}
-              >
-                {value}
-              </EuiButtonEmpty>
-            ) : (
-              <EuiText size="s">{value}</EuiText>
-            )}
-          </EuiFlexItem>
-        </EuiFlexGroup>
+        <div className="flex items-center gap-2">
+          <span className="shrink-0 text-muted">
+            {item.isDirectory ? <FolderOpen size={16} /> : <File size={16} />}
+          </span>
+          {item.isDirectory ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => onNavigate(item.relative)}
+            >
+              {value}
+            </Button>
+          ) : (
+            <span className="text-sm">{value}</span>
+          )}
+        </div>
       ),
     },
     {
       name: "操作",
-      render: (item: IFileStoreListResult) =>
+      render: (_value: any, item: IFileStoreListResult) =>
         !item.isDirectory ? (
-          <EuiButtonIcon
-            iconType="videoPlayer"
+          <Button
+            variant="icon"
+            size="sm"
             aria-label="播放"
             onClick={() =>
               onPlay(
@@ -103,7 +95,9 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({ animationId }) => {
                   : item.fileName,
               )
             }
-          />
+          >
+            <Play size={16} />
+          </Button>
         ) : null,
       width: "60px",
     },
@@ -112,11 +106,12 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({ animationId }) => {
   return (
     <>
       {relativeDir ? (
-        <EuiButtonEmpty iconType="returnKey" size="s" onClick={onGoUp}>
+        <Button variant="ghost" size="sm" onClick={onGoUp} className="mb-2">
+          <CornerDownLeft size={16} />
           返回上级
-        </EuiButtonEmpty>
+        </Button>
       ) : null}
-      <EuiBasicTable items={files} columns={columns} />
+      <Table items={files} columns={columns} />
     </>
   );
 };

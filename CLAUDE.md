@@ -14,6 +14,8 @@ dotnet test                                       # Run all tests
 yarn install        # Install dependencies (Yarn 4.2.2 Berry with PnP)
 yarn start          # Dev server on http://localhost:1234
 yarn build          # Production build to dist/
+yarn mock           # Mock API server on http://localhost:5097
+yarn dev            # Mock server + dev server together
 
 # Docker
 docker compose up                                 # Full stack: PostgreSQL + backend + frontend
@@ -31,7 +33,7 @@ This is an anime/animation download management system (二次元观测器 Re:Div
 - **SecondDimensionWatcherReDive** — Main ASP.NET Core web API. Controllers, background services, download/feed implementations, SPA hosting.
 - **SecondDimensionWatcherReDive.Framework** — Shared abstractions (interfaces for plugins, file download, file storage, feeds). No implementations.
 - **SecondDimensionWatcherReDive.Test** — MSTest unit tests with Moq. Covers plugin events, file renaming, feed parsing, auth.
-- **SecondDimensionWatcherReDive.Client** — React/TypeScript SPA using Parcel bundler and Elastic UI.
+- **SecondDimensionWatcherReDive.Client** — React/TypeScript SPA using Parcel bundler, Tailwind CSS, and Radix UI.
 - **Plugins/SecondDimensionWatcherReDive.Inference.AI** — AI inference engine (OpenAI/Anthropic compatible) for metadata extraction.
 - **Plugins/SecondDimensionWatcherReDive.Plugin.FileRenamer** — Post-download file renaming with S##E## format.
 
@@ -86,10 +88,17 @@ JWT Bearer tokens with BCrypt password hashing. Refresh token flow via `AuthCont
 
 ### Frontend
 
-React 18 + TypeScript with Elastic UI (EUI) component library. Uses SWR for data fetching, React Router v6 for routing, Emotion for CSS-in-JS. EUI icons are tree-shaken via `appendIconComponentCache` in `App.tsx`.
+React 18 + TypeScript with Tailwind CSS for styling and Radix UI for accessible interactive primitives (Dialog, Toast, Progress). Uses SWR for data fetching, React Router v6 for routing, lucide-react for icons. Design system follows DESIGN.md (warm parchment canvas, serif headlines, terracotta accents).
 
 **Pages:** Main (all animations), Downloading, Downloaded, Feeds (subscription management), Login.
-**Key components:** `FileBrowser` (flyout for browsing downloaded files), `ProtectedRoute` (auth guard), `ToastProvider` (notifications).
+**Key components:** `FileBrowser` (sheet/slide-over for browsing downloaded files), `ProtectedRoute` (auth guard), `ToastProvider` (Radix Toast notifications).
+**UI primitives:** `src/components/ui/` — Button, Card, EmptyPrompt, FormRow, Input, Pagination, PasswordInput, Progress, Sheet, Spinner, Table.
+
+### Mock API Server
+
+`mock-server.mjs` provides a zero-dependency mock backend for frontend development without the .NET backend, PostgreSQL, or qBittorrent. Run with `yarn dev` (starts both mock + dev server) or `yarn mock` (mock only, then `yarn start` separately).
+
+Features: 25 anime entries with mixed states, simulated download progress, auth flow (any password), feed CRUD, mock file browser. Listens on port 5097 (matching the Parcel proxy target).
 
 ## Key Configuration (appsettings.json)
 

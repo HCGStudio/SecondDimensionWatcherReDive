@@ -4,9 +4,9 @@ const url = process.env["BACKEND_URL"] ?? "http://localhost:5097";
 
 export default function (app) {
   app.use(
-    "/api",
     createProxyMiddleware({
       target: url,
+      pathFilter: "/api",
     }),
   );
 }

@@ -1,7 +1,9 @@
-import { EuiEmptyPrompt, EuiButton } from "@elastic/eui";
+import { AlertTriangle } from "lucide-react";
 import React from "react";
 import { useNavigate, useRouteError } from "react-router-dom";
 
+import { Button } from "../components/ui/Button";
+import { EmptyPrompt } from "../components/ui/EmptyPrompt";
 import { PageTemplate } from "./PageTemplate";
 
 export const ErrorPage: React.FC = () => {
@@ -10,14 +12,14 @@ export const ErrorPage: React.FC = () => {
 
   return (
     <PageTemplate>
-      <EuiEmptyPrompt
-        iconType="warning"
+      <EmptyPrompt
+        icon={<AlertTriangle size={48} />}
         title={<h2>页面出错了</h2>}
         body={<p>{error?.statusText || error?.message || "未知错误"}</p>}
         actions={
-          <EuiButton fill onClick={() => navigate("/")}>
+          <Button onClick={() => navigate("/")}>
             返回主页
-          </EuiButton>
+          </Button>
         }
       />
     </PageTemplate>

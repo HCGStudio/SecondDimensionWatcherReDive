@@ -1,9 +1,11 @@
-import { EuiFlexGroup, EuiPagination, EuiEmptyPrompt } from "@elastic/eui";
+import { AlertTriangle } from "lucide-react";
 import React from "react";
 import { useSearchParams } from "react-router-dom";
 
 import { useAnimationInfo } from "../animation/hooks";
-import { AnimationInfo } from "../compoments/AnimationInfo";
+import { AnimationInfo } from "../components/AnimationInfo";
+import { EmptyPrompt } from "../components/ui/EmptyPrompt";
+import { Pagination } from "../components/ui/Pagination";
 import { PAGE_SIZE } from "../config";
 import { PageTemplate } from "./PageTemplate";
 
@@ -35,8 +37,8 @@ export const MainPage: React.FC = () => {
   return (
     <PageTemplate>
       {error ? (
-        <EuiEmptyPrompt
-          iconType="warning"
+        <EmptyPrompt
+          icon={<AlertTriangle size={48} />}
           title={<h2>加载失败</h2>}
           body={<p>无法获取数据，请稍后重试</p>}
         />
@@ -44,14 +46,13 @@ export const MainPage: React.FC = () => {
         <>
           {info.data.map((i) => <AnimationInfo value={i} key={i.id} />)}
           {pageCount > 1 ? (
-            <EuiFlexGroup justifyContent="spaceAround">
-              <EuiPagination
-                aria-label="Pagination"
+            <div className="mt-8 flex justify-center">
+              <Pagination
                 pageCount={pageCount}
                 activePage={actualPage - 1}
                 onPageClick={navigateToPage}
               />
-            </EuiFlexGroup>
+            </div>
           ) : null}
         </>
       ) : null}

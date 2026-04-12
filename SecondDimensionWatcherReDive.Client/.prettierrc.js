@@ -1,6 +1,6 @@
 module.exports = {
   importOrderSeparation: true,
   importOrderSortSpecifiers: true,
-  importOrder: ["^@elastic/eui/es/components/icon/(.*)$", "^[./]", ".css$"],
+  importOrder: ["^@radix-ui/(.*)$", "^lucide-react$", "^[./]", ".css$"],
   plugins: [require.resolve("@trivago/prettier-plugin-sort-imports")],
 };

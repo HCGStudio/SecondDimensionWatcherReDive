@@ -1,7 +1,7 @@
 import React from "react";
 import { RouterProvider, createBrowserRouter } from "react-router-dom";
 
-import { ProtectedRoute } from "./compoments/ProtectedRoute";
+import { ProtectedRoute } from "./components/ProtectedRoute";
 import { DownloadedPage } from "./pages/DownloadedPage";
 import { DownloadingPage } from "./pages/DownloadingPage";
 import { ErrorPage } from "./pages/ErrorPage";

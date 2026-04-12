@@ -1,20 +1,15 @@
-import {
-  EuiBasicTable,
-  EuiButton,
-  EuiButtonIcon,
-  EuiEmptyPrompt,
-  EuiFieldText,
-  EuiFlexGroup,
-  EuiFlexItem,
-  EuiFormRow,
-  EuiSpacer,
-} from "@elastic/eui";
+import { AlertTriangle, Plus, Trash2 } from "lucide-react";
 import React from "react";
 
 import { useFeeds } from "../feed/hooks";
 import { addFeed, removeFeed } from "../feed/utils";
 import { IFeed } from "../feed/IFeed";
-import { useToast } from "../compoments/ToastProvider";
+import { useToast } from "../components/ToastProvider";
+import { Button } from "../components/ui/Button";
+import { EmptyPrompt } from "../components/ui/EmptyPrompt";
+import { FormRow } from "../components/ui/FormRow";
+import { Input } from "../components/ui/Input";
+import { Table, type TableColumn } from "../components/ui/Table";
 import { PageTemplate } from "./PageTemplate";
 
 export const FeedsPage: React.FC = () => {
@@ -49,7 +44,7 @@ export const FeedsPage: React.FC = () => {
     [mutate, addToast],
   );
 
-  const columns = [
+  const columns: TableColumn<IFeed>[] = [
     {
       field: "name",
       name: "名称",
@@ -67,13 +62,16 @@ export const FeedsPage: React.FC = () => {
     },
     {
       name: "操作",
-      render: (item: IFeed) => (
-        <EuiButtonIcon
-          iconType="trash"
+      render: (_value: any, item: IFeed) => (
+        <Button
+          variant="icon"
           color="danger"
+          size="sm"
           aria-label="删除"
           onClick={() => onRemove(item.id)}
-        />
+        >
+          <Trash2 size={16} />
+        </Button>
       ),
       width: "60px",
     },
@@ -81,45 +79,44 @@ export const FeedsPage: React.FC = () => {
 
   return (
     <PageTemplate>
-      <EuiFlexGroup>
-        <EuiFlexItem>
-          <EuiFormRow label="订阅 URL">
-            <EuiFieldText
-              placeholder="https://mikanani.me/RSS/..."
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-            />
-          </EuiFormRow>
-        </EuiFlexItem>
-        <EuiFlexItem grow={false}>
-          <EuiFormRow label="名称（可选）">
-            <EuiFieldText
-              placeholder="我的订阅"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
-          </EuiFormRow>
-        </EuiFlexItem>
-        <EuiFlexItem grow={false}>
-          <EuiFormRow hasEmptyLabelSpace>
-            <EuiButton iconType="plus" onClick={onAdd} fill>
-              添加
-            </EuiButton>
-          </EuiFormRow>
-        </EuiFlexItem>
-      </EuiFlexGroup>
-      <EuiSpacer size="l" />
-      {error ? (
-        <EuiEmptyPrompt
-          iconType="warning"
-          title={<h2>加载失败</h2>}
-          body={<p>无法获取订阅列表，请稍后重试</p>}
-        />
-      ) : feeds && feeds.length > 0 ? (
-        <EuiBasicTable items={feeds} columns={columns} />
-      ) : feeds ? (
-        <EuiEmptyPrompt title={<h2>暂无订阅</h2>} body={<p>添加 RSS 订阅以自动获取动画更新</p>} />
-      ) : null}
+      <div className="flex items-end gap-4">
+        <FormRow label="订阅 URL" className="flex-1">
+          <Input
+            placeholder="https://mikanani.me/RSS/..."
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+          />
+        </FormRow>
+        <FormRow label="名称（可选）">
+          <Input
+            placeholder="我的订阅"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+        </FormRow>
+        <FormRow hasEmptyLabelSpace>
+          <Button onClick={onAdd}>
+            <Plus size={16} />
+            添加
+          </Button>
+        </FormRow>
+      </div>
+      <div className="mt-8">
+        {error ? (
+          <EmptyPrompt
+            icon={<AlertTriangle size={48} />}
+            title={<h2>加载失败</h2>}
+            body={<p>无法获取订阅列表，请稍后重试</p>}
+          />
+        ) : feeds && feeds.length > 0 ? (
+          <Table items={feeds} columns={columns} />
+        ) : feeds ? (
+          <EmptyPrompt
+            title={<h2>暂无订阅</h2>}
+            body={<p>添加 RSS 订阅以自动获取动画更新</p>}
+          />
+        ) : null}
+      </div>
     </PageTemplate>
   );
 };

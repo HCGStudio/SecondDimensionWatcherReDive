@@ -1,8 +1,9 @@
-import { EuiCard, EuiIcon, EuiSpacer } from "@elastic/eui";
+import { Play } from "lucide-react";
 import React from "react";
 
 import { IAnimationInfo } from "../animation/IAnimationInfo";
 import { AnimationInfoFooter } from "./AnimationInfoFooter";
+import { Card } from "./ui/Card";
 
 export interface IAnimationInfoProps {
   value: IAnimationInfo;
@@ -10,19 +11,17 @@ export interface IAnimationInfoProps {
 
 export const AnimationInfo: React.FC<IAnimationInfoProps> = ({ value }) => {
   return (
-    <>
-      <EuiCard
-        display="plain"
-        hasBorder
+    <div className="mb-3">
+      <Card
+        icon={<Play size={20} />}
         title={value.title}
-        textAlign="left"
-        icon={<EuiIcon type="videoPlayer" />}
         description={value.description}
         footer={<AnimationInfoFooter value={value} />}
       >
-        {new Date(value.publishTime).toLocaleString()}
-      </EuiCard>
-      <EuiSpacer size="s" />
-    </>
+        <p className="text-sm text-subtle">
+          {new Date(value.publishTime).toLocaleString()}
+        </p>
+      </Card>
+    </div>
   );
 };
