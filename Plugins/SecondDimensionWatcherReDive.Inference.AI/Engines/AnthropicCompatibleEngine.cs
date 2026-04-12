@@ -1,43 +1,41 @@
-using System.Text.Json.Nodes;
+using Anthropic.SDK;
+using Anthropic.SDK.Common;
+using Anthropic.SDK.Messaging;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using SecondDimensionWatcherReDive.Framework.Inference;
 using SecondDimensionWatcherReDive.Inference.AI.Configuration;
 using SecondDimensionWatcherReDive.Inference.AI.Tools;
+using ContentBase = Anthropic.SDK.Messaging.ContentBase;
+using Message = Anthropic.SDK.Messaging.Message;
+using Tool = Anthropic.SDK.Common.Tool;
 
 namespace SecondDimensionWatcherReDive.Inference.AI.Engines;
 
 public class AnthropicCompatibleEngine(
-    IHttpClientFactory httpClientFactory,
     TmdbTool tmdbTool,
     IOptions<InferenceOptions> options,
     ILogger<AnthropicCompatibleEngine> logger)
-    : InferenceEngineBase(httpClientFactory, tmdbTool, options)
+    : InferenceEngineBase(tmdbTool, options)
 {
     protected override ILogger Logger => logger;
 
     protected override string ProviderName => "Anthropic";
 
-    private static JsonObject BuildToolDefinition()
+    private static List<Tool> BuildTools()
     {
-        return new JsonObject
-        {
-            ["name"] = "search_tmdb",
-            ["description"] = "Search TMDB (The Movie Database) for an anime by name to get its TMDB ID and metadata.",
-            ["input_schema"] = new JsonObject
-            {
-                ["type"] = "object",
-                ["properties"] = new JsonObject
-                {
-                    ["query"] = new JsonObject
-                    {
-                        ["type"] = "string",
-                        ["description"] = "The anime name to search for"
-                    }
-                },
-                ["required"] = new JsonArray("query")
-            }
-        };
+        // Use Tool.FromFunc with placeholder delegates — we'll dispatch manually
+        return
+        [
+            Tool.FromFunc(
+                "search_tmdb",
+                ([FunctionParameter("query", true)] string query) => query,
+                "Search TMDB (The Movie Database) for an anime by name to get its TMDB ID and metadata."),
+            Tool.FromFunc(
+                "get_tmdb_seasons",
+                ([FunctionParameter("tmdb_id", true)] int tmdbId) => tmdbId.ToString(),
+                "Get the season/episode structure of a TV show from TMDB. Use this after search_tmdb to check how seasons and episodes are organized, so you can normalize episode numbering.")
+        ];
     }
 
     protected override async Task<InferenceResult?> InferCoreAsync(
@@ -45,102 +43,69 @@ public class AnthropicCompatibleEngine(
     {
         var opts = Options;
 
-        var messages = new JsonArray
+        var httpClient = new HttpClient { BaseAddress = new Uri(opts.BaseUrl.TrimEnd('/')) };
+        using var client = new AnthropicClient(new APIAuthentication(opts.ApiKey), httpClient);
+
+        var messages = new List<Message>
         {
-            new JsonObject { ["role"] = "user", ["content"] = $"Title: {title}\nDescription: {description}" }
+            new() { Role = RoleType.User, Content = [new TextContent { Text = $"Title: {title}\nDescription: {description}" }] }
         };
 
-        var tools = new JsonArray { BuildToolDefinition() };
+        var tools = BuildTools();
 
         for (var round = 0; round < MaxToolRounds; round++)
         {
             logger.LogDebug("[Anthropic] Inference round {Round}/{MaxRounds} for title: {Title}",
                 round + 1, MaxToolRounds, title);
 
-            var requestBody = new JsonObject
+            var parameters = new MessageParameters
             {
-                ["model"] = opts.Model,
-                ["max_tokens"] = opts.MaxTokens,
-                ["system"] = SystemPrompt,
-                ["messages"] = messages.DeepClone(),
-                ["tools"] = tools.DeepClone()
+                Model = opts.Model,
+                MaxTokens = opts.MaxTokens,
+                System = [new SystemMessage(SystemPrompt)],
+                Messages = messages,
+                Tools = tools
             };
 
-            var endpoint = opts.BaseUrl.TrimEnd('/') + "/v1/messages";
-            using var response = await SendRequestAsync(endpoint, req =>
+            var response = await client.Messages.GetClaudeMessageAsync(parameters, cancellationToken);
+            logger.LogDebug("[Anthropic] Response stop_reason: {StopReason}", response.StopReason);
+
+            // Add assistant message to history
+            messages.Add(response.Message);
+
+            // Check for tool use in the response content
+            var toolUseBlocks = response.Content?.OfType<ToolUseContent>().ToList() ?? [];
+            if (toolUseBlocks.Count > 0)
             {
-                req.Headers.Add("x-api-key", opts.ApiKey);
-                req.Headers.Add("anthropic-version", "2023-06-01");
-            }, requestBody, cancellationToken);
+                var toolResults = new List<ContentBase>();
 
-            var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
-
-            if (!response.IsSuccessStatusCode)
-            {
-                logger.LogWarning("Anthropic API returned {StatusCode}: {Body}", response.StatusCode, responseBody);
-                return null;
-            }
-
-            var json = JsonNode.Parse(responseBody);
-            var contentBlocks = json?["content"]?.AsArray();
-            var stopReason = json?["stop_reason"]?.GetValue<string>();
-            logger.LogDebug("[Anthropic] Response stop_reason: {StopReason}", stopReason);
-
-            if (contentBlocks == null)
-            {
-                logger.LogWarning("Anthropic API returned no content in response");
-                return null;
-            }
-
-            messages.Add(new JsonObject
-            {
-                ["role"] = "assistant",
-                ["content"] = contentBlocks.DeepClone()
-            });
-
-            if (stopReason == "tool_use")
-            {
-                var toolResultBlocks = new JsonArray();
-
-                foreach (var block in contentBlocks)
+                foreach (var toolUse in toolUseBlocks)
                 {
-                    if (block?["type"]?.GetValue<string>() != "tool_use") continue;
+                    logger.LogDebug("[Anthropic] Tool call: {ToolName}, input: {Input}",
+                        toolUse.Name, toolUse.Input?.ToString());
 
-                    var toolName = block["name"]?.GetValue<string>();
-                    var toolUseId = block["id"]?.GetValue<string>();
-                    var input = block["input"];
+                    var argumentsJson = toolUse.Input?.ToString() ?? "{}";
+                    var result = await ExecuteToolCallAsync(
+                        toolUse.Name, argumentsJson, title, cancellationToken);
 
-                    if (toolName == "search_tmdb" && input != null)
+                    toolResults.Add(new ToolResultContent
                     {
-                        var query = input["query"]?.GetValue<string>();
-                        logger.LogDebug("[Anthropic] Tool call: {ToolName}, query: {Query}", toolName, query);
-                        var result = await ExecuteToolCallAsync(query, title, cancellationToken);
-
-                        toolResultBlocks.Add(new JsonObject
-                        {
-                            ["type"] = "tool_result",
-                            ["tool_use_id"] = toolUseId,
-                            ["content"] = result
-                        });
-                    }
-                }
-
-                if (toolResultBlocks.Count > 0)
-                {
-                    messages.Add(new JsonObject
-                    {
-                        ["role"] = "user",
-                        ["content"] = toolResultBlocks.DeepClone()
+                        ToolUseId = toolUse.Id,
+                        Content = [new TextContent { Text = result }]
                     });
                 }
+
+                messages.Add(new Message
+                {
+                    Role = RoleType.User,
+                    Content = toolResults
+                });
 
                 continue;
             }
 
-            var textContent = string.Join("", contentBlocks
-                .Where(b => b?["type"]?.GetValue<string>() == "text")
-                .Select(b => b?["text"]?.GetValue<string>() ?? ""));
-
+            // Final response — extract text content
+            var textContent = response.Content?.OfType<TextContent>().FirstOrDefault()?.Text;
             return ParseInferenceResult(textContent);
         }
 

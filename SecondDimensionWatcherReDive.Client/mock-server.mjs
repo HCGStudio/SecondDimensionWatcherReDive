@@ -161,6 +161,47 @@ setInterval(() => {
   }
 }, 1000);
 
+// Mock season bangumi data
+const SEASON_BANGUMIS = [
+  { mikanId: 3899, title: "尖帽子的魔法工房", dayOfWeek: 1, imageUrl: null },
+  { mikanId: 3904, title: "自称恶役大小姐的婚约者观察记录。", dayOfWeek: 1, imageUrl: null },
+  { mikanId: 3850, title: "吹响吧！上低音号 第三季", dayOfWeek: 2, imageUrl: null },
+  { mikanId: 3880, title: "怪异与少女与神隐", dayOfWeek: 2, imageUrl: null },
+  { mikanId: 3870, title: "暗杀贵族 第二季", dayOfWeek: 3, imageUrl: null },
+  { mikanId: 3815, title: "转生贵族的异世界冒险录 第二季", dayOfWeek: 3, imageUrl: null },
+  { mikanId: 3910, title: "无名记忆 第二季", dayOfWeek: 4, imageUrl: null },
+  { mikanId: 3920, title: "我的幸福婚约 第三季", dayOfWeek: 4, imageUrl: null },
+  { mikanId: 3860, title: "关于我转生变成史莱姆这档事 第四季", dayOfWeek: 5, imageUrl: null },
+  { mikanId: 3890, title: "迷宫饭 第二季", dayOfWeek: 5, imageUrl: null },
+  { mikanId: 3841, title: "鬼灭之刃 无限城篇", dayOfWeek: 6, imageUrl: null },
+  { mikanId: 3900, title: "恋上换装娃娃 第三季", dayOfWeek: 6, imageUrl: null },
+  { mikanId: 227, title: "名侦探柯南", dayOfWeek: 0, imageUrl: null },
+  { mikanId: 228, title: "航海王", dayOfWeek: 0, imageUrl: null },
+  { mikanId: 3950, title: "剧场版 紫罗兰永恒花园", dayOfWeek: 7, imageUrl: null },
+].map((b) => ({
+  ...b,
+  id: randomUUID(),
+  scrapedAt: new Date(Date.now() - 86400_000).toISOString(),
+}));
+
+const MOCK_SUBGROUPS = {
+  3899: [
+    { mikanSubgroupId: 370, name: "LoliHouse" },
+    { mikanSubgroupId: 513, name: "喵萌奶茶屋" },
+    { mikanSubgroupId: 202, name: "ANi" },
+  ],
+  3904: [
+    { mikanSubgroupId: 370, name: "LoliHouse" },
+    { mikanSubgroupId: 615, name: "桜都字幕组" },
+  ],
+  3860: [
+    { mikanSubgroupId: 370, name: "LoliHouse" },
+    { mikanSubgroupId: 513, name: "喵萌奶茶屋" },
+    { mikanSubgroupId: 202, name: "ANi" },
+    { mikanSubgroupId: 1231, name: "SubsPlease" },
+  ],
+};
+
 // Feeds
 let feeds = [
   { id: randomUUID(), url: "https://mikanani.me/RSS/Bangumi?bangumiId=3141", name: "葬送的芙莉莲", createdAt: new Date(Date.now() - 86400_000 * 3).toISOString() },
@@ -333,6 +374,86 @@ function route(method, pathname, searchParams, req, res) {
     }
   }
 
+  // --- Season Bangumi ---
+
+  if (method === "GET" && pathname === "/api/season") {
+    const year = searchParams.get("year");
+    const season = searchParams.get("season");
+    const seasonLabels = { "春": "春季", "夏": "夏季", "秋": "秋季", "冬": "冬季" };
+
+    if (year && season) {
+      // Return fewer mock entries for non-current seasons
+      const mockOther = SEASON_BANGUMIS.slice(0, 8).map((b, i) => ({
+        ...b,
+        id: randomUUID(),
+        title: `[${year}${seasonLabels[season] ?? season}] ${b.title}`,
+        scrapedAt: new Date().toISOString(),
+      }));
+      return json(res, {
+        year: parseInt(year, 10),
+        season,
+        lastScrapedAt: new Date().toISOString(),
+        bangumis: mockOther,
+      });
+    }
+
+    const lastScrapedAt = SEASON_BANGUMIS.length > 0 ? SEASON_BANGUMIS[0].scrapedAt : null;
+    return json(res, { year: null, season: null, lastScrapedAt, bangumis: SEASON_BANGUMIS });
+  }
+
+  if (method === "POST" && pathname === "/api/season/refresh") {
+    const lastScrapedAt = SEASON_BANGUMIS.length > 0 ? SEASON_BANGUMIS[0].scrapedAt : null;
+    return json(res, { lastScrapedAt, bangumis: SEASON_BANGUMIS });
+  }
+
+  // GET /api/season/:mikanId/subgroups
+  {
+    const m = pathname.match(/^\/api\/season\/(\d+)\/subgroups$/);
+    if (method === "GET" && m) {
+      const mikanId = parseInt(m[1], 10);
+      const subgroups = (MOCK_SUBGROUPS[mikanId] ?? [
+        { mikanSubgroupId: 370, name: "LoliHouse" },
+        { mikanSubgroupId: 202, name: "ANi" },
+      ]).map((sg) => ({
+        ...sg,
+        rssUrl: `https://mikanani.me/RSS/Bangumi?bangumiId=${mikanId}&subgroupid=${sg.mikanSubgroupId}`,
+      }));
+      return json(res, subgroups);
+    }
+  }
+
+  // POST /api/season/subscribe
+  if (method === "POST" && pathname === "/api/season/subscribe") {
+    return readBody(req).then((body) => {
+      const mikanId = body.mikanId;
+      const subgroupId = body.subgroupId;
+      let rssUrl = `https://mikanani.me/RSS/Bangumi?bangumiId=${mikanId}`;
+      if (subgroupId != null) rssUrl += `&subgroupid=${subgroupId}`;
+
+      // Check duplicate
+      if (feeds.some((f) => f.url === rssUrl)) {
+        return json(res, { message: "Already subscribed" }, 409);
+      }
+
+      const bangumi = SEASON_BANGUMIS.find((b) => b.mikanId === mikanId);
+      let feedName = bangumi?.title ?? `Bangumi ${mikanId}`;
+      if (subgroupId != null) {
+        const sgs = MOCK_SUBGROUPS[mikanId] ?? [];
+        const sg = sgs.find((s) => s.mikanSubgroupId === subgroupId);
+        if (sg) feedName = `${feedName} - ${sg.name}`;
+      }
+
+      const feed = {
+        id: randomUUID(),
+        url: rssUrl,
+        name: feedName,
+        createdAt: new Date().toISOString(),
+      };
+      feeds.unshift(feed);
+      return json(res, feed);
+    });
+  }
+
   // --- Feeds ---
 
   if (method === "GET" && pathname === "/api/feed") {
@@ -385,6 +506,31 @@ function route(method, pathname, searchParams, req, res) {
     // Return a small placeholder response for mock playback
     res.writeHead(200, { "Content-Type": "text/plain" });
     return res.end("Mock video playback — this would be a real video file in production.");
+  }
+
+  // --- Tasks ---
+
+  const MOCK_TASKS = [
+    { name: "SyncFeed", description: "同步 RSS 订阅", interval: "00:10:00", isEnabled: true, lastRunAt: new Date(Date.now() - 300_000).toISOString(), isRunning: false },
+    { name: "InferAnimationMetadata", description: "AI 元数据推断", interval: "00:30:00", isEnabled: true, lastRunAt: new Date(Date.now() - 600_000).toISOString(), isRunning: false },
+    { name: "ScrapeSeasonBangumi", description: "更新当季番组列表", interval: "7.00:00:00", isEnabled: true, lastRunAt: new Date(Date.now() - 86400_000).toISOString(), isRunning: false },
+  ];
+
+  if (method === "GET" && pathname === "/api/tasks") {
+    return json(res, MOCK_TASKS);
+  }
+
+  // POST /api/tasks/:name/run
+  {
+    const m = pathname.match(/^\/api\/tasks\/(.+)\/run$/);
+    if (method === "POST" && m) {
+      const name = decodeURIComponent(m[1]);
+      const task = MOCK_TASKS.find((t) => t.name.toLowerCase() === name.toLowerCase());
+      if (!task) return json(res, { message: `Task '${name}' not found` }, 404);
+      task.lastRunAt = new Date().toISOString();
+      console.log(`  Mock: task '${name}' executed`);
+      return json(res, { message: `Task '${name}' completed` });
+    }
   }
 
   // --- 404 ---

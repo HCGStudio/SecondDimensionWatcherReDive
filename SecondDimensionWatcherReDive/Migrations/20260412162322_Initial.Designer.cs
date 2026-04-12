@@ -12,7 +12,7 @@ using SecondDimensionWatcherReDive.Models;
 namespace SecondDimensionWatcherReDive.Migrations
 {
     [DbContext(typeof(ApplicationContext))]
-    [Migration("20260412153026_Initial")]
+    [Migration("20260412162322_Initial")]
     partial class Initial
     {
         /// <inheritdoc />
@@ -141,6 +141,33 @@ namespace SecondDimensionWatcherReDive.Migrations
                     b.ToTable("AnimationInfo");
                 });
 
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.BangumiSubgroup", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("MikanSubgroupId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("ScrapedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("SeasonBangumiId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SeasonBangumiId", "MikanSubgroupId")
+                        .IsUnique();
+
+                    b.ToTable("BangumiSubgroups");
+                });
+
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.Feed", b =>
                 {
                     b.Property<Guid>("Id")
@@ -162,6 +189,36 @@ namespace SecondDimensionWatcherReDive.Migrations
                     b.ToTable("Feeds");
                 });
 
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.SeasonBangumi", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("DayOfWeek")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ImageUrl")
+                        .HasColumnType("text");
+
+                    b.Property<int>("MikanId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset>("ScrapedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MikanId")
+                        .IsUnique();
+
+                    b.ToTable("SeasonBangumis");
+                });
+
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.AnimationInfo", b =>
                 {
                     b.HasOne("SecondDimensionWatcherReDive.Models.Animation", "Animation")
@@ -175,6 +232,22 @@ namespace SecondDimensionWatcherReDive.Migrations
                     b.Navigation("Animation");
 
                     b.Navigation("Group");
+                });
+
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.BangumiSubgroup", b =>
+                {
+                    b.HasOne("SecondDimensionWatcherReDive.Models.SeasonBangumi", "SeasonBangumi")
+                        .WithMany("Subgroups")
+                        .HasForeignKey("SeasonBangumiId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("SeasonBangumi");
+                });
+
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.SeasonBangumi", b =>
+                {
+                    b.Navigation("Subgroups");
                 });
 #pragma warning restore 612, 618
         }

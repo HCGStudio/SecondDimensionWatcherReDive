@@ -8,6 +8,7 @@ import { ErrorPage } from "./pages/ErrorPage";
 import { FeedsPage } from "./pages/FeedsPage";
 import { LoginPage } from "./pages/LoginPage";
 import { MainPage } from "./pages/MainPage";
+import { TasksPage } from "./pages/TasksPage";
 
 const router = createBrowserRouter([
   {
@@ -33,6 +34,11 @@ const router = createBrowserRouter([
   {
     path: "/feeds",
     element: <ProtectedRoute><FeedsPage /></ProtectedRoute>,
+    errorElement: <ErrorPage />,
+  },
+  {
+    path: "/tasks",
+    element: <ProtectedRoute><TasksPage /></ProtectedRoute>,
     errorElement: <ErrorPage />,
   },
   {

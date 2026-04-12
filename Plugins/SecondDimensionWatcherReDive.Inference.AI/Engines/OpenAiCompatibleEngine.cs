@@ -1,6 +1,8 @@
-using System.Text.Json.Nodes;
+using System.ClientModel;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using OpenAI;
+using OpenAI.Chat;
 using SecondDimensionWatcherReDive.Framework.Inference;
 using SecondDimensionWatcherReDive.Inference.AI.Configuration;
 using SecondDimensionWatcherReDive.Inference.AI.Tools;
@@ -8,127 +10,121 @@ using SecondDimensionWatcherReDive.Inference.AI.Tools;
 namespace SecondDimensionWatcherReDive.Inference.AI.Engines;
 
 public class OpenAiCompatibleEngine(
-    IHttpClientFactory httpClientFactory,
     TmdbTool tmdbTool,
     IOptions<InferenceOptions> options,
     ILogger<OpenAiCompatibleEngine> logger)
-    : InferenceEngineBase(httpClientFactory, tmdbTool, options)
+    : InferenceEngineBase(tmdbTool, options)
 {
     protected override ILogger Logger => logger;
 
     protected override string ProviderName => "OpenAI";
-
-    private static JsonObject BuildToolDefinition()
-    {
-        return new JsonObject
-        {
-            ["type"] = "function",
-            ["function"] = new JsonObject
-            {
-                ["name"] = "search_tmdb",
-                ["description"] = "Search TMDB (The Movie Database) for an anime by name to get its TMDB ID and metadata.",
-                ["parameters"] = new JsonObject
-                {
-                    ["type"] = "object",
-                    ["properties"] = new JsonObject
-                    {
-                        ["query"] = new JsonObject
-                        {
-                            ["type"] = "string",
-                            ["description"] = "The anime name to search for"
-                        }
-                    },
-                    ["required"] = new JsonArray("query")
-                }
-            }
-        };
-    }
 
     protected override async Task<InferenceResult?> InferCoreAsync(
         string title, string description, CancellationToken cancellationToken)
     {
         var opts = Options;
 
-        var messages = new JsonArray
+        var client = new ChatClient(
+            model: opts.Model,
+            credential: new ApiKeyCredential(opts.ApiKey),
+            options: new OpenAIClientOptions { Endpoint = new Uri(opts.BaseUrl.TrimEnd('/')) });
+
+        var messages = new List<ChatMessage>
         {
-            new JsonObject { ["role"] = "system", ["content"] = SystemPrompt },
-            new JsonObject { ["role"] = "user", ["content"] = $"Title: {title}\nDescription: {description}" }
+            new SystemChatMessage(SystemPrompt),
+            new UserChatMessage($"Title: {title}\nDescription: {description}")
         };
 
-        var tools = new JsonArray { BuildToolDefinition() };
+        var chatOptions = new ChatCompletionOptions()
+        {
+            MaxOutputTokenCount = opts.MaxTokens
+        };
+        chatOptions.Tools.Add(ChatTool.CreateFunctionTool(
+            "search_tmdb",
+            "Search TMDB (The Movie Database) for an anime by name to get its TMDB ID and metadata.",
+            BinaryData.FromString(SearchTmdbSchema)));
+        chatOptions.Tools.Add(ChatTool.CreateFunctionTool(
+            "get_tmdb_seasons",
+            "Get the season/episode structure of a TV show from TMDB. Use this after search_tmdb to check how seasons and episodes are organized, so you can normalize episode numbering.",
+            BinaryData.FromString(GetTmdbSeasonsSchema)));
 
         for (var round = 0; round < MaxToolRounds; round++)
         {
             logger.LogDebug("[OpenAI] Inference round {Round}/{MaxRounds} for title: {Title}",
                 round + 1, MaxToolRounds, title);
 
-            var requestBody = new JsonObject
+            // Use streaming to accumulate the full response —
+            // avoids multi-choice issues where non-standard wrappers split
+            // text and tool_calls across separate choices.
+            var textContent = new System.Text.StringBuilder();
+            var toolCallBuilders = new Dictionary<int, (string Id, string Name, System.Text.StringBuilder Args)>();
+            ChatFinishReason? finishReason = null;
+
+            AsyncCollectionResult<StreamingChatCompletionUpdate> stream =
+                client.CompleteChatStreamingAsync(messages, chatOptions, cancellationToken);
+
+            await foreach (var update in stream)
             {
-                ["model"] = opts.Model,
-                ["max_tokens"] = opts.MaxTokens,
-                ["messages"] = messages.DeepClone(),
-                ["tools"] = tools.DeepClone()
-            };
+                finishReason ??= update.FinishReason;
 
-            var endpoint = opts.BaseUrl.TrimEnd('/') + "/chat/completions";
-            using var response = await SendRequestAsync(endpoint,
-                req => req.Headers.Add("Authorization", $"Bearer {opts.ApiKey}"),
-                requestBody, cancellationToken);
+                // Accumulate text content
+                foreach (var part in update.ContentUpdate)
+                    if (part.Text != null)
+                        textContent.Append(part.Text);
 
-            var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+                // Accumulate tool call deltas
+                foreach (var tcUpdate in update.ToolCallUpdates)
+                {
+                    if (!toolCallBuilders.TryGetValue(tcUpdate.Index, out var builder))
+                    {
+                        builder = (tcUpdate.ToolCallId ?? "", tcUpdate.FunctionName ?? "", new System.Text.StringBuilder());
+                        toolCallBuilders[tcUpdate.Index] = builder;
+                    }
 
-            if (!response.IsSuccessStatusCode)
-            {
-                logger.LogWarning("OpenAI API returned {StatusCode}: {Body}", response.StatusCode, responseBody);
-                return null;
+                    // ID and name may arrive in later chunks
+                    if (tcUpdate.ToolCallId != null && string.IsNullOrEmpty(builder.Id))
+                        toolCallBuilders[tcUpdate.Index] = (tcUpdate.ToolCallId, builder.Name, builder.Args);
+                    if (tcUpdate.FunctionName != null && string.IsNullOrEmpty(builder.Name))
+                        toolCallBuilders[tcUpdate.Index] = (builder.Id, tcUpdate.FunctionName, builder.Args);
+
+                    if (tcUpdate.FunctionArgumentsUpdate != null)
+                        toolCallBuilders[tcUpdate.Index].Args.Append(tcUpdate.FunctionArgumentsUpdate);
+                }
             }
 
-            var json = JsonNode.Parse(responseBody);
-            var choice = json?["choices"]?[0];
-            var message = choice?["message"];
-            var finishReason = choice?["finish_reason"]?.GetValue<string>();
-            logger.LogDebug("[OpenAI] Response finish_reason: {FinishReason}", finishReason);
+            logger.LogDebug("[OpenAI] Stream complete. finish_reason: {FinishReason}, tool_calls: {ToolCallCount}",
+                finishReason, toolCallBuilders.Count);
 
-            if (message == null)
+            if (toolCallBuilders.Count > 0)
             {
-                logger.LogWarning("OpenAI API returned no message in response");
-                return null;
-            }
+                // Build ChatToolCall list from accumulated deltas
+                var toolCalls = toolCallBuilders
+                    .OrderBy(kv => kv.Key)
+                    .Select(kv => ChatToolCall.CreateFunctionToolCall(
+                        kv.Value.Id, kv.Value.Name,
+                        BinaryData.FromString(kv.Value.Args.ToString())))
+                    .ToList();
 
-            messages.Add(message.DeepClone());
-
-            if (finishReason == "tool_calls")
-            {
-                var toolCalls = message["tool_calls"]?.AsArray();
-                if (toolCalls == null) continue;
+                messages.Add(new AssistantChatMessage(toolCalls));
 
                 foreach (var toolCall in toolCalls)
                 {
-                    var functionName = toolCall?["function"]?["name"]?.GetValue<string>();
-                    var arguments = toolCall?["function"]?["arguments"]?.GetValue<string>();
-                    var toolCallId = toolCall?["id"]?.GetValue<string>();
+                    logger.LogDebug("[OpenAI] Tool call: {Function}, args: {Args}",
+                        toolCall.FunctionName, toolCall.FunctionArguments.ToString());
 
-                    if (functionName == "search_tmdb" && arguments != null)
-                    {
-                        var args = JsonNode.Parse(arguments);
-                        var query = args?["query"]?.GetValue<string>();
-                        logger.LogDebug("[OpenAI] Tool call: {Function}, query: {Query}", functionName, query);
-                        var result = await ExecuteToolCallAsync(query, title, cancellationToken);
+                    var toolResult = await ExecuteToolCallAsync(
+                        toolCall.FunctionName, toolCall.FunctionArguments.ToString(),
+                        title, cancellationToken);
 
-                        messages.Add(new JsonObject
-                        {
-                            ["role"] = "tool",
-                            ["tool_call_id"] = toolCallId,
-                            ["content"] = result
-                        });
-                    }
+                    messages.Add(new ToolChatMessage(toolCall.Id, toolResult));
                 }
 
                 continue;
             }
 
-            var content = message["content"]?.GetValue<string>();
-            return ParseInferenceResult(content);
+            // Final response — parse accumulated text
+            var finalText = textContent.Length > 0 ? textContent.ToString() : null;
+            return ParseInferenceResult(finalText);
         }
 
         logger.LogWarning("OpenAI inference exceeded max tool rounds for title: {Title}", title);

@@ -1,5 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using SecondDimensionWatcherReDive.Framework.Inference;
+using SecondDimensionWatcherReDive.Framework.Tasks;
+using SecondDimensionWatcherReDive.Inference.AI.Tools;
 using SecondDimensionWatcherReDive.Models;
 
 namespace SecondDimensionWatcherReDive.Services;
@@ -10,10 +12,20 @@ namespace SecondDimensionWatcherReDive.Services;
 /// </summary>
 public class InferAnimationMetadata(
     IServiceScopeFactory scopeFactory,
+    TmdbTool tmdbTool,
     ILogger<InferAnimationMetadata> logger)
-    : BackgroundService
+    : BackgroundService, IScheduledTask
 {
     private const int MaxRetryCount = 3;
+    private volatile bool _isRunning;
+    private DateTimeOffset? _lastRunAt;
+
+    public string Name => "InferAnimationMetadata";
+    public string Description => "AI 元数据推断";
+    public TimeSpan Interval => TimeSpan.FromMinutes(30);
+    public bool IsEnabled => true;
+    public DateTimeOffset? LastRunAt => _lastRunAt;
+    public bool IsRunning => _isRunning;
 
     protected override async Task ExecuteAsync(CancellationToken cancellationToken)
     {
@@ -21,14 +33,28 @@ public class InferAnimationMetadata(
         {
             try
             {
-                await ProcessPendingItems(cancellationToken);
+                await RunNowAsync(cancellationToken);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 logger.LogError(ex, "Unexpected error in InferAnimationMetadata loop");
             }
 
-            await Task.Delay(TimeSpan.FromMinutes(30), cancellationToken);
+            await Task.Delay(Interval, cancellationToken);
+        }
+    }
+
+    public async Task RunNowAsync(CancellationToken cancellationToken)
+    {
+        _isRunning = true;
+        try
+        {
+            await ProcessPendingItems(cancellationToken);
+            _lastRunAt = DateTimeOffset.UtcNow;
+        }
+        finally
+        {
+            _isRunning = false;
         }
     }
 
@@ -68,12 +94,14 @@ public class InferAnimationMetadata(
                 item.Season = result.Season;
                 item.Episode = result.Episode;
 
-                if (!string.IsNullOrEmpty(result.Description))
-                    item.Description = result.Description;
-
-                // Resolve or create Animation
-                if (!string.IsNullOrEmpty(result.TmdbId))
+                // Fetch localized name/description from TMDB
+                if (!string.IsNullOrEmpty(result.TmdbId) && int.TryParse(result.TmdbId, out var tmdbIdInt))
                 {
+                    var details = await tmdbTool.GetLocalizedDetailsAsync(tmdbIdInt, cancellationToken);
+
+                    if (details != null && !string.IsNullOrEmpty(details.Overview))
+                        item.Description = details.Overview;
+
                     var animation = await applicationContext.Animations
                         .FirstOrDefaultAsync(
                             a => a.TmdbId == result.TmdbId,
@@ -84,8 +112,8 @@ public class InferAnimationMetadata(
                         animation = new Animation
                         {
                             TmdbId = result.TmdbId,
-                            Name = result.AnimationName,
-                            OriginalName = result.OriginalName
+                            Name = details?.Name ?? result.TmdbId,
+                            OriginalName = details?.OriginalName ?? ""
                         };
                         await applicationContext.Animations.AddAsync(animation, cancellationToken);
                     }

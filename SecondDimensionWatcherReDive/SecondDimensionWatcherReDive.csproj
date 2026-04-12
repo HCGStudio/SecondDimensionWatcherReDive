@@ -12,12 +12,13 @@
 
     <ItemGroup>
         <PackageReference Include="AspSpaService" Version="1.0.6" />
-        <PackageReference Include="BCrypt.Net-Next" Version="4.1.0"/>
-        <PackageReference Include="BencodeNET" Version="5.0.0"/>
-        <PackageReference Include="Mapster" Version="10.0.7"/>
-        <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.5"/>
-        <PackageReference Include="Microsoft.AspNetCore.Identity.UI" Version="10.0.5"/>
-        <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.5"/>
+        <PackageReference Include="BCrypt.Net-Next" Version="4.1.0" />
+        <PackageReference Include="BencodeNET" Version="5.0.0" />
+        <PackageReference Include="HtmlAgilityPack" Version="1.12.4" />
+        <PackageReference Include="Mapster" Version="10.0.7" />
+        <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.5" />
+        <PackageReference Include="Microsoft.AspNetCore.Identity.UI" Version="10.0.5" />
+        <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.5" />
         <PackageReference Include="Microsoft.AspNetCore.SpaProxy" Version="10.0.5" />
         <PackageReference Include="Microsoft.AspNetCore.SpaServices.Extensions" Version="10.0.5" />
         <PackageReference Include="Microsoft.ClearScript.Complete" Version="7.5.0" />
@@ -27,9 +28,9 @@
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
             <PrivateAssets>all</PrivateAssets>
         </PackageReference>
-        <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.1"/>
-        <PackageReference Include="Swashbuckle.AspNetCore" Version="10.1.7"/>
-        <PackageReference Include="System.Linq.Async" Version="7.0.0"/>
+        <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.1" />
+        <PackageReference Include="Swashbuckle.AspNetCore" Version="10.1.7" />
+        <PackageReference Include="System.Linq.Async" Version="7.0.0" />
     </ItemGroup>
 
     <ItemGroup>

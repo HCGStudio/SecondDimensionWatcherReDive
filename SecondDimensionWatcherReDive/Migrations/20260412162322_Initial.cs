@@ -52,6 +52,22 @@ namespace SecondDimensionWatcherReDive.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "SeasonBangumis",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false),
+                    MikanId = table.Column<int>(type: "integer", nullable: false),
+                    Title = table.Column<string>(type: "text", nullable: false),
+                    DayOfWeek = table.Column<int>(type: "integer", nullable: false),
+                    ImageUrl = table.Column<string>(type: "text", nullable: true),
+                    ScrapedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_SeasonBangumis", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "AnimationInfo",
                 columns: table => new
                 {
@@ -91,6 +107,27 @@ namespace SecondDimensionWatcherReDive.Migrations
                         principalColumn: "Id");
                 });
 
+            migrationBuilder.CreateTable(
+                name: "BangumiSubgroups",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false),
+                    SeasonBangumiId = table.Column<Guid>(type: "uuid", nullable: false),
+                    MikanSubgroupId = table.Column<int>(type: "integer", nullable: false),
+                    Name = table.Column<string>(type: "text", nullable: false),
+                    ScrapedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_BangumiSubgroups", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_BangumiSubgroups_SeasonBangumis_SeasonBangumiId",
+                        column: x => x.SeasonBangumiId,
+                        principalTable: "SeasonBangumis",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
             migrationBuilder.CreateIndex(
                 name: "IX_AnimationInfo_AnimationId",
                 table: "AnimationInfo",
@@ -100,6 +137,18 @@ namespace SecondDimensionWatcherReDive.Migrations
                 name: "IX_AnimationInfo_GroupId",
                 table: "AnimationInfo",
                 column: "GroupId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_BangumiSubgroups_SeasonBangumiId_MikanSubgroupId",
+                table: "BangumiSubgroups",
+                columns: new[] { "SeasonBangumiId", "MikanSubgroupId" },
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_SeasonBangumis_MikanId",
+                table: "SeasonBangumis",
+                column: "MikanId",
+                unique: true);
         }
 
         /// <inheritdoc />
@@ -109,6 +158,9 @@ namespace SecondDimensionWatcherReDive.Migrations
                 name: "AnimationInfo");
 
             migrationBuilder.DropTable(
+                name: "BangumiSubgroups");
+
+            migrationBuilder.DropTable(
                 name: "Feeds");
 
             migrationBuilder.DropTable(
@@ -116,6 +168,9 @@ namespace SecondDimensionWatcherReDive.Migrations
 
             migrationBuilder.DropTable(
                 name: "Animations");
+
+            migrationBuilder.DropTable(
+                name: "SeasonBangumis");
         }
     }
 }

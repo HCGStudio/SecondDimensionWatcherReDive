@@ -1,4 +1,3 @@
-using System.Text;
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -9,42 +8,31 @@ using SecondDimensionWatcherReDive.Inference.AI.Tools;
 namespace SecondDimensionWatcherReDive.Inference.AI.Engines;
 
 public abstract class InferenceEngineBase(
-    IHttpClientFactory httpClientFactory,
     TmdbTool tmdbTool,
     IOptions<InferenceOptions> options) : IInferenceEngine
 {
     protected const string SystemPrompt = """
-        You are an anime metadata extraction assistant. Given a feed item title and description from an anime torrent RSS feed, extract structured metadata.
+        You are a JSON-only anime metadata extraction API. You NEVER output natural language. You NEVER explain your reasoning. Every non-tool-call response you produce MUST be exactly one raw JSON object — no prose before it, no prose after it, no markdown fences, no trailing whitespace.
 
-        Common title formats:
-        - [GroupName] Anime Name - 05 [1080p][HEVC]
-        - [GroupName] Anime Name S02E05 [WebRip 1080p]
-        - 【GroupName】Anime Name 第05話
-        - [GroupName] Anime Name / Alternative Name - 05 (1920x1080)
+        Input: a feed item title and description from an anime torrent RSS feed.
 
-        Instructions:
-        1. Extract the subtitle/fansub group name (usually in brackets at the start)
-        2. Extract the anime name
-        3. Extract the season number (default to 1 if not explicitly specified)
-        4. Extract the episode number. If the torrent contains multiple episodes (e.g. batch release "01-12", "Vol.1", "Complete"), set episode to null.
-        5. Use the search_tmdb tool to look up the anime and get its TMDB ID
-        6. Write a brief description of the anime (1-2 sentences in the same language as the title, summarizing the show's premise)
+        Steps (internal — do NOT narrate these):
+        1. Extract the subtitle/fansub group name (usually in brackets at the start).
+        2. Extract the raw season number from the title (default to 1 if not explicit).
+        3. Extract the raw episode number. Set to null for batch releases ("01-12", "Vol.1", "Complete").
+        4. Call search_tmdb to find the TMDB ID.
+        5. Call get_tmdb_seasons to get TMDB's season/episode structure, then normalize:
+           - If TMDB merges multiple cours into one season (e.g. S01 with 48 eps), map "S02E01" → S01E25.
+           - If the title uses absolute numbering ("- 25"), find the correct TMDB season.
+           - If TMDB has the referenced season, keep the episode number as-is.
 
-        Return your final answer as a JSON object with these keys:
-        {
-            "animation_name": "string - the anime name",
-            "original_name": "string - original Japanese/Chinese name if available, otherwise same as animation_name",
-            "description": "string or null - a brief 1-2 sentence description of the anime",
-            "tmdb_id": "string or null - TMDB ID from search results",
-            "group_name": "string or null - the subtitle group name",
-            "season": "integer or null - season number",
-            "episode": "integer or null - single episode number, null if the torrent contains multiple episodes"
-        }
-
-        Return ONLY the JSON object, no other text.
+        Output contract — violating this is a fatal error:
+        • Exactly one JSON object, nothing else.
+        • No ```json fences. No "Here is…" preamble. No explanation after the JSON.
+        • Schema: {"tmdb_id":"str|null","group_name":"str|null","season":int|null,"episode":int|null}
         """;
 
-    protected const int MaxToolRounds = 5;
+    protected const int MaxToolRounds = 8;
 
     private static readonly SemaphoreSlim RateLimitSemaphore = new(1, 1);
     private static DateTime _lastCallTime = DateTime.MinValue;
@@ -77,9 +65,8 @@ public abstract class InferenceEngineBase(
 
             if (result != null)
                 Logger.LogInformation(
-                    "[{Provider}] Inference succeeded for title: {Title} -> {AnimationName} (TMDB: {TmdbId}, S{Season}E{Episode})",
-                    ProviderName, title, result.AnimationName, result.TmdbId ?? "N/A",
-                    result.Season, result.Episode);
+                    "[{Provider}] Inference succeeded for title: {Title} -> TMDB: {TmdbId}, S{Season}E{Episode}",
+                    ProviderName, title, result.TmdbId ?? "N/A", result.Season, result.Episode);
             else
                 Logger.LogWarning("[{Provider}] Inference returned no result for title: {Title}", ProviderName, title);
             return result;
@@ -98,26 +85,31 @@ public abstract class InferenceEngineBase(
     protected abstract Task<InferenceResult?> InferCoreAsync(
         string title, string description, CancellationToken cancellationToken);
 
-    protected async Task<HttpResponseMessage> SendRequestAsync(
-        string endpoint, Action<HttpRequestMessage> configureRequest, JsonObject requestBody,
-        CancellationToken cancellationToken)
-    {
-        var httpClient = httpClientFactory.CreateClient("InferenceEngine");
-        using var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
-        configureRequest(request);
-        request.Content = new StringContent(requestBody.ToJsonString(), Encoding.UTF8, "application/json");
-        Logger.LogDebug("[{Provider}] Sending request to {Endpoint}", ProviderName, endpoint);
-        return await httpClient.SendAsync(request, cancellationToken);
-    }
-
     protected async Task<string> ExecuteToolCallAsync(
-        string? query, string fallbackTitle, CancellationToken cancellationToken)
+        string functionName, string argumentsJson, string fallbackTitle, CancellationToken cancellationToken)
     {
-        var actualQuery = query ?? fallbackTitle;
-        Logger.LogDebug("[{Provider}] Executing TMDB search with query: {Query}", ProviderName, actualQuery);
-        var result = await tmdbTool.SearchAsync(actualQuery, cancellationToken);
-        Logger.LogDebug("[{Provider}] TMDB search returned: {Result}", ProviderName, result);
-        return result;
+        if (functionName == "search_tmdb")
+        {
+            var args = JsonNode.Parse(argumentsJson);
+            var query = args?["query"]?.GetValue<string>() ?? fallbackTitle;
+            Logger.LogDebug("[{Provider}] Executing TMDB search with query: {Query}", ProviderName, query);
+            var result = await tmdbTool.SearchAsync(query, cancellationToken);
+            Logger.LogDebug("[{Provider}] TMDB search returned: {Result}", ProviderName, result);
+            return result;
+        }
+
+        if (functionName == "get_tmdb_seasons")
+        {
+            var args = JsonNode.Parse(argumentsJson);
+            var tmdbId = args?["tmdb_id"]?.GetValue<int>() ?? 0;
+            Logger.LogDebug("[{Provider}] Getting TMDB season info for ID: {TmdbId}", ProviderName, tmdbId);
+            var result = await tmdbTool.GetSeasonsAsync(tmdbId, cancellationToken);
+            Logger.LogDebug("[{Provider}] TMDB seasons returned: {Result}", ProviderName, result);
+            return result;
+        }
+
+        Logger.LogWarning("[{Provider}] Unknown tool call: {FunctionName}", ProviderName, functionName);
+        return "{}";
     }
 
     protected static InferenceResult? ParseInferenceResult(string? content)
@@ -125,6 +117,8 @@ public abstract class InferenceEngineBase(
         if (string.IsNullOrWhiteSpace(content)) return null;
 
         var jsonStr = content.Trim();
+
+        // Strip markdown code fences
         if (jsonStr.StartsWith("```"))
         {
             var firstNewline = jsonStr.IndexOf('\n');
@@ -133,28 +127,67 @@ public abstract class InferenceEngineBase(
             jsonStr = jsonStr.Trim();
         }
 
-        JsonNode? json;
-        try
+        // Try parsing the whole string as JSON first
+        var json = TryParseJson(jsonStr);
+
+        // If that fails, scan each line for a JSON object
+        if (json == null)
         {
-            json = JsonNode.Parse(jsonStr);
-        }
-        catch (System.Text.Json.JsonException)
-        {
-            return null;
+            foreach (var line in jsonStr.Split('\n'))
+            {
+                var trimmed = line.Trim();
+                if (trimmed.StartsWith('{') && trimmed.EndsWith('}'))
+                {
+                    json = TryParseJson(trimmed);
+                    if (json != null) break;
+                }
+            }
         }
 
         if (json == null) return null;
 
-        var animationName = json["animation_name"]?.GetValue<string>();
-        if (string.IsNullOrEmpty(animationName)) return null;
-
         return new InferenceResult(
-            AnimationName: animationName,
-            OriginalName: json["original_name"]?.GetValue<string>() ?? animationName,
-            Description: json["description"]?.GetValue<string>(),
             TmdbId: json["tmdb_id"]?.GetValue<string>(),
             GroupName: json["group_name"]?.GetValue<string>(),
             Season: json["season"]?.GetValue<int?>(),
             Episode: json["episode"]?.GetValue<int?>());
     }
+
+    private static JsonNode? TryParseJson(string str)
+    {
+        try
+        {
+            return JsonNode.Parse(str);
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return null;
+        }
+    }
+
+    protected const string SearchTmdbSchema = """
+        {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "The anime name to search for"
+                }
+            },
+            "required": ["query"]
+        }
+        """;
+
+    protected const string GetTmdbSeasonsSchema = """
+        {
+            "type": "object",
+            "properties": {
+                "tmdb_id": {
+                    "type": "integer",
+                    "description": "The TMDB TV show ID"
+                }
+            },
+            "required": ["tmdb_id"]
+        }
+        """;
 }

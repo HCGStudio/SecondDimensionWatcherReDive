@@ -18,8 +18,6 @@ public static class InferenceServiceExtensions
 
         var inferenceOptions = configuration.GetSection(InferenceOptions.SectionName).Get<InferenceOptions>();
 
-        services.AddHttpClient("InferenceEngine");
-
         // Register TMDB tool
         var tmdbApiKey = configuration["TmdbApiKey"];
         services.AddSingleton(_ => new TMDbClient(tmdbApiKey ?? string.Empty));

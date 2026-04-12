@@ -122,6 +122,7 @@ builder.Services.AddHostedService<CompleteDownload>();
 builder.Services.AddHostedService<FetchRemoteTorrent>();
 builder.Services.AddHostedService<UpdateDownloadStatus>();
 builder.Services.AddHostedService<SyncFeed>();
+builder.Services.AddHostedService<ScrapeSeasonBangumi>();
 
 //Add download and store
 builder.Services.AddScoped<IFileDownloadClient, RemoteTorrentDownloadClient>();

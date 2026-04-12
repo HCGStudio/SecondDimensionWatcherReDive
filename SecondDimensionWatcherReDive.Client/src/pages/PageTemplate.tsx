@@ -4,6 +4,7 @@ import {
   Home,
   LayoutGrid,
   List,
+  Settings,
   User,
 } from "lucide-react";
 import React from "react";
@@ -62,6 +63,7 @@ export const PageTemplate: React.FC<IPageTemplateProps> = ({ children }) => {
               <NavLink icon={<Download size={16} />} label="下载列表" path="/downloading" />
               <NavLink icon={<List size={16} />} label="已下载" path="/downloaded" />
               <NavLink icon={<LayoutGrid size={16} />} label="订阅管理" path="/feeds" />
+              <NavLink icon={<Settings size={16} />} label="后台任务" path="/tasks" />
             </div>
           </div>
           <div>

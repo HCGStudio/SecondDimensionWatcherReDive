@@ -4,6 +4,7 @@ import React from "react";
 import { useFeeds } from "../feed/hooks";
 import { addFeed, removeFeed } from "../feed/utils";
 import { IFeed } from "../feed/IFeed";
+import { SeasonDiscovery } from "../season/SeasonDiscovery";
 import { useToast } from "../components/ToastProvider";
 import { Button } from "../components/ui/Button";
 import { EmptyPrompt } from "../components/ui/EmptyPrompt";
@@ -79,6 +80,9 @@ export const FeedsPage: React.FC = () => {
 
   return (
     <PageTemplate>
+      <SeasonDiscovery />
+      <hr className="my-8 border-border-light" />
+      <h2 className="mb-4 font-serif text-xl font-medium text-foreground">手动订阅</h2>
       <div className="flex items-end gap-4">
         <FormRow label="订阅 URL" className="flex-1">
           <Input
