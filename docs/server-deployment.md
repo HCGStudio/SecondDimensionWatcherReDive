@@ -34,7 +34,18 @@ sudo pacman -S aspnet-runtime-10.0
 
 ## 安装
 
-从 [GitHub Releases](https://github.com/mahoshojoHCG/SecondDimensionWatcherReDive/releases) 下载对应架构和格式的包：
+### 快速安装（推荐）
+
+部署脚本会自动检测发行版和架构，下载并安装对应的包，引导配置：
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/HCGStudio/SecondDimensionWatcherReDive/main/deployments/setup.sh)
+# 选择 1) 系统包安装
+```
+
+### 手动安装
+
+从 [GitHub Releases](https://github.com/HCGStudio/SecondDimensionWatcherReDive/releases) 下载对应架构和格式的包：
 
 ```bash
 # Debian / Ubuntu

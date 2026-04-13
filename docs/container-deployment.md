@@ -39,27 +39,20 @@ podman machine init && podman machine start
 
 ### 2. 一键启动（推荐）
 
-快速启动脚本会自动下载 compose 模版、生成随机数据库密码和 JwtSecret、启动所有服务：
+通用部署脚本支持系统包安装、容器部署和 tar.gz 三种方式。运行后选择「容器部署」即可：
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/HCGStudio/SecondDimensionWatcherReDive/main/deployments/setup.sh)
 ```
 
-也可以指定部署目录：
+脚本会引导完成：
+- 选择部署方式（选 2 为容器部署）
+- 自动检测 `podman-compose` / `podman compose` / `docker compose`
+- 生成随机数据库密码和 JwtSecret
+- 交互式配置 AI 推断（可选）
+- 启动所有服务
 
-```bash
-curl -fsSL -o setup.sh https://raw.githubusercontent.com/HCGStudio/SecondDimensionWatcherReDive/main/deployments/setup.sh
-bash setup.sh ~/my-sdw
-```
-
-脚本会自动检测 `podman-compose`、`podman compose` 或 `docker compose`，优先使用 Podman。运行完成后会打印生成的密码，请妥善保存。
-
-脚本还会交互式引导配置 AI 元数据推断（可选）：
-- 选择 AI 提供商（OpenAI / Anthropic / OpenAI 兼容端点）
-- 输入 API Key 和模型名称
-- 输入 TMDB API Key（用于海报和季度信息）
-
-如果跳过 AI 配置，可稍后在 `podman-compose.yml` 中手动添加环境变量。
+运行完成后会打印生成的密码，请妥善保存。
 
 ### 2b. 手动配置（可选）
 

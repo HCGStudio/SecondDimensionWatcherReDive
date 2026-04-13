@@ -61,22 +61,18 @@ yarn dev    # Mock 服务器 + 开发服务器
 yarn start  # 仅前端开发服务器（代理到 localhost:5097）
 ```
 
-### Linux / FreeBSD 部署
-
-提供 deb / rpm / pacman 包（Linux）和 txz 归档（FreeBSD），支持 x64 和 aarch64 架构，含 systemd / rc.d 服务管理。
-
-详见 **[服务器部署指南](docs/server-deployment.md)**。
-
-### 容器部署（Podman / Docker）（推荐）
+### 一键部署
 
 ```bash
-# 一键部署（自动生成密码和 JwtSecret）
 bash <(curl -fsSL https://raw.githubusercontent.com/HCGStudio/SecondDimensionWatcherReDive/main/deployments/setup.sh)
 ```
 
-容器镜像自动发布到 `ghcr.io/hcgstudio/sdw-redive`，包含前后端，支持 amd64 / arm64。
+交互式引导，支持三种部署方式：
+- **系统包安装**（推荐）— 自动检测发行版，下载安装 deb/rpm/pacman 包
+- **容器部署** — Podman / Docker，含 qBittorrent 和 PostgreSQL
+- **通用 tar.gz** — 适用于任意 Linux 发行版
 
-详见 **[容器部署指南](docs/container-deployment.md)**。
+详见 **[服务器部署指南](docs/server-deployment.md)** | **[容器部署指南](docs/container-deployment.md)**
 
 ### 配置
 

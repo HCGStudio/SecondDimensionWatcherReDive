@@ -92,6 +92,12 @@ jobs:
           nfpm package --config packaging/nfpm.yaml --packager rpm --target "dist/sdw-redive-${VERSION}.${ARCH}.rpm"
           nfpm package --config packaging/nfpm.yaml --packager archlinux --target "dist/sdw-redive-${VERSION}-${ARCH}.pkg.tar.zst"
 
+      - name: Package as tar.gz
+        run: |
+          cp packaging/appsettings.yml publish/appsettings.yml
+          cp packaging/sdw-redive.service publish/sdw-redive.service
+          tar -czf "dist/sdw-redive_${VERSION}_linux-${{ matrix.arch }}.tar.gz" -C publish .
+
       - name: Upload packages
         uses: actions/upload-artifact@v4
         with:
