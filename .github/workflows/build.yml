@@ -3,6 +3,12 @@ name: Build & Release
 on:
   push:
     branches: [ "main" ]
+  workflow_dispatch:
+    inputs:
+      release_version:
+        description: 'Release version (leave empty for pre-release)'
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -58,7 +64,12 @@ jobs:
 
       - name: Compute version
         run: |
-          VERSION="${BASE_VERSION}.${{ github.run_number }}"
+          RELEASE_VERSION="${{ github.event.inputs.release_version }}"
+          if [ -n "$RELEASE_VERSION" ]; then
+            VERSION="$RELEASE_VERSION"
+          else
+            VERSION="${BASE_VERSION}.${{ github.run_number }}"
+          fi
           echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
           echo "RELEASE=${{ github.run_number }}" >> "$GITHUB_ENV"
 
@@ -126,7 +137,12 @@ jobs:
 
       - name: Compute version
         run: |
-          VERSION="${BASE_VERSION}.${{ github.run_number }}"
+          RELEASE_VERSION="${{ github.event.inputs.release_version }}"
+          if [ -n "$RELEASE_VERSION" ]; then
+            VERSION="$RELEASE_VERSION"
+          else
+            VERSION="${BASE_VERSION}.${{ github.run_number }}"
+          fi
           echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
 
       - name: Publish Backend
@@ -176,7 +192,12 @@ jobs:
 
       - name: Compute version
         run: |
-          VERSION="${BASE_VERSION}.${{ github.run_number }}"
+          RELEASE_VERSION="${{ github.event.inputs.release_version }}"
+          if [ -n "$RELEASE_VERSION" ]; then
+            VERSION="$RELEASE_VERSION"
+          else
+            VERSION="${BASE_VERSION}.${{ github.run_number }}"
+          fi
           echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
 
       - name: Publish Backend
@@ -220,7 +241,14 @@ jobs:
     steps:
       - name: Compute version
         run: |
-          VERSION="${BASE_VERSION}.${{ github.run_number }}"
+          RELEASE_VERSION="${{ github.event.inputs.release_version }}"
+          if [ -n "$RELEASE_VERSION" ]; then
+            VERSION="$RELEASE_VERSION"
+            echo "IS_RELEASE=true" >> "$GITHUB_ENV"
+          else
+            VERSION="${BASE_VERSION}.${{ github.run_number }}"
+            echo "IS_RELEASE=false" >> "$GITHUB_ENV"
+          fi
           echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
 
       - name: Download all artifacts
@@ -230,7 +258,19 @@ jobs:
           path: release/
           merge-multiple: true
 
+      - name: Create Release
+        if: env.IS_RELEASE == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.VERSION }}
+          name: Release ${{ env.VERSION }}
+          prerelease: false
+          make_latest: true
+          files: release/*
+          generate_release_notes: true
+
       - name: Create Pre-release
+        if: env.IS_RELEASE == 'false'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: pre-${{ env.VERSION }}
@@ -238,14 +278,3 @@ jobs:
           prerelease: true
           files: release/*
           generate_release_notes: true
-
-      - name: Update prerelease-latest
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: prerelease-latest
-          name: Latest Pre-release (${{ env.VERSION }})
-          prerelease: true
-          make_latest: false
-          files: release/*
-          body: |
-            Auto-updated to ${{ env.VERSION }}. For a specific version, see the versioned pre-release tags.

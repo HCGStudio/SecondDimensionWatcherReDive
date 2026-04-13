@@ -3,6 +3,12 @@ name: Container Build & Publish
 on:
   push:
     branches: [ "main" ]
+  workflow_dispatch:
+    inputs:
+      release_version:
+        description: 'Release version (leave empty for pre-release)'
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -20,10 +26,23 @@ jobs:
 
       - name: Compute image name and version
         run: |
-          VERSION="${BASE_VERSION}.${{ github.run_number }}"
+          RELEASE_VERSION="${{ github.event.inputs.release_version }}"
           IMAGE_NAME=$(echo "${{ github.repository_owner }}/sdw-redive" | tr '[:upper:]' '[:lower:]')
+
+          if [ -n "$RELEASE_VERSION" ]; then
+            VERSION="$RELEASE_VERSION"
+            TAG1="${REGISTRY}/${IMAGE_NAME}:${VERSION}"
+            TAG2="${REGISTRY}/${IMAGE_NAME}:latest"
+          else
+            VERSION="${BASE_VERSION}.${{ github.run_number }}"
+            TAG1="${REGISTRY}/${IMAGE_NAME}:pre-${VERSION}"
+            TAG2="${REGISTRY}/${IMAGE_NAME}:prerelease-latest"
+          fi
+
           echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
           echo "IMAGE_NAME=${IMAGE_NAME}" >> "$GITHUB_ENV"
+          echo "TAG1=${TAG1}" >> "$GITHUB_ENV"
+          echo "TAG2=${TAG2}" >> "$GITHUB_ENV"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -46,7 +65,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:pre-${{ env.VERSION }}
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:prerelease-latest
+            ${{ env.TAG1 }}
+            ${{ env.TAG2 }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

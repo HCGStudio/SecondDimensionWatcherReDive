@@ -1,0 +1,80 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: 'Version bump type'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  bump-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read current version
+        id: current
+        run: |
+          VERSION=$(grep -oP '(?<=<AssemblyVersion>)[^<]+' SecondDimensionWatcherReDive/SecondDimensionWatcherReDive.csproj)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Current version: $VERSION"
+
+      - name: Compute new version
+        id: new
+        run: |
+          IFS='.' read -r MAJOR MINOR PATCH <<< "${{ steps.current.outputs.version }}"
+          case "${{ inputs.bump }}" in
+            major) MAJOR=$((MAJOR+1)); MINOR=0; PATCH=0 ;;
+            minor) MINOR=$((MINOR+1)); PATCH=0 ;;
+            patch) PATCH=$((PATCH+1)) ;;
+          esac
+          NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
+          echo "version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+          echo "New version: $NEW_VERSION"
+
+      - name: Update version in project files
+        run: |
+          NEW_VERSION="${{ steps.new.outputs.version }}"
+
+          # .csproj
+          sed -i "s|<AssemblyVersion>.*</AssemblyVersion>|<AssemblyVersion>${NEW_VERSION}</AssemblyVersion>|" \
+            SecondDimensionWatcherReDive/SecondDimensionWatcherReDive.csproj
+          sed -i "s|<FileVersion>.*</FileVersion>|<FileVersion>${NEW_VERSION}</FileVersion>|" \
+            SecondDimensionWatcherReDive/SecondDimensionWatcherReDive.csproj
+
+          # Workflow files
+          sed -i "s|BASE_VERSION: \".*\"|BASE_VERSION: \"${NEW_VERSION}\"|" \
+            .github/workflows/build.yml
+          sed -i "s|BASE_VERSION: \".*\"|BASE_VERSION: \"${NEW_VERSION}\"|" \
+            .github/workflows/container.yml
+
+      - name: Commit version bump
+        run: |
+          NEW_VERSION="${{ steps.new.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "release: bump version to ${NEW_VERSION}"
+          git tag "v${NEW_VERSION}"
+          git push
+          git push origin "v${NEW_VERSION}"
+
+      - name: Trigger release builds
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          NEW_VERSION="${{ steps.new.outputs.version }}"
+          gh workflow run build.yml -f release_version="${NEW_VERSION}"
+          gh workflow run container.yml -f release_version="${NEW_VERSION}"
+          echo "Triggered build and container workflows for release ${NEW_VERSION}"
