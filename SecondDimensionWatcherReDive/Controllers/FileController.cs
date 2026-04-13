@@ -44,9 +44,25 @@ public class FileController : ControllerBase
             return NotFound();
 
         var fileStore = _fileStoreProvider.GetRequiredClient(info.FileStore);
-        var targetPath = Path.GetFullPath(string.IsNullOrWhiteSpace(payload.Path)
-            ? info.StorePath
-            : Path.Combine(info.StorePath, payload.Path));
+        var storePathInfo = await fileStore.FileInfo(info.StorePath);
+
+        string targetPath;
+        if (string.IsNullOrWhiteSpace(payload.Path))
+        {
+            // No relative path — use StorePath directly (works for both file and directory)
+            targetPath = Path.GetFullPath(info.StorePath);
+        }
+        else if (storePathInfo.IsDirectory)
+        {
+            // StorePath is a directory — combine with relative path
+            targetPath = Path.GetFullPath(Path.Combine(info.StorePath, payload.Path));
+        }
+        else
+        {
+            // StorePath is a file itself — ignore relative path, use the file directly
+            targetPath = Path.GetFullPath(info.StorePath);
+        }
+
         if (!await fileStore.Exist(targetPath))
             return NotFound();
 
