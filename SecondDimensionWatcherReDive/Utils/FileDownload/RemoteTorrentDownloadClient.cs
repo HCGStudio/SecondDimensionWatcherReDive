@@ -56,7 +56,7 @@ public class RemoteTorrentDownloadClient(
     {
         using var content =
             new FormUrlEncodedContent([new("hashes", additionalDownloadInfo)]);
-        using var response = await _httpClient.PostAsync("/api/v2/torrents/pause?", content);
+        using var response = await _httpClient.PostAsync("/api/v2/torrents/stop", content);
         return response.IsSuccessStatusCode;
     }
 
@@ -68,7 +68,7 @@ public class RemoteTorrentDownloadClient(
     {
         using var content =
             new FormUrlEncodedContent([new("hashes", additionalDownloadInfo)]);
-        using var response = await _httpClient.PostAsync("/api/v2/torrents/resume?", content);
+        using var response = await _httpClient.PostAsync("/api/v2/torrents/start", content);
         return response.IsSuccessStatusCode;
     }
 
@@ -85,7 +85,7 @@ public class RemoteTorrentDownloadClient(
             new("deleteFiles", deleteFiles)
         ]);
         using var response = await _httpClient.PostAsync(
-            $"/api/v2/torrents/delete?hashes={additionalDownloadInfo}&deleteFiles={deleteFiles}",
+            $"/api/v2/torrents/delete",
             content);
 
         return new(response.IsSuccessStatusCode, false);
