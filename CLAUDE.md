@@ -106,7 +106,7 @@ AI inference is decoupled from feed sync — runs offline as a background task (
 
 - `AnimationInfoController` (`/api/animationinfo`) — CRUD for animations, download/pause/resume/cancel, grouped listing by Animation, retry AI inference
 - `AuthController` (`/api/auth`) — register, login, refresh, verify
-- `FileController` (`/api/file`) — file listing, playback link generation, streaming
+- `FileController` (`/api/file`) — file listing, playback link generation (returns full absolute URL via `Url.ActionLink`), streaming
 - `FeedController` (`/api/feed`) — CRUD for RSS feed subscriptions
 - `SeasonController` (`/api/season`) — current season anime discovery from mikanani.me, subgroup browsing, one-click subscribe, supports browsing other seasons
 - `TasksController` (`/api/tasks`) — list background tasks with status, enqueue manual execution
@@ -136,18 +136,19 @@ JWT Bearer tokens with BCrypt password hashing. Refresh token flow via `AuthCont
 
 ### Frontend
 
-React 18 + TypeScript with Tailwind CSS for styling and Radix UI for accessible interactive primitives (Dialog, Toast, Progress). Uses SWR for data fetching, React Router v6 for routing, lucide-react for icons. Design system follows DESIGN.md (warm parchment canvas, serif headlines, terracotta accents).
+React 18 + TypeScript with Tailwind CSS for styling and Radix UI for accessible interactive primitives (Dialog, Toast, Progress). Uses SWR for data fetching, React Router v6 for routing, lucide-react for icons, Artplayer for video playback. Design system follows DESIGN.md (warm parchment canvas, serif headlines, terracotta accents).
 
 **Pages:**
 - Main (`/`) — Anime card grid grouped by TMDB ID, with poster images; uncategorized section for unmatched items
 - Anime Episodes (`/anime/:tmdbId`) — Episode list for a specific anime with poster header
 - Downloading (`/downloading`) — Items currently being downloaded
 - Downloaded (`/downloaded`) — Completed downloads with file browser
+- Player (`/play/:animationId?file=`) — Video player page using Artplayer with fullscreen, PiP, speed control, screenshot, aspect ratio, flip, mini progress bar, and settings. Includes URL scheme buttons to open in local players (VLC, PotPlayer, IINA, mpv, nPlayer). Navigated to from FileBrowser play action.
 - Feeds (`/feeds`) — Subscription management + season discovery
 - Tasks (`/tasks`) — Background task dashboard with manual trigger
 - Login (`/login`) — Login/register with form validation
 
-**Key components:** `AnimationInfo` (editorial row-style episode item with inline download controls, progress bar, AI retry button), `FileBrowser` (sheet/slide-over for browsing downloaded files), `SeasonDiscovery` (season anime browser with day-of-week grouping and season selector), `ProtectedRoute` (auth guard), `ToastProvider` (Radix Toast notifications).
+**Key components:** `AnimationInfo` (editorial row-style episode item with inline download controls, progress bar, AI retry button), `FileBrowser` (sheet/slide-over for browsing downloaded files; play action navigates to PlayerPage), `ExternalPlayerButtons` (URL scheme buttons for opening video in VLC, PotPlayer, IINA, mpv, nPlayer), `SeasonDiscovery` (season anime browser with day-of-week grouping and season selector), `ProtectedRoute` (auth guard), `ToastProvider` (Radix Toast notifications).
 **UI primitives:** `src/components/ui/` — Button, Card, EmptyPrompt, FormRow, Input, Pagination, PasswordInput, Progress, Sheet, Spinner, Table.
 
 ### Mock API Server

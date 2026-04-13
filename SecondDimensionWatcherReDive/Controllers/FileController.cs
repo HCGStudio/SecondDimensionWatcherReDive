@@ -68,7 +68,7 @@ public partial class FileController(
 
         var token = GenerateToken(64);
         memoryCache.Set(token, new FileStoreToken(targetPath, info.FileStore), TimeSpan.FromDays(1));
-        var url = HttpContext.Request.PathBase + $"file/play?token={token}";
+        var url = Url.ActionLink(nameof(GetFile), values: new { token })!;
         LogLinkGenerated(logger, payload.Id, url);
         return Ok(new FileLinkResultResponse(url));
     }

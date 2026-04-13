@@ -1,10 +1,9 @@
 import { CornerDownLeft, File, FolderOpen, Play } from "lucide-react";
 import React from "react";
+import { useNavigate } from "react-router-dom";
 
 import { useFileList } from "../file/hooks";
-import { generatePlaybackLink } from "../file/utils";
 import { IFileStoreListResult } from "../file/IFileStoreListResult";
-import { useToast } from "./ToastProvider";
 import { Button } from "./ui/Button";
 import { Spinner } from "./ui/Spinner";
 import { Table, type TableColumn } from "./ui/Table";
@@ -18,18 +17,15 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({ animationId }) => {
     undefined,
   );
   const { data: files, error } = useFileList(animationId, relativeDir);
-  const { addToast } = useToast();
+  const navigate = useNavigate();
 
   const onPlay = React.useCallback(
-    async (path?: string) => {
-      try {
-        const result = await generatePlaybackLink(animationId, path);
-        window.open(result.url, "_blank");
-      } catch {
-        addToast({ title: "生成播放链接失败", color: "danger" });
-      }
+    (path?: string) => {
+      const params = new URLSearchParams();
+      if (path) params.set("file", path);
+      navigate(`/play/${animationId}?${params.toString()}`);
     },
-    [animationId, addToast],
+    [animationId, navigate],
   );
 
   const onNavigate = React.useCallback((dir: string | null) => {

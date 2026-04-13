@@ -8,6 +8,7 @@ import { ErrorPage } from "./pages/ErrorPage";
 import { FeedsPage } from "./pages/FeedsPage";
 import { LoginPage } from "./pages/LoginPage";
 import { MainPage, EpisodeListPage } from "./pages/MainPage";
+import { PlayerPage } from "./pages/PlayerPage";
 import { TasksPage } from "./pages/TasksPage";
 
 const router = createBrowserRouter([
@@ -34,6 +35,11 @@ const router = createBrowserRouter([
   {
     path: "/downloaded",
     element: <ProtectedRoute><DownloadedPage /></ProtectedRoute>,
+    errorElement: <ErrorPage />,
+  },
+  {
+    path: "/play/:animationId",
+    element: <ProtectedRoute><PlayerPage /></ProtectedRoute>,
     errorElement: <ErrorPage />,
   },
   {

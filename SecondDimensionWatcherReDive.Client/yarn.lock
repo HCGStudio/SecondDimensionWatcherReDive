@@ -122,6 +122,7 @@ __metadata:
     "@trivago/prettier-plugin-sort-imports": "npm:^6.0.2"
     "@types/react": "npm:^18.3.3"
     "@types/react-dom": "npm:^18.3.0"
+    artplayer: "npm:^5.4.0"
     clsx: "npm:^2.1.1"
     dayjs: "npm:^1.11.20"
     http-proxy-middleware: "npm:^3.0.5"
@@ -2026,6 +2027,15 @@ __metadata:
   languageName: node
   linkType: hard
 
+"artplayer@npm:^5.4.0":
+  version: 5.4.0
+  resolution: "artplayer@npm:5.4.0"
+  dependencies:
+    option-validator: "npm:^2.0.6"
+  checksum: 10/0418dd59d31cfbe167d54b01c77033622b1e96634c28e0b4c53527aaad52a46de6e88acfb1330ca2d4785926aa3d623fd046726a9ef81c45c09b6a8b6cde7977
+  languageName: node
+  linkType: hard
+
 "balanced-match@npm:^1.0.0":
   version: 1.0.2
   resolution: "balanced-match@npm:1.0.2"
@@ -2690,6 +2700,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"kind-of@npm:^6.0.3":
+  version: 6.0.3
+  resolution: "kind-of@npm:6.0.3"
+  checksum: 10/5873d303fb36aad875b7538798867da2ae5c9e328d67194b0162a3659a627d22f742fc9c4ae95cd1704132a24b00cae5041fc00c0f6ef937dc17080dc4dbb962
+  languageName: node
+  linkType: hard
+
 "lightningcss-android-arm64@npm:1.32.0":
   version: 1.32.0
   resolution: "lightningcss-android-arm64@npm:1.32.0"
@@ -3208,6 +3225,15 @@ __metadata:
   version: 3.0.0
   resolution: "object-hash@npm:3.0.0"
   checksum: 10/f498d456a20512ba7be500cef4cf7b3c183cc72c65372a549c9a0e6dd78ce26f375e9b1315c07592d3fde8f10d5019986eba35970570d477ed9a2a702514432a
+  languageName: node
+  linkType: hard
+
+"option-validator@npm:^2.0.6":
+  version: 2.0.6
+  resolution: "option-validator@npm:2.0.6"
+  dependencies:
+    kind-of: "npm:^6.0.3"
+  checksum: 10/929c75096f764b1d03bbf1d6209f929caddb8dc43b6574ce255e8d04cf0a8241c94f8a1dd469882ad7bc9d74c4e7a6fb463cae91a9518e5129443486127652da
   languageName: node
   linkType: hard
 
