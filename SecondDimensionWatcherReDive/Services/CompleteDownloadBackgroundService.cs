@@ -70,6 +70,23 @@ public partial class CompleteDownloadBackgroundService(
                     StorePath: info.StorePath);
 
                 await fileRenamer.RenameAsync(context, cancellationToken);
+
+                // If StorePath is a single file (not a directory), update it to the new path after rename
+                if (info.Episode != null && !Directory.Exists(info.StorePath) && File.Exists(info.StorePath) is false)
+                {
+                    var dir = Path.GetDirectoryName(info.StorePath)!;
+                    var ext = Path.GetExtension(info.StorePath);
+                    var season = info.Season ?? 1;
+                    var newName = $"{SanitizeFileName(info.Animation.Name)} S{season:D2}E{info.Episode:D2}{ext}";
+                    var newPath = Path.Combine(dir, newName);
+
+                    if (File.Exists(newPath))
+                    {
+                        info.StorePath = newPath;
+                        await applicationContext.SaveChangesAsync(cancellationToken);
+                        LogStorePathUpdated(logger, request.ItemId, newPath);
+                    }
+                }
             }
             catch (Exception ex)
             {
@@ -78,9 +95,18 @@ public partial class CompleteDownloadBackgroundService(
         }
     }
 
+    private static string SanitizeFileName(string name)
+    {
+        var invalid = Path.GetInvalidFileNameChars();
+        return string.Concat(name.Select(c => invalid.Contains(c) ? '_' : c));
+    }
+
     [LoggerMessage(Level = LogLevel.Warning, Message = "OnFileDownloadCompleted event failed for {ItemId}")]
     private static partial void LogDownloadCompletedEventFailed(ILogger logger, Exception ex, Guid itemId);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "File rename failed for {ItemId}")]
     private static partial void LogFileRenameFailed(ILogger logger, Exception ex, Guid itemId);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Updated StorePath for {ItemId} after rename: {NewPath}")]
+    private static partial void LogStorePathUpdated(ILogger logger, Guid itemId, string newPath);
 }
