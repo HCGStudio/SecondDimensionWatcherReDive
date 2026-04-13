@@ -8,22 +8,14 @@ namespace SecondDimensionWatcherReDive.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
-public class TasksController(IServiceProvider serviceProvider) : ControllerBase
+public class TasksController(IEnumerable<IScheduledTask> scheduledTasks) : ControllerBase
 {
-    private List<IScheduledTask> GetScheduledTasks()
-    {
-        return serviceProvider.GetServices<IHostedService>()
-            .OfType<IScheduledTask>()
-            .ToList();
-    }
-
     [HttpGet]
     public ActionResult<List<TaskDto>> GetTasks()
     {
-        var tasks = GetScheduledTasks().Select(t => new TaskDto
+        var tasks = scheduledTasks.Select(t => new TaskDto
         {
-            Name = t.Name,
-            Description = t.Description,
+            Id = t.Id,
             Interval = t.Interval.ToString(),
             IsEnabled = t.IsEnabled,
             LastRunAt = t.LastRunAt,
@@ -33,26 +25,22 @@ public class TasksController(IServiceProvider serviceProvider) : ControllerBase
         return Ok(tasks);
     }
 
-    [HttpPost("{name}/run")]
-    public async Task<IActionResult> RunTask([FromRoute] string name)
+    [HttpPost("{id}/run")]
+    public IActionResult RunTask([FromRoute] string id)
     {
-        var task = GetScheduledTasks().FirstOrDefault(t =>
-            string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase));
+        var task = scheduledTasks.FirstOrDefault(t =>
+            string.Equals(t.Id, id, StringComparison.OrdinalIgnoreCase));
 
         if (task == null)
-            return NotFound(new { message = $"Task '{name}' not found" });
+            return NotFound(new { message = $"Task '{id}' not found" });
 
-        if (task.IsRunning)
-            return Conflict(new { message = $"Task '{name}' is already running" });
-
-        await task.RunNowAsync(HttpContext.RequestAborted);
-        return Ok(new { message = $"Task '{name}' completed" });
+        task.Enqueue();
+        return Accepted(new { message = $"Task '{id}' enqueued" });
     }
 
     public class TaskDto
     {
-        public string Name { get; set; } = "";
-        public string Description { get; set; } = "";
+        public string Id { get; set; } = "";
         public string Interval { get; set; } = "";
         public bool IsEnabled { get; set; }
         public DateTimeOffset? LastRunAt { get; set; }

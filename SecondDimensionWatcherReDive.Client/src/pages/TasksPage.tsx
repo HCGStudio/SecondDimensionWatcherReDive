@@ -7,6 +7,7 @@ import { EmptyPrompt } from "../components/ui/EmptyPrompt";
 import { Spinner } from "../components/ui/Spinner";
 import { Table, type TableColumn } from "../components/ui/Table";
 import { useTasks } from "../tasks/hooks";
+import { getTaskMetadata } from "../tasks/taskMetadata";
 import { runTask } from "../tasks/utils";
 import { ITask } from "../tasks/types";
 import { PageTemplate } from "./PageTemplate";
@@ -39,18 +40,24 @@ export const TasksPage: React.FC = () => {
   const [runningTasks, setRunningTasks] = React.useState<Set<string>>(new Set());
 
   const onRun = React.useCallback(
-    async (name: string) => {
-      setRunningTasks((prev) => new Set(prev).add(name));
+    async (id: string) => {
+      setRunningTasks((prev) => new Set(prev).add(id));
       try {
-        await runTask(name);
+        await runTask(id);
         await mutate();
-        addToast({ title: `任务「${name}」执行完成`, color: "success" });
+        addToast({
+          title: `任务「${getTaskMetadata(id).name}」执行完成`,
+          color: "success",
+        });
       } catch {
-        addToast({ title: `任务「${name}」执行失败`, color: "danger" });
+        addToast({
+          title: `任务「${getTaskMetadata(id).name}」执行失败`,
+          color: "danger",
+        });
       } finally {
         setRunningTasks((prev) => {
           const next = new Set(prev);
-          next.delete(name);
+          next.delete(id);
           return next;
         });
       }
@@ -60,12 +67,12 @@ export const TasksPage: React.FC = () => {
 
   const columns: TableColumn<ITask>[] = [
     {
-      field: "name",
       name: "任务名称",
+      render: (_value: any, item: ITask) => getTaskMetadata(item.id).name,
     },
     {
-      field: "description",
       name: "描述",
+      render: (_value: any, item: ITask) => getTaskMetadata(item.id).description,
     },
     {
       field: "interval",
@@ -81,7 +88,7 @@ export const TasksPage: React.FC = () => {
     {
       name: "状态",
       render: (_value: any, item: ITask) =>
-        item.isRunning || runningTasks.has(item.name) ? (
+        item.isRunning || runningTasks.has(item.id) ? (
           <span className="inline-flex items-center gap-1.5 text-sm text-brand">
             <Loader2 size={14} className="animate-spin" />
             运行中
@@ -97,8 +104,8 @@ export const TasksPage: React.FC = () => {
         <Button
           size="sm"
           variant="outline"
-          disabled={item.isRunning || runningTasks.has(item.name)}
-          onClick={() => onRun(item.name)}
+          disabled={item.isRunning || runningTasks.has(item.id)}
+          onClick={() => onRun(item.id)}
         >
           <Play size={14} />
           立即运行

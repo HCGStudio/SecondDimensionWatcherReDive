@@ -7,7 +7,7 @@ import { DownloadingPage } from "./pages/DownloadingPage";
 import { ErrorPage } from "./pages/ErrorPage";
 import { FeedsPage } from "./pages/FeedsPage";
 import { LoginPage } from "./pages/LoginPage";
-import { MainPage } from "./pages/MainPage";
+import { MainPage, EpisodeListPage } from "./pages/MainPage";
 import { TasksPage } from "./pages/TasksPage";
 
 const router = createBrowserRouter([
@@ -19,6 +19,11 @@ const router = createBrowserRouter([
   {
     path: "/main",
     element: <ProtectedRoute><MainPage /></ProtectedRoute>,
+    errorElement: <ErrorPage />,
+  },
+  {
+    path: "/anime/:tmdbId",
+    element: <ProtectedRoute><EpisodeListPage /></ProtectedRoute>,
     errorElement: <ErrorPage />,
   },
   {

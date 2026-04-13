@@ -9,13 +9,13 @@ using SecondDimensionWatcherReDive.Utils.FileDownload;
 
 namespace SecondDimensionWatcherReDive.Services;
 
-public class FetchRemoteTorrent(
+public class FetchRemoteTorrentBackgroundService(
     Channel<RemoteTorrentTrackRequest> remoteTorrentTrackRequest,
     IHttpClientFactory httpClientFactory,
     Channel<DownloadCompleteRequest> downloadCompleteRequest,
     Channel<FileDownloadStatus> fileDownloadStatus,
     IServiceScopeFactory scopeFactory,
-    ILogger<FetchRemoteTorrent> logger)
+    ILogger<FetchRemoteTorrentBackgroundService> logger)
     : BackgroundService
 {
     private readonly HttpClient _httpClient = httpClientFactory.CreateClient(nameof(RemoteTorrentDownloadClient));

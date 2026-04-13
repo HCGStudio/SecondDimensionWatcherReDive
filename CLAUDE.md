@@ -2,13 +2,17 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Important Rules
+
+- **NEVER use `npm` or `npx`**. This project uses Yarn Berry (PnP). Always use `yarn` for all frontend commands.
+
 ## Build & Development Commands
 
 ```bash
 # Backend
-dotnet build SecondDimensionWatcherReDive.sln    # Build entire solution
-dotnet run --project SecondDimensionWatcherReDive # Run backend (http://localhost:5097)
-dotnet test                                       # Run all tests
+dotnet build SecondDimensionWatcherReDive.slnx                                # Build entire solution
+dotnet run --project SecondDimensionWatcherReDive                             # Run backend (http://localhost:5097)
+dotnet test SecondDimensionWatcherReDive.slnx                                 # Run all tests
 
 # Frontend (in SecondDimensionWatcherReDive.Client/)
 yarn install        # Install dependencies (Yarn 4.2.2 Berry with PnP)
@@ -43,10 +47,10 @@ The system uses **System.Threading.Channels** for async inter-service communicat
 
 1. User triggers download via `AnimationInfoController`
 2. `RemoteTorrentDownloadClient` submits torrent to qBittorrent API, writes to `RemoteTorrentTrackRequest` channel
-3. `FetchRemoteTorrent` background service polls qBittorrent status, writes to `FileDownloadStatus` channel
-4. `UpdateDownloadStatus` service updates an in-memory cache with progress (finished items expire after 5 min)
-5. On completion, `DownloadCompleteRequest` channel triggers `CompleteDownload` service to update the DB
-6. `CompleteDownload` fires `OnFileDownloadCompleted` plugin event, then runs `VideoFileRenamer`
+3. `FetchRemoteTorrentBackgroundService` polls qBittorrent status, writes to `FileDownloadStatus` channel
+4. `UpdateDownloadStatusBackgroundService` updates an in-memory cache with progress (finished items expire after 5 min)
+5. On completion, `DownloadCompleteRequest` channel triggers `CompleteDownloadBackgroundService` to update the DB
+6. `CompleteDownloadBackgroundService` fires `OnFileDownloadCompleted` plugin event, then runs `VideoFileRenamer`
 
 ### Provider/Strategy Pattern
 
@@ -59,22 +63,27 @@ Download clients and file stores use a provider pattern:
 
 Framework defines `IPlugin`/`PluginBase` with event hooks:
 - `BeforeDownloadStarted` — triggered in `FileDownloadClientProxy` before download submission
-- `OnFileDownloadCompleted` — triggered in `CompleteDownload` after DB commit
+- `OnFileDownloadCompleted` — triggered in `CompleteDownloadBackgroundService` after DB commit
 
 Event infrastructure (`PluginEvent<T>`) is fully working. Plugin discovery/loading is not yet implemented. `IJavaScriptPluginLoader` (ClearScript) is scaffolded but unimplemented.
 
 ### Background Services & Scheduled Tasks
 
-Timer-based services implement `IScheduledTask` (Framework/Tasks/) for unified monitoring and manual triggering via the Tasks API:
+Scheduled tasks extend `ScheduledTaskBase` (Framework/Tasks/) which provides lock-free serial execution via `Channel<TaskCompletionSource>`. Each task is paired 1:1 with a generic `ScheduledTaskBackgroundService<TTask>` that drives its timer loop and queue processing. Tasks expose `IScheduledTask` for controller discovery.
 
+- `IScheduledTask` — interface with `Id`, `Interval`, `IsEnabled`, `LastRunAt`, `IsRunning`, `RunNowAsync`, `Enqueue`
+- `ScheduledTaskBase` — abstract base with Channel-based lock-free queuing (multiple `RunNowAsync`/`Enqueue` calls serialize without locks)
+- `ScheduledTaskBackgroundService<TTask>` — generic BackgroundService that hosts a single ScheduledTaskBase, runs `ProcessQueueAsync` + timer loop
+
+Registered scheduled tasks:
 - **SyncFeed** — Syncs RSS feed subscriptions every 10 minutes
 - **InferAnimationMetadata** — Runs offline AI inference on unprocessed AnimationInfo records every 30 minutes
 - **ScrapeSeasonBangumi** — Scrapes mikanani.me for current season anime list every 7 days
 
-Channel-driven event processors (always running):
-- **FetchRemoteTorrent** — Polls qBittorrent every 500ms for download status
-- **UpdateDownloadStatus** — Caches download progress in memory
-- **CompleteDownload** — Finalizes downloads, triggers plugins and file renaming
+Channel-driven event processors (always running, end with BackgroundService suffix):
+- **FetchRemoteTorrentBackgroundService** — Polls qBittorrent every 500ms for download status
+- **UpdateDownloadStatusBackgroundService** — Caches download progress in memory
+- **CompleteDownloadBackgroundService** — Finalizes downloads, triggers plugins and file renaming
 
 ### AI Inference Pipeline
 
@@ -82,10 +91,11 @@ AI inference is decoupled from feed sync — runs offline as a background task (
 
 **Flow:**
 1. `SyncFeed` creates raw `AnimationInfo` records (no AI metadata)
-2. `InferAnimationMetadata` picks up records where `IsAiProcessed == false`
+2. `InferAnimationMetadata` picks up records where `IsAiProcessed == false` and `AiRetryCount < 3`
 3. AI extracts: `tmdb_id`, `group_name`, `season`, `episode` (TMDB-normalized)
-4. Name, original name, and description are fetched directly from TMDB API in the server's locale (`CultureInfo.CurrentCulture`)
+4. Name, original name, description, and poster path are fetched from TMDB API in the server's locale
 5. Records are updated with metadata; `IsAiProcessed = true`
+6. Failed items increment `AiRetryCount`; users can reset via `POST /api/animationinfo/{id}/retry-inference`
 
 **Engine architecture:**
 - `InferenceEngineBase` — common rate limiting (`SemaphoreSlim` + configurable delay), system prompt, tool dispatch, JSON parsing
@@ -96,12 +106,12 @@ AI inference is decoupled from feed sync — runs offline as a background task (
 
 ### Controllers
 
-- `AnimationInfoController` (`/api/animationinfo`) — CRUD for animations, download/pause/resume/cancel
+- `AnimationInfoController` (`/api/animationinfo`) — CRUD for animations, download/pause/resume/cancel, grouped listing by Animation, retry AI inference
 - `AuthController` (`/api/auth`) — register, login, refresh, verify
 - `FileController` (`/api/file`) — file listing, playback link generation, streaming
 - `FeedController` (`/api/feed`) — CRUD for RSS feed subscriptions
 - `SeasonController` (`/api/season`) — current season anime discovery from mikanani.me, subgroup browsing, one-click subscribe, supports browsing other seasons
-- `TasksController` (`/api/tasks`) — list background tasks with status, manual trigger execution
+- `TasksController` (`/api/tasks`) — list background tasks with status, enqueue manual execution
 
 ### Feed Management
 
@@ -124,21 +134,29 @@ In development, the main project proxies non-`/api` requests to the Parcel dev s
 
 ### Authentication
 
-JWT Bearer tokens with BCrypt password hashing. Refresh token flow via `AuthController`. All API endpoints require authentication. Frontend uses `ProtectedRoute` component to redirect unauthenticated users to `/login`.
+JWT Bearer tokens with BCrypt password hashing. Refresh token flow via `AuthController`. All API endpoints require authentication. Frontend uses `ProtectedRoute` component to redirect unauthenticated users to `/login`. The HTTP client (`httpClient.ts`) handles automatic token refresh with deduplication on 401 responses, and throws on non-OK responses so SWR error boundaries work correctly.
 
 ### Frontend
 
 React 18 + TypeScript with Tailwind CSS for styling and Radix UI for accessible interactive primitives (Dialog, Toast, Progress). Uses SWR for data fetching, React Router v6 for routing, lucide-react for icons. Design system follows DESIGN.md (warm parchment canvas, serif headlines, terracotta accents).
 
-**Pages:** Main (all animations), Downloading, Downloaded, Feeds (subscription + season discovery), Tasks (background task dashboard), Login.
-**Key components:** `FileBrowser` (sheet/slide-over for browsing downloaded files), `SeasonDiscovery` (season anime browser with day-of-week grouping and season selector), `ProtectedRoute` (auth guard), `ToastProvider` (Radix Toast notifications).
+**Pages:**
+- Main (`/`) — Anime card grid grouped by TMDB ID, with poster images; uncategorized section for unmatched items
+- Anime Episodes (`/anime/:tmdbId`) — Episode list for a specific anime with poster header
+- Downloading (`/downloading`) — Items currently being downloaded
+- Downloaded (`/downloaded`) — Completed downloads with file browser
+- Feeds (`/feeds`) — Subscription management + season discovery
+- Tasks (`/tasks`) — Background task dashboard with manual trigger
+- Login (`/login`) — Login/register with form validation
+
+**Key components:** `AnimationInfo` (editorial row-style episode item with inline download controls, progress bar, AI retry button), `FileBrowser` (sheet/slide-over for browsing downloaded files), `SeasonDiscovery` (season anime browser with day-of-week grouping and season selector), `ProtectedRoute` (auth guard), `ToastProvider` (Radix Toast notifications).
 **UI primitives:** `src/components/ui/` — Button, Card, EmptyPrompt, FormRow, Input, Pagination, PasswordInput, Progress, Sheet, Spinner, Table.
 
 ### Mock API Server
 
 `mock-server.mjs` provides a zero-dependency mock backend for frontend development without the .NET backend, PostgreSQL, or qBittorrent. Run with `yarn dev` (starts both mock + dev server) or `yarn mock` (mock only, then `yarn start` separately).
 
-Features: 25 anime entries with mixed states, simulated download progress, auth flow (any password), feed CRUD, season bangumi browsing, background task listing, mock file browser. Listens on port 5097 (matching the Parcel proxy target).
+Features: 25 anime entries with TMDB poster paths and mixed download states, grouped animations endpoint, simulated download progress, auth flow (any password), feed CRUD, season bangumi browsing, background task listing with enqueue, AI retry inference, mock file browser. Listens on port 5097 (matching the Parcel proxy target).
 
 ## Key Configuration (appsettings.json)
 
@@ -147,7 +165,7 @@ Features: 25 anime entries with mixed states, simulated download progress, auth 
 - `Torrent:Remote:Url` — qBittorrent API endpoint
 - `FileStore:Local` — Download directory path
 - `MikananiFeeds` — RSS feed URL array (static feeds)
-- `TmdbApiKey` — TMDB API key (used for AI inference metadata and season info)
+- `TmdbApiKey` — TMDB API key (used for AI inference metadata, poster images, and season info)
 - `Inference:ApiKey` — AI inference API key (optional; enables metadata extraction)
 - `Inference:Provider` — "OpenAI" or "Anthropic"
 - `Inference:BaseUrl` — Custom API endpoint (supports OpenAI-compatible proxies)

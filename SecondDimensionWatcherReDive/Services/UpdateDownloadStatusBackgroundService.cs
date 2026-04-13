@@ -4,12 +4,12 @@ using SecondDimensionWatcherReDive.Data;
 
 namespace SecondDimensionWatcherReDive.Services;
 
-public class UpdateDownloadStatus : BackgroundService
+public class UpdateDownloadStatusBackgroundService : BackgroundService
 {
     private readonly Channel<FileDownloadStatus> _fileDownloadStatus;
     private readonly IMemoryCache _memoryCache;
 
-    public UpdateDownloadStatus(Channel<FileDownloadStatus> fileDownloadStatus, IMemoryCache memoryCache)
+    public UpdateDownloadStatusBackgroundService(Channel<FileDownloadStatus> fileDownloadStatus, IMemoryCache memoryCache)
     {
         _fileDownloadStatus = fileDownloadStatus;
         _memoryCache = memoryCache;

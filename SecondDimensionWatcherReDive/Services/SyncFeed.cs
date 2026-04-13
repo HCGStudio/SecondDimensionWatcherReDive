@@ -18,18 +18,18 @@ public class SyncFeed(
     ILogger<SyncFeed> logger,
     IHttpClientFactory httpClientFactory,
     IServiceScopeFactory scopeFactory)
-    : BackgroundService, IScheduledTask
+    : ScheduledTaskBase
 {
     private readonly HttpClient _httpClient = httpClientFactory.CreateClient("Feed");
-    private volatile bool _isRunning;
-    private DateTimeOffset? _lastRunAt;
 
-    public string Name => "SyncFeed";
-    public string Description => "同步 RSS 订阅";
-    public TimeSpan Interval => TimeSpan.FromMinutes(10);
-    public bool IsEnabled => true;
-    public DateTimeOffset? LastRunAt => _lastRunAt;
-    public bool IsRunning => _isRunning;
+    public override string Id => "SyncFeed";
+    public override TimeSpan Interval => TimeSpan.FromMinutes(10);
+
+    protected override async Task ExecuteTaskAsync(CancellationToken cancellationToken)
+    {
+        var feeds = serviceProvider.GetServices<IFeedService>();
+        await Task.WhenAll(feeds.Select(f => ProcessFeed(f, cancellationToken)));
+    }
 
     private async Task<(byte[], string)> DownloadTorrentData(
         AnimationAddRequest request,
@@ -94,29 +94,5 @@ public class SyncFeed(
     {
         var requests = await feedService.Sync(cancellationToken);
         await Task.WhenAll(requests.Select(r => ProcessSingle(r, cancellationToken)));
-    }
-
-    protected override async Task ExecuteAsync(CancellationToken cancellationToken)
-    {
-        while (!cancellationToken.IsCancellationRequested)
-        {
-            await RunNowAsync(cancellationToken);
-            await Task.Delay(Interval, cancellationToken);
-        }
-    }
-
-    public async Task RunNowAsync(CancellationToken cancellationToken)
-    {
-        _isRunning = true;
-        try
-        {
-            var feeds = serviceProvider.GetServices<IFeedService>();
-            await Task.WhenAll(feeds.Select(f => ProcessFeed(f, cancellationToken)));
-            _lastRunAt = DateTimeOffset.UtcNow;
-        }
-        finally
-        {
-            _isRunning = false;
-        }
     }
 }

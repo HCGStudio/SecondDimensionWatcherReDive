@@ -8,10 +8,10 @@ using SecondDimensionWatcherReDive.Plugin;
 
 namespace SecondDimensionWatcherReDive.Services;
 
-public class CompleteDownload(
+public class CompleteDownloadBackgroundService(
     Channel<DownloadCompleteRequest> downloadCompleteRequest,
     IServiceScopeFactory scopeFactory,
-    ILogger<CompleteDownload> logger)
+    ILogger<CompleteDownloadBackgroundService> logger)
     : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken cancellationToken)
@@ -29,17 +29,12 @@ public class CompleteDownload(
         await using var scope = scopeFactory.CreateAsyncScope();
         await using var applicationContext = scope.ServiceProvider.GetRequiredService<ApplicationContext>();
 
-        await using var transaction = await applicationContext.Database.BeginTransactionAsync(cancellationToken);
-
         var info = await applicationContext.AnimationInfo
             .Include(a => a.Animation)
             .FirstOrDefaultAsync(a => a.Id == request.ItemId, cancellationToken);
 
         if (info is null)
-        {
-            await transaction.RollbackAsync(cancellationToken);
             return;
-        }
 
         info.IsDownloadFinished = true;
         info.DownloadEndTime = DateTimeOffset.Now;
@@ -47,7 +42,6 @@ public class CompleteDownload(
         info.StorePath = request.StorePath;
 
         await applicationContext.SaveChangesAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
 
         // Fire plugin event
         try

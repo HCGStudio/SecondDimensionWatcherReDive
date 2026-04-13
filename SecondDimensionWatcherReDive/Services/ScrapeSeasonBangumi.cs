@@ -6,52 +6,26 @@ using SecondDimensionWatcherReDive.Utils.Scraper;
 namespace SecondDimensionWatcherReDive.Services;
 
 /// <summary>
-///     Background service that scrapes the mikanani.me homepage for current season anime
-///     and caches the results in the database. Runs on startup, then every 7 days.
+///     Scheduled task that scrapes the mikanani.me homepage for current season anime
+///     and caches the results in the database.
 /// </summary>
 public class ScrapeSeasonBangumi(
     IServiceScopeFactory scopeFactory,
     IHttpClientFactory httpClientFactory,
     ILogger<ScrapeSeasonBangumi> logger)
-    : BackgroundService, IScheduledTask
+    : ScheduledTaskBase
 {
     private readonly HttpClient _httpClient = httpClientFactory.CreateClient("Feed");
-    private volatile bool _isRunning;
-    private DateTimeOffset? _lastRunAt;
 
-    public string Name => "ScrapeSeasonBangumi";
-    public string Description => "更新当季番组列表";
-    public TimeSpan Interval => TimeSpan.FromDays(7);
-    public bool IsEnabled => true;
-    public DateTimeOffset? LastRunAt => _lastRunAt;
-    public bool IsRunning => _isRunning;
+    public override string Id => "ScrapeSeasonBangumi";
+    public override TimeSpan Interval => TimeSpan.FromDays(7);
 
-    protected override async Task ExecuteAsync(CancellationToken cancellationToken)
+    protected override Task ExecuteTaskAsync(CancellationToken cancellationToken)
     {
-        await RunNowAsync(cancellationToken);
-
-        while (!cancellationToken.IsCancellationRequested)
-        {
-            await Task.Delay(Interval, cancellationToken);
-            await RunNowAsync(cancellationToken);
-        }
+        return ScrapeHomepage(cancellationToken);
     }
 
-    public async Task RunNowAsync(CancellationToken cancellationToken)
-    {
-        _isRunning = true;
-        try
-        {
-            await ScrapeHomepage(cancellationToken);
-            _lastRunAt = DateTimeOffset.UtcNow;
-        }
-        finally
-        {
-            _isRunning = false;
-        }
-    }
-
-    public async Task ScrapeHomepage(CancellationToken cancellationToken)
+    private async Task ScrapeHomepage(CancellationToken cancellationToken)
     {
         try
         {

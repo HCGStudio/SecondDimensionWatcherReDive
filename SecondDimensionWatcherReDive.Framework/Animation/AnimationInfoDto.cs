@@ -12,4 +12,5 @@ public class AnimationInfoDto
     public int? Episode { get; set; }
     public AnimationGroupDto? Group { get; set; }
     public AnimationDto? Animation { get; set; }
+    public bool IsAiProcessed { get; set; }
 }

@@ -1,0 +1,61 @@
+name: Build & Release
+
+on:
+  push:
+    branches: [ "main" ]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '10.0.x'
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+
+    - name: Enable Corepack
+      run: corepack enable
+
+    - name: Build Frontend
+      working-directory: SecondDimensionWatcherReDive.Client
+      run: |
+        yarn install --immutable
+        yarn build
+
+    - name: Copy Frontend to wwwroot
+      run: |
+        mkdir -p SecondDimensionWatcherReDive/wwwroot
+        cp -r SecondDimensionWatcherReDive.Client/dist/* SecondDimensionWatcherReDive/wwwroot/
+
+    - name: Publish Backend
+      run: |
+        dotnet publish SecondDimensionWatcherReDive/SecondDimensionWatcherReDive.csproj \
+          -c Release \
+          -o publish
+
+    - name: Package as tar.gz
+      run: |
+        SHORT_SHA=$(git rev-parse --short HEAD)
+        tar -czf "SecondDimensionWatcherReDive-${SHORT_SHA}.tar.gz" -C publish .
+        echo "ARTIFACT_NAME=SecondDimensionWatcherReDive-${SHORT_SHA}.tar.gz" >> "$GITHUB_ENV"
+        echo "SHORT_SHA=${SHORT_SHA}" >> "$GITHUB_ENV"
+
+    - name: Create Pre-release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: pre-${{ env.SHORT_SHA }}
+        name: Pre-release ${{ env.SHORT_SHA }}
+        prerelease: true
+        files: ${{ env.ARTIFACT_NAME }}
+        generate_release_notes: true

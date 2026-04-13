@@ -9,4 +9,6 @@ public class Animation
     public string Name { get; set; } = string.Empty;
 
     public string OriginalName { get; set; } = string.Empty;
+
+    public string? PosterPath { get; set; }
 }

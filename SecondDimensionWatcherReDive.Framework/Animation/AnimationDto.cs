@@ -6,4 +6,6 @@ public class AnimationDto
     public string OriginalName { get; set; } = string.Empty;
 
     public string TmdbId { get; set; } = string.Empty;
+
+    public string? PosterPath { get; set; }
 }

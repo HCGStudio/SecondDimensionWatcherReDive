@@ -1,6 +1,7 @@
 import useSWR from "swr";
 
 import fetcher from "../auth/httpClient";
+import { IAnimationGroupedResponse } from "./IAnimationGrouped";
 import { IAnimationInfo } from "./IAnimationInfo";
 import { IFileDownloadStatus } from "./IFileDownloadStatus";
 import { IResponseArrayData } from "./IResponseArrayData";
@@ -11,6 +12,11 @@ export const useAnimationInfo = (skip: number, take: number) =>
     fetcher,
     { refreshInterval: 5000 },
   );
+
+export const useGroupedAnimations = () =>
+  useSWR<IAnimationGroupedResponse>("/api/animationinfo/grouped", fetcher, {
+    refreshInterval: 5000,
+  });
 
 export const useDownloadingAnimations = (skip: number, take: number) =>
   useSWR<IResponseArrayData<IAnimationInfo>>(

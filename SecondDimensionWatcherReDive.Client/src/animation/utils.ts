@@ -18,3 +18,9 @@ export const cancelDownload = async (id: string, removeFile = false) => {
     { method: "DELETE" },
   );
 };
+
+export const retryInference = async (id: string) => {
+  return await fetcher(`/api/animationinfo/${id}/retry-inference`, {
+    method: "POST",
+  });
+};

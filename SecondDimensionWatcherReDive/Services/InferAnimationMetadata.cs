@@ -7,55 +7,23 @@ using SecondDimensionWatcherReDive.Models;
 namespace SecondDimensionWatcherReDive.Services;
 
 /// <summary>
-///     Background service that performs offline AI inference on AnimationInfo records
+///     Scheduled task that performs offline AI inference on AnimationInfo records
 ///     that have not yet been processed.
 /// </summary>
 public class InferAnimationMetadata(
     IServiceScopeFactory scopeFactory,
     TmdbTool tmdbTool,
     ILogger<InferAnimationMetadata> logger)
-    : BackgroundService, IScheduledTask
+    : ScheduledTaskBase
 {
     private const int MaxRetryCount = 3;
-    private volatile bool _isRunning;
-    private DateTimeOffset? _lastRunAt;
 
-    public string Name => "InferAnimationMetadata";
-    public string Description => "AI 元数据推断";
-    public TimeSpan Interval => TimeSpan.FromMinutes(30);
-    public bool IsEnabled => true;
-    public DateTimeOffset? LastRunAt => _lastRunAt;
-    public bool IsRunning => _isRunning;
+    public override string Id => "InferAnimationMetadata";
+    public override TimeSpan Interval => TimeSpan.FromMinutes(30);
 
-    protected override async Task ExecuteAsync(CancellationToken cancellationToken)
+    protected override Task ExecuteTaskAsync(CancellationToken cancellationToken)
     {
-        while (!cancellationToken.IsCancellationRequested)
-        {
-            try
-            {
-                await RunNowAsync(cancellationToken);
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                logger.LogError(ex, "Unexpected error in InferAnimationMetadata loop");
-            }
-
-            await Task.Delay(Interval, cancellationToken);
-        }
-    }
-
-    public async Task RunNowAsync(CancellationToken cancellationToken)
-    {
-        _isRunning = true;
-        try
-        {
-            await ProcessPendingItems(cancellationToken);
-            _lastRunAt = DateTimeOffset.UtcNow;
-        }
-        finally
-        {
-            _isRunning = false;
-        }
+        return ProcessPendingItems(cancellationToken);
     }
 
     private async Task ProcessPendingItems(CancellationToken cancellationToken)
@@ -113,7 +81,8 @@ public class InferAnimationMetadata(
                         {
                             TmdbId = result.TmdbId,
                             Name = details?.Name ?? result.TmdbId,
-                            OriginalName = details?.OriginalName ?? ""
+                            OriginalName = details?.OriginalName ?? "",
+                            PosterPath = details?.PosterPath
                         };
                         await applicationContext.Animations.AddAsync(animation, cancellationToken);
                     }

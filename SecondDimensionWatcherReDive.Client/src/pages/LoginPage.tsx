@@ -1,5 +1,6 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
+import { mutate } from "swr";
 
 import { useAllowRegister, useLoginStatus } from "../auth/hooks";
 import { setAuthResult } from "../auth/httpClient";
@@ -14,51 +15,78 @@ export const LoginPage: React.FC = () => {
   const { data: status } = useLoginStatus();
   const [password, setPassword] = React.useState("");
   const [passwordConfirm, setPasswordConfirm] = React.useState("");
-  const [loginResult, setLoginResult] = React.useState(false);
-  const navgiate = useNavigate();
+  const [loginFailed, setLoginFailed] = React.useState(false);
+  const [registerFailed, setRegisterFailed] = React.useState(false);
+  const [isSubmitting, setIsSubmitting] = React.useState(false);
+  const navigate = useNavigate();
 
   const onPasswordChange: React.ChangeEventHandler<HTMLInputElement> = (ev) => {
     setPassword(ev.target.value);
+    setLoginFailed(false);
   };
   const onPasswordConfirmChange: React.ChangeEventHandler<HTMLInputElement> = (
     ev,
   ) => {
     setPasswordConfirm(ev.target.value);
   };
-  const onRegister = React.useCallback(() => {
-    if (password !== passwordConfirm) return;
-    register(password).then((r) => {
-      if (r?.success) {
-        setAuthResult(r);
-        navgiate("/");
-      }
-    });
-  }, [password, passwordConfirm, navgiate]);
 
-  const onLogin = React.useCallback(() => {
-    login(password)
-      .then((r) => {
+  const onRegister = React.useCallback(
+    async (e?: React.FormEvent) => {
+      e?.preventDefault();
+      if (password !== passwordConfirm || isSubmitting) return;
+      setIsSubmitting(true);
+      setRegisterFailed(false);
+      try {
+        const r = await register(password);
         if (r?.success) {
           setAuthResult(r);
-          navgiate("/");
+          await mutate("/api/auth/verify", true, { revalidate: false });
+          navigate("/");
         } else {
-          setLoginResult(true);
+          setRegisterFailed(true);
         }
-      })
-      .catch(() => {
-        setLoginResult(true);
-      });
-  }, [password, navgiate]);
+      } catch {
+        setRegisterFailed(true);
+      } finally {
+        setIsSubmitting(false);
+      }
+    },
+    [password, passwordConfirm, isSubmitting, navigate],
+  );
+
+  const onLogin = React.useCallback(
+    async (e?: React.FormEvent) => {
+      e?.preventDefault();
+      if (isSubmitting) return;
+      setIsSubmitting(true);
+      setLoginFailed(false);
+      try {
+        const r = await login(password);
+        if (r?.success) {
+          setAuthResult(r);
+          await mutate("/api/auth/verify", true, { revalidate: false });
+          navigate("/");
+        } else {
+          setLoginFailed(true);
+        }
+      } catch {
+        setLoginFailed(true);
+      } finally {
+        setIsSubmitting(false);
+      }
+    },
+    [password, isSubmitting, navigate],
+  );
 
   React.useEffect(() => {
-    if (status) navgiate("/");
-  }, [navgiate, status]);
+    if (status) navigate("/");
+  }, [navigate, status]);
 
   return (
     <PageTemplate>
       <div className="mx-auto max-w-md">
         {status ? null : registerInfo?.allow ? (
-          <>
+          <form onSubmit={onRegister}>
             <h2 className="font-serif text-2xl font-medium leading-heading">
               请设置密码
             </h2>
@@ -75,40 +103,63 @@ export const LoginPage: React.FC = () => {
               </FormRow>
               <FormRow
                 label="重复密码"
-                isInvalid={password !== passwordConfirm}
-                error={["两次密码输入不一致"]}
+                isInvalid={
+                  (password !== passwordConfirm && passwordConfirm.length > 0) ||
+                  registerFailed
+                }
+                error={[
+                  registerFailed
+                    ? "注册失败，请重试"
+                    : "两次密码输入不一致",
+                ]}
               >
                 <PasswordInput
                   placeholder="重复密码"
                   value={passwordConfirm}
                   onChange={onPasswordConfirmChange}
-                  isInvalid={password !== passwordConfirm}
+                  isInvalid={
+                    password !== passwordConfirm && passwordConfirm.length > 0
+                  }
                 />
               </FormRow>
-              <Button onClick={onRegister}>注册</Button>
+              <Button
+                type="submit"
+                disabled={
+                  isSubmitting ||
+                  password !== passwordConfirm ||
+                  password.length === 0
+                }
+              >
+                {isSubmitting ? "注册中..." : "注册"}
+              </Button>
             </div>
-          </>
+          </form>
         ) : (
-          <>
+          <form onSubmit={onLogin}>
             <h2 className="font-serif text-2xl font-medium leading-heading">
               欢迎回来
             </h2>
             <div className="mt-6 space-y-4">
               <FormRow
                 label="密码"
-                isInvalid={loginResult}
+                isInvalid={loginFailed}
                 error={["密码不正确"]}
               >
                 <PasswordInput
                   placeholder="请输入密码"
                   value={password}
                   onChange={onPasswordChange}
-                  isInvalid={loginResult}
+                  isInvalid={loginFailed}
                 />
               </FormRow>
-              <Button onClick={onLogin}>登录</Button>
+              <Button
+                type="submit"
+                disabled={isSubmitting || password.length === 0}
+              >
+                {isSubmitting ? "登录中..." : "登录"}
+              </Button>
             </div>
-          </>
+          </form>
         )}
       </div>
     </PageTemplate>

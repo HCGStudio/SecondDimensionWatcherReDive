@@ -115,7 +115,8 @@ public class TmdbTool(TMDbClient tmdbClient, ILogger<TmdbTool> logger)
             return new TmdbDetails(
                 Name: show.Name ?? "",
                 OriginalName: show.OriginalName ?? "",
-                Overview: show.Overview);
+                Overview: show.Overview,
+                PosterPath: show.PosterPath);
         }
         catch (Exception ex)
         {
@@ -124,5 +125,5 @@ public class TmdbTool(TMDbClient tmdbClient, ILogger<TmdbTool> logger)
         }
     }
 
-    public record TmdbDetails(string Name, string OriginalName, string? Overview);
+    public record TmdbDetails(string Name, string OriginalName, string? Overview, string? PosterPath);
 }

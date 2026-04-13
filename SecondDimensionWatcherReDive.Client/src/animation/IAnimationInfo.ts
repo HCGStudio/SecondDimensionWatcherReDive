@@ -12,4 +12,5 @@ export interface IAnimationInfo {
   episode?: number | null;
   group?: IAnimationGroup;
   animation?: IAnimation;
+  isAiProcessed: boolean;
 }

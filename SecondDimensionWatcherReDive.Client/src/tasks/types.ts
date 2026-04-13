@@ -1,6 +1,5 @@
 export interface ITask {
-  name: string;
-  description: string;
+  id: string;
   interval: string;
   isEnabled: boolean;
   lastRunAt: string | null;

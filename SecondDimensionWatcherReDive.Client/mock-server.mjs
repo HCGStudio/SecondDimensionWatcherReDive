@@ -60,31 +60,31 @@ function hasAuth(req) {
 let registered = false;
 
 const ANIME_TITLES = [
-  { title: "[Mikanani] 葬送的芙莉莲 / Sousou no Frieren - 28 (1080p)", desc: "勇者一行的魔法使芙莉莲的旅途故事", season: 1, episode: 28 },
-  { title: "[SubsPlease] 迷宫饭 / Dungeon Meshi - 24 (1080p)", desc: "在地下城中烹饪魔物的冒险者们", season: 1, episode: 24 },
-  { title: "[Mikanani] 药屋少女的呢喃 / Kusuriya no Hitorigoto - 24 (1080p)", desc: "后宫药师猫猫的推理日常", season: 1, episode: 24 },
-  { title: "[ANi] 我心里危险的东西 第二季 - 13 (1080p)", desc: "市川与山田的青春恋爱物语", season: 2, episode: 13 },
-  { title: "[Mikanani] 物语系列 Off & Monster Season - 12 (1080p)", desc: "阿良良木历的怪异故事继续", season: 1, episode: 12 },
-  { title: "[SubsPlease] 鬼灭之刃 柱训练篇 - 08 (1080p)", desc: "炭治郎与柱们的训练篇章", season: 4, episode: 8 },
-  { title: "[Mikanani] 无职转生 第三季 - 12 (1080p)", desc: "鲁迪乌斯的异世界冒险续篇", season: 3, episode: 12 },
-  { title: "[ANi] 败犬女主太多了 - 12 (1080p)", desc: "温水和是被选中的那个男人", season: 1, episode: 12 },
-  { title: "[SubsPlease] 夏日重现 / Summer Time Rendering - 25 (1080p)", desc: "小岛上的时间循环悬疑故事", season: 1, episode: 25 },
-  { title: "[Mikanani] 孤独摇滚 / Bocchi the Rock! - 12 (1080p)", desc: "社恐少女后藤一里的乐队之路", season: 1, episode: 12 },
-  { title: "[ANi] 间谍过家家 第三季 - 12 (1080p)", desc: "黄昏一家的间谍喜剧日常", season: 3, episode: 12 },
-  { title: "[SubsPlease] 青之箱 / Blue Box - 24 (1080p)", desc: "大喜与千夏的恋爱与羽毛球", season: 1, episode: 24 },
-  { title: "[Mikanani] Re:从零开始的异世界生活 第三季 - 16 (1080p)", desc: "昴在异世界的又一次轮回", season: 3, episode: 16 },
+  { title: "[Mikanani] 葬送的芙莉莲 / Sousou no Frieren - 28 (1080p)", desc: "勇者一行的魔法使芙莉莲的旅途故事", season: 1, episode: 28, animeName: "葬送的芙莉莲", originalName: "Sousou no Frieren", tmdbId: "209867", posterPath: "/dqZENchTd7lp5zht7BdlqM7RBhD.jpg" },
+  { title: "[SubsPlease] 迷宫饭 / Dungeon Meshi - 24 (1080p)", desc: "在地下城中烹饪魔物的冒险者们", season: 1, episode: 24, animeName: "迷宫饭", originalName: "Dungeon Meshi", tmdbId: "220150", posterPath: "/b8dFp1MKnfJCMQvMfnYnBjPuqEu.jpg" },
+  { title: "[Mikanani] 药屋少女的呢喃 / Kusuriya no Hitorigoto - 24 (1080p)", desc: "后宫药师猫猫的推理日常", season: 1, episode: 24, animeName: "药屋少女的呢喃", originalName: "Kusuriya no Hitorigoto", tmdbId: "229598", posterPath: "/hBsMO2fGMRYCFIApI2nkYCApzAb.jpg" },
+  { title: "[ANi] 我心里危险的东西 第二季 - 13 (1080p)", desc: "市川与山田的青春恋爱物语", season: 2, episode: 13, animeName: "我心里危险的东西", originalName: "Boku no Kokoro no Yabai Yatsu", tmdbId: "203737", posterPath: "/qCHIPLBSfUMWS01qnJGnPXlSKGZ.jpg" },
+  { title: "[Mikanani] 物语系列 Off & Monster Season - 12 (1080p)", desc: "阿良良木历的怪异故事继续", season: 1, episode: 12, animeName: "物语系列", originalName: "Monogatari Series", tmdbId: "46195", posterPath: "/oO0eeCAXsQQcq0DjOEJXNKlrBR2.jpg" },
+  { title: "[SubsPlease] 鬼灭之刃 柱训练篇 - 08 (1080p)", desc: "炭治郎与柱们的训练篇章", season: 4, episode: 8, animeName: "鬼灭之刃", originalName: "Kimetsu no Yaiba", tmdbId: "85937", posterPath: "/wrC2TWAOPQMD4bpGjdwH7MjjPT3.jpg" },
+  { title: "[Mikanani] 无职转生 第三季 - 12 (1080p)", desc: "鲁迪乌斯的异世界冒险续篇", season: 3, episode: 12, animeName: "无职转生", originalName: "Mushoku Tensei", tmdbId: "97986", posterPath: "/dBxxtfhC4vYISbxCDMRSpDDiO6B.jpg" },
+  { title: "[ANi] 败犬女主太多了 - 12 (1080p)", desc: "温水和是被选中的那个男人", season: 1, episode: 12, animeName: "败犬女主太多了", originalName: "Make Heroine ga Oosugiru!", tmdbId: "253485", posterPath: "/wZVcuBejljRQJcR3lG6OofJDbeQ.jpg" },
+  { title: "[SubsPlease] 夏日重现 / Summer Time Rendering - 25 (1080p)", desc: "小岛上的时间循环悬疑故事", season: 1, episode: 25, animeName: "夏日重现", originalName: "Summer Time Rendering", tmdbId: "125392", posterPath: "/aURJQ3AyBi1MCPaV1oGNysv5piI.jpg" },
+  { title: "[Mikanani] 孤独摇滚 / Bocchi the Rock! - 12 (1080p)", desc: "社恐少女后藤一里的乐队之路", season: 1, episode: 12, animeName: "孤独摇滚", originalName: "Bocchi the Rock!", tmdbId: "203354", posterPath: "/yPCxMlsEJFsOlDiXUkLlAqL1gp0.jpg" },
+  { title: "[ANi] 间谍过家家 第三季 - 12 (1080p)", desc: "黄昏一家的间谍喜剧日常", season: 3, episode: 12, animeName: "间谍过家家", originalName: "SPY×FAMILY", tmdbId: "110248", posterPath: "/3bWEMlYABPXCNYBZhcjyxLKoRBL.jpg" },
+  { title: "[SubsPlease] 青之箱 / Blue Box - 24 (1080p)", desc: "大喜与千夏的恋爱与羽毛球", season: 1, episode: 24, animeName: "青之箱", originalName: "Ao no Hako", tmdbId: "262596", posterPath: "/j1zidhOBnPpB4axbCSIDQTWoNKN.jpg" },
+  { title: "[Mikanani] Re:从零开始的异世界生活 第三季 - 16 (1080p)", desc: "昴在异世界的又一次轮回", season: 3, episode: 16, animeName: "Re:从零开始的异世界生活", originalName: "Re:Zero", tmdbId: "65006", posterPath: "/4Dub8EWkEJiVkQduXyRuuspbAEh.jpg" },
   { title: "[ANi] 魔法少女毁灭者 - 12 (1080p)", desc: "以暴力手段对抗魔法少女", season: 1, episode: 12 },
-  { title: "[SubsPlease] 怪兽8号 / Kaiju No. 8 - 12 (1080p)", desc: "日比野卡夫卡的怪兽之力", season: 1, episode: 12 },
-  { title: "[Mikanani] 天国大魔境 / Tengoku Daimakyou - 13 (1080p)", desc: "废墟日本的末日生存之旅", season: 1, episode: 13 },
-  { title: "[ANi] 摇曳露营 第三季 - 12 (1080p)", desc: "志�的与凛的户外露营日常", season: 3, episode: 12 },
-  { title: "[SubsPlease] 排球少年 垃圾场决战 (1080p)", desc: "音驹 vs 乌野的巅峰之战", season: 4, episode: null },
-  { title: "[Mikanani] 地错 第五季 - 12 (1080p)", desc: "贝尔在地下城寻求邂逅", season: 5, episode: 12 },
+  { title: "[SubsPlease] 怪兽8号 / Kaiju No. 8 - 12 (1080p)", desc: "日比野卡夫卡的怪兽之力", season: 1, episode: 12, animeName: "怪兽8号", originalName: "Kaiju No. 8", tmdbId: "237091", posterPath: "/9K5DISM3MpCpIYI6VwVoaQOxKlV.jpg" },
+  { title: "[Mikanani] 天国大魔境 / Tengoku Daimakyou - 13 (1080p)", desc: "废墟日本的末日生存之旅", season: 1, episode: 13, animeName: "天国大魔境", originalName: "Tengoku Daimakyou", tmdbId: "198225", posterPath: "/rHzZqeAunqRZnRDnjkKvMN9VXaA.jpg" },
+  { title: "[ANi] 摇曳露营 第三季 - 12 (1080p)", desc: "志摩凛与各务原抚子的户外露营日常", season: 3, episode: 12, animeName: "摇曳露营", originalName: "Yuru Camp", tmdbId: "73042", posterPath: "/kLBltKJYY9kReQIaGwZRmC3rJxo.jpg" },
+  { title: "[SubsPlease] 排球少年 垃圾场决战 (1080p)", desc: "音驹 vs 乌野的巅峰之战", season: 4, episode: null, animeName: "排球少年", originalName: "Haikyuu!!", tmdbId: "60863", posterPath: "/4bHCJxrpNaGNiCJwSzdAlGhkidb.jpg" },
+  { title: "[Mikanani] 地错 第五季 - 12 (1080p)", desc: "贝尔在地下城寻求邂逅", season: 5, episode: 12, animeName: "在地下城寻求邂逅是否搞错了什么", originalName: "DanMachi", tmdbId: "62745", posterPath: "/7HtvMBN0Z8dsnvKDh72iAfyD9XF.jpg" },
   { title: "[ANi] 樱子小姐的脚下埋着尸体 - 12 (1080p)", desc: "九条樱子的骸骨推理", season: 1, episode: 12 },
   { title: "[SubsPlease] 异世界自杀小队 - 10 (1080p)", desc: "DC反派们的异世界冒险", season: 1, episode: 10 },
-  { title: "[Mikanani] 忧国的莫里亚蒂 - 24 (1080p)", desc: "犯罪咨询师莫里亚蒂的故事", season: 1, episode: 24 },
-  { title: "[ANi] 为美好的世界献上爆焰 - 12 (1080p)", desc: "惠惠的爆裂魔法前传", season: 1, episode: 12 },
-  { title: "[SubsPlease] 总之就是非常可爱 第三季 - 12 (1080p)", desc: "由崎星空与司的甜蜜日常", season: 3, episode: 12 },
-  { title: "[Mikanani] 别当欧尼酱了 第二季 - 12 (1080p)", desc: "绪山真寻的女子高中生活", season: 2, episode: 12 },
+  { title: "[Mikanani] 葬送的芙莉莲 / Sousou no Frieren - 27 (1080p)", desc: "勇者一行的魔法使芙莉莲的旅途故事", season: 1, episode: 27, animeName: "葬送的芙莉莲", originalName: "Sousou no Frieren", tmdbId: "209867", posterPath: "/dqZENchTd7lp5zht7BdlqM7RBhD.jpg" },
+  { title: "[Mikanani] 葬送的芙莉莲 / Sousou no Frieren - 26 (1080p)", desc: "勇者一行的魔法使芙莉莲的旅途故事", season: 1, episode: 26, animeName: "葬送的芙莉莲", originalName: "Sousou no Frieren", tmdbId: "209867", posterPath: "/dqZENchTd7lp5zht7BdlqM7RBhD.jpg" },
+  { title: "[SubsPlease] 鬼灭之刃 柱训练篇 - 07 (1080p)", desc: "炭治郎与柱们的训练篇章", season: 4, episode: 7, animeName: "鬼灭之刃", originalName: "Kimetsu no Yaiba", tmdbId: "85937", posterPath: "/wrC2TWAOPQMD4bpGjdwH7MjjPT3.jpg" },
+  { title: "[ANi] 间谍过家家 第三季 - 11 (1080p)", desc: "黄昏一家的间谍喜剧日常", season: 3, episode: 11, animeName: "间谍过家家", originalName: "SPY×FAMILY", tmdbId: "110248", posterPath: "/3bWEMlYABPXCNYBZhcjyxLKoRBL.jpg" },
 ];
 
 /** @type {Map<string, object>} */
@@ -133,11 +133,15 @@ function initAnimations() {
       season: entry.season,
       episode: entry.episode,
       group: { name: entry.title.match(/\[(.+?)\]/)?.[1] ?? "Fansub" },
-      animation: {
-        name: entry.title.split("] ")[1]?.split(" - ")[0] ?? entry.title,
-        englishName: "",
-        originalName: "",
-      },
+      animation: entry.animeName
+        ? {
+            tmdbId: entry.tmdbId,
+            name: entry.animeName,
+            originalName: entry.originalName ?? "",
+            posterPath: entry.posterPath ?? null,
+          }
+        : null,
+      isAiProcessed: !!entry.animeName,
     });
   });
 }
@@ -285,6 +289,41 @@ function route(method, pathname, searchParams, req, res) {
     return json(res, { data: all.slice(skip, skip + take), totalItems: all.length });
   }
 
+  if (method === "GET" && pathname === "/api/animationinfo/grouped") {
+    const all = [...animations.values()];
+    const grouped = new Map();
+    const uncategorized = [];
+    for (const item of all) {
+      if (item.animation && item.animation.tmdbId) {
+        const key = item.animation.tmdbId;
+        if (!grouped.has(key)) {
+          grouped.set(key, {
+            tmdbId: item.animation.tmdbId,
+            name: item.animation.name,
+            originalName: item.animation.originalName,
+            posterPath: item.animation.posterPath ?? null,
+            episodes: [],
+          });
+        }
+        grouped.get(key).episodes.push(item);
+      } else {
+        uncategorized.push(item);
+      }
+    }
+    const animationsList = [...grouped.values()]
+      .map((g) => {
+        g.episodes.sort((a, b) => (a.season ?? 0) - (b.season ?? 0) || (a.episode ?? 0) - (b.episode ?? 0));
+        g.episodeCount = g.episodes.length;
+        return g;
+      })
+      .sort((a, b) => {
+        const aMax = Math.max(...a.episodes.map((e) => new Date(e.publishTime).getTime()));
+        const bMax = Math.max(...b.episodes.map((e) => new Date(e.publishTime).getTime()));
+        return bMax - aMax;
+      });
+    return json(res, { animations: animationsList, uncategorized });
+  }
+
   if (method === "GET" && pathname === "/api/animationinfo/downloading") {
     const skip = parseInt(searchParams.get("skip") ?? "0", 10);
     const take = parseInt(searchParams.get("take") ?? "10", 10);
@@ -370,6 +409,19 @@ function route(method, pathname, searchParams, req, res) {
       anim.isDownloadTracked = false;
       anim.isDownloadFinished = false;
       downloadState.delete(id);
+      return empty(res, 200);
+    }
+  }
+
+  // POST /api/animationinfo/:id/retry-inference
+  {
+    const m = pathname.match(/^\/api\/animationinfo\/(.+)\/retry-inference$/);
+    if (method === "POST" && m) {
+      const id = m[1];
+      const anim = animations.get(id);
+      if (!anim) return empty(res, 404);
+      anim.isAiProcessed = false;
+      console.log(`  Mock: retry inference for '${anim.title}'`);
       return empty(res, 200);
     }
   }
@@ -511,25 +563,25 @@ function route(method, pathname, searchParams, req, res) {
   // --- Tasks ---
 
   const MOCK_TASKS = [
-    { name: "SyncFeed", description: "同步 RSS 订阅", interval: "00:10:00", isEnabled: true, lastRunAt: new Date(Date.now() - 300_000).toISOString(), isRunning: false },
-    { name: "InferAnimationMetadata", description: "AI 元数据推断", interval: "00:30:00", isEnabled: true, lastRunAt: new Date(Date.now() - 600_000).toISOString(), isRunning: false },
-    { name: "ScrapeSeasonBangumi", description: "更新当季番组列表", interval: "7.00:00:00", isEnabled: true, lastRunAt: new Date(Date.now() - 86400_000).toISOString(), isRunning: false },
+    { id: "SyncFeed", interval: "00:10:00", isEnabled: true, lastRunAt: new Date(Date.now() - 300_000).toISOString(), isRunning: false },
+    { id: "InferAnimationMetadata", interval: "00:30:00", isEnabled: true, lastRunAt: new Date(Date.now() - 600_000).toISOString(), isRunning: false },
+    { id: "ScrapeSeasonBangumi", interval: "7.00:00:00", isEnabled: true, lastRunAt: new Date(Date.now() - 86400_000).toISOString(), isRunning: false },
   ];
 
   if (method === "GET" && pathname === "/api/tasks") {
     return json(res, MOCK_TASKS);
   }
 
-  // POST /api/tasks/:name/run
+  // POST /api/tasks/:id/run
   {
     const m = pathname.match(/^\/api\/tasks\/(.+)\/run$/);
     if (method === "POST" && m) {
-      const name = decodeURIComponent(m[1]);
-      const task = MOCK_TASKS.find((t) => t.name.toLowerCase() === name.toLowerCase());
-      if (!task) return json(res, { message: `Task '${name}' not found` }, 404);
+      const id = decodeURIComponent(m[1]);
+      const task = MOCK_TASKS.find((t) => t.id.toLowerCase() === id.toLowerCase());
+      if (!task) return json(res, { message: `Task '${id}' not found` }, 404);
       task.lastRunAt = new Date().toISOString();
-      console.log(`  Mock: task '${name}' executed`);
-      return json(res, { message: `Task '${name}' completed` });
+      console.log(`  Mock: task '${id}' executed`);
+      return json(res, { message: `Task '${id}' completed` });
     }
   }
 

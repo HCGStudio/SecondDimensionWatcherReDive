@@ -38,6 +38,52 @@ public class AnimationInfoController(
         return Ok(data.ToResponseData(totalCount));
     }
 
+    [HttpGet("grouped")]
+    public async Task<ActionResult<AnimationGroupedResponse>> GetGroupedAsync()
+    {
+        var allItems = await applicationContext.AnimationInfo
+            .AsNoTracking()
+            .Include(i => i.Animation)
+            .Include(i => i.Group)
+            .OrderByDescending(i => i.PublishTime)
+            .ToListAsync();
+
+        var categorized = allItems
+            .Where(i => i.Animation != null)
+            .GroupBy(i => i.Animation!.Id)
+            .Select(g =>
+            {
+                var animation = g.First().Animation!;
+                var episodes = g
+                    .OrderBy(i => i.Season)
+                    .ThenBy(i => i.Episode)
+                    .Select(i => i.Adapt<AnimationInfoDto>())
+                    .ToList();
+                return new AnimationWithEpisodes
+                {
+                    TmdbId = animation.TmdbId,
+                    Name = animation.Name,
+                    OriginalName = animation.OriginalName,
+                    PosterPath = animation.PosterPath,
+                    EpisodeCount = episodes.Count,
+                    Episodes = episodes
+                };
+            })
+            .OrderByDescending(a => a.Episodes.Max(e => e.PublishTime))
+            .ToList();
+
+        var uncategorized = allItems
+            .Where(i => i.Animation == null)
+            .Select(i => i.Adapt<AnimationInfoDto>())
+            .ToList();
+
+        return Ok(new AnimationGroupedResponse
+        {
+            Animations = categorized,
+            Uncategorized = uncategorized
+        });
+    }
+
     [HttpGet("downloading")]
     public async Task<ActionResult<ResponseData<List<AnimationInfoDto>>>> GetDownloadingAsync(
         [FromQuery] int skip = 0,
@@ -179,6 +225,20 @@ public class AnimationInfoController(
 
         info.IsDownloadTracked = false;
         info.IsDownloadFinished = false;
+        await applicationContext.SaveChangesAsync();
+        return Ok();
+    }
+
+    [HttpPost("{id:guid}/retry-inference")]
+    public async Task<IActionResult> RetryInference([FromRoute] Guid id)
+    {
+        var info = await applicationContext.AnimationInfo.FindAsync(id);
+
+        if (info is null)
+            return NotFound();
+
+        info.IsAiProcessed = false;
+        info.AiRetryCount = 0;
         await applicationContext.SaveChangesAsync();
         return Ok();
     }

@@ -12,6 +12,7 @@ using SecondDimensionWatcherReDive.Data;
 using SecondDimensionWatcherReDive.Framework.Feed;
 using SecondDimensionWatcherReDive.Framework.FileDownload;
 using SecondDimensionWatcherReDive.Framework.FileStore;
+using SecondDimensionWatcherReDive.Framework.Tasks;
 using SecondDimensionWatcherReDive.Inference.AI;
 using SecondDimensionWatcherReDive.Models;
 using SecondDimensionWatcherReDive.Plugin;
@@ -118,11 +119,18 @@ builder.Services.AddSingleton(Channel.CreateUnbounded<FileDownloadStatus>());
 builder.Services.AddSingleton(Channel.CreateUnbounded<DownloadCompleteRequest>());
 
 //Add hosting services
-builder.Services.AddHostedService<CompleteDownload>();
-builder.Services.AddHostedService<FetchRemoteTorrent>();
-builder.Services.AddHostedService<UpdateDownloadStatus>();
-builder.Services.AddHostedService<SyncFeed>();
-builder.Services.AddHostedService<ScrapeSeasonBangumi>();
+builder.Services.AddHostedService<CompleteDownloadBackgroundService>();
+builder.Services.AddHostedService<FetchRemoteTorrentBackgroundService>();
+builder.Services.AddHostedService<UpdateDownloadStatusBackgroundService>();
+
+//Add scheduled tasks
+builder.Services.AddSingleton<SyncFeed>();
+builder.Services.AddSingleton<IScheduledTask>(sp => sp.GetRequiredService<SyncFeed>());
+builder.Services.AddHostedService<ScheduledTaskBackgroundService<SyncFeed>>();
+
+builder.Services.AddSingleton<ScrapeSeasonBangumi>();
+builder.Services.AddSingleton<IScheduledTask>(sp => sp.GetRequiredService<ScrapeSeasonBangumi>());
+builder.Services.AddHostedService<ScheduledTaskBackgroundService<ScrapeSeasonBangumi>>();
 
 //Add download and store
 builder.Services.AddScoped<IFileDownloadClient, RemoteTorrentDownloadClient>();
@@ -139,7 +147,9 @@ builder.Services.AddTransient<IFeedService, MikananiFeedService>();
 if (!string.IsNullOrEmpty(builder.Configuration["Inference:ApiKey"]))
 {
     builder.Services.AddAIInference(builder.Configuration);
-    builder.Services.AddHostedService<InferAnimationMetadata>();
+    builder.Services.AddSingleton<InferAnimationMetadata>();
+    builder.Services.AddSingleton<IScheduledTask>(sp => sp.GetRequiredService<InferAnimationMetadata>());
+    builder.Services.AddHostedService<ScheduledTaskBackgroundService<InferAnimationMetadata>>();
 }
 
 //Add File Renamer

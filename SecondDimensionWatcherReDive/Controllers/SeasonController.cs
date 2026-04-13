@@ -14,7 +14,7 @@ namespace SecondDimensionWatcherReDive.Controllers;
 public class SeasonController(
     ApplicationContext applicationContext,
     IHttpClientFactory httpClientFactory,
-    IServiceProvider serviceProvider,
+    IEnumerable<IScheduledTask> scheduledTasks,
     ILogger<SeasonController> logger) : ControllerBase
 {
     /// <summary>Get current season anime list (cached), or a specific season on-demand.</summary>
@@ -145,9 +145,7 @@ public class SeasonController(
         if (recent != default && DateTimeOffset.UtcNow - recent < TimeSpan.FromMinutes(10))
             return StatusCode(429, new { message = "Please wait at least 10 minutes between refreshes" });
 
-        var scraper = serviceProvider.GetServices<IHostedService>()
-            .OfType<IScheduledTask>()
-            .FirstOrDefault(t => t.Name == "ScrapeSeasonBangumi");
+        var scraper = scheduledTasks.FirstOrDefault(t => t.Id == "ScrapeSeasonBangumi");
 
         if (scraper != null)
             await scraper.RunNowAsync(HttpContext.RequestAborted);

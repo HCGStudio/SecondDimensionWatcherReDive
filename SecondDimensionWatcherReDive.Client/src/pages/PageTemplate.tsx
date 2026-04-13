@@ -71,7 +71,7 @@ export const PageTemplate: React.FC<IPageTemplateProps> = ({ children }) => {
               <button
                 className="text-sm text-muted hover:text-foreground transition-colors"
                 onClick={() => {
-                  localStorage.clear();
+                  localStorage.removeItem("auth");
                   location.reload();
                 }}
               >

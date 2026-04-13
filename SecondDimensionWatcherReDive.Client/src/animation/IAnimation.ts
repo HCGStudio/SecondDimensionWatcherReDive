@@ -1,5 +1,6 @@
 export interface IAnimation {
+  tmdbId: string;
   name: string;
-  englishName: string;
   originalName: string;
+  posterPath: string | null;
 }
