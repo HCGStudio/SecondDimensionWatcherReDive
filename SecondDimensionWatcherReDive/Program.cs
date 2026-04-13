@@ -84,8 +84,6 @@ builder.Services.AddAuthentication(options =>
     options.TokenValidationParameters = tokenValidationParams;
 });
 
-builder.Services.AddMemoryCache();
-
 //Add distributed cache (Valkey / Redis or in-memory fallback)
 var valkeyConnection = builder.Configuration["Valkey:ConnectionString"];
 if (!string.IsNullOrEmpty(valkeyConnection))

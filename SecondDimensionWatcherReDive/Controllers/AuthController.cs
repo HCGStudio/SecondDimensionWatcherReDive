@@ -6,7 +6,8 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Caching.Memory;
+using System.Text.Json;
+using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.IdentityModel.Tokens;
 
 namespace SecondDimensionWatcherReDive.Controllers;
@@ -17,16 +18,16 @@ public partial class AuthController : ControllerBase
 {
     private readonly IConfiguration _configuration;
     private readonly ILogger<AuthController> _logger;
-    private readonly IMemoryCache _memoryCache;
+    private readonly IDistributedCache _distributedCache;
 
     private readonly TokenValidationParameters _tokenValidationParams;
 
     public AuthController(IConfiguration configuration, TokenValidationParameters tokenValidationParams,
-        IMemoryCache memoryCache, ILogger<AuthController> logger)
+        IDistributedCache distributedCache, ILogger<AuthController> logger)
     {
         _configuration = configuration;
         _tokenValidationParams = tokenValidationParams;
-        _memoryCache = memoryCache;
+        _distributedCache = distributedCache;
         _logger = logger;
     }
 
@@ -60,7 +61,7 @@ public partial class AuthController : ControllerBase
 
         var refreshToken = new RefreshToken(RandomString(25) + Guid.NewGuid(), token.Id);
 
-        _memoryCache.Set(refreshToken.Token, refreshToken);
+        _distributedCache.SetString(refreshToken.Token, JsonSerializer.Serialize(refreshToken));
 
         return new LoginResult(jwtToken, refreshToken.Token);
     }
@@ -116,13 +117,14 @@ public partial class AuthController : ControllerBase
                     StringComparison.InvariantCultureIgnoreCase))
                 return new LoginResult(null, null, false);
 
-            var storedToken = _memoryCache.Get<RefreshToken>(request.RefreshToken);
+            var storedJson = _distributedCache.GetString(request.RefreshToken);
+            var storedToken = storedJson is null ? null : JsonSerializer.Deserialize<RefreshToken>(storedJson);
             if (storedToken is null) return new LoginResult(null, null, false);
 
             if (tokenInVerification.FindFirst(c => c.Type == JwtRegisteredClaimNames.Jti)?.Value != storedToken.JwtId)
                 return new LoginResult(null, null, false);
 
-            _memoryCache.Remove(request.RefreshToken);
+            _distributedCache.Remove(request.RefreshToken);
 
             return GenerateJwtToken();
         }

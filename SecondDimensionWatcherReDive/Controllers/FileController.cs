@@ -4,7 +4,8 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.StaticFiles;
-using Microsoft.Extensions.Caching.Memory;
+using System.Text.Json;
+using Microsoft.Extensions.Caching.Distributed;
 using SecondDimensionWatcherReDive.Models;
 using SecondDimensionWatcherReDive.Utils.FileStore;
 
@@ -16,7 +17,7 @@ namespace SecondDimensionWatcherReDive.Controllers;
 public partial class FileController(
     ApplicationContext applicationContext,
     IFileStoreProvider fileStoreProvider,
-    IMemoryCache memoryCache,
+    IDistributedCache distributedCache,
     IContentTypeProvider contentTypeProvider,
     ILogger<FileController> logger) : ControllerBase
 {
@@ -67,7 +68,8 @@ public partial class FileController(
         }
 
         var token = GenerateToken(64);
-        memoryCache.Set(token, new FileStoreToken(targetPath, info.FileStore), TimeSpan.FromDays(1));
+        distributedCache.SetString(token, JsonSerializer.Serialize(new FileStoreToken(targetPath, info.FileStore)),
+            new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = TimeSpan.FromDays(1) });
         var url = Url.ActionLink(nameof(GetFile), values: new { token })!;
         LogLinkGenerated(logger, payload.Id, url);
         return Ok(new FileLinkResultResponse(url));
@@ -77,7 +79,8 @@ public partial class FileController(
     [HttpGet("play")]
     public async Task<IActionResult> GetFile([FromQuery] [Required] string token)
     {
-        var fileStoreToken = memoryCache.Get<FileStoreToken>(token);
+        var json = distributedCache.GetString(token);
+        var fileStoreToken = json is null ? null : JsonSerializer.Deserialize<FileStoreToken>(json);
         if (fileStoreToken is null)
         {
             LogPlayTokenInvalid(logger);

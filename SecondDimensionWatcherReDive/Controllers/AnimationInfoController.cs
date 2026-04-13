@@ -1,9 +1,10 @@
-﻿using Mapster;
+﻿using System.Text.Json;
+using Mapster;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Caching.Distributed;
 using SecondDimensionWatcherReDive.Data;
 using SecondDimensionWatcherReDive.Framework.Animation;
 using SecondDimensionWatcherReDive.Models;
@@ -16,7 +17,7 @@ namespace SecondDimensionWatcherReDive.Controllers;
 [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
 public class AnimationInfoController(
     ApplicationContext applicationContext,
-    IMemoryCache memoryCache,
+    IDistributedCache distributedCache,
     IFileDownloadClientProvider fileDownloadClientProvider)
     : ControllerBase
 {
@@ -125,8 +126,9 @@ public class AnimationInfoController(
     [HttpGet("status/{id:guid}")]
     public ActionResult<FileDownloadStatus> GetDownloadStatus([FromRoute] Guid id)
     {
-        var item = memoryCache.Get<FileDownloadStatus>(id);
-        return item == default ? NotFound() : Ok(item);
+        var json = distributedCache.GetString(id.ToString());
+        if (json is null) return NotFound();
+        return Ok(JsonSerializer.Deserialize<FileDownloadStatus>(json));
     }
 
     [HttpPost("download/{id:guid}")]

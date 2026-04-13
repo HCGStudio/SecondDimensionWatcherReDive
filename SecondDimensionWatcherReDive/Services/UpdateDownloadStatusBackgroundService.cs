@@ -1,5 +1,6 @@
-﻿using System.Threading.Channels;
-using Microsoft.Extensions.Caching.Memory;
+﻿using System.Text.Json;
+using System.Threading.Channels;
+using Microsoft.Extensions.Caching.Distributed;
 using SecondDimensionWatcherReDive.Data;
 
 namespace SecondDimensionWatcherReDive.Services;
@@ -7,12 +8,12 @@ namespace SecondDimensionWatcherReDive.Services;
 public class UpdateDownloadStatusBackgroundService : BackgroundService
 {
     private readonly Channel<FileDownloadStatus> _fileDownloadStatus;
-    private readonly IMemoryCache _memoryCache;
+    private readonly IDistributedCache _distributedCache;
 
-    public UpdateDownloadStatusBackgroundService(Channel<FileDownloadStatus> fileDownloadStatus, IMemoryCache memoryCache)
+    public UpdateDownloadStatusBackgroundService(Channel<FileDownloadStatus> fileDownloadStatus, IDistributedCache distributedCache)
     {
         _fileDownloadStatus = fileDownloadStatus;
-        _memoryCache = memoryCache;
+        _distributedCache = distributedCache;
     }
 
     protected override async Task ExecuteAsync(CancellationToken cancellationToken)
@@ -21,10 +22,14 @@ public class UpdateDownloadStatusBackgroundService : BackgroundService
         while (!cancellationToken.IsCancellationRequested)
         {
             var status = await reader.ReadAsync(cancellationToken);
+            var key = status.ItemId.ToString();
+            var value = JsonSerializer.Serialize(status);
             if (status.State == FileDownloadState.Finished)
-                _memoryCache.Set(status.ItemId, status, TimeSpan.FromMinutes(5));
+                await _distributedCache.SetStringAsync(key, value,
+                    new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5) },
+                    cancellationToken);
             else
-                _memoryCache.Set(status.ItemId, status);
+                await _distributedCache.SetStringAsync(key, value, cancellationToken);
         }
     }
 }
