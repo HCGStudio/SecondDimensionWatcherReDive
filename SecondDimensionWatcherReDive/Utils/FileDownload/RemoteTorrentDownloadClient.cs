@@ -80,7 +80,7 @@ public class RemoteTorrentDownloadClient(
         bool removeFile)
     {
         var deleteFiles = removeFile ? "true" : "false";
-        using var response = await _httpClient.DeleteAsync(
+        using var response = await _httpClient.GetAsync(
             $"/api/v2/torrents/delete?hashes={additionalDownloadInfo}&deleteFiles={deleteFiles}");
 
         return new CancelDownloadResult(response.IsSuccessStatusCode, false);
