@@ -91,7 +91,7 @@ jobs:
           if [ "${{ matrix.arch }}" = "x64" ]; then
             echo "ARCH=amd64" >> "$GITHUB_ENV"
           else
-            echo "ARCH=arm64" >> "$GITHUB_ENV"
+            echo "ARCH=aarch64" >> "$GITHUB_ENV"
           fi
 
       - name: Build packages
@@ -105,7 +105,7 @@ jobs:
         run: |
           cp packaging/appsettings.yml publish/appsettings.yml
           cp packaging/sdw-redive.service publish/sdw-redive.service
-          tar -czf "dist/sdw-redive_${VERSION}_linux-${{ matrix.arch }}.tar.gz" -C publish .
+          tar -czf "dist/sdw-redive_${VERSION}_linux-${ARCH}.tar.gz" -C publish .
 
       - name: Upload packages
         uses: actions/upload-artifact@v4
@@ -164,77 +164,6 @@ jobs:
           name: packages-win-${{ matrix.arch }}
           path: sdw-redive_*.zip
 
-  build-freebsd-pkg:
-    needs: build-frontend
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        arch: [x64, arm64]
-        include:
-          - arch: x64
-            pkg_arch: amd64
-          - arch: arm64
-            pkg_arch: aarch64
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '10.0.x'
-
-      - name: Download frontend artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: frontend-dist
-          path: SecondDimensionWatcherReDive/wwwroot/
-
-      - name: Compute version
-        run: |
-          RELEASE_VERSION="${{ github.event.inputs.release_version }}"
-          if [ -n "$RELEASE_VERSION" ]; then
-            VERSION="$RELEASE_VERSION"
-          else
-            BASE_VERSION=$(cat VERSION | tr -d '[:space:]')
-            VERSION="${BASE_VERSION}.${{ github.run_number }}"
-          fi
-          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
-
-      - name: Publish Backend
-        run: |
-          dotnet publish SecondDimensionWatcherReDive/SecondDimensionWatcherReDive.csproj \
-            -c Release \
-            --self-contained false \
-            -p:UseAppHost=false \
-            /p:Version=${VERSION} \
-            -o publish
-
-      - name: Stage FreeBSD package layout
-        run: |
-          mkdir -p staging/usr/local/lib/sdw-redive
-          mkdir -p staging/usr/local/etc/sdw-redive
-          mkdir -p staging/usr/local/etc/rc.d
-
-          cp -r publish/* staging/usr/local/lib/sdw-redive/
-          cp packaging/appsettings.yml staging/usr/local/etc/sdw-redive/appsettings.yml
-          cp packaging/rc.d/sdw_redive staging/usr/local/etc/rc.d/sdw_redive
-          chmod 755 staging/usr/local/etc/rc.d/sdw_redive
-
-      - name: Build FreeBSD pkg
-        run: |
-          mkdir -p dist
-          bash packaging/freebsd/build-pkg.sh \
-            staging \
-            "dist/sdw-redive-${VERSION}-FreeBSD-15-RELEASE-${{ matrix.pkg_arch }}.pkg" \
-            "$VERSION" \
-            "${{ matrix.pkg_arch }}"
-
-      - name: Upload pkg
-        uses: actions/upload-artifact@v4
-        with:
-          name: packages-freebsd-${{ matrix.arch }}
-          path: dist/*.pkg
-
   build-portable:
     needs: build-frontend
     runs-on: ubuntu-latest
@@ -285,7 +214,7 @@ jobs:
           path: dist/*
 
   release:
-    needs: [build-linux-packages, build-windows-zip, build-freebsd-pkg, build-portable]
+    needs: [build-linux-packages, build-windows-zip, build-portable]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

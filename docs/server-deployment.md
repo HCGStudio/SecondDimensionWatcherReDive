@@ -1,9 +1,8 @@
 # 服务器部署指南
 
-本文档介绍如何在 Linux / FreeBSD 主机上部署二次元观测器 Re:Dive。
+本文档介绍如何在 Linux 主机上部署二次元观测器 Re:Dive。
 
 - [Linux 部署（deb / rpm / pacman）](#linux-部署)
-- [FreeBSD 部署（pkg）](#freebsd-部署)
 
 ---
 
@@ -254,98 +253,6 @@ systemd 服务已启用以下安全措施：
 - `ProtectKernelTunables=true` — 禁止修改内核参数
 - `ProtectControlGroups=true` — 禁止修改 cgroup
 - `RestrictSUIDSGID=true` — 禁止 SUID/SGID
-
----
-
-# FreeBSD 部署
-
-通过 FreeBSD pkg 包部署。
-
-## 前置条件
-
-- **ASP.NET Core 10 Runtime** — 通过 ports 或 pkg 安装
-- **PostgreSQL** — 数据库
-- **qBittorrent** — 开启 Web API
-
-```sh
-pkg install dotnet-runtime
-pkg install postgresql16-server qbittorrent-nox
-```
-
-## 安装
-
-从 [GitHub Releases](https://github.com/mahoshojoHCG/SecondDimensionWatcherReDive/releases) 下载 `sdw-redive-*-amd64.pkg` 或 `aarch64.pkg`：
-
-```sh
-sudo pkg add sdw-redive-*-amd64.pkg
-```
-
-安装脚本自动完成：创建 `sdw-redive` 系统用户/组、创建数据目录、首次安装时生成 JwtSecret。
-
-## 文件布局
-
-| 路径 | 说明 |
-|------|------|
-| `/usr/local/lib/sdw-redive/` | 应用程序文件 |
-| `/usr/local/etc/sdw-redive/appsettings.yml` | 配置文件（YAML 格式） |
-| `/var/db/sdw-redive/downloads/` | 默认下载存储目录 |
-| `/usr/local/etc/rc.d/sdw_redive` | rc.d 服务脚本 |
-
-## 配置
-
-编辑 `/usr/local/etc/sdw-redive/appsettings.yml`，填写必要配置项。
-
-FreeBSD 下需要调整以下默认值：
-
-```yaml
-ConnectionStrings:
-  sdw: "Host=localhost;Username=sdw;Password=YOUR_PASSWORD;Database=sdw"
-
-# 存储路径使用 FreeBSD 惯例
-FileStore:
-  Local: /var/db/sdw-redive/downloads
-PasswordFile: /var/db/sdw-redive/password.json
-
-Torrent:
-  Remote:
-    Url: "http://localhost:8080"
-
-TmdbApiKey: "YOUR_TMDB_API_KEY"
-```
-
-## 服务管理
-
-```sh
-# 启用服务
-sudo sysrc sdw_redive_enable="YES"
-
-# 启动
-sudo service sdw_redive start
-
-# 查看状态
-sudo service sdw_redive status
-
-# 重启
-sudo service sdw_redive restart
-
-# 停止
-sudo service sdw_redive stop
-```
-
-### 修改监听端口
-
-通过 rc.conf 覆盖环境变量：
-
-```sh
-sudo sysrc sdw_redive_env="ASPNETCORE_ENVIRONMENT=Production ASPNETCORE_URLS=http://0.0.0.0:8080 DOTNET_PRINT_TELEMETRY_MESSAGE=false"
-```
-
-## 升级
-
-```sh
-sudo pkg add -f sdw-redive-*-amd64.pkg
-sudo service sdw_redive restart
-```
 
 数据库迁移在应用启动时自动执行。
 
