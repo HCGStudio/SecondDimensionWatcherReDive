@@ -1,0 +1,15 @@
+.git/
+.github/
+.claude/
+.config/
+*.md
+*.slnx.user
+**/bin/
+**/obj/
+SecondDimensionWatcherReDive.Test/
+packaging/
+deployments/
+docs/
+SecondDimensionWatcherReDive.Client/dist/
+SecondDimensionWatcherReDive.Client/.parcel-cache/
+SecondDimensionWatcherReDive.Client/node_modules/

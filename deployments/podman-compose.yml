@@ -1,0 +1,59 @@
+# 二次元观测器 Re:Dive - Podman Compose 部署模版
+#
+# 使用方法:
+#   1. 复制本文件并修改环境变量（尤其是密码和 JwtSecret）
+#   2. podman-compose up -d
+#
+# 服务:
+#   - sdw-redive:   主应用 (http://localhost:5097)
+#   - qbittorrent:  下载客户端 (WebUI http://localhost:8080)
+#   - db:           PostgreSQL 数据库
+#
+# qBittorrent 默认用户名: admin，默认密码查看容器日志:
+#   podman logs qbittorrent 2>&1 | grep "temporary password"
+
+services:
+  db:
+    image: docker.io/library/postgres:16-alpine
+    environment:
+      POSTGRES_USER: sdw
+      POSTGRES_PASSWORD: sdw_password
+      POSTGRES_DB: sdw
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  qbittorrent:
+    image: lscr.io/linuxserver/qbittorrent:latest
+    environment:
+      PUID: 1000
+      PGID: 1000
+      WEBUI_PORT: 8080
+    ports:
+      - "8080:8080"
+      - "6881:6881"
+      - "6881:6881/udp"
+    volumes:
+      - downloads:/downloads
+    restart: unless-stopped
+
+  sdw-redive:
+    image: ghcr.io/hcgstudio/sdw-redive:prerelease-latest
+    ports:
+      - "5097:8080"
+    environment:
+      ConnectionStrings__sdw: "Host=db;Username=sdw;Password=sdw_password;Database=sdw"
+      JwtSecret: "CHANGE_ME_TO_A_32_CHAR_RANDOM_STRING"
+      FileStore__Local: "/downloads"
+      Torrent__Remote__Url: "http://qbittorrent:8080"
+      DisableCors: "true"
+    volumes:
+      - downloads:/downloads
+    depends_on:
+      - db
+      - qbittorrent
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  downloads:

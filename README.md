@@ -31,6 +31,7 @@
 - [x] 后台任务仪表盘（查看状态、手动触发）
 - [x] 插件事件系统（下载前 / 下载完成后钩子）
 - [x] Docker Compose 一键部署
+- [x] Podman / 容器化部署
 - [ ] 插件系统动态加载（JavaScript / ClearScript）
 - [ ] WebDAV Server
 - [ ] 内置种子下载（替换 qBittorrent）
@@ -66,11 +67,15 @@ yarn start  # 仅前端开发服务器（代理到 localhost:5097）
 
 详见 **[服务器部署指南](docs/server-deployment.md)**。
 
-### Docker
+### 容器部署（Podman / Docker）
 
 ```bash
-docker compose up
+cd deployments
+# 修改 podman-compose.yml 中的密码和 JwtSecret
+podman-compose up -d
 ```
+
+容器镜像自动发布到 `ghcr.io/hcgstudio/sdw-redive`，包含前后端，支持 amd64 / arm64。
 
 ### 配置
 

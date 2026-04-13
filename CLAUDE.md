@@ -21,11 +21,9 @@ yarn build          # Production build to dist/
 yarn mock           # Mock API server on http://localhost:5097
 yarn dev            # Mock server + dev server together
 
-# Docker
-docker compose up                                 # Full stack: PostgreSQL + backend + frontend
-
-# Container publish (alternative to Docker)
-dotnet publish SecondDimensionWatcherReDive/SecondDimensionWatcherReDive.csproj /t:PublishContainer
+# Podman / Container
+cd deployments && podman-compose up -d             # Full stack: PostgreSQL + qBittorrent + app
+podman build -f Containerfile -t sdw-redive .      # Build container image locally
 ```
 
 ## Architecture
