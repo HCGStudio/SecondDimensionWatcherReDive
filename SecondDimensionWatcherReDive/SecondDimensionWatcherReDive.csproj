@@ -5,8 +5,8 @@
         <Nullable>enable</Nullable>
         <ImplicitUsings>enable</ImplicitUsings>
         <UserSecretsId>0e827b46-7c5a-4230-9e45-d9abf65902aa</UserSecretsId>
-        <AssemblyVersion>2.0.1</AssemblyVersion>
-        <FileVersion>2.0.1</FileVersion>
+        <AssemblyVersion>2.1.0</AssemblyVersion>
+        <FileVersion>2.1.0</FileVersion>
         <ContainerRegistry>ghcr.io</ContainerRegistry>
     </PropertyGroup>
 
