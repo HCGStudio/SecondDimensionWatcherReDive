@@ -23,6 +23,8 @@ namespace SecondDimensionWatcherReDive;
 [JsonSerializable(typeof(FileController.FileLinkResultRequest))]
 [JsonSerializable(typeof(IEnumerable<FileController.FileStoreListResult>))]
 [JsonSerializable(typeof(FileController.FileStoreListResult[]))]
+[JsonSerializable(typeof(FileController.FileStoreToken))]
+[JsonSerializable(typeof(AuthController.RefreshToken))]
 [JsonSerializable(typeof(FeedController.AddFeedRequest))]
 [JsonSerializable(typeof(PasswordConfig))]
 public partial class AppJsonSerializerContext : JsonSerializerContext;

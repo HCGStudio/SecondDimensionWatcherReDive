@@ -124,11 +124,11 @@ public class AnimationInfoController(
     }
 
     [HttpGet("status/{id:guid}")]
-    public ActionResult<FileDownloadStatus> GetDownloadStatus([FromRoute] Guid id)
+    public async Task<ActionResult<FileDownloadStatus>> GetDownloadStatus([FromRoute] Guid id)
     {
-        var json = distributedCache.GetString(id.ToString());
+        var json = await distributedCache.GetStringAsync(id.ToString());
         if (json is null) return NotFound();
-        return Ok(JsonSerializer.Deserialize<FileDownloadStatus>(json));
+        return Ok(JsonSerializer.Deserialize(json, AppJsonSerializerContext.Default.FileDownloadStatus));
     }
 
     [HttpPost("download/{id:guid}")]

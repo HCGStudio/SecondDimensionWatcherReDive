@@ -6,7 +6,6 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using System.Text.Json;
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.IdentityModel.Tokens;
 
@@ -39,7 +38,7 @@ public partial class AuthController : ControllerBase
             .Select(x => x[random.Next(x.Length)]).ToArray());
     }
 
-    private LoginResult GenerateJwtToken()
+    private async Task<LoginResult> GenerateJwtTokenAsync()
     {
         var handler = new JwtSecurityTokenHandler();
         var key = Encoding.ASCII.GetBytes(_configuration["JwtSecret"]!);
@@ -61,7 +60,8 @@ public partial class AuthController : ControllerBase
 
         var refreshToken = new RefreshToken(RandomString(25) + Guid.NewGuid(), token.Id);
 
-        _distributedCache.SetString(refreshToken.Token, JsonSerializer.Serialize(refreshToken));
+        await _distributedCache.SetStringAsync(refreshToken.Token,
+            JsonSerializer.Serialize(refreshToken, AppJsonSerializerContext.Default.RefreshToken));
 
         return new LoginResult(jwtToken, refreshToken.Token);
     }
@@ -78,11 +78,11 @@ public partial class AuthController : ControllerBase
                 new PasswordConfig(new PasswordHash(BCrypt.Net.BCrypt.HashPassword(data.Password))),
                 AppJsonSerializerContext.Default.PasswordConfig));
 
-        return Ok(GenerateJwtToken());
+        return Ok(await GenerateJwtTokenAsync());
     }
 
     [HttpPost("login")]
-    public ActionResult<LoginResult> Login([FromBody] LoginData data)
+    public async Task<ActionResult<LoginResult>> Login([FromBody] LoginData data)
     {
         var storedValue = _configuration["Password:Value"];
         if (string.IsNullOrWhiteSpace(storedValue))
@@ -91,17 +91,17 @@ public partial class AuthController : ControllerBase
         if (!BCrypt.Net.BCrypt.Verify(data.Password, storedValue))
             return BadRequest();
 
-        return Ok(GenerateJwtToken());
+        return Ok(await GenerateJwtTokenAsync());
     }
 
     [HttpPost("refresh")]
-    public ActionResult<LoginResult> Refresh([FromBody] AuthRequest request)
+    public async Task<ActionResult<LoginResult>> Refresh([FromBody] AuthRequest request)
     {
-        var result = VerifyAndGenerateToken(request);
+        var result = await VerifyAndGenerateTokenAsync(request);
         return result.Success ? Ok(result) : BadRequest(result);
     }
 
-    private LoginResult VerifyAndGenerateToken(AuthRequest request)
+    private async Task<LoginResult> VerifyAndGenerateTokenAsync(AuthRequest request)
     {
         try
         {
@@ -117,16 +117,16 @@ public partial class AuthController : ControllerBase
                     StringComparison.InvariantCultureIgnoreCase))
                 return new LoginResult(null, null, false);
 
-            var storedJson = _distributedCache.GetString(request.RefreshToken);
-            var storedToken = storedJson is null ? null : JsonSerializer.Deserialize<RefreshToken>(storedJson);
+            var storedJson = await _distributedCache.GetStringAsync(request.RefreshToken);
+            var storedToken = storedJson is null ? null : JsonSerializer.Deserialize(storedJson, AppJsonSerializerContext.Default.RefreshToken);
             if (storedToken is null) return new LoginResult(null, null, false);
 
             if (tokenInVerification.FindFirst(c => c.Type == JwtRegisteredClaimNames.Jti)?.Value != storedToken.JwtId)
                 return new LoginResult(null, null, false);
 
-            _distributedCache.Remove(request.RefreshToken);
+            await _distributedCache.RemoveAsync(request.RefreshToken);
 
-            return GenerateJwtToken();
+            return await GenerateJwtTokenAsync();
         }
         catch (Exception exception)
         {

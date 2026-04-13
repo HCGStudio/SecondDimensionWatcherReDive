@@ -23,7 +23,7 @@ public class UpdateDownloadStatusBackgroundService : BackgroundService
         {
             var status = await reader.ReadAsync(cancellationToken);
             var key = status.ItemId.ToString();
-            var value = JsonSerializer.Serialize(status);
+            var value = JsonSerializer.Serialize(status, AppJsonSerializerContext.Default.FileDownloadStatus);
             if (status.State == FileDownloadState.Finished)
                 await _distributedCache.SetStringAsync(key, value,
                     new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5) },

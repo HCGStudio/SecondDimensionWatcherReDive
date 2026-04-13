@@ -68,7 +68,8 @@ public partial class FileController(
         }
 
         var token = GenerateToken(64);
-        distributedCache.SetString(token, JsonSerializer.Serialize(new FileStoreToken(targetPath, info.FileStore)),
+        await distributedCache.SetStringAsync(token,
+            JsonSerializer.Serialize(new FileStoreToken(targetPath, info.FileStore), AppJsonSerializerContext.Default.FileStoreToken),
             new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = TimeSpan.FromDays(1) });
         var url = Url.ActionLink(nameof(GetFile), values: new { token })!;
         LogLinkGenerated(logger, payload.Id, url);
@@ -79,8 +80,8 @@ public partial class FileController(
     [HttpGet("play")]
     public async Task<IActionResult> GetFile([FromQuery] [Required] string token)
     {
-        var json = distributedCache.GetString(token);
-        var fileStoreToken = json is null ? null : JsonSerializer.Deserialize<FileStoreToken>(json);
+        var json = await distributedCache.GetStringAsync(token);
+        var fileStoreToken = json is null ? null : JsonSerializer.Deserialize(json, AppJsonSerializerContext.Default.FileStoreToken);
         if (fileStoreToken is null)
         {
             LogPlayTokenInvalid(logger);
