@@ -236,7 +236,7 @@ export const AnimationInfo: React.FC<IAnimationInfoProps> = ({ value }) => {
                 {tag}
               </span>
             ) : null}
-            <h3 className="truncate font-serif text-base font-medium leading-heading text-foreground">
+            <h3 className="font-serif text-base font-medium leading-heading text-foreground break-words">
               {value.title}
             </h3>
           </div>
@@ -260,7 +260,7 @@ export const AnimationInfo: React.FC<IAnimationInfoProps> = ({ value }) => {
 
           {/* Row 3: description (collapsed to 1 line) */}
           {value.description ? (
-            <p className="mt-1 truncate text-sm leading-body text-muted">
+            <p className="mt-1 line-clamp-3 text-sm leading-body text-muted">
               {value.description}
             </p>
           ) : null}
