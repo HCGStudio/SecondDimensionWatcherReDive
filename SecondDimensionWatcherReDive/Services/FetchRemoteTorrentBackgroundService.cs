@@ -9,7 +9,7 @@ using SecondDimensionWatcherReDive.Utils.FileDownload;
 
 namespace SecondDimensionWatcherReDive.Services;
 
-public class FetchRemoteTorrentBackgroundService(
+public partial class FetchRemoteTorrentBackgroundService(
     Channel<RemoteTorrentTrackRequest> remoteTorrentTrackRequest,
     IHttpClientFactory httpClientFactory,
     Channel<DownloadCompleteRequest> downloadCompleteRequest,
@@ -62,12 +62,14 @@ public class FetchRemoteTorrentBackgroundService(
             var info = default(RemoteTorrentInfo[]);
             try
             {
-                info = await _httpClient.GetFromJsonAsync<RemoteTorrentInfo[]>(
-                    $"/api/v2/torrents/info?hashes={string.Join('|', tracked.Keys)}", cancellationToken);
+                info = await _httpClient.GetFromJsonAsync(
+                    $"/api/v2/torrents/info?hashes={string.Join('|', tracked.Keys)}",
+                    QBittorrentJsonSerializerContext.Default.RemoteTorrentInfoArray,
+                    cancellationToken);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                logger.LogWarning(ex, "Failed to fetch torrent status from remote client");
+                LogFetchTorrentStatusFailed(logger, ex);
                 continue;
             }
 
@@ -92,4 +94,7 @@ public class FetchRemoteTorrentBackgroundService(
             }
         }
     }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to fetch torrent status from remote client")]
+    private static partial void LogFetchTorrentStatusFailed(ILogger logger, Exception ex);
 }

@@ -4,7 +4,7 @@ using SecondDimensionWatcherReDive.Utils.FileDownload;
 
 namespace SecondDimensionWatcherReDive.Utils.FileStore;
 
-public class TorrentFileOperator(
+public partial class TorrentFileOperator(
     IHttpClientFactory httpClientFactory,
     ILogger<TorrentFileOperator> logger) : IFileOperator
 {
@@ -19,10 +19,12 @@ public class TorrentFileOperator(
             var newFullPath = Path.GetFullPath(newName);
 
             // Query qBittorrent for all torrents to find the one owning this file
-            var torrents = await _httpClient.GetFromJsonAsync<RemoteTorrentInfo[]>("/api/v2/torrents/info");
+            var torrents = await _httpClient.GetFromJsonAsync(
+                "/api/v2/torrents/info",
+                QBittorrentJsonSerializerContext.Default.RemoteTorrentInfoArray);
             if (torrents is null || torrents.Length == 0)
             {
-                logger.LogWarning("No torrents found in qBittorrent, cannot rename {OldName}", oldName);
+                LogNoTorrentsFound(logger, oldName);
                 return false;
             }
 
@@ -30,8 +32,7 @@ public class TorrentFileOperator(
             var matchedTorrent = FindTorrentForPath(torrents, oldFullPath);
             if (matchedTorrent is null)
             {
-                logger.LogWarning(
-                    "No torrent found matching path {Path}, cannot rename via qBittorrent", oldFullPath);
+                LogNoTorrentMatchingPath(logger, oldFullPath);
                 return false;
             }
 
@@ -51,21 +52,16 @@ public class TorrentFileOperator(
 
             if (response.IsSuccessStatusCode)
             {
-                logger.LogInformation(
-                    "Renamed via qBittorrent: {Old} -> {New} (torrent {Hash})",
-                    relativeOldPath, relativeNewPath, matchedTorrent.Hash);
+                LogRenamedViaQBittorrent(logger, relativeOldPath, relativeNewPath, matchedTorrent.Hash);
                 return true;
             }
 
-            logger.LogWarning(
-                "qBittorrent renameFile returned {StatusCode} for {Old} -> {New}",
-                response.StatusCode, relativeOldPath, relativeNewPath);
+            LogRenameFileReturnedError(logger, (int)response.StatusCode, relativeOldPath, relativeNewPath);
             return false;
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Failed to rename file from {OldName} to {NewName} via qBittorrent",
-                oldName, newName);
+            LogRenameFileFailed(logger, ex, oldName, newName);
             return false;
         }
     }
@@ -108,4 +104,19 @@ public class TorrentFileOperator(
         // Otherwise, use the parent directory of content_path
         return Path.GetDirectoryName(fullContentPath) ?? fullContentPath;
     }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "No torrents found in qBittorrent, cannot rename {OldName}")]
+    private static partial void LogNoTorrentsFound(ILogger logger, string oldName);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "No torrent found matching path {Path}, cannot rename via qBittorrent")]
+    private static partial void LogNoTorrentMatchingPath(ILogger logger, string path);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Renamed via qBittorrent: {Old} -> {New} (torrent {Hash})")]
+    private static partial void LogRenamedViaQBittorrent(ILogger logger, string old, string @new, string hash);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "qBittorrent renameFile returned {StatusCode} for {Old} -> {New}")]
+    private static partial void LogRenameFileReturnedError(ILogger logger, int statusCode, string old, string @new);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to rename file from {OldName} to {NewName} via qBittorrent")]
+    private static partial void LogRenameFileFailed(ILogger logger, Exception ex, string oldName, string newName);
 }

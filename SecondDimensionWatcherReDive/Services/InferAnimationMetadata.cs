@@ -10,7 +10,7 @@ namespace SecondDimensionWatcherReDive.Services;
 ///     Scheduled task that performs offline AI inference on AnimationInfo records
 ///     that have not yet been processed.
 /// </summary>
-public class InferAnimationMetadata(
+public partial class InferAnimationMetadata(
     IServiceScopeFactory scopeFactory,
     TmdbTool tmdbTool,
     ILogger<InferAnimationMetadata> logger)
@@ -38,7 +38,7 @@ public class InferAnimationMetadata(
             .ToListAsync(cancellationToken);
 
         if (pendingItems.Count > 0)
-            logger.LogInformation("Found {Count} AnimationInfo records pending AI inference", pendingItems.Count);
+            LogFoundPendingItems(logger, pendingItems.Count);
 
         foreach (var item in pendingItems)
         {
@@ -111,9 +111,7 @@ public class InferAnimationMetadata(
             item.IsAiProcessed = true;
             await applicationContext.SaveChangesAsync(cancellationToken);
 
-            logger.LogInformation(
-                "AI inference completed for AnimationInfo {Id}: {Title}",
-                item.Id, item.Title);
+            LogInferenceCompleted(logger, item.Id, item.Title);
         }
         catch (OperationCanceledException)
         {
@@ -124,9 +122,16 @@ public class InferAnimationMetadata(
             item.AiRetryCount++;
             await applicationContext.SaveChangesAsync(cancellationToken);
 
-            logger.LogWarning(ex,
-                "AI inference failed for AnimationInfo {Id}: {Title} (retry {RetryCount}/{MaxRetry})",
-                item.Id, item.Title, item.AiRetryCount, MaxRetryCount);
+            LogInferenceFailed(logger, ex, item.Id, item.Title, item.AiRetryCount, MaxRetryCount);
         }
     }
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Found {Count} AnimationInfo records pending AI inference")]
+    private static partial void LogFoundPendingItems(ILogger logger, int count);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "AI inference completed for AnimationInfo {Id}: {Title}")]
+    private static partial void LogInferenceCompleted(ILogger logger, Guid id, string title);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "AI inference failed for AnimationInfo {Id}: {Title} (retry {RetryCount}/{MaxRetry})")]
+    private static partial void LogInferenceFailed(ILogger logger, Exception ex, Guid id, string title, int retryCount, int maxRetry);
 }

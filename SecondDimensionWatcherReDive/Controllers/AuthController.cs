@@ -13,7 +13,7 @@ namespace SecondDimensionWatcherReDive.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-public class AuthController : ControllerBase
+public partial class AuthController : ControllerBase
 {
     private readonly IConfiguration _configuration;
     private readonly ILogger<AuthController> _logger;
@@ -74,7 +74,8 @@ public class AuthController : ControllerBase
         var passwordFile = _configuration["PasswordFile"] ?? "password.json";
         await System.IO.File.WriteAllBytesAsync(passwordFile,
             JsonSerializer.SerializeToUtf8Bytes(
-                new PasswordConfig(new PasswordHash(BCrypt.Net.BCrypt.HashPassword(data.Password)))));
+                new PasswordConfig(new PasswordHash(BCrypt.Net.BCrypt.HashPassword(data.Password))),
+                AppJsonSerializerContext.Default.PasswordConfig));
 
         return Ok(GenerateJwtToken());
     }
@@ -127,7 +128,7 @@ public class AuthController : ControllerBase
         }
         catch (Exception exception)
         {
-            _logger.LogError(exception.ToString());
+            LogTokenVerificationFailed(_logger, exception);
             return new LoginResult(null, null, false);
         }
     }
@@ -152,4 +153,7 @@ public class AuthController : ControllerBase
     public record AuthRequest([Required] string Token, [Required] string RefreshToken);
 
     public record RefreshToken(string Token, string JwtId);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Token verification failed")]
+    private static partial void LogTokenVerificationFailed(ILogger logger, Exception ex);
 }

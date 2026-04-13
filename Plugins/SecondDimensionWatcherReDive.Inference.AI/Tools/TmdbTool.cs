@@ -5,18 +5,18 @@ using TMDbLib.Client;
 
 namespace SecondDimensionWatcherReDive.Inference.AI.Tools;
 
-public class TmdbTool(TMDbClient tmdbClient, ILogger<TmdbTool> logger)
+public partial class TmdbTool(TMDbClient tmdbClient, ILogger<TmdbTool> logger)
 {
     public async Task<string> SearchAsync(string query, CancellationToken cancellationToken)
     {
-        logger.LogDebug("[TMDB] Searching for: {Query}", query);
+        LogSearching(logger, query);
         try
         {
             var tvResults = await tmdbClient.SearchTvShowAsync(query, cancellationToken: cancellationToken);
 
             if (tvResults?.Results is { Count: > 0 })
             {
-                logger.LogDebug("[TMDB] Found {Count} TV results for: {Query}", tvResults.Results.Count, query);
+                LogFoundTvResults(logger, tvResults.Results.Count, query);
                 var results = tvResults.Results.Take(5).Select(r => new
                 {
                     tmdb_id = r.Id.ToString(),
@@ -33,7 +33,7 @@ public class TmdbTool(TMDbClient tmdbClient, ILogger<TmdbTool> logger)
 
             if (movieResults?.Results is { Count: > 0 })
             {
-                logger.LogDebug("[TMDB] Found {Count} movie results for: {Query}", movieResults.Results.Count, query);
+                LogFoundMovieResults(logger, movieResults.Results.Count, query);
                 var results = movieResults.Results.Take(5).Select(r => new
                 {
                     tmdb_id = r.Id.ToString(),
@@ -46,25 +46,25 @@ public class TmdbTool(TMDbClient tmdbClient, ILogger<TmdbTool> logger)
                 return JsonSerializer.Serialize(results);
             }
 
-            logger.LogDebug("[TMDB] No results found for: {Query}", query);
+            LogNoResultsFound(logger, query);
             return "[]";
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "TMDB search failed for query: {Query}", query);
+            LogSearchFailed(logger, ex, query);
             return "[]";
         }
     }
 
     public async Task<string> GetSeasonsAsync(int tmdbId, CancellationToken cancellationToken)
     {
-        logger.LogDebug("[TMDB] Getting season info for TV show: {TmdbId}", tmdbId);
+        LogGettingSeasonInfo(logger, tmdbId);
         try
         {
             var show = await tmdbClient.GetTvShowAsync(tmdbId, cancellationToken: cancellationToken);
             if (show == null)
             {
-                logger.LogDebug("[TMDB] TV show not found: {TmdbId}", tmdbId);
+                LogTvShowNotFound(logger, tmdbId);
                 return "{}";
             }
 
@@ -88,12 +88,52 @@ public class TmdbTool(TMDbClient tmdbClient, ILogger<TmdbTool> logger)
                 seasons
             };
 
-            logger.LogDebug("[TMDB] Show {TmdbId} has {SeasonCount} seasons", tmdbId, seasons.Count);
+            LogShowSeasonCount(logger, tmdbId, seasons.Count);
             return JsonSerializer.Serialize(result);
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "TMDB GetSeasons failed for ID: {TmdbId}", tmdbId);
+            LogGetSeasonsFailed(logger, ex, tmdbId);
+            return "{}";
+        }
+    }
+
+    public async Task<string> GetSeasonEpisodesAsync(int tmdbId, int seasonNumber, CancellationToken cancellationToken)
+    {
+        LogGettingSeasonEpisodes(logger, tmdbId, seasonNumber);
+        try
+        {
+            var season = await tmdbClient.GetTvSeasonAsync(tmdbId, seasonNumber, cancellationToken: cancellationToken);
+            if (season == null)
+            {
+                LogSeasonNotFound(logger, tmdbId, seasonNumber);
+                return "{}";
+            }
+
+            var episodes = season.Episodes?
+                .Select(e => new
+                {
+                    episode_number = e.EpisodeNumber,
+                    name = e.Name,
+                    air_date = e.AirDate?.ToString("yyyy-MM-dd"),
+                    overview = e.Overview
+                })
+                .ToList() ?? [];
+
+            var result = new
+            {
+                tmdb_id = tmdbId,
+                season_number = seasonNumber,
+                episode_count = episodes.Count,
+                episodes
+            };
+
+            LogSeasonEpisodeCount(logger, tmdbId, seasonNumber, episodes.Count);
+            return JsonSerializer.Serialize(result);
+        }
+        catch (Exception ex)
+        {
+            LogGetSeasonEpisodesFailed(logger, ex, tmdbId, seasonNumber);
             return "{}";
         }
     }
@@ -105,7 +145,7 @@ public class TmdbTool(TMDbClient tmdbClient, ILogger<TmdbTool> logger)
     public async Task<TmdbDetails?> GetLocalizedDetailsAsync(int tmdbId, CancellationToken cancellationToken)
     {
         var language = CultureInfo.CurrentCulture.Name; // e.g. "zh-CN", "en-US", "ja-JP"
-        logger.LogDebug("[TMDB] Getting localized details for {TmdbId} in {Language}", tmdbId, language);
+        LogGettingLocalizedDetails(logger, tmdbId, language);
         try
         {
             var show = await tmdbClient.GetTvShowAsync(tmdbId, language: language,
@@ -120,10 +160,55 @@ public class TmdbTool(TMDbClient tmdbClient, ILogger<TmdbTool> logger)
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "TMDB GetLocalizedDetails failed for ID: {TmdbId}", tmdbId);
+            LogGetLocalizedDetailsFailed(logger, ex, tmdbId);
             return null;
         }
     }
 
     public record TmdbDetails(string Name, string OriginalName, string? Overview, string? PosterPath);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "[TMDB] Searching for: {Query}")]
+    private static partial void LogSearching(ILogger logger, string query);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "[TMDB] Found {Count} TV results for: {Query}")]
+    private static partial void LogFoundTvResults(ILogger logger, int count, string query);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "[TMDB] Found {Count} movie results for: {Query}")]
+    private static partial void LogFoundMovieResults(ILogger logger, int count, string query);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "[TMDB] No results found for: {Query}")]
+    private static partial void LogNoResultsFound(ILogger logger, string query);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "TMDB search failed for query: {Query}")]
+    private static partial void LogSearchFailed(ILogger logger, Exception ex, string query);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "[TMDB] Getting season info for TV show: {TmdbId}")]
+    private static partial void LogGettingSeasonInfo(ILogger logger, int tmdbId);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "[TMDB] TV show not found: {TmdbId}")]
+    private static partial void LogTvShowNotFound(ILogger logger, int tmdbId);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "[TMDB] Show {TmdbId} has {SeasonCount} seasons")]
+    private static partial void LogShowSeasonCount(ILogger logger, int tmdbId, int seasonCount);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "TMDB GetSeasons failed for ID: {TmdbId}")]
+    private static partial void LogGetSeasonsFailed(ILogger logger, Exception ex, int tmdbId);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "[TMDB] Getting localized details for {TmdbId} in {Language}")]
+    private static partial void LogGettingLocalizedDetails(ILogger logger, int tmdbId, string language);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "TMDB GetLocalizedDetails failed for ID: {TmdbId}")]
+    private static partial void LogGetLocalizedDetailsFailed(ILogger logger, Exception ex, int tmdbId);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "[TMDB] Getting episodes for show {TmdbId} season {SeasonNumber}")]
+    private static partial void LogGettingSeasonEpisodes(ILogger logger, int tmdbId, int seasonNumber);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "[TMDB] Season not found: show {TmdbId} season {SeasonNumber}")]
+    private static partial void LogSeasonNotFound(ILogger logger, int tmdbId, int seasonNumber);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "[TMDB] Show {TmdbId} season {SeasonNumber} has {EpisodeCount} episodes")]
+    private static partial void LogSeasonEpisodeCount(ILogger logger, int tmdbId, int seasonNumber, int episodeCount);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "TMDB GetSeasonEpisodes failed for show {TmdbId} season {SeasonNumber}")]
+    private static partial void LogGetSeasonEpisodesFailed(ILogger logger, Exception ex, int tmdbId, int seasonNumber);
 }

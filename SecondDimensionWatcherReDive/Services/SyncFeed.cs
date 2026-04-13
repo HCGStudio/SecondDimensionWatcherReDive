@@ -13,7 +13,7 @@ namespace SecondDimensionWatcherReDive.Services;
 /// <summary>
 ///     The SyncFeed class is responsible for synchronizing feeds at regular intervals.
 /// </summary>
-public class SyncFeed(
+public partial class SyncFeed(
     IServiceProvider serviceProvider,
     ILogger<SyncFeed> logger,
     IHttpClientFactory httpClientFactory,
@@ -85,7 +85,7 @@ public class SyncFeed(
             }
             catch (InvalidTorrentDataException e)
             {
-                logger.LogWarning(e.Message);
+                LogSyncFeedWarning(logger, e.Message);
             }
         }
     }
@@ -95,4 +95,7 @@ public class SyncFeed(
         var requests = await feedService.Sync(cancellationToken);
         await Task.WhenAll(requests.Select(r => ProcessSingle(r, cancellationToken)));
     }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "{Message}")]
+    private static partial void LogSyncFeedWarning(ILogger logger, string message);
 }

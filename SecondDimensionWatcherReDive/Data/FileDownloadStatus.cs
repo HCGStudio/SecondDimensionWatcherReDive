@@ -9,5 +9,5 @@ public record struct FileDownloadStatus(
     [property: JsonConverter(typeof(JsonNumberTimeSpanConverter))]
     TimeSpan Remaining,
     int Speed,
-    [property: JsonConverter(typeof(JsonStringEnumConverter))]
+    [property: JsonConverter(typeof(JsonStringEnumConverter<FileDownloadState>))]
     FileDownloadState State);

@@ -9,7 +9,7 @@ using SecondDimensionWatcherReDive.Inference.AI.Tools;
 
 namespace SecondDimensionWatcherReDive.Inference.AI.Engines;
 
-public class OpenAiCompatibleEngine(
+public partial class OpenAiCompatibleEngine(
     TmdbTool tmdbTool,
     IOptions<InferenceOptions> options,
     ILogger<OpenAiCompatibleEngine> logger)
@@ -45,13 +45,16 @@ public class OpenAiCompatibleEngine(
             BinaryData.FromString(SearchTmdbSchema)));
         chatOptions.Tools.Add(ChatTool.CreateFunctionTool(
             "get_tmdb_seasons",
-            "Get the season/episode structure of a TV show from TMDB. Use this after search_tmdb to check how seasons and episodes are organized, so you can normalize episode numbering.",
+            "Get the season/episode structure of a TV show from TMDB. Returns each season's episode_count. Use this after search_tmdb to check how seasons and episodes are organized, so you can normalize episode numbering.",
             BinaryData.FromString(GetTmdbSeasonsSchema)));
+        chatOptions.Tools.Add(ChatTool.CreateFunctionTool(
+            "get_tmdb_season_episodes",
+            "Get individual episode details (episode number, name, air date, overview) for a specific season of a TV show. Use this when you need to verify episode mapping or resolve ambiguous numbering.",
+            BinaryData.FromString(GetTmdbSeasonEpisodesSchema)));
 
         for (var round = 0; round < MaxToolRounds; round++)
         {
-            logger.LogDebug("[OpenAI] Inference round {Round}/{MaxRounds} for title: {Title}",
-                round + 1, MaxToolRounds, title);
+            LogOpenAiInferenceRound(logger, round + 1, MaxToolRounds, title);
 
             // Use streaming to accumulate the full response —
             // avoids multi-choice issues where non-standard wrappers split
@@ -92,8 +95,7 @@ public class OpenAiCompatibleEngine(
                 }
             }
 
-            logger.LogDebug("[OpenAI] Stream complete. finish_reason: {FinishReason}, tool_calls: {ToolCallCount}",
-                finishReason, toolCallBuilders.Count);
+            LogOpenAiStreamComplete(logger, finishReason?.ToString(), toolCallBuilders.Count);
 
             if (toolCallBuilders.Count > 0)
             {
@@ -109,8 +111,7 @@ public class OpenAiCompatibleEngine(
 
                 foreach (var toolCall in toolCalls)
                 {
-                    logger.LogDebug("[OpenAI] Tool call: {Function}, args: {Args}",
-                        toolCall.FunctionName, toolCall.FunctionArguments.ToString());
+                    LogOpenAiToolCall(logger, toolCall.FunctionName, toolCall.FunctionArguments.ToString());
 
                     var toolResult = await ExecuteToolCallAsync(
                         toolCall.FunctionName, toolCall.FunctionArguments.ToString(),
@@ -127,7 +128,19 @@ public class OpenAiCompatibleEngine(
             return ParseInferenceResult(finalText);
         }
 
-        logger.LogWarning("OpenAI inference exceeded max tool rounds for title: {Title}", title);
+        LogOpenAiExceededMaxRounds(logger, title);
         return null;
     }
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "[OpenAI] Inference round {Round}/{MaxRounds} for title: {Title}")]
+    private static partial void LogOpenAiInferenceRound(ILogger logger, int round, int maxRounds, string title);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "[OpenAI] Stream complete. finish_reason: {FinishReason}, tool_calls: {ToolCallCount}")]
+    private static partial void LogOpenAiStreamComplete(ILogger logger, string? finishReason, int toolCallCount);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "[OpenAI] Tool call: {Function}, args: {Args}")]
+    private static partial void LogOpenAiToolCall(ILogger logger, string function, string args);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "OpenAI inference exceeded max tool rounds for title: {Title}")]
+    private static partial void LogOpenAiExceededMaxRounds(ILogger logger, string title);
 }

@@ -3,6 +3,7 @@ import {
   Clock,
   FolderOpen,
   RefreshCw,
+  Trash2,
 } from "lucide-react";
 import dayjs from "dayjs";
 import React from "react";
@@ -83,7 +84,8 @@ const ActionButtons: React.FC<{ value: IAnimationInfo }> = ({ value }) => {
   const [isSheetOpen, setIsSheetOpen] = React.useState(false);
   const [isRetrying, setIsRetrying] = React.useState(false);
 
-  const showRetryButton = value.isAiProcessed && !value.animation;
+  const showRetryButton = value.isAiProcessed;
+  const retryLabel = value.animation ? "重新推断" : "AI 推断";
 
   const onRetryInference = React.useCallback(async () => {
     setIsRetrying(true);
@@ -111,7 +113,7 @@ const ActionButtons: React.FC<{ value: IAnimationInfo }> = ({ value }) => {
               size={13}
               className={isRetrying ? "animate-spin" : ""}
             />
-            {isRetrying ? "请求中..." : "AI 推断"}
+            {isRetrying ? "请求中..." : retryLabel}
           </Button>
         ) : null}
 
@@ -177,14 +179,30 @@ const ActionButtons: React.FC<{ value: IAnimationInfo }> = ({ value }) => {
         ) : null}
 
         {value.isDownloadTracked && value.isDownloadFinished ? (
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => setIsSheetOpen(true)}
-          >
-            <FolderOpen size={14} />
-            浏览文件
-          </Button>
+          <>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setIsSheetOpen(true)}
+            >
+              <FolderOpen size={14} />
+              浏览文件
+            </Button>
+            <Button
+              size="sm"
+              color="danger"
+              onClick={() => {
+                if (window.confirm("确定要删除已下载的文件吗？")) {
+                  cancelDownload(value.id, true).catch(() =>
+                    addToast({ title: "删除失败", color: "danger" }),
+                  );
+                }
+              }}
+            >
+              <Trash2 size={14} />
+              删除
+            </Button>
+          </>
         ) : null}
       </div>
 

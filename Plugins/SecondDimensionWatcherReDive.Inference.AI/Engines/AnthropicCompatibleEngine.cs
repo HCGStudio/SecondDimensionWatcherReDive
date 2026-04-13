@@ -12,7 +12,7 @@ using Tool = Anthropic.SDK.Common.Tool;
 
 namespace SecondDimensionWatcherReDive.Inference.AI.Engines;
 
-public class AnthropicCompatibleEngine(
+public partial class AnthropicCompatibleEngine(
     TmdbTool tmdbTool,
     IOptions<InferenceOptions> options,
     ILogger<AnthropicCompatibleEngine> logger)
@@ -34,7 +34,12 @@ public class AnthropicCompatibleEngine(
             Tool.FromFunc(
                 "get_tmdb_seasons",
                 ([FunctionParameter("tmdb_id", true)] int tmdbId) => tmdbId.ToString(),
-                "Get the season/episode structure of a TV show from TMDB. Use this after search_tmdb to check how seasons and episodes are organized, so you can normalize episode numbering.")
+                "Get the season/episode structure of a TV show from TMDB. Returns each season's episode_count. Use this after search_tmdb to check how seasons and episodes are organized, so you can normalize episode numbering."),
+            Tool.FromFunc(
+                "get_tmdb_season_episodes",
+                ([FunctionParameter("tmdb_id", true)] int tmdbId,
+                 [FunctionParameter("season_number", true)] int seasonNumber) => $"{tmdbId}/{seasonNumber}",
+                "Get individual episode details (episode number, name, air date, overview) for a specific season of a TV show. Use this when you need to verify episode mapping or resolve ambiguous numbering.")
         ];
     }
 
@@ -55,8 +60,7 @@ public class AnthropicCompatibleEngine(
 
         for (var round = 0; round < MaxToolRounds; round++)
         {
-            logger.LogDebug("[Anthropic] Inference round {Round}/{MaxRounds} for title: {Title}",
-                round + 1, MaxToolRounds, title);
+            LogAnthropicInferenceRound(logger, round + 1, MaxToolRounds, title);
 
             var parameters = new MessageParameters
             {
@@ -68,7 +72,7 @@ public class AnthropicCompatibleEngine(
             };
 
             var response = await client.Messages.GetClaudeMessageAsync(parameters, cancellationToken);
-            logger.LogDebug("[Anthropic] Response stop_reason: {StopReason}", response.StopReason);
+            LogAnthropicStopReason(logger, response.StopReason);
 
             // Add assistant message to history
             messages.Add(response.Message);
@@ -81,8 +85,7 @@ public class AnthropicCompatibleEngine(
 
                 foreach (var toolUse in toolUseBlocks)
                 {
-                    logger.LogDebug("[Anthropic] Tool call: {ToolName}, input: {Input}",
-                        toolUse.Name, toolUse.Input?.ToString());
+                    LogAnthropicToolCall(logger, toolUse.Name, toolUse.Input?.ToString());
 
                     var argumentsJson = toolUse.Input?.ToString() ?? "{}";
                     var result = await ExecuteToolCallAsync(
@@ -109,7 +112,19 @@ public class AnthropicCompatibleEngine(
             return ParseInferenceResult(textContent);
         }
 
-        logger.LogWarning("Anthropic inference exceeded max tool rounds for title: {Title}", title);
+        LogAnthropicExceededMaxRounds(logger, title);
         return null;
     }
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "[Anthropic] Inference round {Round}/{MaxRounds} for title: {Title}")]
+    private static partial void LogAnthropicInferenceRound(ILogger logger, int round, int maxRounds, string title);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "[Anthropic] Response stop_reason: {StopReason}")]
+    private static partial void LogAnthropicStopReason(ILogger logger, string? stopReason);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "[Anthropic] Tool call: {ToolName}, input: {Input}")]
+    private static partial void LogAnthropicToolCall(ILogger logger, string toolName, string? input);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Anthropic inference exceeded max tool rounds for title: {Title}")]
+    private static partial void LogAnthropicExceededMaxRounds(ILogger logger, string title);
 }

@@ -9,7 +9,7 @@ namespace SecondDimensionWatcherReDive.Services;
 ///     Scheduled task that scrapes the mikanani.me homepage for current season anime
 ///     and caches the results in the database.
 /// </summary>
-public class ScrapeSeasonBangumi(
+public partial class ScrapeSeasonBangumi(
     IServiceScopeFactory scopeFactory,
     IHttpClientFactory httpClientFactory,
     ILogger<ScrapeSeasonBangumi> logger)
@@ -32,7 +32,7 @@ public class ScrapeSeasonBangumi(
             var scraped = await MikananiScraper.ScrapeSeasonAsync(_httpClient, logger, cancellationToken: cancellationToken);
             if (scraped.Count == 0)
             {
-                logger.LogWarning("Scraped 0 bangumi entries, skipping DB update");
+                LogScrapedZeroBangumi(logger);
                 return;
             }
 
@@ -74,15 +74,27 @@ public class ScrapeSeasonBangumi(
             if (stale.Count > 0)
             {
                 context.SeasonBangumis.RemoveRange(stale);
-                logger.LogInformation("Removed {Count} stale season bangumi entries", stale.Count);
+                LogRemovedStaleBangumi(logger, stale.Count);
             }
 
             await context.SaveChangesAsync(cancellationToken);
-            logger.LogInformation("Season bangumi cache updated: {Count} entries", scraped.Count);
+            LogSeasonBangumiUpdated(logger, scraped.Count);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            logger.LogError(ex, "Failed to scrape season bangumi from mikanani.me");
+            LogScrapeSeasonBangumiFailed(logger, ex);
         }
     }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Scraped 0 bangumi entries, skipping DB update")]
+    private static partial void LogScrapedZeroBangumi(ILogger logger);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Removed {Count} stale season bangumi entries")]
+    private static partial void LogRemovedStaleBangumi(ILogger logger, int count);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Season bangumi cache updated: {Count} entries")]
+    private static partial void LogSeasonBangumiUpdated(ILogger logger, int count);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Failed to scrape season bangumi from mikanani.me")]
+    private static partial void LogScrapeSeasonBangumiFailed(ILogger logger, Exception ex);
 }

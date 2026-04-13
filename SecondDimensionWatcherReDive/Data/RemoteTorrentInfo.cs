@@ -10,7 +10,7 @@ public class RemoteTorrentInfo
     public TimeSpan Eta { get; set; }
 
     [JsonPropertyName("state")]
-    [JsonConverter(typeof(JsonStringEnumConverter))]
+    [JsonConverter(typeof(JsonStringEnumConverter<RemoteTorrentState>))]
     public RemoteTorrentState State { get; set; }
 
     [JsonPropertyName("progress")] public double Progress { get; set; }

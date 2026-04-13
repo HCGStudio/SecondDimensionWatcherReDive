@@ -4,7 +4,7 @@ using SecondDimensionWatcherReDive.Framework.Inference;
 
 namespace SecondDimensionWatcherReDive.Plugin.FileRenamer;
 
-public class VideoFileRenamer(
+public partial class VideoFileRenamer(
     IFileStore fileStore,
     IFileOperator fileOperator,
     ILogger<VideoFileRenamer> logger,
@@ -24,7 +24,7 @@ public class VideoFileRenamer(
     {
         if (!await fileStore.Exist(context.StorePath))
         {
-            logger.LogWarning("Store path does not exist: {StorePath}", context.StorePath);
+            LogStorePathNotExist(logger, context.StorePath);
             return;
         }
 
@@ -44,7 +44,7 @@ public class VideoFileRenamer(
 
         if (videoFiles.Count == 0)
         {
-            logger.LogDebug("No video files found in {StorePath}", context.StorePath);
+            LogNoVideoFiles(logger, context.StorePath);
             return;
         }
 
@@ -76,9 +76,9 @@ public class VideoFileRenamer(
         {
             var success = await fileOperator.Rename(target.Path, newPath);
             if (success)
-                logger.LogInformation("Renamed: {Old} -> {New}", target.FileName, newName);
+                LogRenamed(logger, target.FileName, newName);
             else
-                logger.LogWarning("Failed to rename: {Old} -> {New}", target.FileName, newName);
+                LogRenameFailed(logger, target.FileName, newName);
         }
 
         var newBaseName = FormatFileName(animationName, season, episode, "");
@@ -92,8 +92,7 @@ public class VideoFileRenamer(
     {
         if (inferenceEngine == null)
         {
-            logger.LogWarning(
-                "Cannot determine episode numbers for multi-episode torrent without inference engine");
+            LogNoInferenceEngine(logger);
             return;
         }
 
@@ -103,7 +102,7 @@ public class VideoFileRenamer(
 
             if (result?.Episode == null)
             {
-                logger.LogWarning("Could not infer episode for file: {FileName}", file.FileName);
+                LogCouldNotInferEpisode(logger, file.FileName);
                 continue;
             }
 
@@ -116,9 +115,9 @@ public class VideoFileRenamer(
             {
                 var success = await fileOperator.Rename(file.Path, newPath);
                 if (success)
-                    logger.LogInformation("Renamed: {Old} -> {New}", file.FileName, newName);
+                    LogRenamed(logger, file.FileName, newName);
                 else
-                    logger.LogWarning("Failed to rename: {Old} -> {New}", file.FileName, newName);
+                    LogRenameFailed(logger, file.FileName, newName);
             }
 
             var newBaseName = FormatFileName(animationName, inferredSeason, result.Episode.Value, "");
@@ -159,9 +158,9 @@ public class VideoFileRenamer(
 
             var success = await fileOperator.Rename(file.Path, newSubPath);
             if (success)
-                logger.LogInformation("Renamed subtitle: {Old} -> {New}", file.FileName, newSubName);
+                LogSubtitleRenamed(logger, file.FileName, newSubName);
             else
-                logger.LogWarning("Failed to rename subtitle: {Old} -> {New}", file.FileName, newSubName);
+                LogSubtitleRenameFailed(logger, file.FileName, newSubName);
         }
     }
 
@@ -175,4 +174,28 @@ public class VideoFileRenamer(
         var invalid = Path.GetInvalidFileNameChars();
         return string.Concat(name.Select(c => invalid.Contains(c) ? '_' : c));
     }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Store path does not exist: {StorePath}")]
+    private static partial void LogStorePathNotExist(ILogger logger, string storePath);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "No video files found in {StorePath}")]
+    private static partial void LogNoVideoFiles(ILogger logger, string storePath);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Renamed: {Old} -> {New}")]
+    private static partial void LogRenamed(ILogger logger, string old, string @new);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to rename: {Old} -> {New}")]
+    private static partial void LogRenameFailed(ILogger logger, string old, string @new);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Cannot determine episode numbers for multi-episode torrent without inference engine")]
+    private static partial void LogNoInferenceEngine(ILogger logger);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Could not infer episode for file: {FileName}")]
+    private static partial void LogCouldNotInferEpisode(ILogger logger, string fileName);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Renamed subtitle: {Old} -> {New}")]
+    private static partial void LogSubtitleRenamed(ILogger logger, string old, string @new);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to rename subtitle: {Old} -> {New}")]
+    private static partial void LogSubtitleRenameFailed(ILogger logger, string old, string @new);
 }

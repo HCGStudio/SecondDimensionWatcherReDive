@@ -8,7 +8,7 @@ using SecondDimensionWatcherReDive.Plugin;
 
 namespace SecondDimensionWatcherReDive.Services;
 
-public class CompleteDownloadBackgroundService(
+public partial class CompleteDownloadBackgroundService(
     Channel<DownloadCompleteRequest> downloadCompleteRequest,
     IServiceScopeFactory scopeFactory,
     ILogger<CompleteDownloadBackgroundService> logger)
@@ -53,7 +53,7 @@ public class CompleteDownloadBackgroundService(
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "OnFileDownloadCompleted event failed for {ItemId}", request.ItemId);
+            LogDownloadCompletedEventFailed(logger, ex, request.ItemId);
         }
 
         // Rename files after download completes
@@ -73,8 +73,14 @@ public class CompleteDownloadBackgroundService(
             }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, "File rename failed for {ItemId}", request.ItemId);
+                LogFileRenameFailed(logger, ex, request.ItemId);
             }
         }
     }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "OnFileDownloadCompleted event failed for {ItemId}")]
+    private static partial void LogDownloadCompletedEventFailed(ILogger logger, Exception ex, Guid itemId);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "File rename failed for {ItemId}")]
+    private static partial void LogFileRenameFailed(ILogger logger, Exception ex, Guid itemId);
 }

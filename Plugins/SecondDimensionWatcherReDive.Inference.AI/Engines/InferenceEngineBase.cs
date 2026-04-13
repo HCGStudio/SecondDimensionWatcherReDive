@@ -7,7 +7,7 @@ using SecondDimensionWatcherReDive.Inference.AI.Tools;
 
 namespace SecondDimensionWatcherReDive.Inference.AI.Engines;
 
-public abstract class InferenceEngineBase(
+public abstract partial class InferenceEngineBase(
     TmdbTool tmdbTool,
     IOptions<InferenceOptions> options) : IInferenceEngine
 {
@@ -21,10 +21,23 @@ public abstract class InferenceEngineBase(
         2. Extract the raw season number from the title (default to 1 if not explicit).
         3. Extract the raw episode number. Set to null for batch releases ("01-12", "Vol.1", "Complete").
         4. Call search_tmdb to find the TMDB ID.
-        5. Call get_tmdb_seasons to get TMDB's season/episode structure, then normalize:
-           - If TMDB merges multiple cours into one season (e.g. S01 with 48 eps), map "S02E01" → S01E25.
-           - If the title uses absolute numbering ("- 25"), find the correct TMDB season.
-           - If TMDB has the referenced season, keep the episode number as-is.
+        5. Call get_tmdb_seasons to get TMDB's season/episode structure.
+           The response includes each season's actual episode_count — use these numbers, NEVER assume a fixed episode count (seasons can have 10, 12, 13, 24, 25, 48, or any number of episodes).
+        6. Normalize the season and episode using the actual episode_count values:
+
+           a) If TMDB merges multiple cours into one season (fewer TMDB seasons than the title implies):
+              Compute offset = sum of episode_count for all TMDB seasons before the title's season.
+              Result: TMDB season = the season containing (offset + raw_episode), episode = offset + raw_episode.
+              Example: title says "S02E03", TMDB has only S01 with 48 eps → season=1, episode = S01_episode_count_before_S02 + 3.
+              To calculate correctly: if TMDB S01 has 24 eps, then S02E03 → episode 24+3 = 27, still in S01 (which has 48 eps) → season=1, episode=27.
+
+           b) If the title uses absolute numbering (e.g. "- 75"):
+              Iterate TMDB seasons in order, subtracting each season's episode_count from the absolute number until it fits:
+              For absolute=75: if S01 has 24 eps (75>24, remainder=51), S02 has 25 eps (51>25, remainder=26), S03 has 26 eps (26<=26) → season=3, episode=26.
+
+           c) If the title's season and episode both exist in TMDB as-is, keep them unchanged.
+
+           d) If uncertain about episode mapping, call get_tmdb_season_episodes for the specific season to see individual episode details (air dates, names) to verify.
 
         Output contract — violating this is a fatal error:
         • Exactly one JSON object, nothing else.
@@ -45,7 +58,7 @@ public abstract class InferenceEngineBase(
 
     public async Task<InferenceResult?> InferAsync(string title, string description, CancellationToken cancellationToken)
     {
-        Logger.LogInformation("[{Provider}] Starting inference for title: {Title}", ProviderName, title);
+        LogStartingInference(Logger, ProviderName, title);
 
         await RateLimitSemaphore.WaitAsync(cancellationToken);
         try
@@ -55,8 +68,7 @@ public abstract class InferenceEngineBase(
             if (elapsed < minInterval)
             {
                 var delay = minInterval - elapsed;
-                Logger.LogDebug("[{Provider}] Rate limiting: waiting {DelayMs}ms before next API call",
-                    ProviderName, (int)delay.TotalMilliseconds);
+                LogRateLimiting(Logger, ProviderName, (int)delay.TotalMilliseconds);
                 await Task.Delay(delay, cancellationToken);
             }
 
@@ -64,16 +76,14 @@ public abstract class InferenceEngineBase(
             _lastCallTime = DateTime.UtcNow;
 
             if (result != null)
-                Logger.LogInformation(
-                    "[{Provider}] Inference succeeded for title: {Title} -> TMDB: {TmdbId}, S{Season}E{Episode}",
-                    ProviderName, title, result.TmdbId ?? "N/A", result.Season, result.Episode);
+                LogInferenceSucceeded(Logger, ProviderName, title, result.TmdbId ?? "N/A", result.Season, result.Episode);
             else
-                Logger.LogWarning("[{Provider}] Inference returned no result for title: {Title}", ProviderName, title);
+                LogInferenceNoResult(Logger, ProviderName, title);
             return result;
         }
         catch (Exception ex)
         {
-            Logger.LogWarning(ex, "[{Provider}] Inference failed for title: {Title}", ProviderName, title);
+            LogInferenceFailed(Logger, ex, ProviderName, title);
             return null;
         }
         finally
@@ -92,9 +102,9 @@ public abstract class InferenceEngineBase(
         {
             var args = JsonNode.Parse(argumentsJson);
             var query = args?["query"]?.GetValue<string>() ?? fallbackTitle;
-            Logger.LogDebug("[{Provider}] Executing TMDB search with query: {Query}", ProviderName, query);
+            LogExecutingTmdbSearch(Logger, ProviderName, query);
             var result = await tmdbTool.SearchAsync(query, cancellationToken);
-            Logger.LogDebug("[{Provider}] TMDB search returned: {Result}", ProviderName, result);
+            LogTmdbSearchResult(Logger, ProviderName, result);
             return result;
         }
 
@@ -102,13 +112,24 @@ public abstract class InferenceEngineBase(
         {
             var args = JsonNode.Parse(argumentsJson);
             var tmdbId = args?["tmdb_id"]?.GetValue<int>() ?? 0;
-            Logger.LogDebug("[{Provider}] Getting TMDB season info for ID: {TmdbId}", ProviderName, tmdbId);
+            LogGettingTmdbSeasons(Logger, ProviderName, tmdbId);
             var result = await tmdbTool.GetSeasonsAsync(tmdbId, cancellationToken);
-            Logger.LogDebug("[{Provider}] TMDB seasons returned: {Result}", ProviderName, result);
+            LogTmdbSeasonsResult(Logger, ProviderName, result);
             return result;
         }
 
-        Logger.LogWarning("[{Provider}] Unknown tool call: {FunctionName}", ProviderName, functionName);
+        if (functionName == "get_tmdb_season_episodes")
+        {
+            var args = JsonNode.Parse(argumentsJson);
+            var tmdbId = args?["tmdb_id"]?.GetValue<int>() ?? 0;
+            var seasonNumber = args?["season_number"]?.GetValue<int>() ?? 1;
+            LogGettingTmdbSeasonEpisodes(Logger, ProviderName, tmdbId, seasonNumber);
+            var result = await tmdbTool.GetSeasonEpisodesAsync(tmdbId, seasonNumber, cancellationToken);
+            LogTmdbSeasonEpisodesResult(Logger, ProviderName, result);
+            return result;
+        }
+
+        LogUnknownToolCall(Logger, ProviderName, functionName);
         return "{}";
     }
 
@@ -190,4 +211,57 @@ public abstract class InferenceEngineBase(
             "required": ["tmdb_id"]
         }
         """;
+
+    protected const string GetTmdbSeasonEpisodesSchema = """
+        {
+            "type": "object",
+            "properties": {
+                "tmdb_id": {
+                    "type": "integer",
+                    "description": "The TMDB TV show ID"
+                },
+                "season_number": {
+                    "type": "integer",
+                    "description": "The season number to get episodes for"
+                }
+            },
+            "required": ["tmdb_id", "season_number"]
+        }
+        """;
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "[{Provider}] Starting inference for title: {Title}")]
+    private static partial void LogStartingInference(ILogger logger, string provider, string title);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "[{Provider}] Rate limiting: waiting {DelayMs}ms before next API call")]
+    private static partial void LogRateLimiting(ILogger logger, string provider, int delayMs);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "[{Provider}] Inference succeeded for title: {Title} -> TMDB: {TmdbId}, S{Season}E{Episode}")]
+    private static partial void LogInferenceSucceeded(ILogger logger, string provider, string title, string tmdbId, int? season, int? episode);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "[{Provider}] Inference returned no result for title: {Title}")]
+    private static partial void LogInferenceNoResult(ILogger logger, string provider, string title);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "[{Provider}] Inference failed for title: {Title}")]
+    private static partial void LogInferenceFailed(ILogger logger, Exception ex, string provider, string title);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "[{Provider}] Executing TMDB search with query: {Query}")]
+    protected static partial void LogExecutingTmdbSearch(ILogger logger, string provider, string query);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "[{Provider}] TMDB search returned: {Result}")]
+    protected static partial void LogTmdbSearchResult(ILogger logger, string provider, string result);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "[{Provider}] Getting TMDB season info for ID: {TmdbId}")]
+    protected static partial void LogGettingTmdbSeasons(ILogger logger, string provider, int tmdbId);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "[{Provider}] TMDB seasons returned: {Result}")]
+    protected static partial void LogTmdbSeasonsResult(ILogger logger, string provider, string result);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "[{Provider}] Unknown tool call: {FunctionName}")]
+    private static partial void LogUnknownToolCall(ILogger logger, string provider, string functionName);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "[{Provider}] Getting TMDB season episodes for ID: {TmdbId}, season: {SeasonNumber}")]
+    protected static partial void LogGettingTmdbSeasonEpisodes(ILogger logger, string provider, int tmdbId, int seasonNumber);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "[{Provider}] TMDB season episodes returned: {Result}")]
+    protected static partial void LogTmdbSeasonEpisodesResult(ILogger logger, string provider, string result);
 }

@@ -2,14 +2,14 @@ using SecondDimensionWatcherReDive.Framework.Tasks;
 
 namespace SecondDimensionWatcherReDive.Services;
 
-public class ScheduledTaskBackgroundService<TTask>(
+public partial class ScheduledTaskBackgroundService<TTask>(
     TTask task,
     ILogger<ScheduledTaskBackgroundService<TTask>> logger) : BackgroundService
     where TTask : ScheduledTaskBase
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        logger.LogInformation("Starting scheduled task: {TaskId}", task.Id);
+        LogStartingScheduledTask(logger, task.Id);
 
         await Task.WhenAll(
             task.ProcessQueueAsync(stoppingToken),
@@ -28,11 +28,17 @@ public class ScheduledTaskBackgroundService<TTask>(
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
-                    logger.LogError(ex, "Scheduled task {TaskId} failed during timer execution", task.Id);
+                    LogScheduledTaskFailed(logger, ex, task.Id);
                 }
             }
 
             await Task.Delay(task.Interval, stoppingToken);
         }
     }
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Starting scheduled task: {TaskId}")]
+    private static partial void LogStartingScheduledTask(ILogger logger, string taskId);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Scheduled task {TaskId} failed during timer execution")]
+    private static partial void LogScheduledTaskFailed(ILogger logger, Exception ex, string taskId);
 }

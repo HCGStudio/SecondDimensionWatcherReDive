@@ -53,7 +53,7 @@ public static partial class MikananiScraper
         var dayGroups = doc.DocumentNode.SelectNodes("//div[contains(@class,'sk-bangumi')]");
         if (dayGroups == null)
         {
-            logger.LogWarning("No day groups found in mikanani HTML");
+            LogNoDayGroupsFound(logger);
             return result;
         }
 
@@ -90,12 +90,12 @@ public static partial class MikananiScraper
                 }
                 catch (Exception ex)
                 {
-                    logger.LogDebug(ex, "Failed to parse a bangumi entry");
+                    LogParseBangumiEntryFailed(logger, ex);
                 }
             }
         }
 
-        logger.LogInformation("Scraped {Count} bangumi entries from mikanani", result.Count);
+        LogScrapedBangumiEntries(logger, result.Count);
         return result;
     }
 
@@ -116,7 +116,7 @@ public static partial class MikananiScraper
             "//li[contains(@class,'leftbar-item')]//a[contains(@class,'subgroup-name')]");
         if (subgroupNodes == null)
         {
-            logger.LogDebug("No subgroups found for bangumi {MikanId}", mikanId);
+            LogNoSubgroupsFound(logger, mikanId);
             return result;
         }
 
@@ -136,11 +136,11 @@ public static partial class MikananiScraper
             }
             catch (Exception ex)
             {
-                logger.LogDebug(ex, "Failed to parse a subgroup entry for bangumi {MikanId}", mikanId);
+                LogParseSubgroupEntryFailed(logger, ex, mikanId);
             }
         }
 
-        logger.LogInformation("Scraped {Count} subgroups for bangumi {MikanId}", result.Count, mikanId);
+        LogScrapedSubgroups(logger, result.Count, mikanId);
         return result;
     }
 
@@ -154,4 +154,22 @@ public static partial class MikananiScraper
 
     [GeneratedRegex(@"subgroup-(\d+)")]
     private static partial Regex SubgroupIdRegex();
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "No day groups found in mikanani HTML")]
+    private static partial void LogNoDayGroupsFound(ILogger logger);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Failed to parse a bangumi entry")]
+    private static partial void LogParseBangumiEntryFailed(ILogger logger, Exception ex);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Scraped {Count} bangumi entries from mikanani")]
+    private static partial void LogScrapedBangumiEntries(ILogger logger, int count);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "No subgroups found for bangumi {MikanId}")]
+    private static partial void LogNoSubgroupsFound(ILogger logger, int mikanId);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Failed to parse a subgroup entry for bangumi {MikanId}")]
+    private static partial void LogParseSubgroupEntryFailed(ILogger logger, Exception ex, int mikanId);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Scraped {Count} subgroups for bangumi {MikanId}")]
+    private static partial void LogScrapedSubgroups(ILogger logger, int count, int mikanId);
 }
