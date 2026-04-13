@@ -74,7 +74,7 @@ public class FileController : ControllerBase
 
     [HttpGet("list")]
     public async Task<ActionResult<IEnumerable<FileStoreListResult>>> GetSubDir([FromQuery] [Required] Guid id,
-        [FromQuery] string relativeDir)
+        [FromQuery] string? relativeDir)
     {
         var info = await _applicationContext.AnimationInfo.FindAsync(id);
         if (info is null || !info.IsDownloadFinished || info.FileStore is null || info.StorePath is null)
@@ -89,7 +89,7 @@ public class FileController : ControllerBase
 
         var fileInfo = await fileStore.FileInfo(targetPath);
         if (!fileInfo.IsDirectory)
-            return Ok(fileStore.EnumerateDirectory(relativeDir)
+            return Ok(fileStore.EnumerateDirectory(targetPath)
                 .Select(i => new FileStoreListResult(i.FileName, i.IsDirectory, i.IsDirectory ? i.FileName : null)));
 
         return Ok(new[] { new FileStoreListResult(fileInfo.FileName, false, null) });
