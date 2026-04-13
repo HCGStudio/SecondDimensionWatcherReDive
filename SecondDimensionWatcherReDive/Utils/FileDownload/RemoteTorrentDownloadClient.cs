@@ -33,7 +33,7 @@ public class RemoteTorrentDownloadClient(
 
         if (response.IsSuccessStatusCode)
             await remoteTorrentTrackRequest.Writer.WriteAsync(
-                new RemoteTorrentTrackRequest(itemId, additionalDownloadInfo));
+                new(itemId, additionalDownloadInfo));
 
         return response.IsSuccessStatusCode;
     }
@@ -45,7 +45,7 @@ public class RemoteTorrentDownloadClient(
         string additionalDownloadInfo)
     {
         await remoteTorrentTrackRequest.Writer.WriteAsync(
-            new RemoteTorrentTrackRequest(itemId, additionalDownloadInfo));
+            new(itemId, additionalDownloadInfo));
     }
 
     public override async Task<bool> PauseDownloadTask(
@@ -55,7 +55,7 @@ public class RemoteTorrentDownloadClient(
         string additionalDownloadInfo)
     {
         using var content =
-            new FormUrlEncodedContent([new KeyValuePair<string, string>("hashes", additionalDownloadInfo)]);
+            new FormUrlEncodedContent([new("hashes", additionalDownloadInfo)]);
         using var response = await _httpClient.PostAsync("/api/v2/torrents/pause?", content);
         return response.IsSuccessStatusCode;
     }
@@ -67,7 +67,7 @@ public class RemoteTorrentDownloadClient(
         string additionalDownloadInfo)
     {
         using var content =
-            new FormUrlEncodedContent([new KeyValuePair<string, string>("hashes", additionalDownloadInfo)]);
+            new FormUrlEncodedContent([new("hashes", additionalDownloadInfo)]);
         using var response = await _httpClient.PostAsync("/api/v2/torrents/resume?", content);
         return response.IsSuccessStatusCode;
     }
@@ -80,9 +80,14 @@ public class RemoteTorrentDownloadClient(
         bool removeFile)
     {
         var deleteFiles = removeFile ? "true" : "false";
-        using var response = await _httpClient.GetAsync(
-            $"/api/v2/torrents/delete?hashes={additionalDownloadInfo}&deleteFiles={deleteFiles}");
+        using var content = new FormUrlEncodedContent([
+            new("hashes", additionalDownloadInfo),
+            new("deleteFiles", deleteFiles)
+        ]);
+        using var response = await _httpClient.PostAsync(
+            $"/api/v2/torrents/delete?hashes={additionalDownloadInfo}&deleteFiles={deleteFiles}",
+            content);
 
-        return new CancelDownloadResult(response.IsSuccessStatusCode, false);
+        return new(response.IsSuccessStatusCode, false);
     }
 }
