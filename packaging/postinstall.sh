@@ -13,6 +13,11 @@ if ! getent passwd sdw-redive >/dev/null 2>&1; then
         --gid sdw-redive --home-dir /var/lib/sdw-redive sdw-redive
 fi
 
+# Add sdw-redive to valkey group if it exists (for Unix socket access)
+if getent group valkey >/dev/null 2>&1; then
+    usermod -aG valkey sdw-redive
+fi
+
 # Generate JwtSecret on first install (placeholder still present)
 if grep -q '<Please fill this with a 32 length random string>' "$CONFIG" 2>/dev/null; then
     JWT_SECRET=$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 48)

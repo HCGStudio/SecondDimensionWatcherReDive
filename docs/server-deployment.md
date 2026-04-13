@@ -101,6 +101,11 @@ Inference:
   BaseUrl: https://api.openai.com/v1
   ApiKey: ""
   Model: gpt-4o-mini
+
+# Valkey / Redis 分布式缓存（可选，留空则使用内存缓存）
+# Valkey:
+#   ConnectionString: "localhost:6379"
+#   InstanceName: "sdw-redive:"
 ```
 
 > **注意**：配置文件在包升级时不会被覆盖（标记为 conffile / noreplace）。

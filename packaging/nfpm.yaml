@@ -12,10 +12,15 @@ license: "MIT"
 depends:
   - aspnetcore-runtime-10.0
 
+recommends:
+  - valkey
+
 overrides:
   archlinux:
     depends:
       - aspnet-runtime-10.0
+    recommends:
+      - valkey
 
 contents:
   - src: ./publish/

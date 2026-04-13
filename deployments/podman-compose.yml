@@ -8,6 +8,7 @@
 #   - sdw-redive:   主应用 (http://localhost:5097)
 #   - qbittorrent:  下载客户端 (WebUI http://localhost:8080)
 #   - db:           PostgreSQL 数据库
+#   - valkey:       分布式缓存
 #
 # qBittorrent 默认用户名: admin，默认密码查看容器日志:
 #   podman logs qbittorrent 2>&1 | grep "temporary password"
@@ -21,6 +22,12 @@ services:
       POSTGRES_DB: sdw
     volumes:
       - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  valkey:
+    image: docker.io/valkey/valkey:8-alpine
+    volumes:
+      - valkeydata:/data
     restart: unless-stopped
 
   qbittorrent:
@@ -46,14 +53,17 @@ services:
       JwtSecret: "CHANGE_ME_TO_A_32_CHAR_RANDOM_STRING"
       FileStore__Local: "/downloads"
       Torrent__Remote__Url: "http://qbittorrent:8080"
+      Valkey__ConnectionString: "valkey:6379"
       DisableCors: "true"
     volumes:
       - downloads:/downloads
     depends_on:
       - db
+      - valkey
       - qbittorrent
     restart: unless-stopped
 
 volumes:
   pgdata:
+  valkeydata:
   downloads:

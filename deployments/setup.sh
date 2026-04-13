@@ -94,6 +94,36 @@ find_asset() {
 }
 
 # ============================================================
+# Valkey configuration (shared across deployment methods)
+# ============================================================
+
+configure_valkey() {
+    echo
+    echo "=== Valkey 分布式缓存配置 ==="
+    echo "Valkey 是 Redis 兼容的高性能缓存服务器。"
+    echo "未配置时将使用内存缓存（单实例足够，无需额外服务）。"
+    echo
+    read -rp "是否配置 Valkey 分布式缓存？[y/N] " CONFIGURE_VALKEY
+
+    VALKEY_CONN="" VALKEY_INSTANCE=""
+
+    if [[ "${CONFIGURE_VALKEY:-}" =~ ^[Yy]$ ]]; then
+        echo
+        read -rp "Valkey 连接字符串 [localhost:6379]: " VALKEY_CONN
+        VALKEY_CONN="${VALKEY_CONN:-localhost:6379}"
+        read -rp "缓存键前缀 [sdw-redive:]: " VALKEY_INSTANCE
+        VALKEY_INSTANCE="${VALKEY_INSTANCE:-sdw-redive:}"
+
+        echo
+        echo "Valkey 配置:"
+        echo "  连接字符串: $VALKEY_CONN"
+        echo "  键前缀:     $VALKEY_INSTANCE"
+    else
+        echo "跳过 Valkey 配置，将使用内存缓存。"
+    fi
+}
+
+# ============================================================
 # AI configuration (shared across deployment methods)
 # ============================================================
 
@@ -397,6 +427,18 @@ configure_system_config() {
 
     if [ -n "${TMDB_KEY:-}" ]; then
         sudo sed -i "s|TmdbApiKey: \"\"|TmdbApiKey: \"${TMDB_KEY}\"|" "$config"
+    fi
+
+    # --- Valkey config ---
+    configure_valkey
+
+    if [ -n "${VALKEY_CONN:-}" ]; then
+        # Uncomment and fill the Valkey section
+        sudo sed -i \
+            -e "s|^# Valkey:|Valkey:|" \
+            -e "s|^#   ConnectionString: \"localhost:6379\"|  ConnectionString: \"${VALKEY_CONN}\"|" \
+            -e "s|^#   InstanceName: \"sdw-redive:\"|  InstanceName: \"${VALKEY_INSTANCE}\"|" \
+            "$config"
     fi
 
     echo

@@ -172,5 +172,7 @@ Features: 25 anime entries with TMDB poster paths and mixed download states, gro
 - `Inference:MaxTokens` — Max response tokens (default: 1024)
 - `Inference:RateLimitDelayMs` — Min interval between API calls (default: 1000ms)
 - `DisableCors` — Enable permissive CORS policy
+- `Valkey:ConnectionString` — Valkey/Redis connection string (optional; uses in-memory cache if empty)
+- `Valkey:InstanceName` — Cache key prefix (default: "sdw-redive:")
 
 EF Core migrations run automatically on application startup.

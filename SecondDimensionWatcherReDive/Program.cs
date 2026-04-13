@@ -86,6 +86,21 @@ builder.Services.AddAuthentication(options =>
 
 builder.Services.AddMemoryCache();
 
+//Add distributed cache (Valkey / Redis or in-memory fallback)
+var valkeyConnection = builder.Configuration["Valkey:ConnectionString"];
+if (!string.IsNullOrEmpty(valkeyConnection))
+{
+    builder.Services.AddStackExchangeRedisCache(options =>
+    {
+        options.Configuration = valkeyConnection;
+        options.InstanceName = builder.Configuration["Valkey:InstanceName"] ?? "sdw-redive:";
+    });
+}
+else
+{
+    builder.Services.AddDistributedMemoryCache();
+}
+
 //Configure HTTP client
 builder.Services.AddHttpClient("RemoteTorrentDownloadClient", client =>
 {

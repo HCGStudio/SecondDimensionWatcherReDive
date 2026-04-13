@@ -35,3 +35,8 @@ Inference:
   Model: gpt-4o-mini
   MaxTokens: 1024
   RateLimitDelayMs: 1000
+
+# Valkey / Redis 分布式缓存（可选，留空则使用内存缓存）
+# Valkey:
+#   ConnectionString: "localhost:6379"
+#   InstanceName: "sdw-redive:"

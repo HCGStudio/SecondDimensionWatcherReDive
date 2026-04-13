@@ -6,17 +6,19 @@
 
 ## 架构概览
 
-容器化部署包含三个服务：
+容器化部署包含四个服务：
 
 | 服务 | 镜像 | 说明 |
 |------|------|------|
 | **sdw-redive** | `ghcr.io/hcgstudio/sdw-redive` | 主应用（前端 + 后端一体） |
 | **qbittorrent** | `lscr.io/linuxserver/qbittorrent` | 下载客户端 |
 | **db** | `postgres:16-alpine` | PostgreSQL 数据库 |
+| **valkey** | `valkey/valkey:8-alpine` | 分布式缓存（Redis 兼容） |
 
 存储卷：
 - `downloads` — sdw-redive 和 qbittorrent **共享**，用于下载文件的读写
 - `pgdata` — PostgreSQL 数据持久化
+- `valkeydata` — Valkey 缓存数据持久化
 
 ## 快速开始
 
@@ -110,6 +112,7 @@ podman logs qbittorrent 2>&1 | grep "temporary password"
 | `JwtSecret` | JWT 签名密钥（>=32 字符） | 必填 |
 | `FileStore__Local` | 下载文件存储路径 | `/downloads` |
 | `Torrent__Remote__Url` | qBittorrent API 地址 | `http://qbittorrent:8080` |
+| `Valkey__ConnectionString` | Valkey 连接字符串 | 空（使用内存缓存） |
 | `TmdbApiKey` | TMDB API 密钥 | 空（海报功能不可用） |
 | `DisableCors` | 允许跨域 | `true` |
 | `MikananiFeeds__0`, `__1`, ... | RSS 订阅源 URL | 空 |
