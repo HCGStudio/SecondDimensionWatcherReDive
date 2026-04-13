@@ -12,8 +12,8 @@
 
 set -euo pipefail
 
-STAGING="$1"
-OUTPUT="$2"
+STAGING="$(realpath "$1")"
+OUTPUT="$(realpath -m "$2")"
 VERSION="$3"
 ARCH="$4"
 
