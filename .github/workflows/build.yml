@@ -204,7 +204,7 @@ jobs:
           mkdir -p dist
           bash packaging/freebsd/build-pkg.sh \
             staging \
-            "dist/sdw-redive-${VERSION}-${{ matrix.pkg_arch }}.pkg" \
+            "dist/sdw-redive-${VERSION}-FreeBSD-15-RELEASE-${{ matrix.pkg_arch }}.pkg" \
             "$VERSION" \
             "${{ matrix.pkg_arch }}"
 

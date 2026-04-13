@@ -71,13 +71,13 @@ SCRIPTS_JSON="{\"post-install\":$(escape_json "$POST_INSTALL"),\"pre-deinstall\"
 
 # --- +COMPACT_MANIFEST (no files/dirs) ---
 COMPACT=$(cat <<EOF
-{"name":"${NAME}","version":"${VERSION}","origin":"www/${NAME}","comment":"Anime download management system","desc":"SecondDimensionWatcher Re:Dive","maintainer":"mahoshojoHCG","www":"https://github.com/mahoshojoHCG/SecondDimensionWatcherReDive","prefix":"${PREFIX}","arch":"FreeBSD:*:${ARCH}","categories":["www"],"scripts":${SCRIPTS_JSON}}
+{"name":"${NAME}","version":"${VERSION}","origin":"www/${NAME}","comment":"Anime download management system","desc":"SecondDimensionWatcher Re:Dive","maintainer":"mahoshojoHCG","www":"https://github.com/mahoshojoHCG/SecondDimensionWatcherReDive","prefix":"${PREFIX}","arch":"FreeBSD:15:${ARCH}","categories":["www"],"scripts":${SCRIPTS_JSON}}
 EOF
 )
 
 # --- +MANIFEST (with files and dirs) ---
 MANIFEST=$(cat <<EOF
-{"name":"${NAME}","version":"${VERSION}","origin":"www/${NAME}","comment":"Anime download management system","desc":"SecondDimensionWatcher Re:Dive","maintainer":"mahoshojoHCG","www":"https://github.com/mahoshojoHCG/SecondDimensionWatcherReDive","prefix":"${PREFIX}","arch":"FreeBSD:*:${ARCH}","categories":["www"],"scripts":${SCRIPTS_JSON},"files":${FILES},"directories":${DIRS}}
+{"name":"${NAME}","version":"${VERSION}","origin":"www/${NAME}","comment":"Anime download management system","desc":"SecondDimensionWatcher Re:Dive","maintainer":"mahoshojoHCG","www":"https://github.com/mahoshojoHCG/SecondDimensionWatcherReDive","prefix":"${PREFIX}","arch":"FreeBSD:15:${ARCH}","categories":["www"],"scripts":${SCRIPTS_JSON},"files":${FILES},"directories":${DIRS}}
 EOF
 )
 
