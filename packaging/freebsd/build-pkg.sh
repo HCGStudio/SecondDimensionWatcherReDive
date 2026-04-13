@@ -5,7 +5,7 @@
 # as the first entries, followed by files relative to prefix.
 #
 # Usage: build-pkg.sh <staging_dir> <output_file> <version> <arch>
-#   staging_dir  — root with files relative to prefix (e.g., lib/sdw-redive/...)
+#   staging_dir  — root with files at full paths (e.g., usr/local/lib/sdw-redive/...)
 #   output_file  — path for the resulting .pkg
 #   version      — package version (e.g., 2.0.0.42)
 #   arch         — amd64 or aarch64
@@ -25,7 +25,7 @@ FILES="{"
 FIRST=true
 while IFS= read -r -d '' file; do
     rel="${file#${STAGING}/}"
-    abs_path="${PREFIX}/${rel}"
+    abs_path="/${rel}"
     hash=$(sha256sum "$file" | cut -d' ' -f1)
     if [ "$FIRST" = true ]; then FIRST=false; else FILES+=","; fi
     FILES+="\"${abs_path}\":\"1\$${hash}\""
@@ -38,7 +38,7 @@ FIRST=true
 while IFS= read -r -d '' dir; do
     rel="${dir#${STAGING}/}"
     [ -z "$rel" ] && continue
-    abs_path="${PREFIX}/${rel}"
+    abs_path="/${rel}"
     if [ "$FIRST" = true ]; then FIRST=false; else DIRS+=","; fi
     DIRS+="\"${abs_path}\":\"y\""
 done < <(find "$STAGING" -mindepth 1 -type d -print0 | sort -z)
