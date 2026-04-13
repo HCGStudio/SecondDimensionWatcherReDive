@@ -176,7 +176,6 @@ jobs:
         run: |
           dotnet publish SecondDimensionWatcherReDive/SecondDimensionWatcherReDive.csproj \
             -c Release \
-            -r freebsd-${{ matrix.arch }} \
             --self-contained false \
             /p:Version=${VERSION} \
             -o publish
