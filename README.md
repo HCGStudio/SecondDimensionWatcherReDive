@@ -67,7 +67,7 @@ yarn start  # 仅前端开发服务器（代理到 localhost:5097）
 
 详见 **[服务器部署指南](docs/server-deployment.md)**。
 
-### 容器部署（Podman / Docker）
+### 容器部署（Podman / Docker）（推荐）
 
 ```bash
 cd deployments
@@ -76,6 +76,8 @@ podman-compose up -d
 ```
 
 容器镜像自动发布到 `ghcr.io/hcgstudio/sdw-redive`，包含前后端，支持 amd64 / arm64。
+
+详见 **[容器部署指南](docs/container-deployment.md)**。
 
 ### 配置
 
