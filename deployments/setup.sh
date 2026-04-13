@@ -317,18 +317,57 @@ configure_system_config() {
         return
     fi
 
+    # --- Database ---
     echo
-    read -rp "PostgreSQL 连接字符串 [Host=localhost;Username=sdw;Password=YOUR_PASSWORD;Database=sdw]: " PG_CONN
-    if [ -n "${PG_CONN:-}" ]; then
-        sudo sed -i "s|Host=localhost;Username=sdw;Password=YOUR_PASSWORD;Database=sdw|${PG_CONN}|" "$config"
+    echo "--- 数据库配置 ---"
+    read -rp "PostgreSQL 主机地址 [localhost]: " DB_HOST
+    DB_HOST="${DB_HOST:-localhost}"
+    read -rp "PostgreSQL 端口 [5432]: " DB_PORT
+    DB_PORT="${DB_PORT:-5432}"
+    read -rp "数据库名称 [sdw]: " DB_NAME
+    DB_NAME="${DB_NAME:-sdw}"
+    read -rp "数据库用户名 [sdw]: " DB_USER
+    DB_USER="${DB_USER:-sdw}"
+    read -rsp "数据库密码: " DB_PASS
+    echo
+
+    if [ -n "${DB_PASS:-}" ]; then
+        local pg_conn="Host=${DB_HOST};Port=${DB_PORT};Username=${DB_USER};Password=${DB_PASS};Database=${DB_NAME}"
+        sudo sed -i "s|Host=localhost;Username=sdw;Password=YOUR_PASSWORD;Database=sdw|${pg_conn}|" "$config"
+        echo "数据库连接已配置。"
+    else
+        echo "未输入密码，跳过数据库配置。请稍后编辑 $config"
     fi
 
+    # --- Download location ---
+    echo
+    echo "--- 下载存储路径 ---"
+    read -rp "下载文件存储路径 [/var/lib/sdw-redive/downloads]: " DL_PATH
+    if [ -n "${DL_PATH:-}" ]; then
+        sudo mkdir -p "$DL_PATH"
+        sudo chown sdw-redive:sdw-redive "$DL_PATH"
+        sudo sed -i "s|Local: /var/lib/sdw-redive/downloads|Local: ${DL_PATH}|" "$config"
+        # If using non-default path, add to systemd ReadWritePaths
+        if [ -d /usr/lib/systemd/system ] && [ "$DL_PATH" != "/var/lib/sdw-redive/downloads" ]; then
+            sudo mkdir -p /etc/systemd/system/sdw-redive.service.d
+            printf '[Service]\nReadWritePaths=%s\n' "$DL_PATH" | sudo tee /etc/systemd/system/sdw-redive.service.d/downloads.conf >/dev/null
+            sudo systemctl daemon-reload
+            echo "已添加 systemd ReadWritePaths 覆盖。"
+        fi
+        echo "下载路径已设置为: $DL_PATH"
+    else
+        echo "使用默认路径: /var/lib/sdw-redive/downloads"
+    fi
+
+    # --- qBittorrent ---
+    echo
+    echo "--- qBittorrent 配置 ---"
     read -rp "qBittorrent Web API 地址 [http://localhost:8080]: " QB_URL
     if [ -n "${QB_URL:-}" ]; then
         sudo sed -i "s|Url: \"http://localhost:8080\"|Url: \"${QB_URL}\"|" "$config"
     fi
 
-    # AI config
+    # --- AI config ---
     configure_ai
 
     if [ -n "${AI_API_KEY:-}" ]; then
