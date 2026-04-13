@@ -177,6 +177,7 @@ jobs:
           dotnet publish SecondDimensionWatcherReDive/SecondDimensionWatcherReDive.csproj \
             -c Release \
             --self-contained false \
+            -p:UseAppHost=false \
             /p:Version=${VERSION} \
             -o publish
 
