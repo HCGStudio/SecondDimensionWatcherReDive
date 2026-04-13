@@ -61,6 +61,7 @@ export const PlayerPage: React.FC = () => {
     const art = new Artplayer({
       container: playerContainerRef.current,
       url: playbackUrl,
+      lang: navigator.language.startsWith("zh") ? "zh-cn" : "en",
       autoplay: false,
       fullscreen: true,
       pip: true,
