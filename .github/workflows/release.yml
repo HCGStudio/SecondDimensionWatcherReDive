@@ -16,7 +16,6 @@ on:
 permissions:
   contents: write
   actions: write
-  workflows: write
 
 jobs:
   bump-and-release:
@@ -27,7 +26,7 @@ jobs:
       - name: Read current version
         id: current
         run: |
-          VERSION=$(grep -oP '(?<=<AssemblyVersion>)[^<]+' SecondDimensionWatcherReDive/SecondDimensionWatcherReDive.csproj)
+          VERSION=$(cat VERSION | tr -d '[:space:]')
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Current version: $VERSION"
 
@@ -48,17 +47,14 @@ jobs:
         run: |
           NEW_VERSION="${{ steps.new.outputs.version }}"
 
+          # VERSION file
+          echo "$NEW_VERSION" > VERSION
+
           # .csproj
           sed -i "s|<AssemblyVersion>.*</AssemblyVersion>|<AssemblyVersion>${NEW_VERSION}</AssemblyVersion>|" \
             SecondDimensionWatcherReDive/SecondDimensionWatcherReDive.csproj
           sed -i "s|<FileVersion>.*</FileVersion>|<FileVersion>${NEW_VERSION}</FileVersion>|" \
             SecondDimensionWatcherReDive/SecondDimensionWatcherReDive.csproj
-
-          # Workflow files
-          sed -i "s|BASE_VERSION: \".*\"|BASE_VERSION: \"${NEW_VERSION}\"|" \
-            .github/workflows/build.yml
-          sed -i "s|BASE_VERSION: \".*\"|BASE_VERSION: \"${NEW_VERSION}\"|" \
-            .github/workflows/container.yml
 
       - name: Commit version bump
         run: |

@@ -13,9 +13,6 @@ on:
 permissions:
   contents: write
 
-env:
-  BASE_VERSION: "2.0.0"
-
 jobs:
   build-frontend:
     runs-on: ubuntu-latest
@@ -68,6 +65,7 @@ jobs:
           if [ -n "$RELEASE_VERSION" ]; then
             VERSION="$RELEASE_VERSION"
           else
+            BASE_VERSION=$(cat VERSION | tr -d '[:space:]')
             VERSION="${BASE_VERSION}.${{ github.run_number }}"
           fi
           echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
@@ -141,6 +139,7 @@ jobs:
           if [ -n "$RELEASE_VERSION" ]; then
             VERSION="$RELEASE_VERSION"
           else
+            BASE_VERSION=$(cat VERSION | tr -d '[:space:]')
             VERSION="${BASE_VERSION}.${{ github.run_number }}"
           fi
           echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
@@ -196,6 +195,7 @@ jobs:
           if [ -n "$RELEASE_VERSION" ]; then
             VERSION="$RELEASE_VERSION"
           else
+            BASE_VERSION=$(cat VERSION | tr -d '[:space:]')
             VERSION="${BASE_VERSION}.${{ github.run_number }}"
           fi
           echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
@@ -239,6 +239,8 @@ jobs:
     needs: [build-linux-packages, build-windows-zip, build-freebsd-pkg]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
       - name: Compute version
         run: |
           RELEASE_VERSION="${{ github.event.inputs.release_version }}"
@@ -246,6 +248,7 @@ jobs:
             VERSION="$RELEASE_VERSION"
             echo "IS_RELEASE=true" >> "$GITHUB_ENV"
           else
+            BASE_VERSION=$(cat VERSION | tr -d '[:space:]')
             VERSION="${BASE_VERSION}.${{ github.run_number }}"
             echo "IS_RELEASE=false" >> "$GITHUB_ENV"
           fi
