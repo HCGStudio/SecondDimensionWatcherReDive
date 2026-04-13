@@ -54,6 +54,13 @@ bash setup.sh ~/my-sdw
 
 脚本会自动检测 `podman-compose`、`podman compose` 或 `docker compose`，优先使用 Podman。运行完成后会打印生成的密码，请妥善保存。
 
+脚本还会交互式引导配置 AI 元数据推断（可选）：
+- 选择 AI 提供商（OpenAI / Anthropic / OpenAI 兼容端点）
+- 输入 API Key 和模型名称
+- 输入 TMDB API Key（用于海报和季度信息）
+
+如果跳过 AI 配置，可稍后在 `podman-compose.yml` 中手动添加环境变量。
+
 ### 2b. 手动配置（可选）
 
 如果不使用快速启动脚本，可以手动操作：

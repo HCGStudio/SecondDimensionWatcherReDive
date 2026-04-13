@@ -232,3 +232,14 @@ jobs:
           prerelease: true
           files: release/*
           generate_release_notes: true
+
+      - name: Update prerelease-latest
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: prerelease-latest
+          name: Latest Pre-release (${{ env.VERSION }})
+          prerelease: true
+          make_latest: false
+          files: release/*
+          body: |
+            Auto-updated to ${{ env.VERSION }}. For a specific version, see the versioned pre-release tags.
