@@ -1,0 +1,37 @@
+# 二次元观测器 Re:Dive 配置文件
+# 详细说明: https://github.com/mahoshojoHCG/SecondDimensionWatcherReDive/blob/main/docs/server-deployment.md
+
+# PostgreSQL 连接字符串（必填）
+ConnectionStrings:
+  sdw: "Host=localhost;Username=sdw;Password=YOUR_PASSWORD;Database=sdw"
+
+# JWT 签名密钥（首次安装时自动生成）
+JwtSecret: "<Please fill this with a 32 length random string>"
+
+# qBittorrent Web API 地址（必填）
+Torrent:
+  Remote:
+    Url: "http://localhost:8080"
+
+# 下载文件存储路径
+FileStore:
+  Local: /var/lib/sdw-redive/downloads
+
+# 密码文件路径
+PasswordFile: /var/lib/sdw-redive/password.json
+
+# TMDB API 密钥（用于海报和元数据）
+TmdbApiKey: ""
+
+# RSS 订阅源 URL 数组
+MikananiFeeds: []
+
+# AI 推断配置（可选，留空 ApiKey 则禁用）
+# Provider: OpenAI 或 Anthropic（也支持任何 OpenAI 兼容端点）
+Inference:
+  Provider: OpenAI
+  BaseUrl: https://api.openai.com/v1
+  ApiKey: ""
+  Model: gpt-4o-mini
+  MaxTokens: 1024
+  RateLimitDelayMs: 1000

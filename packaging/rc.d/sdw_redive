@@ -1,0 +1,40 @@
+#!/bin/sh
+
+# PROVIDE: sdw_redive
+# REQUIRE: DAEMON postgresql
+# KEYWORD: shutdown
+#
+# Add the following lines to /etc/rc.conf to enable sdw_redive:
+#
+#   sdw_redive_enable="YES"
+#
+# Optional rc.conf variables:
+#   sdw_redive_user     (default: "sdw-redive")
+#   sdw_redive_group    (default: "sdw-redive")
+#   sdw_redive_env      (default: see below)
+
+. /etc/rc.subr
+
+name="sdw_redive"
+rcvar="sdw_redive_enable"
+
+load_rc_config $name
+
+: ${sdw_redive_enable:="NO"}
+: ${sdw_redive_user:="sdw-redive"}
+: ${sdw_redive_group:="sdw-redive"}
+: ${sdw_redive_env:="ASPNETCORE_ENVIRONMENT=Production ASPNETCORE_URLS=http://0.0.0.0:5097 DOTNET_PRINT_TELEMETRY_MESSAGE=false"}
+
+pidfile="/var/run/${name}.pid"
+command="/usr/sbin/daemon"
+command_args="-P ${pidfile} -r -u ${sdw_redive_user} /usr/local/bin/dotnet /usr/local/lib/sdw-redive/SecondDimensionWatcherReDive.dll"
+
+start_precmd="${name}_prestart"
+
+sdw_redive_prestart()
+{
+    install -d -o ${sdw_redive_user} -g ${sdw_redive_group} /var/db/sdw-redive
+    install -d -o ${sdw_redive_user} -g ${sdw_redive_group} /var/db/sdw-redive/downloads
+}
+
+run_rc_command "$1"

@@ -1,0 +1,30 @@
+[Unit]
+Description=SecondDimensionWatcher Re:Dive - Anime download management system
+After=network.target postgresql.service
+
+[Service]
+Type=notify
+User=sdw-redive
+Group=sdw-redive
+WorkingDirectory=/usr/lib/sdw-redive
+ExecStart=/usr/bin/dotnet /usr/lib/sdw-redive/SecondDimensionWatcherReDive.dll
+Restart=on-failure
+RestartSec=10
+TimeoutStartSec=60
+
+Environment=ASPNETCORE_ENVIRONMENT=Production
+Environment=ASPNETCORE_URLS=http://0.0.0.0:5097
+Environment=DOTNET_PRINT_TELEMETRY_MESSAGE=false
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/sdw-redive
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

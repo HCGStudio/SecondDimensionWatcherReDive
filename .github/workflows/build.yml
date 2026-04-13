@@ -7,55 +7,227 @@ on:
 permissions:
   contents: write
 
+env:
+  BASE_VERSION: "2.0.0"
+
 jobs:
-  build:
+  build-frontend:
     runs-on: ubuntu-latest
-
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Setup .NET
-      uses: actions/setup-dotnet@v4
-      with:
-        dotnet-version: '10.0.x'
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
 
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '22'
+      - name: Enable Corepack
+        run: corepack enable
 
-    - name: Enable Corepack
-      run: corepack enable
+      - name: Build Frontend
+        working-directory: SecondDimensionWatcherReDive.Client
+        run: |
+          yarn install --immutable
+          yarn build
 
-    - name: Build Frontend
-      working-directory: SecondDimensionWatcherReDive.Client
-      run: |
-        yarn install --immutable
-        yarn build
+      - name: Upload frontend artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: SecondDimensionWatcherReDive.Client/dist/
 
-    - name: Copy Frontend to wwwroot
-      run: |
-        mkdir -p SecondDimensionWatcherReDive/wwwroot
-        cp -r SecondDimensionWatcherReDive.Client/dist/* SecondDimensionWatcherReDive/wwwroot/
+  build-linux-packages:
+    needs: build-frontend
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [x64, arm64]
+    steps:
+      - uses: actions/checkout@v4
 
-    - name: Publish Backend
-      run: |
-        dotnet publish SecondDimensionWatcherReDive/SecondDimensionWatcherReDive.csproj \
-          -c Release \
-          -o publish
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
 
-    - name: Package as tar.gz
-      run: |
-        SHORT_SHA=$(git rev-parse --short HEAD)
-        tar -czf "SecondDimensionWatcherReDive-${SHORT_SHA}.tar.gz" -C publish .
-        echo "ARTIFACT_NAME=SecondDimensionWatcherReDive-${SHORT_SHA}.tar.gz" >> "$GITHUB_ENV"
-        echo "SHORT_SHA=${SHORT_SHA}" >> "$GITHUB_ENV"
+      - name: Download frontend artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: SecondDimensionWatcherReDive/wwwroot/
 
-    - name: Create Pre-release
-      uses: softprops/action-gh-release@v2
-      with:
-        tag_name: pre-${{ env.SHORT_SHA }}
-        name: Pre-release ${{ env.SHORT_SHA }}
-        prerelease: true
-        files: ${{ env.ARTIFACT_NAME }}
-        generate_release_notes: true
+      - name: Compute version
+        run: |
+          VERSION="${BASE_VERSION}.${{ github.run_number }}"
+          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
+          echo "RELEASE=${{ github.run_number }}" >> "$GITHUB_ENV"
+
+      - name: Publish Backend
+        run: |
+          dotnet publish SecondDimensionWatcherReDive/SecondDimensionWatcherReDive.csproj \
+            -c Release \
+            -r linux-${{ matrix.arch }} \
+            --self-contained false \
+            /p:Version=${VERSION} \
+            -o publish
+
+      - name: Install nfpm
+        run: |
+          echo 'deb [trusted=yes] https://repo.goreleaser.com/apt/ /' | sudo tee /etc/apt/sources.list.d/goreleaser.list
+          sudo apt-get update
+          sudo apt-get install -y nfpm
+
+      - name: Set package architecture
+        run: |
+          if [ "${{ matrix.arch }}" = "x64" ]; then
+            echo "ARCH=amd64" >> "$GITHUB_ENV"
+          else
+            echo "ARCH=arm64" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build packages
+        run: |
+          nfpm package --config packaging/nfpm.yaml --packager deb --target dist/
+          nfpm package --config packaging/nfpm.yaml --packager rpm --target dist/
+          nfpm package --config packaging/nfpm.yaml --packager archlinux --target dist/
+
+      - name: Upload packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: packages-linux-${{ matrix.arch }}
+          path: dist/*
+
+  build-windows-zip:
+    needs: build-frontend
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [x64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Download frontend artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: SecondDimensionWatcherReDive/wwwroot/
+
+      - name: Compute version
+        run: |
+          VERSION="${BASE_VERSION}.${{ github.run_number }}"
+          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
+
+      - name: Publish Backend
+        run: |
+          dotnet publish SecondDimensionWatcherReDive/SecondDimensionWatcherReDive.csproj \
+            -c Release \
+            -r win-${{ matrix.arch }} \
+            --self-contained false \
+            /p:Version=${VERSION} \
+            -o publish
+
+      - name: Package as zip
+        run: |
+          cd publish
+          zip -r "../sdw-redive_${VERSION}_win-${{ matrix.arch }}.zip" .
+
+      - name: Upload zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: packages-win-${{ matrix.arch }}
+          path: sdw-redive_*.zip
+
+  build-freebsd-pkg:
+    needs: build-frontend
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [x64, arm64]
+        include:
+          - arch: x64
+            pkg_arch: amd64
+          - arch: arm64
+            pkg_arch: aarch64
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Download frontend artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: SecondDimensionWatcherReDive/wwwroot/
+
+      - name: Compute version
+        run: |
+          VERSION="${BASE_VERSION}.${{ github.run_number }}"
+          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
+
+      - name: Publish Backend
+        run: |
+          dotnet publish SecondDimensionWatcherReDive/SecondDimensionWatcherReDive.csproj \
+            -c Release \
+            -r freebsd-${{ matrix.arch }} \
+            --self-contained false \
+            /p:Version=${VERSION} \
+            -o publish
+
+      - name: Stage FreeBSD package layout
+        run: |
+          mkdir -p staging/lib/sdw-redive
+          mkdir -p staging/etc/sdw-redive
+          mkdir -p staging/etc/rc.d
+
+          cp -r publish/* staging/lib/sdw-redive/
+          cp packaging/appsettings.yml staging/etc/sdw-redive/appsettings.yml
+          cp packaging/rc.d/sdw_redive staging/etc/rc.d/sdw_redive
+          chmod 755 staging/etc/rc.d/sdw_redive
+
+      - name: Build FreeBSD pkg
+        run: |
+          mkdir -p dist
+          bash packaging/freebsd/build-pkg.sh \
+            staging \
+            "dist/sdw-redive-${VERSION}-${{ matrix.pkg_arch }}.pkg" \
+            "$VERSION" \
+            "${{ matrix.pkg_arch }}"
+
+      - name: Upload pkg
+        uses: actions/upload-artifact@v4
+        with:
+          name: packages-freebsd-${{ matrix.arch }}
+          path: dist/*.pkg
+
+  release:
+    needs: [build-linux-packages, build-windows-zip, build-freebsd-pkg]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Compute version
+        run: |
+          VERSION="${BASE_VERSION}.${{ github.run_number }}"
+          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: packages-*
+          path: release/
+          merge-multiple: true
+
+      - name: Create Pre-release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: pre-${{ env.VERSION }}
+          name: Pre-release ${{ env.VERSION }}
+          prerelease: true
+          files: release/*
+          generate_release_notes: true

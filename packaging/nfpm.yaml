@@ -1,0 +1,41 @@
+name: sdw-redive
+arch: "${ARCH}"
+platform: linux
+version: "${VERSION}"
+release: "${RELEASE}"
+maintainer: "mahoshojoHCG"
+description: "SecondDimensionWatcher Re:Dive - Anime download management system"
+vendor: "SecondDimensionWatcherReDive"
+homepage: "https://github.com/mahoshojoHCG/SecondDimensionWatcherReDive"
+license: "MIT"
+
+depends:
+  - aspnetcore-runtime-10.0
+
+overrides:
+  archlinux:
+    depends:
+      - aspnet-runtime-10.0
+
+contents:
+  - src: ./publish/
+    dst: /usr/lib/sdw-redive/
+    type: tree
+
+  - src: ./packaging/sdw-redive.service
+    dst: /usr/lib/systemd/system/sdw-redive.service
+
+  - src: ./packaging/appsettings.yml
+    dst: /etc/sdw-redive/appsettings.yml
+    type: config|noreplace
+
+  - dst: /var/lib/sdw-redive/downloads/
+    type: dir
+    file_info:
+      mode: 0755
+      owner: sdw-redive
+      group: sdw-redive
+
+scripts:
+  postinstall: ./packaging/postinstall.sh
+  preremove: ./packaging/preremove.sh

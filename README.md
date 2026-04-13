@@ -60,6 +60,12 @@ yarn dev    # Mock 服务器 + 开发服务器
 yarn start  # 仅前端开发服务器（代理到 localhost:5097）
 ```
 
+### Linux / FreeBSD 部署
+
+提供 deb / rpm / pacman 包（Linux）和 txz 归档（FreeBSD），支持 x64 和 aarch64 架构，含 systemd / rc.d 服务管理。
+
+详见 **[服务器部署指南](docs/server-deployment.md)**。
+
 ### Docker
 
 ```bash

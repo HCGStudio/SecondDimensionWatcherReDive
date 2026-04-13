@@ -71,7 +71,8 @@ public class AuthController : ControllerBase
         if (!string.IsNullOrWhiteSpace(_configuration["Password:Value"]))
             return BadRequest();
 
-        await System.IO.File.WriteAllBytesAsync("password.json",
+        var passwordFile = _configuration["PasswordFile"] ?? "password.json";
+        await System.IO.File.WriteAllBytesAsync(passwordFile,
             JsonSerializer.SerializeToUtf8Bytes(
                 new PasswordConfig(new PasswordHash(BCrypt.Net.BCrypt.HashPassword(data.Password)))));
 

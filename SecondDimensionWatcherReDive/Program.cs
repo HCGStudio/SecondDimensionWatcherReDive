@@ -24,13 +24,17 @@ using SecondDimensionWatcherReDive.Utils.FileStore;
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.Host.UseSystemd();
+
 // Add services to the container.
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
-builder.Configuration.AddJsonFile("password.json", true, true);
-
+builder.Configuration.AddYamlFile("/etc/sdw-redive/appsettings.yml", optional: true, reloadOnChange: true);
+builder.Configuration.AddYamlFile("/usr/local/etc/sdw-redive/appsettings.yml", optional: true, reloadOnChange: true);
+var passwordFile = builder.Configuration["PasswordFile"] ?? "password.json";
+builder.Configuration.AddJsonFile(passwordFile, optional: true, reloadOnChange: true);
 
 builder.Services.AddDbContext<ApplicationContext>(options =>
 {
