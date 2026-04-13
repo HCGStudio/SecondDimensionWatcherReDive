@@ -52,7 +52,8 @@ get_release_assets() {
     if [ "$channel" = "stable" ]; then
         api_url="https://api.github.com/repos/$REPO/releases/latest"
     else
-        api_url="https://api.github.com/repos/$REPO/releases/tags/prerelease-latest"
+        # Get the most recent pre-release
+        api_url="https://api.github.com/repos/$REPO/releases?per_page=20"
     fi
 
     local json
@@ -60,7 +61,8 @@ get_release_assets() {
         echo "error" ; return
     }
 
-    echo "$json" | python3 -c "
+    if [ "$channel" = "stable" ]; then
+        echo "$json" | python3 -c "
 import json, sys
 try:
     data = json.load(sys.stdin)
@@ -69,6 +71,20 @@ try:
 except:
     pass
 " 2>/dev/null
+    else
+        echo "$json" | python3 -c "
+import json, sys
+try:
+    releases = json.load(sys.stdin)
+    for r in releases:
+        if r.get('prerelease'):
+            for a in r.get('assets', []):
+                print(a['browser_download_url'])
+            break
+except:
+    pass
+" 2>/dev/null
+    fi
 }
 
 # Find a matching asset URL by pattern
