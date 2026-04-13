@@ -70,9 +70,8 @@ yarn start  # 仅前端开发服务器（代理到 localhost:5097）
 ### 容器部署（Podman / Docker）（推荐）
 
 ```bash
-cd deployments
-# 修改 podman-compose.yml 中的密码和 JwtSecret
-podman-compose up -d
+# 一键部署（自动生成密码和 JwtSecret）
+bash <(curl -fsSL https://raw.githubusercontent.com/HCGStudio/SecondDimensionWatcherReDive/main/deployments/setup.sh)
 ```
 
 容器镜像自动发布到 `ghcr.io/hcgstudio/sdw-redive`，包含前后端，支持 amd64 / arm64。

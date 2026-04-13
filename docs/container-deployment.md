@@ -37,10 +37,28 @@ brew install podman podman-compose
 podman machine init && podman machine start
 ```
 
-### 2. 准备配置
+### 2. 一键启动（推荐）
+
+快速启动脚本会自动下载 compose 模版、生成随机数据库密码和 JwtSecret、启动所有服务：
 
 ```bash
-# 复制 compose 模版
+bash <(curl -fsSL https://raw.githubusercontent.com/HCGStudio/SecondDimensionWatcherReDive/main/deployments/setup.sh)
+```
+
+也可以指定部署目录：
+
+```bash
+curl -fsSL -o setup.sh https://raw.githubusercontent.com/HCGStudio/SecondDimensionWatcherReDive/main/deployments/setup.sh
+bash setup.sh ~/my-sdw
+```
+
+脚本会自动检测 `podman-compose`、`podman compose` 或 `docker compose`，优先使用 Podman。运行完成后会打印生成的密码，请妥善保存。
+
+### 2b. 手动配置（可选）
+
+如果不使用快速启动脚本，可以手动操作：
+
+```bash
 mkdir -p ~/sdw-redive && cd ~/sdw-redive
 curl -O https://raw.githubusercontent.com/HCGStudio/SecondDimensionWatcherReDive/main/deployments/podman-compose.yml
 ```
@@ -62,13 +80,13 @@ JwtSecret: "CHANGE_ME_TO_A_32_CHAR_RANDOM_STRING"  # ← 修改为随机字符�
 openssl rand -base64 36
 ```
 
-### 3. 启动服务
+然后启动：
 
 ```bash
 podman-compose up -d
 ```
 
-启动后：
+### 3. 访问服务
 - 主应用：`http://localhost:5097`
 - qBittorrent WebUI：`http://localhost:8080`
 
