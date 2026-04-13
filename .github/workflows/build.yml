@@ -87,9 +87,10 @@ jobs:
 
       - name: Build packages
         run: |
-          nfpm package --config packaging/nfpm.yaml --packager deb --target dist/
-          nfpm package --config packaging/nfpm.yaml --packager rpm --target dist/
-          nfpm package --config packaging/nfpm.yaml --packager archlinux --target dist/
+          mkdir -p dist
+          nfpm package --config packaging/nfpm.yaml --packager deb --target "dist/sdw-redive_${VERSION}_${ARCH}.deb"
+          nfpm package --config packaging/nfpm.yaml --packager rpm --target "dist/sdw-redive-${VERSION}.${ARCH}.rpm"
+          nfpm package --config packaging/nfpm.yaml --packager archlinux --target "dist/sdw-redive-${VERSION}-${ARCH}.pkg.tar.zst"
 
       - name: Upload packages
         uses: actions/upload-artifact@v4
