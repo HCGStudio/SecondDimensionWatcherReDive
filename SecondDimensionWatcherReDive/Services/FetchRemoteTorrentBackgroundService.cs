@@ -1,10 +1,8 @@
-﻿using System.Collections.Concurrent;
+using System.Collections.Concurrent;
 using System.Threading.Channels;
-using Microsoft.EntityFrameworkCore;
 using SecondDimensionWatcherReDive.Data;
-using SecondDimensionWatcherReDive.Framework.FileDownload;
 using SecondDimensionWatcherReDive.Framework.FileStore;
-using SecondDimensionWatcherReDive.Models;
+using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Utils.FileDownload;
 
 namespace SecondDimensionWatcherReDive.Services;
@@ -23,15 +21,9 @@ public partial class FetchRemoteTorrentBackgroundService(
     private async IAsyncEnumerable<RemoteTorrentTrackRequest> FetchUnfinishedTaskFromDb()
     {
         await using var scope = scopeFactory.CreateAsyncScope();
-        await using var applicationContext = scope.ServiceProvider.GetRequiredService<ApplicationContext>();
-        var unfinished =
-            applicationContext.AnimationInfo
-                .Where(i => i.IsDownloadTracked
-                            && !i.IsDownloadFinished
-                            && i.DownloadType == FileDownloadTypes.TorrentDownload)
-                .AsAsyncEnumerable();
+        var animationInfoRepository = scope.ServiceProvider.GetRequiredService<IAnimationInfoRepository>();
 
-        await foreach (var info in unfinished)
+        await foreach (var info in animationInfoRepository.GetUnfinishedTorrentDownloadsAsync())
             yield return new RemoteTorrentTrackRequest(info.Id, info.AdditionalDownloadInfo);
     }
 

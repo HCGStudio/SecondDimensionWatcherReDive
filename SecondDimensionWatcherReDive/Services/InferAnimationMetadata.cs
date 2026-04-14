@@ -1,8 +1,7 @@
-using Microsoft.EntityFrameworkCore;
 using SecondDimensionWatcherReDive.Framework.Inference;
+using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Framework.Tasks;
 using SecondDimensionWatcherReDive.Inference.AI.Tools;
-using SecondDimensionWatcherReDive.Models;
 
 namespace SecondDimensionWatcherReDive.Services;
 
@@ -29,26 +28,28 @@ public partial class InferAnimationMetadata(
     private async Task ProcessPendingItems(CancellationToken cancellationToken)
     {
         await using var scope = scopeFactory.CreateAsyncScope();
-        await using var applicationContext = scope.ServiceProvider.GetRequiredService<ApplicationContext>();
+        var animationInfoRepository = scope.ServiceProvider.GetRequiredService<IAnimationInfoRepository>();
+        var animationRepository = scope.ServiceProvider.GetRequiredService<IAnimationRepository>();
+        var animationGroupRepository = scope.ServiceProvider.GetRequiredService<IAnimationGroupRepository>();
         var inferenceEngine = scope.ServiceProvider.GetRequiredService<IInferenceEngine>();
 
-        var pendingItems = await applicationContext.AnimationInfo
-            .Where(i => !i.IsAiProcessed && i.AiRetryCount < MaxRetryCount)
-            .OrderBy(i => i.PublishTime)
-            .ToListAsync(cancellationToken);
+        var pendingItems = await animationInfoRepository.GetPendingInferenceAsync(MaxRetryCount, cancellationToken);
 
         if (pendingItems.Count > 0)
             LogFoundPendingItems(logger, pendingItems.Count);
 
         foreach (var item in pendingItems)
         {
-            await ProcessItem(item, applicationContext, inferenceEngine, cancellationToken);
+            await ProcessItem(item, animationInfoRepository, animationRepository, animationGroupRepository,
+                inferenceEngine, cancellationToken);
         }
     }
 
     private async Task ProcessItem(
         AnimationInfo item,
-        ApplicationContext applicationContext,
+        IAnimationInfoRepository animationInfoRepository,
+        IAnimationRepository animationRepository,
+        IAnimationGroupRepository animationGroupRepository,
         IInferenceEngine inferenceEngine,
         CancellationToken cancellationToken)
     {
@@ -59,8 +60,7 @@ public partial class InferAnimationMetadata(
 
             if (result != null)
             {
-                item.Season = result.Season;
-                item.Episode = result.Episode;
+                item = item with { Season = result.Season, Episode = result.Episode };
 
                 // Fetch localized name/description from TMDB
                 if (!string.IsNullOrEmpty(result.TmdbId) && int.TryParse(result.TmdbId, out var tmdbIdInt))
@@ -68,48 +68,43 @@ public partial class InferAnimationMetadata(
                     var details = await tmdbTool.GetLocalizedDetailsAsync(tmdbIdInt, cancellationToken);
 
                     if (details != null && !string.IsNullOrEmpty(details.Overview))
-                        item.Description = details.Overview;
+                        item = item with { Description = details.Overview };
 
-                    var animation = await applicationContext.Animations
-                        .FirstOrDefaultAsync(
-                            a => a.TmdbId == result.TmdbId,
-                            cancellationToken);
+                    var animation = await animationRepository
+                        .FindByTmdbIdAsync(result.TmdbId, cancellationToken);
 
                     if (animation == null)
                     {
-                        animation = new Animation
-                        {
-                            TmdbId = result.TmdbId,
-                            Name = details?.Name ?? result.TmdbId,
-                            OriginalName = details?.OriginalName ?? "",
-                            PosterPath = details?.PosterPath
-                        };
-                        await applicationContext.Animations.AddAsync(animation, cancellationToken);
+                        animation = new Animation(
+                            Guid.NewGuid(),
+                            result.TmdbId,
+                            details?.Name ?? result.TmdbId,
+                            details?.OriginalName ?? "",
+                            details?.PosterPath);
+                        await animationRepository.AddAsync(animation, cancellationToken);
                     }
 
-                    item.Animation = animation;
+                    item = item with { Animation = animation };
                 }
 
                 // Resolve or create AnimationGroup
                 if (!string.IsNullOrEmpty(result.GroupName))
                 {
-                    var group = await applicationContext.AnimationGroups
-                        .FirstOrDefaultAsync(
-                            g => g.Name == result.GroupName,
-                            cancellationToken);
+                    var group = await animationGroupRepository
+                        .FindByNameAsync(result.GroupName, cancellationToken);
 
                     if (group == null)
                     {
-                        group = new AnimationGroup { Name = result.GroupName };
-                        await applicationContext.AnimationGroups.AddAsync(group, cancellationToken);
+                        group = new AnimationGroup(Guid.NewGuid(), result.GroupName);
+                        await animationGroupRepository.AddAsync(group, cancellationToken);
                     }
 
-                    item.Group = group;
+                    item = item with { Group = group };
                 }
             }
 
-            item.IsAiProcessed = true;
-            await applicationContext.SaveChangesAsync(cancellationToken);
+            item = item with { IsAiProcessed = true };
+            await animationInfoRepository.UpdateAsync(item, cancellationToken);
 
             LogInferenceCompleted(logger, item.Id, item.Title);
         }
@@ -119,8 +114,8 @@ public partial class InferAnimationMetadata(
         }
         catch (Exception ex)
         {
-            item.AiRetryCount++;
-            await applicationContext.SaveChangesAsync(cancellationToken);
+            item = item with { AiRetryCount = item.AiRetryCount + 1 };
+            await animationInfoRepository.UpdateAsync(item, cancellationToken);
 
             LogInferenceFailed(logger, ex, item.Id, item.Title, item.AiRetryCount, MaxRetryCount);
         }

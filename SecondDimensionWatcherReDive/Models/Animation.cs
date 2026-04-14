@@ -1,4 +1,4 @@
-﻿namespace SecondDimensionWatcherReDive.Models;
+namespace SecondDimensionWatcherReDive.Models;
 
 public class Animation
 {

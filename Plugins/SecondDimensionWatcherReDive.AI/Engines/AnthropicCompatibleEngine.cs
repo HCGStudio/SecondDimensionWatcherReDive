@@ -18,7 +18,7 @@ public sealed partial class AnthropicCompatibleEngine(
 {
     private const string HttpClientName = "AnthropicAi";
 
-    public async Task<IReadOnlyList<AiModel>> GetAvailableModelsAsync(CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<AiModel>> GetAvailableModelsAsync(CancellationToken cancellationToken)
     {
         var client = httpClientFactory.CreateClient(HttpClientName);
         using var response = await client.GetAsync("v1/models", cancellationToken);
@@ -38,8 +38,8 @@ public sealed partial class AnthropicCompatibleEngine(
 
     public async IAsyncEnumerable<IChatUpdate> ChatAsync(
         IReadOnlyList<IMessage> messages,
-        ChatOptions? chatOptions = null,
-        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        ChatOptions? chatOptions,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         var opts = options.Value;
         var maxToolRounds = chatOptions?.MaxToolRounds ?? 8;

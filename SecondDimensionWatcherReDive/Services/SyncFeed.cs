@@ -1,12 +1,11 @@
-﻿using System.Security.Cryptography;
+using System.Security.Cryptography;
 using BencodeNET.Objects;
 using BencodeNET.Parsing;
-using Microsoft.EntityFrameworkCore;
 using SecondDimensionWatcherReDive.Exceptions;
 using SecondDimensionWatcherReDive.Framework.Feed;
 using SecondDimensionWatcherReDive.Framework.FileDownload;
+using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Framework.Tasks;
-using SecondDimensionWatcherReDive.Models;
 
 namespace SecondDimensionWatcherReDive.Services;
 
@@ -31,7 +30,9 @@ public partial class SyncFeed(
         await Task.WhenAll(feeds.Select(f => ProcessFeed(f, cancellationToken)));
     }
 
-    private async Task<(byte[], string)> DownloadTorrentData(
+    private readonly record struct TorrentData(byte[] CachedDownloadData, string Hash);
+
+    private async Task<TorrentData> DownloadTorrentData(
         AnimationAddRequest request,
         CancellationToken cancellationToken)
     {
@@ -47,41 +48,48 @@ public partial class SyncFeed(
                     .EncodeAsBytes()))
             .Replace("-", "")
             .ToLower();
-        return (data, hash);
+        return new TorrentData(data, hash);
     }
 
     private async Task ProcessSingle(AnimationAddRequest request, CancellationToken cancellationToken)
     {
         await using var scope = scopeFactory.CreateAsyncScope();
-        await using var applicationContext = scope.ServiceProvider.GetRequiredService<ApplicationContext>();
+        var animationInfoRepository = scope.ServiceProvider.GetRequiredService<IAnimationInfoRepository>();
 
         //Only process non-exist items
-        if (await applicationContext.AnimationInfo
-                .FirstOrDefaultAsync(
-                    i => i.Title == request.Title,
-                    cancellationToken) == null)
+        if (await animationInfoRepository.FindByTitleAsync(request.Title, cancellationToken) == null)
         {
             try
             {
-                var (cachedDownloadData, additionalDownloadInfo) = request.DownloadType switch
+                var torrentData = request.DownloadType switch
                 {
                     FileDownloadTypes.TorrentDownload => await DownloadTorrentData(request, cancellationToken),
-                    _ => (Array.Empty<byte>(), string.Empty)
+                    _ => new TorrentData(Array.Empty<byte>(), string.Empty)
                 };
 
-                await applicationContext.AnimationInfo.AddAsync(
-                    new AnimationInfo
-                    {
-                        Title = request.Title,
-                        PublishTime = request.PublishTime,
-                        Description = request.Description,
-                        DownloadUrl = request.DownloadUrl,
-                        DownloadType = request.DownloadType,
-                        CachedDownloadData = cachedDownloadData,
-                        AdditionalDownloadInfo = additionalDownloadInfo
-                    },
+                await animationInfoRepository.AddAsync(
+                    new AnimationInfo(
+                        Guid.NewGuid(),
+                        request.Title,
+                        request.Description,
+                        request.PublishTime,
+                        request.DownloadUrl,
+                        request.DownloadType,
+                        torrentData.CachedDownloadData,
+                        torrentData.Hash,
+                        IsDownloadTracked: false,
+                        DownloadStartTime: default,
+                        DownloadEndTime: default,
+                        IsDownloadFinished: false,
+                        FileStore: null,
+                        StorePath: null,
+                        Season: null,
+                        Episode: null,
+                        Group: null,
+                        Animation: null,
+                        IsAiProcessed: false,
+                        AiRetryCount: 0),
                     cancellationToken);
-                await applicationContext.SaveChangesAsync(cancellationToken);
             }
             catch (InvalidTorrentDataException e)
             {

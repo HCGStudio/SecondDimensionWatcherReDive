@@ -4,10 +4,10 @@ namespace SecondDimensionWatcherReDive.AI.Abstractions;
 
 public interface IAiEngine
 {
-    Task<IReadOnlyList<AiModel>> GetAvailableModelsAsync(CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<AiModel>> GetAvailableModelsAsync(CancellationToken cancellationToken);
 
     IAsyncEnumerable<IChatUpdate> ChatAsync(
         IReadOnlyList<IMessage> messages,
-        ChatOptions? options = null,
-        CancellationToken cancellationToken = default);
+        ChatOptions? options,
+        CancellationToken cancellationToken);
 }

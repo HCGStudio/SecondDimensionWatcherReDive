@@ -1,6 +1,7 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using System.Threading.Channels;
 using Microsoft.Extensions.Caching.Distributed;
+using SecondDimensionWatcherReDive.Controllers;
 using SecondDimensionWatcherReDive.Data;
 
 namespace SecondDimensionWatcherReDive.Services;
@@ -22,8 +23,9 @@ public class UpdateDownloadStatusBackgroundService : BackgroundService
         while (!cancellationToken.IsCancellationRequested)
         {
             var status = await reader.ReadAsync(cancellationToken);
+            var externalStatus = status.ToExternal();
             var key = status.ItemId.ToString();
-            var value = JsonSerializer.Serialize(status, AppJsonSerializerContext.Default.FileDownloadStatus);
+            var value = JsonSerializer.Serialize(externalStatus, SecondDimensionWatcherReDive.Controllers.External.AppJsonSerializerContext.Default.FileDownloadStatus);
             if (status.State == FileDownloadState.Finished)
                 await _distributedCache.SetStringAsync(key, value,
                     new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5) },

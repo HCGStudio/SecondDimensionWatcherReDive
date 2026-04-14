@@ -1,49 +1,39 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using SecondDimensionWatcherReDive.Models;
+using SecondDimensionWatcherReDive.Framework.DataRepository;
 
 namespace SecondDimensionWatcherReDive.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
 [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
-public class FeedController(ApplicationContext applicationContext) : ControllerBase
+internal class FeedController(IFeedRepository feedRepository) : ControllerBase
 {
     [HttpGet]
-    public async Task<ActionResult<List<Feed>>> GetFeeds()
+    public async Task<IActionResult> GetFeeds(CancellationToken cancellationToken)
     {
-        var feeds = await applicationContext.Feeds.AsNoTracking().OrderByDescending(f => f.CreatedAt).ToListAsync();
-        return Ok(feeds);
+        var feeds = await feedRepository.GetAllOrderedAsync(cancellationToken);
+        return Ok(feeds.Select(f => f.ToExternal()).ToList());
     }
 
     [HttpPost]
-    public async Task<ActionResult<Feed>> AddFeed([FromBody] AddFeedRequest request)
+    public async Task<IActionResult> AddFeed([FromBody] External.AddFeedRequest request,
+        CancellationToken cancellationToken)
     {
-        var feed = new Feed
-        {
-            Id = Guid.NewGuid(),
-            Url = request.Url,
-            Name = request.Name,
-            CreatedAt = DateTimeOffset.Now
-        };
+        var feed = new Feed(Guid.NewGuid(), request.Url, request.Name, DateTimeOffset.Now);
 
-        applicationContext.Feeds.Add(feed);
-        await applicationContext.SaveChangesAsync();
-        return Ok(feed);
+        await feedRepository.AddAsync(feed, cancellationToken);
+        return Ok(feed.ToExternal());
     }
 
     [HttpDelete("{id:guid}")]
-    public async Task<IActionResult> RemoveFeed([FromRoute] Guid id)
+    public async Task<IActionResult> RemoveFeed([FromRoute] Guid id, CancellationToken cancellationToken)
     {
-        var feed = await applicationContext.Feeds.FindAsync(id);
+        var feed = await feedRepository.FindByIdAsync(id, cancellationToken);
         if (feed is null) return NotFound();
 
-        applicationContext.Feeds.Remove(feed);
-        await applicationContext.SaveChangesAsync();
+        await feedRepository.RemoveAsync(feed, cancellationToken);
         return Ok();
     }
-
-    public record AddFeedRequest(string Url, string? Name);
 }

@@ -18,7 +18,7 @@ public sealed partial class OpenAiCompatibleEngine(
 {
     private const string HttpClientName = "OpenAi";
 
-    public async Task<IReadOnlyList<AiModel>> GetAvailableModelsAsync(CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<AiModel>> GetAvailableModelsAsync(CancellationToken cancellationToken)
     {
         var client = httpClientFactory.CreateClient(HttpClientName);
         using var response = await client.GetAsync("models", cancellationToken);
@@ -38,8 +38,8 @@ public sealed partial class OpenAiCompatibleEngine(
 
     public async IAsyncEnumerable<IChatUpdate> ChatAsync(
         IReadOnlyList<IMessage> messages,
-        ChatOptions? options = null,
-        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        ChatOptions? options,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         var opts = engineOptions.Value;
         var maxToolRounds = options?.MaxToolRounds ?? 8;

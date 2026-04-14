@@ -5,6 +5,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Important Rules
 
 - **NEVER use `npm` or `npx`**. This project uses Yarn Berry (PnP). Always use `yarn` for all frontend commands.
+- **NEVER reference `ApplicationContext` directly** outside of `Repositories/` implementations, `Program.cs` (DI + migrations), and EF Core migration files. All data access goes through repository interfaces defined in `Framework/DataRepository/`.
+- **CancellationToken parameters** must be named `cancellationToken` (not `ct`) and must NOT have default values in interface definitions.
 
 ## Build & Development Commands
 
@@ -32,9 +34,9 @@ This is an anime/animation download management system (二次元观测器 Re:Div
 
 ### Solution Projects
 
-- **SecondDimensionWatcherReDive** — Main ASP.NET Core web API. Controllers, background services, download/feed implementations, SPA hosting.
-- **SecondDimensionWatcherReDive.Framework** — Shared abstractions (interfaces for plugins, file download, file storage, feeds, scheduled tasks). No implementations.
-- **SecondDimensionWatcherReDive.Test** — MSTest unit tests with Moq. Covers plugin events, file renaming, feed parsing, auth.
+- **SecondDimensionWatcherReDive** — Main ASP.NET Core web API. Internal controllers (`Controllers/`), external API DTOs (`Controllers/External/`), EF Core repository implementations (`Repositories/`), EF entity models (`Models/`), background services, download/feed implementations, SPA hosting.
+- **SecondDimensionWatcherReDive.Framework** — Shared abstractions: domain records and repository interfaces (`DataRepository/`), plugin interfaces, file download/storage, feeds, scheduled tasks, inference.
+- **SecondDimensionWatcherReDive.Test** — MSTest unit tests with Moq. Covers controllers, services, scheduled tasks, plugin events, file renaming, feed parsing, auth.
 - **SecondDimensionWatcherReDive.Client** — React/TypeScript SPA using Parcel bundler, Tailwind CSS, and Radix UI.
 - **Plugins/SecondDimensionWatcherReDive.AI** — Provider-agnostic AI engine abstraction. Defines `IAiEngine` streaming chat interface with tool-call support and two implementations: `OpenAiCompatibleEngine` (SSE streaming via OpenAI-compatible HTTP API, supports custom base URLs for Ollama/vLLM) and `AnthropicCompatibleEngine` (SSE streaming via Anthropic HTTP API). Includes message/tool/chat-update abstractions and provider-specific serialization DTOs.
 - **Plugins/SecondDimensionWatcherReDive.Inference.AI** — AI inference pipeline for metadata extraction. Contains a single `InferenceEngine` that orchestrates system prompts, TMDB tool dispatch (3 tools), rate limiting (`SemaphoreSlim` + configurable delay), and JSON parsing. Delegates all chat to `IAiEngine` from the AI plugin — no provider-specific code.
@@ -57,6 +59,36 @@ Download clients and file stores use a provider pattern:
 - `IFileDownloadClient` / `IFileDownloadClientProvider` — pluggable download backends (currently: qBittorrent remote)
 - `IFileStore` / `IFileStoreProvider` — pluggable storage backends (currently: local disk)
 - `IFileOperator` — file rename operations routed through qBittorrent API (`TorrentFileOperator`) so qBittorrent stays aware of renames
+
+### Repository Pattern (Data Access)
+
+The codebase uses a three-tier model architecture with repository interfaces for data access:
+
+**1. EF Entity Classes** (`Models/`): Mutable classes mapped by EF Core (`ApplicationContext`). Only accessed inside `Repositories/`, `Program.cs`, and migrations.
+
+**2. Domain Records** (`Framework/DataRepository/`): `AnimationInfo`, `Animation`, `AnimationGroup`, `Feed`, `SeasonBangumi`, `BangumiSubgroup` — immutable `sealed record` types with no EF Core dependency. Used by controllers, services, and plugin code. Result types: `PagedResult<T>`, `AnimationGroupedResult`, `AnimationWithEpisodesResult`.
+
+**3. External DTOs** (`Controllers/External/`): API response types serialized to JSON. Separate from domain records to control the API surface. Converted from domain records via `Controllers/Converter.cs` extension methods (`ToExternal()`, `ToExternalResponseData()`).
+
+**Conversions:**
+- `Repositories/RepositoryConverter.cs` — EF entity <-> domain record (`ToRecord()`, `ToEntity()`, `ApplyTo()`)
+- `Controllers/Converter.cs` — domain record -> external DTO (`ToExternal()`)
+
+**Repository interfaces** (`Framework/DataRepository/`):
+- `IAnimationInfoRepository` — paged queries, grouped view, find by ID/title, add, update, pending inference, unfinished downloads
+- `IAnimationRepository` — find by TMDB ID, add
+- `IAnimationGroupRepository` — find by name, add
+- `IFeedRepository` — ordered listing, URL queries, existence check, add, remove
+- `ISeasonBangumiRepository` — ordered queries, find by MikanId, add/remove batch, save
+- `IBangumiSubgroupRepository` — query by season bangumi, find by composite key, add, save
+
+**Repository implementations** (`Repositories/`): EF Core implementations registered as scoped services, sharing the same `ApplicationContext` per request.
+
+**Design rules:**
+- Mutating methods (`AddAsync`, `RemoveAsync`, `UpdateAsync`) call `SaveChangesAsync` internally
+- `SeasonBangumiRepository` and `BangumiSubgroupRepository` expose `void Add()`/`void RemoveRange()` + explicit `SaveChangesAsync()` for batch operations
+- Background services resolve repositories via `IServiceScopeFactory.CreateAsyncScope()`
+- Namespace collision: `Feed` and `Animation` entity names collide with Framework namespaces — use `FeedEntity`/`AnimationEntity` aliases where needed
 
 ### Plugin System
 
@@ -106,11 +138,13 @@ AI inference is decoupled from feed sync — runs offline as a background task (
 
 ### Controllers
 
-- `AnimationInfoController` (`/api/animationinfo`) — CRUD for animations, download/pause/resume/cancel, grouped listing by Animation, retry AI inference
+All controllers are `internal` (discovered via `InternalControllerFeatureProvider` instead of the default ASP.NET Core provider, which only finds public classes). They inject repository interfaces (not `ApplicationContext`) and use `HttpContext.RequestAborted` as the CancellationToken for repository calls. API response types live in `Controllers/External/`, with `AppJsonSerializerContext` providing source-generated JSON serialization.
+
+- `AnimationInfoController` (`/api/animationinfo`) — CRUD for animations, download/pause/resume/cancel, grouped listing by Animation, retry AI inference. Depends on `IAnimationInfoRepository`.
 - `AuthController` (`/api/auth`) — register, login, refresh, verify
-- `FileController` (`/api/file`) — file listing, playback link generation (returns full absolute URL via `Url.ActionLink`), streaming
-- `FeedController` (`/api/feed`) — CRUD for RSS feed subscriptions
-- `SeasonController` (`/api/season`) — current season anime discovery from mikanani.me, subgroup browsing, one-click subscribe, supports browsing other seasons
+- `FileController` (`/api/file`) — file listing, playback link generation (returns full absolute URL via `Url.ActionLink`), streaming. Depends on `IAnimationInfoRepository`.
+- `FeedController` (`/api/feed`) — CRUD for RSS feed subscriptions. Depends on `IFeedRepository`.
+- `SeasonController` (`/api/season`) — current season anime discovery from mikanani.me, subgroup browsing, one-click subscribe, supports browsing other seasons. Depends on `ISeasonBangumiRepository`, `IBangumiSubgroupRepository`, `IFeedRepository`.
 - `TasksController` (`/api/tasks`) — list background tasks with status, enqueue manual execution
 
 ### Feed Management

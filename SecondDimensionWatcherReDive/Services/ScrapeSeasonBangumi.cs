@@ -1,6 +1,5 @@
-using Microsoft.EntityFrameworkCore;
+using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Framework.Tasks;
-using SecondDimensionWatcherReDive.Models;
 using SecondDimensionWatcherReDive.Utils.Scraper;
 
 namespace SecondDimensionWatcherReDive.Services;
@@ -37,9 +36,9 @@ public partial class ScrapeSeasonBangumi(
             }
 
             await using var scope = scopeFactory.CreateAsyncScope();
-            await using var context = scope.ServiceProvider.GetRequiredService<ApplicationContext>();
+            var seasonBangumiRepository = scope.ServiceProvider.GetRequiredService<ISeasonBangumiRepository>();
 
-            var existing = await context.SeasonBangumis.ToListAsync(cancellationToken);
+            var existing = await seasonBangumiRepository.GetAllAsync(cancellationToken);
             var existingByMikanId = existing.ToDictionary(b => b.MikanId);
             var scrapedIds = new HashSet<int>();
             var now = DateTimeOffset.UtcNow;
@@ -50,22 +49,19 @@ public partial class ScrapeSeasonBangumi(
 
                 if (existingByMikanId.TryGetValue(entry.MikanId, out var bangumi))
                 {
-                    bangumi.Title = entry.Title;
-                    bangumi.DayOfWeek = entry.DayOfWeek;
-                    bangumi.ImageUrl = entry.ImageUrl;
-                    bangumi.ScrapedAt = now;
-                }
-                else
-                {
-                    context.SeasonBangumis.Add(new SeasonBangumi
+                    await seasonBangumiRepository.UpdateAsync(bangumi with
                     {
-                        Id = Guid.NewGuid(),
-                        MikanId = entry.MikanId,
                         Title = entry.Title,
                         DayOfWeek = entry.DayOfWeek,
                         ImageUrl = entry.ImageUrl,
                         ScrapedAt = now
-                    });
+                    }, cancellationToken);
+                }
+                else
+                {
+                    await seasonBangumiRepository.AddAsync(new SeasonBangumi(
+                        Guid.NewGuid(), entry.MikanId, entry.Title, entry.DayOfWeek,
+                        entry.ImageUrl, now), cancellationToken);
                 }
             }
 
@@ -73,11 +69,10 @@ public partial class ScrapeSeasonBangumi(
             var stale = existing.Where(b => !scrapedIds.Contains(b.MikanId)).ToList();
             if (stale.Count > 0)
             {
-                context.SeasonBangumis.RemoveRange(stale);
+                await seasonBangumiRepository.RemoveRangeAsync(stale, cancellationToken);
                 LogRemovedStaleBangumi(logger, stale.Count);
             }
 
-            await context.SaveChangesAsync(cancellationToken);
             LogSeasonBangumiUpdated(logger, scraped.Count);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)

@@ -1,4 +1,3 @@
-﻿using System.ComponentModel.DataAnnotations;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
@@ -13,7 +12,7 @@ namespace SecondDimensionWatcherReDive.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-public partial class AuthController : ControllerBase
+internal partial class AuthController : ControllerBase
 {
     private readonly IConfiguration _configuration;
     private readonly ILogger<AuthController> _logger;
@@ -38,7 +37,7 @@ public partial class AuthController : ControllerBase
             .Select(x => x[random.Next(x.Length)]).ToArray());
     }
 
-    private async Task<LoginResult> GenerateJwtTokenAsync()
+    private async Task<External.LoginResult> GenerateJwtTokenAsync()
     {
         var handler = new JwtSecurityTokenHandler();
         var key = Encoding.ASCII.GetBytes(_configuration["JwtSecret"]!);
@@ -58,16 +57,16 @@ public partial class AuthController : ControllerBase
         var token = handler.CreateToken(tokenDescriptor);
         var jwtToken = handler.WriteToken(token);
 
-        var refreshToken = new RefreshToken(RandomString(25) + Guid.NewGuid(), token.Id);
+        var refreshToken = new External.RefreshToken(RandomString(25) + Guid.NewGuid(), token.Id);
 
         await _distributedCache.SetStringAsync(refreshToken.Token,
-            JsonSerializer.Serialize(refreshToken, AppJsonSerializerContext.Default.RefreshToken));
+            JsonSerializer.Serialize(refreshToken, External.AppJsonSerializerContext.Default.RefreshToken));
 
-        return new LoginResult(jwtToken, refreshToken.Token);
+        return new External.LoginResult(jwtToken, refreshToken.Token);
     }
 
     [HttpPost("register")]
-    public async Task<ActionResult<LoginResult>> Register([FromBody] LoginData data)
+    public async Task<IActionResult> Register([FromBody] External.LoginData data)
     {
         if (!string.IsNullOrWhiteSpace(_configuration["Password:Value"]))
             return BadRequest();
@@ -75,14 +74,14 @@ public partial class AuthController : ControllerBase
         var passwordFile = _configuration["PasswordFile"] ?? "password.json";
         await System.IO.File.WriteAllBytesAsync(passwordFile,
             JsonSerializer.SerializeToUtf8Bytes(
-                new PasswordConfig(new PasswordHash(BCrypt.Net.BCrypt.HashPassword(data.Password))),
-                AppJsonSerializerContext.Default.PasswordConfig));
+                new External.PasswordConfig(new External.PasswordHash(BCrypt.Net.BCrypt.HashPassword(data.Password))),
+                External.AppJsonSerializerContext.Default.PasswordConfig));
 
         return Ok(await GenerateJwtTokenAsync());
     }
 
     [HttpPost("login")]
-    public async Task<ActionResult<LoginResult>> Login([FromBody] LoginData data)
+    public async Task<IActionResult> Login([FromBody] External.LoginData data)
     {
         var storedValue = _configuration["Password:Value"];
         if (string.IsNullOrWhiteSpace(storedValue))
@@ -95,13 +94,13 @@ public partial class AuthController : ControllerBase
     }
 
     [HttpPost("refresh")]
-    public async Task<ActionResult<LoginResult>> Refresh([FromBody] AuthRequest request)
+    public async Task<IActionResult> Refresh([FromBody] External.AuthRequest request)
     {
         var result = await VerifyAndGenerateTokenAsync(request);
         return result.Success ? Ok(result) : BadRequest(result);
     }
 
-    private async Task<LoginResult> VerifyAndGenerateTokenAsync(AuthRequest request)
+    private async Task<External.LoginResult> VerifyAndGenerateTokenAsync(External.AuthRequest request)
     {
         try
         {
@@ -115,14 +114,14 @@ public partial class AuthController : ControllerBase
             if (validatedToken is JwtSecurityToken securityToken && !securityToken.Header.Alg.Equals(
                     SecurityAlgorithms.HmacSha256,
                     StringComparison.InvariantCultureIgnoreCase))
-                return new LoginResult(null, null, false);
+                return new External.LoginResult(null, null, false);
 
             var storedJson = await _distributedCache.GetStringAsync(request.RefreshToken);
-            var storedToken = storedJson is null ? null : JsonSerializer.Deserialize(storedJson, AppJsonSerializerContext.Default.RefreshToken);
-            if (storedToken is null) return new LoginResult(null, null, false);
+            var storedToken = storedJson is null ? null : JsonSerializer.Deserialize(storedJson, External.AppJsonSerializerContext.Default.RefreshToken);
+            if (storedToken is null) return new External.LoginResult(null, null, false);
 
             if (tokenInVerification.FindFirst(c => c.Type == JwtRegisteredClaimNames.Jti)?.Value != storedToken.JwtId)
-                return new LoginResult(null, null, false);
+                return new External.LoginResult(null, null, false);
 
             await _distributedCache.RemoveAsync(request.RefreshToken);
 
@@ -131,7 +130,7 @@ public partial class AuthController : ControllerBase
         catch (Exception exception)
         {
             LogTokenVerificationFailed(_logger, exception);
-            return new LoginResult(null, null, false);
+            return new External.LoginResult(null, null, false);
         }
     }
 
@@ -147,14 +146,6 @@ public partial class AuthController : ControllerBase
     {
         return Ok(new { Allow = string.IsNullOrWhiteSpace(_configuration["Password:Value"]) });
     }
-
-    public record LoginData([Required] string Password);
-
-    public record LoginResult(string? Token, string? RefreshToken, bool Success = true);
-
-    public record AuthRequest([Required] string Token, [Required] string RefreshToken);
-
-    public record RefreshToken(string Token, string JwtId);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Token verification failed")]
     private static partial void LogTokenVerificationFailed(ILogger logger, Exception ex);

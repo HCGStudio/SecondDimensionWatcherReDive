@@ -6,7 +6,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.StaticFiles;
 using System.Text.Json;
 using Microsoft.Extensions.Caching.Distributed;
-using SecondDimensionWatcherReDive.Models;
+using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Utils.FileStore;
 
 namespace SecondDimensionWatcherReDive.Controllers;
@@ -14,8 +14,8 @@ namespace SecondDimensionWatcherReDive.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
-public partial class FileController(
-    ApplicationContext applicationContext,
+internal partial class FileController(
+    IAnimationInfoRepository animationInfoRepository,
     IFileStoreProvider fileStoreProvider,
     IDistributedCache distributedCache,
     IContentTypeProvider contentTypeProvider,
@@ -29,11 +29,12 @@ public partial class FileController(
     }
 
     [HttpPost("generateLink")]
-    public async Task<ActionResult<FileLinkResultResponse>> GetFileLink([FromBody] FileLinkResultRequest payload)
+    public async Task<IActionResult> GetFileLink([FromBody] External.FileLinkResultRequest payload,
+        CancellationToken cancellationToken)
     {
         LogGenerateLinkRequest(logger, payload.Id, payload.Path);
 
-        var info = await applicationContext.AnimationInfo.FindAsync(payload.Id);
+        var info = await animationInfoRepository.FindByIdAsync(payload.Id, cancellationToken);
         if (info is null || !info.IsDownloadFinished || info.FileStore is null || info.StorePath is null)
         {
             LogAnimationNotFound(logger, payload.Id);
@@ -69,19 +70,21 @@ public partial class FileController(
 
         var token = GenerateToken(64);
         await distributedCache.SetStringAsync(token,
-            JsonSerializer.Serialize(new FileStoreToken(targetPath, info.FileStore), AppJsonSerializerContext.Default.FileStoreToken),
-            new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = TimeSpan.FromDays(1) });
+            JsonSerializer.Serialize(new External.FileStoreToken(targetPath, info.FileStore), External.AppJsonSerializerContext.Default.FileStoreToken),
+            new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = TimeSpan.FromDays(1) },
+            cancellationToken);
         var url = Url.ActionLink(nameof(GetFile), values: new { token })!;
         LogLinkGenerated(logger, payload.Id, url);
-        return Ok(new FileLinkResultResponse(url));
+        return Ok(new External.FileLinkResultResponse(url));
     }
 
     [AllowAnonymous]
     [HttpGet("play")]
-    public async Task<IActionResult> GetFile([FromQuery] [Required] string token)
+    public async Task<IActionResult> GetFile([FromQuery] [Required] string token,
+        CancellationToken cancellationToken)
     {
-        var json = await distributedCache.GetStringAsync(token);
-        var fileStoreToken = json is null ? null : JsonSerializer.Deserialize(json, AppJsonSerializerContext.Default.FileStoreToken);
+        var json = await distributedCache.GetStringAsync(token, cancellationToken);
+        var fileStoreToken = json is null ? null : JsonSerializer.Deserialize(json, External.AppJsonSerializerContext.Default.FileStoreToken);
         if (fileStoreToken is null)
         {
             LogPlayTokenInvalid(logger);
@@ -100,12 +103,13 @@ public partial class FileController(
     }
 
     [HttpGet("list")]
-    public async Task<ActionResult<IEnumerable<FileStoreListResult>>> GetSubDir([FromQuery] [Required] Guid id,
-        [FromQuery] string? relativeDir)
+    public async Task<IActionResult> GetSubDir([FromQuery] [Required] Guid id,
+        [FromQuery] string? relativeDir,
+        CancellationToken cancellationToken)
     {
         LogListRequest(logger, id, relativeDir);
 
-        var info = await applicationContext.AnimationInfo.FindAsync(id);
+        var info = await animationInfoRepository.FindByIdAsync(id, cancellationToken);
         if (info is null || !info.IsDownloadFinished || info.FileStore is null || info.StorePath is null)
         {
             LogAnimationNotFound(logger, id);
@@ -128,18 +132,10 @@ public partial class FileController(
 
         if (!fileInfo.IsDirectory)
             return Ok(fileStore.EnumerateDirectory(targetPath)
-                .Select(i => new FileStoreListResult(i.FileName, i.IsDirectory, i.IsDirectory ? i.FileName : null)));
+                .Select(i => new External.FileStoreListResult(i.FileName, i.IsDirectory, i.IsDirectory ? i.FileName : null)));
 
-        return Ok(new[] { new FileStoreListResult(fileInfo.FileName, false, null) });
+        return Ok(new[] { new External.FileStoreListResult(fileInfo.FileName, false, null) });
     }
-
-    public record FileLinkResultResponse(string Url);
-
-    public record FileLinkResultRequest([Required] Guid Id, string Path);
-
-    public record FileStoreToken(string Path, string FileStore);
-
-    public record FileStoreListResult(string FileName, bool IsDirectory, string? Relative);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "GenerateLink request for animation {Id}, relative path: {Path}")]
     private static partial void LogGenerateLinkRequest(ILogger logger, Guid id, string? path);

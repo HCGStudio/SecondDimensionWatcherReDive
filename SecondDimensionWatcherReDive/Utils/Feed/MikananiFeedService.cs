@@ -1,10 +1,9 @@
-﻿using System.Collections.Concurrent;
+using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 using System.Xml.Serialization;
-using Microsoft.EntityFrameworkCore;
 using SecondDimensionWatcherReDive.Framework.Feed;
 using SecondDimensionWatcherReDive.Framework.FileDownload;
-using SecondDimensionWatcherReDive.Models;
+using SecondDimensionWatcherReDive.Framework.DataRepository;
 
 namespace SecondDimensionWatcherReDive.Utils.Feed;
 
@@ -30,8 +29,8 @@ public class MikananiFeedService(
 
         // Also read feed URLs from DB
         await using var scope = scopeFactory.CreateAsyncScope();
-        await using var context = scope.ServiceProvider.GetRequiredService<ApplicationContext>();
-        var dbUrls = await context.Feeds.Select(f => f.Url).ToArrayAsync(cancellationToken);
+        var feedRepository = scope.ServiceProvider.GetRequiredService<IFeedRepository>();
+        var dbUrls = await feedRepository.GetAllUrlsAsync(cancellationToken);
 
         var feedUrls = configUrls.Concat(dbUrls).Distinct().ToArray();
         if (feedUrls.Length == 0)

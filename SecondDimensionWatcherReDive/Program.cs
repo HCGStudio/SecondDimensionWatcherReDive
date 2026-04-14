@@ -13,9 +13,11 @@ using SecondDimensionWatcherReDive.Data;
 using SecondDimensionWatcherReDive.Framework.Feed;
 using SecondDimensionWatcherReDive.Framework.FileDownload;
 using SecondDimensionWatcherReDive.Framework.FileStore;
+using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Framework.Tasks;
 using SecondDimensionWatcherReDive.Inference.AI;
 using SecondDimensionWatcherReDive.Models;
+using SecondDimensionWatcherReDive.Repositories;
 using SecondDimensionWatcherReDive.Plugin;
 using SecondDimensionWatcherReDive.Plugin.FileRenamer;
 using SecondDimensionWatcherReDive.Services;
@@ -32,7 +34,15 @@ builder.Host.UseSystemd();
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
-        options.JsonSerializerOptions.TypeInfoResolverChain.Add(AppJsonSerializerContext.Default);
+        options.JsonSerializerOptions.TypeInfoResolverChain.Add(SecondDimensionWatcherReDive.Controllers.External.AppJsonSerializerContext.Default);
+    })
+    .ConfigureApplicationPartManager(manager =>
+    {
+        var defaultProvider = manager.FeatureProviders
+            .OfType<Microsoft.AspNetCore.Mvc.Controllers.ControllerFeatureProvider>()
+            .First();
+        manager.FeatureProviders.Remove(defaultProvider);
+        manager.FeatureProviders.Add(new InternalControllerFeatureProvider());
     });
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
@@ -164,6 +174,14 @@ builder.Services.AddScoped<IFileStoreProvider, FileStoreProvider>();
 
 //Add feed
 builder.Services.AddTransient<IFeedService, MikananiFeedService>();
+
+//Add repositories
+builder.Services.AddScoped<IAnimationInfoRepository, AnimationInfoRepository>();
+builder.Services.AddScoped<IAnimationRepository, AnimationRepository>();
+builder.Services.AddScoped<IAnimationGroupRepository, AnimationGroupRepository>();
+builder.Services.AddScoped<IFeedRepository, FeedRepository>();
+builder.Services.AddScoped<ISeasonBangumiRepository, SeasonBangumiRepository>();
+builder.Services.AddScoped<IBangumiSubgroupRepository, BangumiSubgroupRepository>();
 
 //Add AI Inference
 var aiProvider = builder.Configuration["AI:Provider"]

@@ -1,9 +1,8 @@
-﻿using System.Threading.Channels;
-using Microsoft.EntityFrameworkCore;
+using System.Threading.Channels;
 using SecondDimensionWatcherReDive.Data;
 using SecondDimensionWatcherReDive.Framework.FileStore;
 using SecondDimensionWatcherReDive.Framework.PluginParams;
-using SecondDimensionWatcherReDive.Models;
+using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Plugin;
 using SecondDimensionWatcherReDive.Utils.FileStore;
 
@@ -30,11 +29,9 @@ public partial class CompleteDownloadBackgroundService(
         LogProcessingRequest(logger, request.ItemId, request.StorePath, request.FileStore);
 
         await using var scope = scopeFactory.CreateAsyncScope();
-        await using var applicationContext = scope.ServiceProvider.GetRequiredService<ApplicationContext>();
+        var animationInfoRepository = scope.ServiceProvider.GetRequiredService<IAnimationInfoRepository>();
 
-        var info = await applicationContext.AnimationInfo
-            .Include(a => a.Animation)
-            .FirstOrDefaultAsync(a => a.Id == request.ItemId, cancellationToken);
+        var info = await animationInfoRepository.FindByIdWithAnimationAsync(request.ItemId, cancellationToken);
 
         if (info is null)
         {
@@ -42,12 +39,15 @@ public partial class CompleteDownloadBackgroundService(
             return;
         }
 
-        info.IsDownloadFinished = true;
-        info.DownloadEndTime = DateTimeOffset.Now;
-        info.FileStore = request.FileStore;
-        info.StorePath = request.StorePath;
+        info = info with
+        {
+            IsDownloadFinished = true,
+            DownloadEndTime = DateTimeOffset.Now,
+            FileStore = request.FileStore,
+            StorePath = request.StorePath
+        };
 
-        await applicationContext.SaveChangesAsync(cancellationToken);
+        await animationInfoRepository.UpdateAsync(info, cancellationToken);
         LogDownloadMarkedFinished(logger, request.ItemId, info.Title);
 
         // Fire plugin event
@@ -68,7 +68,7 @@ public partial class CompleteDownloadBackgroundService(
         // Rename files after download completes
         var fileRenamer = scope.ServiceProvider.GetRequiredService<IFileRenamer>();
         var fileStoreProvider = scope.ServiceProvider.GetRequiredService<IFileStoreProvider>();
-        var fileStore = fileStoreProvider.GetRequiredClient(info.FileStore);
+        var fileStore = fileStoreProvider.GetRequiredClient(info.FileStore!);
 
         if (info.Animation != null && info.StorePath != null)
         {
@@ -96,8 +96,8 @@ public partial class CompleteDownloadBackgroundService(
 
                     if (File.Exists(newPath))
                     {
-                        info.StorePath = newPath;
-                        await applicationContext.SaveChangesAsync(cancellationToken);
+                        info = info with { StorePath = newPath };
+                        await animationInfoRepository.UpdateAsync(info, cancellationToken);
                         LogStorePathUpdated(logger, request.ItemId, newPath);
                     }
                     else

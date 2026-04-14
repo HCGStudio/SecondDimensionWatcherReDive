@@ -1,0 +1,27 @@
+using System.Text.Json.Serialization;
+
+namespace SecondDimensionWatcherReDive.Controllers.External;
+
+[JsonSerializable(typeof(ResponseData<IEnumerable<AnimationInfo>>))]
+[JsonSerializable(typeof(ResponseData<List<AnimationInfo>>))]
+[JsonSerializable(typeof(AnimationGroupedResponse))]
+[JsonSerializable(typeof(FileDownloadStatus))]
+[JsonSerializable(typeof(List<Feed>))]
+[JsonSerializable(typeof(IReadOnlyList<Feed>))]
+[JsonSerializable(typeof(Feed))]
+[JsonSerializable(typeof(List<ScheduledTask>))]
+[JsonSerializable(typeof(SeasonResponse))]
+[JsonSerializable(typeof(List<Subgroup>))]
+[JsonSerializable(typeof(SubscribeRequest))]
+[JsonSerializable(typeof(LoginData))]
+[JsonSerializable(typeof(LoginResult))]
+[JsonSerializable(typeof(AuthRequest))]
+[JsonSerializable(typeof(FileLinkResultResponse))]
+[JsonSerializable(typeof(FileLinkResultRequest))]
+[JsonSerializable(typeof(IEnumerable<FileStoreListResult>))]
+[JsonSerializable(typeof(FileStoreListResult[]))]
+[JsonSerializable(typeof(FileStoreToken))]
+[JsonSerializable(typeof(RefreshToken))]
+[JsonSerializable(typeof(AddFeedRequest))]
+[JsonSerializable(typeof(PasswordConfig))]
+internal partial class AppJsonSerializerContext : JsonSerializerContext;
