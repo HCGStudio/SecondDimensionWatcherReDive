@@ -1,6 +1,6 @@
 import { AlertTriangle } from "lucide-react";
 import React from "react";
-import { useNavigate, useRouteError } from "react-router-dom";
+import { useNavigate, useRouteError } from "react-router";
 
 import { Button } from "../components/ui/Button";
 import { EmptyPrompt } from "../components/ui/EmptyPrompt";

@@ -18,12 +18,14 @@ using SecondDimensionWatcherReDive.Framework.Tasks;
 using SecondDimensionWatcherReDive.Inference.AI;
 using SecondDimensionWatcherReDive.Models;
 using SecondDimensionWatcherReDive.Repositories;
+using SecondDimensionWatcherReDive.Chat;
 using SecondDimensionWatcherReDive.Plugin;
 using SecondDimensionWatcherReDive.Plugin.FileRenamer;
 using SecondDimensionWatcherReDive.Services;
 using SecondDimensionWatcherReDive.Utils.Feed;
 using SecondDimensionWatcherReDive.Utils.FileDownload;
 using SecondDimensionWatcherReDive.Utils.FileStore;
+using SecondDimensionWatcherReDive.Utils.Scraper;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -35,7 +37,9 @@ builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
         options.JsonSerializerOptions.TypeInfoResolverChain.Add(SecondDimensionWatcherReDive.Controllers.External.AppJsonSerializerContext.Default);
+        options.JsonSerializerOptions.TypeInfoResolverChain.Add(SecondDimensionWatcherReDive.Chat.External.ChatJsonSerializerContext.Default);
     })
+    .AddApplicationPart(typeof(ChatServiceExtensions).Assembly)
     .ConfigureApplicationPartManager(manager =>
     {
         var defaultProvider = manager.FeatureProviders
@@ -182,6 +186,8 @@ builder.Services.AddScoped<IAnimationGroupRepository, AnimationGroupRepository>(
 builder.Services.AddScoped<IFeedRepository, FeedRepository>();
 builder.Services.AddScoped<ISeasonBangumiRepository, SeasonBangumiRepository>();
 builder.Services.AddScoped<IBangumiSubgroupRepository, BangumiSubgroupRepository>();
+builder.Services.AddScoped<IChatRepository, ChatRepository>();
+builder.Services.AddSingleton<ISeasonScraper, MikananiSeasonScraper>();
 
 //Add AI Inference
 var aiProvider = builder.Configuration["AI:Provider"]
@@ -201,6 +207,9 @@ if (!string.IsNullOrEmpty(aiApiKey))
 
 //Add File Renamer
 builder.Services.AddFileRenamer();
+
+//Add Chat
+builder.Services.AddChat();
 
 //Add SPA Hosting
 builder.Services.AddSpaStaticFiles(options =>

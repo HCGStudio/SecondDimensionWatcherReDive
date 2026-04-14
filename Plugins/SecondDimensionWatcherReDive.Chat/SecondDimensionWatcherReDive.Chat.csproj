@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.5" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <InternalsVisibleTo Include="SecondDimensionWatcherReDive" />
+        <InternalsVisibleTo Include="SecondDimensionWatcherReDive.Test" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\..\SecondDimensionWatcherReDive.Framework\SecondDimensionWatcherReDive.Framework.csproj" />
+        <ProjectReference Include="..\SecondDimensionWatcherReDive.AI\SecondDimensionWatcherReDive.AI.csproj" />
+        <ProjectReference Include="..\..\Share\SecondDimensionWatcherReDive.Analyzers\SecondDimensionWatcherReDive.Analyzers.csproj"
+                          OutputItemType="Analyzer"
+                          ReferenceOutputAssembly="false" />
+    </ItemGroup>
+
+</Project>

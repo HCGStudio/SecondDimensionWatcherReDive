@@ -168,6 +168,64 @@ namespace SecondDimensionWatcherReDive.Migrations
                     b.ToTable("BangumiSubgroups");
                 });
 
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.ChatConversation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Title")
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("ChatConversations");
+                });
+
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.ChatMessage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Content")
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ConversationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Order")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Role")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("ToolCallId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ToolCallsJson")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ToolName")
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ConversationId");
+
+                    b.ToTable("ChatMessages");
+                });
+
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.Feed", b =>
                 {
                     b.Property<Guid>("Id")
@@ -243,6 +301,22 @@ namespace SecondDimensionWatcherReDive.Migrations
                         .IsRequired();
 
                     b.Navigation("SeasonBangumi");
+                });
+
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.ChatMessage", b =>
+                {
+                    b.HasOne("SecondDimensionWatcherReDive.Models.ChatConversation", "Conversation")
+                        .WithMany("Messages")
+                        .HasForeignKey("ConversationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Conversation");
+                });
+
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.ChatConversation", b =>
+                {
+                    b.Navigation("Messages");
                 });
 
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.SeasonBangumi", b =>

@@ -1,6 +1,6 @@
 import { AlertTriangle, ArrowLeft, Clapperboard, Film } from "lucide-react";
 import React from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router";
 
 import { useGroupedAnimations } from "../animation/hooks";
 import { IAnimationWithEpisodes } from "../animation/IAnimationGrouped";

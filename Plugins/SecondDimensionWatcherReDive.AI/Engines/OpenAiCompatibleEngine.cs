@@ -46,7 +46,7 @@ public sealed partial class OpenAiCompatibleEngine(
         var maxTokens = options?.MaxTokens ?? opts.MaxTokens;
 
         var conversationMessages = BuildMessages(messages);
-        var tools = BuildTools(options?.Tools);
+        var tools = BuildTools(options?.ToolExecutor?.ToolDefinitions);
         string? finishReason = null;
 
         for (var round = 0; round < maxToolRounds; round++)
@@ -55,7 +55,7 @@ public sealed partial class OpenAiCompatibleEngine(
 
             var request = new OpenAiChatRequest
             {
-                Model = opts.Model,
+                Model = options?.Model ?? opts.Model,
                 Messages = conversationMessages,
                 Tools = tools is { Count: > 0 } ? tools : null,
                 Stream = true,
@@ -86,7 +86,7 @@ public sealed partial class OpenAiCompatibleEngine(
                         {
                             if (!toolCallBuilders.TryGetValue(tc.Index, out var builder))
                             {
-                                builder = (tc.Id ?? "", tc.Function?.Name ?? "", new StringBuilder());
+                                builder = (tc.Id ?? "", tc.Function?.Name ?? "", new());
                                 toolCallBuilders[tc.Index] = builder;
 
                                 if (!string.IsNullOrEmpty(tc.Id) && !string.IsNullOrEmpty(tc.Function?.Name))
@@ -130,11 +130,11 @@ public sealed partial class OpenAiCompatibleEngine(
                 .Select(tc => new OpenAiToolCallDto
                 {
                     Id = tc.Id,
-                    Function = new OpenAiFunctionCall { Name = tc.Name, Arguments = tc.Arguments }
+                    Function = new() { Name = tc.Name, Arguments = tc.Arguments }
                 })
                 .ToList();
 
-            conversationMessages.Add(new OpenAiMessage
+            conversationMessages.Add(new()
             {
                 Role = "assistant",
                 Content = textContent.Length > 0 ? textContent.ToString() : null,
@@ -147,10 +147,11 @@ public sealed partial class OpenAiCompatibleEngine(
                 foreach (var toolCall in completedCalls)
                 {
                     LogToolCall(logger, toolCall.Name, toolCall.Arguments);
-                    var result = await executor(toolCall, cancellationToken);
+                    var toolResult = await executor.ExecuteAsync(toolCall, cancellationToken);
+                    var result = toolResult.SerializeResult();
                     yield return new ToolResultUpdate(toolCall.Id, result);
 
-                    conversationMessages.Add(new OpenAiMessage
+                    conversationMessages.Add(new()
                     {
                         Role = "tool",
                         Content = result,
@@ -198,19 +199,19 @@ public sealed partial class OpenAiCompatibleEngine(
         {
             result.Add(msg switch
             {
-                SystemMessage sys => new OpenAiMessage { Role = "system", Content = sys.Content },
-                UserMessage usr => new OpenAiMessage { Role = "user", Content = usr.Content },
-                AssistantMessage asst => new OpenAiMessage
+                SystemMessage sys => new() { Role = "system", Content = sys.Content },
+                UserMessage usr => new() { Role = "user", Content = usr.Content },
+                AssistantMessage asst => new()
                 {
                     Role = "assistant",
                     Content = asst.Content,
                     ToolCalls = asst.ToolCalls?.Select(tc => new OpenAiToolCallDto
                     {
                         Id = tc.Id,
-                        Function = new OpenAiFunctionCall { Name = tc.Name, Arguments = tc.Arguments }
+                        Function = new() { Name = tc.Name, Arguments = tc.Arguments }
                     }).ToList()
                 },
-                ToolResultMessage tool => new OpenAiMessage
+                ToolResultMessage tool => new()
                 {
                     Role = "tool",
                     Content = tool.Content,
@@ -229,7 +230,7 @@ public sealed partial class OpenAiCompatibleEngine(
 
         return tools.Select(t => new OpenAiTool
         {
-            Function = new OpenAiFunctionDef
+            Function = new()
             {
                 Name = t.Name,
                 Description = t.Description,

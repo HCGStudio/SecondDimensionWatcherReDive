@@ -16,7 +16,7 @@ function json(res, data, status = 200) {
     "Content-Type": "application/json",
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Headers": "Authorization, Content-Type",
-    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+    "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
   });
   res.end(JSON.stringify(data));
 }
@@ -25,7 +25,7 @@ function empty(res, status = 200) {
   res.writeHead(status, {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Headers": "Authorization, Content-Type",
-    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+    "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
   });
   res.end();
 }
@@ -242,7 +242,7 @@ const FILE_TREE = {
 // Router
 // ---------------------------------------------------------------------------
 
-function route(method, pathname, searchParams, req, res) {
+async function route(method, pathname, searchParams, req, res) {
   console.log(`${method} ${pathname}${searchParams.toString() ? "?" + searchParams : ""}`);
 
   // --- CORS preflight ---
@@ -582,6 +582,226 @@ function route(method, pathname, searchParams, req, res) {
       task.lastRunAt = new Date().toISOString();
       console.log(`  Mock: task '${id}' executed`);
       return json(res, { message: `Task '${id}' completed` });
+    }
+  }
+
+  // --- Chat ---
+  const chatConversations = globalThis._chatConversations ?? (globalThis._chatConversations = []);
+  const chatMessages = globalThis._chatMessages ?? (globalThis._chatMessages = new Map());
+
+  // GET /api/chat/status
+  if (method === "GET" && pathname === "/api/chat/status") {
+    return json(res, { aiEnabled: true, provider: "MockAI" });
+  }
+
+  // GET /api/chat/models
+  if (method === "GET" && pathname === "/api/chat/models") {
+    return json(res, [
+      { id: "mock-gpt-4o", name: "Mock GPT-4o", provider: "MockAI" },
+      { id: "mock-claude", name: "Mock Claude", provider: "MockAI" },
+    ]);
+  }
+
+  // GET /api/chat/conversations
+  if (method === "GET" && pathname === "/api/chat/conversations") {
+    return json(res, chatConversations.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt)));
+  }
+
+  // POST /api/chat/conversations
+  if (method === "POST" && pathname === "/api/chat/conversations") {
+    const body = await readBody(req);
+    const conv = {
+      id: randomUUID(),
+      title: body.title || null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    chatConversations.push(conv);
+    chatMessages.set(conv.id, []);
+    return json(res, conv);
+  }
+
+  // GET /api/chat/conversations/:id
+  {
+    const m = pathname.match(/^\/api\/chat\/conversations\/([^/]+)$/);
+    if (method === "GET" && m) {
+      const conv = chatConversations.find((c) => c.id === m[1]);
+      if (!conv) return empty(res, 404);
+      return json(res, { ...conv, messages: chatMessages.get(conv.id) ?? [] });
+    }
+  }
+
+  // DELETE /api/chat/conversations/:id
+  {
+    const m = pathname.match(/^\/api\/chat\/conversations\/([^/]+)$/);
+    if (method === "DELETE" && m) {
+      const idx = chatConversations.findIndex((c) => c.id === m[1]);
+      if (idx === -1) return empty(res, 404);
+      chatConversations.splice(idx, 1);
+      chatMessages.delete(m[1]);
+      return empty(res, 200);
+    }
+  }
+
+  // PATCH /api/chat/conversations/:id
+  {
+    const m = pathname.match(/^\/api\/chat\/conversations\/([^/]+)$/);
+    if (method === "PATCH" && m) {
+      const conv = chatConversations.find((c) => c.id === m[1]);
+      if (!conv) return empty(res, 404);
+      const body = await readBody(req);
+      if (body.title) conv.title = body.title;
+      conv.updatedAt = new Date().toISOString();
+      return empty(res, 200);
+    }
+  }
+
+  // POST /api/chat/conversations/:id/messages — SSE mock
+  {
+    const m = pathname.match(/^\/api\/chat\/conversations\/([^/]+)\/messages$/);
+    if (method === "POST" && m) {
+      const convId = m[1];
+      const conv = chatConversations.find((c) => c.id === convId);
+      if (!conv) return empty(res, 404);
+
+      const body = await readBody(req);
+      const msgs = chatMessages.get(convId) ?? [];
+
+      // Save user message
+      msgs.push({
+        id: randomUUID(),
+        role: "user",
+        content: body.content,
+        toolCallsJson: null,
+        toolCallId: null,
+        toolName: null,
+        order: msgs.length,
+        createdAt: new Date().toISOString(),
+      });
+
+      // Auto-title
+      if (!conv.title) {
+        conv.title = body.content.length > 30 ? body.content.slice(0, 30) + "..." : body.content;
+      }
+      conv.updatedAt = new Date().toISOString();
+
+      // Set SSE headers
+      res.writeHead(200, {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Headers": "Authorization, Content-Type",
+      });
+
+      // Build interleaved SSE steps: text -> tool call -> text -> finished
+      const toolCallId = randomUUID();
+      const preToolText = `让我帮你查一下相关信息。\n\n`;
+      const postToolText =
+        `## 查询结果\n\n` +
+        `根据你的问题「${body.content}」，我找到了以下**相关信息**：\n\n` +
+        `- 进击的巨人 最终季 完结篇\n` +
+        `- 葬送的芙莉莲\n` +
+        `- 药屋少女的呢喃\n\n` +
+        `> 以上结果来自 TMDB 数据库查询。\n\n` +
+        "```json\n" +
+        `{ "total": 3, "source": "tmdb" }\n` +
+        "```\n";
+
+      const toolArgs = JSON.stringify({ query: body.content });
+      const toolResult = JSON.stringify({ results: [
+        { id: 1, name: "进击的巨人 最终季 完结篇", tmdb_id: 94605 },
+        { id: 2, name: "葬送的芙莉莲", tmdb_id: 209867 },
+        { id: 3, name: "药屋少女的呢喃", tmdb_id: 225239 },
+      ]});
+
+      const steps = [];
+
+      // Pre-tool text deltas (3 chars at a time)
+      const preChars = [...preToolText];
+      for (let i = 0; i < preChars.length; i += 3) {
+        steps.push({
+          event: "text_delta",
+          data: { text: preChars.slice(i, i + 3).join("") },
+          delay: 50,
+        });
+      }
+
+      // Tool call begin
+      steps.push({
+        event: "tool_call_begin",
+        data: { id: toolCallId, name: "search_tmdb" },
+        delay: 100,
+      });
+
+      // Tool call argument deltas
+      const argChars = [...toolArgs];
+      for (let i = 0; i < argChars.length; i += 5) {
+        steps.push({
+          event: "tool_call_delta",
+          data: { id: toolCallId, arguments_delta: argChars.slice(i, i + 5).join("") },
+          delay: 30,
+        });
+      }
+
+      // Tool result (after a brief pause)
+      steps.push({
+        event: "tool_result",
+        data: { tool_call_id: toolCallId, name: "search_tmdb", result: toolResult },
+        delay: 300,
+      });
+
+      // Post-tool text deltas
+      const postChars = [...postToolText];
+      for (let i = 0; i < postChars.length; i += 3) {
+        steps.push({
+          event: "text_delta",
+          data: { text: postChars.slice(i, i + 3).join("") },
+          delay: 30,
+        });
+      }
+
+      // Stream steps with delays
+      let stepIdx = 0;
+      function sendNextStep() {
+        if (stepIdx >= steps.length) {
+          res.write(`event: finished\ndata: ${JSON.stringify({ stop_reason: "end_turn" })}\n\n`);
+
+          // Save assistant message with tool calls
+          const fullText = preToolText + postToolText;
+          msgs.push({
+            id: randomUUID(),
+            role: "assistant",
+            content: fullText,
+            toolCallsJson: JSON.stringify([{ id: toolCallId, name: "search_tmdb", arguments: toolArgs }]),
+            toolCallId: null,
+            toolName: null,
+            order: msgs.length,
+            createdAt: new Date().toISOString(),
+          });
+          // Save tool result message
+          msgs.push({
+            id: randomUUID(),
+            role: "tool",
+            content: toolResult,
+            toolCallsJson: null,
+            toolCallId: toolCallId,
+            toolName: "search_tmdb",
+            order: msgs.length,
+            createdAt: new Date().toISOString(),
+          });
+
+          res.end();
+          return;
+        }
+
+        const step = steps[stepIdx++];
+        res.write(`event: ${step.event}\ndata: ${JSON.stringify(step.data)}\n\n`);
+        setTimeout(sendNextStep, step.delay);
+      }
+
+      sendNextStep();
+      return;
     }
   }
 

@@ -1,6 +1,6 @@
 import { AlertTriangle } from "lucide-react";
 import React from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router";
 
 import { useDownloadingAnimations } from "../animation/hooks";
 import { AnimationInfo } from "../components/AnimationInfo";

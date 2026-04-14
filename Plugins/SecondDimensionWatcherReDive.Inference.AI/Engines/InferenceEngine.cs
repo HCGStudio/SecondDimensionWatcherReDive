@@ -1,4 +1,3 @@
-using System.ComponentModel;
 using System.Text;
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.Logging;
@@ -13,7 +12,7 @@ namespace SecondDimensionWatcherReDive.Inference.AI.Engines;
 
 public sealed partial class InferenceEngine(
     IAiEngine aiEngine,
-    TmdbTool tmdbTool,
+    IServiceProvider serviceProvider,
     IOptions<InferenceOptions> options,
     ILogger<InferenceEngine> logger) : IInferenceEngine
 {
@@ -55,19 +54,6 @@ public sealed partial class InferenceEngine(
 
     private static readonly SemaphoreSlim RateLimitSemaphore = new(1, 1);
     private static DateTime _lastCallTime = DateTime.MinValue;
-
-    private static readonly IReadOnlyList<ToolDefinition> Tools =
-    [
-        ToolDefinition.Create<SearchTmdbParams>(
-            "search_tmdb",
-            "Search TMDB (The Movie Database) for an anime by name to get its TMDB ID and metadata."),
-        ToolDefinition.Create<GetTmdbSeasonsParams>(
-            "get_tmdb_seasons",
-            "Get the season/episode structure of a TV show from TMDB. Returns each season's episode_count. Use this after search_tmdb to check how seasons and episodes are organized, so you can normalize episode numbering."),
-        ToolDefinition.Create<GetTmdbSeasonEpisodesParams>(
-            "get_tmdb_season_episodes",
-            "Get individual episode details (episode number, name, air date, overview) for a specific season of a TV show. Use this when you need to verify episode mapping or resolve ambiguous numbering.")
-    ];
 
     public async Task<InferenceResult?> InferAsync(string title, string description,
         CancellationToken cancellationToken)
@@ -115,10 +101,15 @@ public sealed partial class InferenceEngine(
             new UserMessage($"Title: {title}\nDescription: {description}")
         };
 
+        var toolExecutor = new ToolExecutorBuilder(serviceProvider)
+            .AddTool<SearchTmdbTool>()
+            .AddTool<GetTmdbSeasonsTool>()
+            .AddTool<GetTmdbSeasonEpisodesTool>()
+            .Build();
+
         var chatOptions = new ChatOptions
         {
-            Tools = Tools,
-            ToolExecutor = (toolCall, ct) => ExecuteToolCallAsync(toolCall, title, ct),
+            ToolExecutor = toolExecutor,
             MaxToolRounds = MaxToolRounds
         };
 
@@ -138,47 +129,6 @@ public sealed partial class InferenceEngine(
         }
 
         return ParseInferenceResult(fullText.Length > 0 ? fullText.ToString() : null);
-    }
-
-    private async Task<string> ExecuteToolCallAsync(
-        SecondDimensionWatcherReDive.AI.Models.ToolCall toolCall, string fallbackTitle, CancellationToken cancellationToken)
-    {
-        var functionName = toolCall.Name;
-        var argumentsJson = toolCall.Arguments;
-
-        if (functionName == "search_tmdb")
-        {
-            var args = JsonNode.Parse(argumentsJson);
-            var query = args?["query"]?.GetValue<string>() ?? fallbackTitle;
-            LogExecutingTmdbSearch(logger, query);
-            var result = await tmdbTool.SearchAsync(query, cancellationToken);
-            LogTmdbSearchResult(logger, result);
-            return result;
-        }
-
-        if (functionName == "get_tmdb_seasons")
-        {
-            var args = JsonNode.Parse(argumentsJson);
-            var tmdbId = args?["tmdb_id"]?.GetValue<int>() ?? 0;
-            LogGettingTmdbSeasons(logger, tmdbId);
-            var result = await tmdbTool.GetSeasonsAsync(tmdbId, cancellationToken);
-            LogTmdbSeasonsResult(logger, result);
-            return result;
-        }
-
-        if (functionName == "get_tmdb_season_episodes")
-        {
-            var args = JsonNode.Parse(argumentsJson);
-            var tmdbId = args?["tmdb_id"]?.GetValue<int>() ?? 0;
-            var seasonNumber = args?["season_number"]?.GetValue<int>() ?? 1;
-            LogGettingTmdbSeasonEpisodes(logger, tmdbId, seasonNumber);
-            var result = await tmdbTool.GetSeasonEpisodesAsync(tmdbId, seasonNumber, cancellationToken);
-            LogTmdbSeasonEpisodesResult(logger, result);
-            return result;
-        }
-
-        LogUnknownToolCall(logger, functionName);
-        return "{}";
     }
 
     private static InferenceResult? ParseInferenceResult(string? content)
@@ -250,40 +200,4 @@ public sealed partial class InferenceEngine(
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Inference failed for title: {Title}")]
     private static partial void LogInferenceFailed(ILogger logger, Exception ex, string title);
-
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Executing TMDB search with query: {Query}")]
-    private static partial void LogExecutingTmdbSearch(ILogger logger, string query);
-
-    [LoggerMessage(Level = LogLevel.Debug, Message = "TMDB search returned: {Result}")]
-    private static partial void LogTmdbSearchResult(ILogger logger, string result);
-
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Getting TMDB season info for ID: {TmdbId}")]
-    private static partial void LogGettingTmdbSeasons(ILogger logger, int tmdbId);
-
-    [LoggerMessage(Level = LogLevel.Debug, Message = "TMDB seasons returned: {Result}")]
-    private static partial void LogTmdbSeasonsResult(ILogger logger, string result);
-
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Unknown tool call: {FunctionName}")]
-    private static partial void LogUnknownToolCall(ILogger logger, string functionName);
-
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Getting TMDB season episodes for ID: {TmdbId}, season: {SeasonNumber}")]
-    private static partial void LogGettingTmdbSeasonEpisodes(ILogger logger, int tmdbId, int seasonNumber);
-
-    [LoggerMessage(Level = LogLevel.Debug, Message = "TMDB season episodes returned: {Result}")]
-    private static partial void LogTmdbSeasonEpisodesResult(ILogger logger, string result);
-
-    // Tool parameter types — schemas are generated via JsonSchemaExporter with SnakeCaseLower naming
-    internal record SearchTmdbParams(
-        [property: Description("The anime name to search for")]
-        string Query);
-
-    internal record GetTmdbSeasonsParams(
-        [property: Description("The TMDB TV show ID")]
-        int TmdbId);
-
-    internal record GetTmdbSeasonEpisodesParams(
-        [property: Description("The TMDB TV show ID")]
-        int TmdbId,
-        [property: Description("The season number to get episodes for")]
-        int SeasonNumber);
 }

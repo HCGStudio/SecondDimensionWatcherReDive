@@ -11,10 +11,11 @@ export interface ButtonProps
   variant?: ButtonVariant;
   color?: ButtonColor;
   size?: ButtonSize;
+  ref?: React.Ref<HTMLButtonElement>;
 }
 
 const variantClasses: Record<ButtonVariant, string> = {
-  solid: "text-white shadow-ring-brand",
+  solid: "text-surface shadow-ring-brand",
   outline: "border border-border bg-transparent hover:bg-canvas",
   ghost: "bg-transparent hover:underline",
   icon: "bg-transparent hover:bg-canvas",
@@ -46,33 +47,27 @@ const iconSizeClasses: Record<ButtonSize, string> = {
   lg: "p-2.5",
 };
 
-export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  (
-    {
-      variant = "solid",
-      color = "default",
-      size = "md",
-      className,
-      disabled,
-      ...props
-    },
-    ref,
-  ) => {
-    const isIcon = variant === "icon";
+export const Button: React.FC<ButtonProps> = ({
+  variant = "solid",
+  color = "default",
+  size = "md",
+  className,
+  disabled,
+  ref,
+  ...props
+}) => {
+  const isIcon = variant === "icon";
 
-    const classes = cn(
-      "inline-flex items-center justify-center gap-2 rounded-md font-sans font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-focus focus:ring-offset-1 disabled:opacity-50 disabled:pointer-events-none cursor-pointer",
-      isIcon ? iconSizeClasses[size] : sizeClasses[size],
-      variant === "solid" ? solidColorClasses[color] : variantClasses[variant],
-      variant !== "solid" && variant !== "icon" ? textColorClasses[color] : "",
-      variant === "icon" ? textColorClasses[color] : "",
-      className,
-    );
+  const classes = cn(
+    "inline-flex items-center justify-center gap-2 rounded-md font-sans font-medium transition-colors focus:outline-hidden focus:ring-2 focus:ring-focus focus:ring-offset-1 disabled:opacity-50 disabled:pointer-events-none cursor-pointer",
+    isIcon ? iconSizeClasses[size] : sizeClasses[size],
+    variant === "solid" ? solidColorClasses[color] : variantClasses[variant],
+    variant !== "solid" && variant !== "icon" ? textColorClasses[color] : "",
+    variant === "icon" ? textColorClasses[color] : "",
+    className,
+  );
 
-    return (
-      <button ref={ref} className={classes} disabled={disabled} {...props} />
-    );
-  },
-);
-
-Button.displayName = "Button";
+  return (
+    <button ref={ref} className={classes} disabled={disabled} {...props} />
+  );
+};

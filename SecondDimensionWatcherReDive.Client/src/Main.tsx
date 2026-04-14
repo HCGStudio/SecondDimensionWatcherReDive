@@ -1,7 +1,9 @@
 import React from "react";
-import { RouterProvider, createBrowserRouter } from "react-router-dom";
+import { createBrowserRouter } from "react-router";
+import { RouterProvider } from "react-router/dom";
 
 import { ProtectedRoute } from "./components/ProtectedRoute";
+import { ChatPage } from "./pages/ChatPage";
 import { DownloadedPage } from "./pages/DownloadedPage";
 import { DownloadingPage } from "./pages/DownloadingPage";
 import { ErrorPage } from "./pages/ErrorPage";
@@ -50,6 +52,16 @@ const router = createBrowserRouter([
   {
     path: "/tasks",
     element: <ProtectedRoute><TasksPage /></ProtectedRoute>,
+    errorElement: <ErrorPage />,
+  },
+  {
+    path: "/chat",
+    element: <ProtectedRoute><ChatPage /></ProtectedRoute>,
+    errorElement: <ErrorPage />,
+  },
+  {
+    path: "/chat/:conversationId",
+    element: <ProtectedRoute><ChatPage /></ProtectedRoute>,
     errorElement: <ErrorPage />,
   },
   {

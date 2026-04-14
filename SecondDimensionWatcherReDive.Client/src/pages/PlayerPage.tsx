@@ -1,7 +1,7 @@
 import Artplayer from "artplayer";
 import { AlertTriangle, ArrowLeft } from "lucide-react";
 import React from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router";
 
 import { generatePlaybackLink } from "../file/utils";
 import { ExternalPlayerButtons } from "../components/ExternalPlayerButtons";
@@ -120,7 +120,7 @@ export const PlayerPage: React.FC = () => {
         />
       ) : playbackUrl ? (
         <>
-          <div className="overflow-hidden rounded-2xl border border-border bg-[#141413] shadow-sm">
+          <div className="overflow-hidden rounded-2xl border border-border bg-[#141413] shadow-xs">
             <div ref={playerContainerRef} className="aspect-video w-full" />
           </div>
 

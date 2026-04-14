@@ -1,4 +1,3 @@
-using System.Net.Http.Headers;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
@@ -15,7 +14,7 @@ public static class AiServiceExtensions
         IConfiguration configuration)
     {
         var provider = configuration["AI:Provider"]
-                           is { Length: > 0 } p
+            is { Length: > 0 } p
             ? p
             : "OpenAI";
 
@@ -27,7 +26,7 @@ public static class AiServiceExtensions
             services.AddHttpClient("AnthropicAi", (sp, client) =>
             {
                 var opts = sp.GetRequiredService<IOptions<AnthropicOptions>>().Value;
-                client.BaseAddress = new Uri(opts.BaseUrl.TrimEnd('/') + "/");
+                client.BaseAddress = new(opts.BaseUrl.TrimEnd('/') + "/");
                 client.DefaultRequestHeaders.Add("x-api-key", opts.ApiKey);
                 client.DefaultRequestHeaders.Add("anthropic-version", opts.ApiVersion);
             });
@@ -42,9 +41,9 @@ public static class AiServiceExtensions
             services.AddHttpClient("OpenAi", (sp, client) =>
             {
                 var opts = sp.GetRequiredService<IOptions<OpenAiOptions>>().Value;
-                client.BaseAddress = new Uri(opts.BaseUrl.TrimEnd('/') + "/");
+                client.BaseAddress = new(opts.BaseUrl.TrimEnd('/') + "/");
                 client.DefaultRequestHeaders.Authorization =
-                    new AuthenticationHeaderValue("Bearer", opts.ApiKey);
+                    new("Bearer", opts.ApiKey);
             });
 
             services.AddScoped<IAiEngine, OpenAiCompatibleEngine>();

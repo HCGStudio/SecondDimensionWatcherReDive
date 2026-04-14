@@ -28,7 +28,7 @@ internal class SeasonController(
         if (year != null && !string.IsNullOrEmpty(season))
         {
             if (!MikananiScraper.SeasonMap.ContainsKey(season))
-                return BadRequest(new { message = "Invalid season. Use: 春, 夏, 秋, 冬" });
+                return BadRequest(new { message = "Invalid season. Use: 春 (spring), 夏 (summer), 秋 (autumn), 冬 (winter)" });
 
             var httpClient = httpClientFactory.CreateClient("Feed");
             var scraped = await MikananiScraper.ScrapeSeasonAsync(

@@ -17,6 +17,8 @@ public class ApplicationContext : DbContext
     public DbSet<Feed> Feeds { get; set; }
     public DbSet<SeasonBangumi> SeasonBangumis { get; set; }
     public DbSet<BangumiSubgroup> BangumiSubgroups { get; set; }
+    public DbSet<ChatConversation> ChatConversations { get; set; }
+    public DbSet<ChatMessage> ChatMessages { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -27,5 +29,14 @@ public class ApplicationContext : DbContext
         modelBuilder.Entity<BangumiSubgroup>()
             .HasIndex(s => new { s.SeasonBangumiId, s.MikanSubgroupId })
             .IsUnique();
+
+        modelBuilder.Entity<ChatMessage>()
+            .HasIndex(m => m.ConversationId);
+
+        modelBuilder.Entity<ChatMessage>()
+            .HasOne(m => m.Conversation)
+            .WithMany(c => c.Messages)
+            .HasForeignKey(m => m.ConversationId)
+            .OnDelete(DeleteBehavior.Cascade);
     }
 }

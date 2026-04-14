@@ -56,10 +56,10 @@ public sealed partial class AnthropicCompatibleEngine(
                     systemPrompt = sys.Content;
                     break;
                 case UserMessage usr:
-                    conversationMessages.Add(new AnthropicMessage
+                    conversationMessages.Add(new()
                     {
                         Role = "user",
-                        Content = [new AnthropicContentBlock { Type = "text", Text = usr.Content }]
+                        Content = [new() { Type = "text", Text = usr.Content }]
                     });
                     break;
                 case AssistantMessage asst:
@@ -71,7 +71,7 @@ public sealed partial class AnthropicCompatibleEngine(
             }
         }
 
-        var tools = BuildTools(chatOptions?.Tools);
+        var tools = BuildTools(chatOptions?.ToolExecutor?.ToolDefinitions);
         string? finishReason = null;
 
         for (var round = 0; round < maxToolRounds; round++)
@@ -80,7 +80,7 @@ public sealed partial class AnthropicCompatibleEngine(
 
             var request = new AnthropicMessagesRequest
             {
-                Model = opts.Model,
+                Model = chatOptions?.Model ?? opts.Model,
                 MaxTokens = maxTokens,
                 System = systemPrompt,
                 Messages = conversationMessages,
@@ -104,7 +104,7 @@ public sealed partial class AnthropicCompatibleEngine(
                         {
                             if (block.Type == "tool_use" && block.Id is not null && block.Name is not null)
                             {
-                                toolCallBuilders[parsed.Index] = (block.Id, block.Name, new StringBuilder());
+                                toolCallBuilders[parsed.Index] = (block.Id, block.Name, new());
                                 yield return new ToolCallBegin(block.Id, block.Name);
                             }
                         }
@@ -157,10 +157,10 @@ public sealed partial class AnthropicCompatibleEngine(
             // Add assistant message to conversation history
             var assistantBlocks = new List<AnthropicContentBlock>();
             if (textContent.Length > 0)
-                assistantBlocks.Add(new AnthropicContentBlock { Type = "text", Text = textContent.ToString() });
+                assistantBlocks.Add(new() { Type = "text", Text = textContent.ToString() });
             foreach (var tc in completedCalls)
             {
-                assistantBlocks.Add(new AnthropicContentBlock
+                assistantBlocks.Add(new()
                 {
                     Type = "tool_use",
                     Id = tc.Id,
@@ -170,7 +170,7 @@ public sealed partial class AnthropicCompatibleEngine(
                 });
             }
 
-            conversationMessages.Add(new AnthropicMessage { Role = "assistant", Content = assistantBlocks });
+            conversationMessages.Add(new() { Role = "assistant", Content = assistantBlocks });
 
             // Execute tools and add results as a single user message
             if (chatOptions?.ToolExecutor is { } executor)
@@ -179,10 +179,11 @@ public sealed partial class AnthropicCompatibleEngine(
                 foreach (var toolCall in completedCalls)
                 {
                     LogToolCall(logger, toolCall.Name, toolCall.Arguments);
-                    var result = await executor(toolCall, cancellationToken);
+                    var toolResult = await executor.ExecuteAsync(toolCall, cancellationToken);
+                    var result = toolResult.SerializeResult();
                     yield return new ToolResultUpdate(toolCall.Id, result);
 
-                    resultBlocks.Add(new AnthropicContentBlock
+                    resultBlocks.Add(new()
                     {
                         Type = "tool_result",
                         ToolUseId = toolCall.Id,
@@ -190,7 +191,7 @@ public sealed partial class AnthropicCompatibleEngine(
                     });
                 }
 
-                conversationMessages.Add(new AnthropicMessage { Role = "user", Content = resultBlocks });
+                conversationMessages.Add(new() { Role = "user", Content = resultBlocks });
             }
         }
 
@@ -232,13 +233,13 @@ public sealed partial class AnthropicCompatibleEngine(
     {
         var blocks = new List<AnthropicContentBlock>();
         if (!string.IsNullOrEmpty(asst.Content))
-            blocks.Add(new AnthropicContentBlock { Type = "text", Text = asst.Content });
+            blocks.Add(new() { Type = "text", Text = asst.Content });
 
         if (asst.ToolCalls is not null)
         {
             foreach (var tc in asst.ToolCalls)
             {
-                blocks.Add(new AnthropicContentBlock
+                blocks.Add(new()
                 {
                     Type = "tool_use",
                     Id = tc.Id,
@@ -249,7 +250,7 @@ public sealed partial class AnthropicCompatibleEngine(
             }
         }
 
-        return new AnthropicMessage { Role = "assistant", Content = blocks };
+        return new() { Role = "assistant", Content = blocks };
     }
 
     /// <summary>
@@ -273,7 +274,7 @@ public sealed partial class AnthropicCompatibleEngine(
         }
         else
         {
-            messages.Add(new AnthropicMessage
+            messages.Add(new()
             {
                 Role = "user",
                 Content = [block]

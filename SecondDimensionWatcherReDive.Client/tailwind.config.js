@@ -96,7 +96,17 @@ module.exports = {
         "toast-in": "toast-in 200ms ease-out",
         "toast-out": "toast-out 200ms ease-in",
       },
+      typography: {
+        DEFAULT: {
+          css: {
+            "--tw-prose-links": "#c96442",
+            "--tw-prose-code": "#141413",
+            "code::before": { content: '""' },
+            "code::after": { content: '""' },
+          },
+        },
+      },
     },
   },
-  plugins: [],
+  plugins: [require("@tailwindcss/typography")],
 };

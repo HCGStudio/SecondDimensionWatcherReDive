@@ -5,7 +5,6 @@ using Moq;
 using SecondDimensionWatcherReDive.Controllers;
 using SecondDimensionWatcherReDive.Framework.FileDownload;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
-using SecondDimensionWatcherReDive.Utils.FileDownload;
 
 namespace SecondDimensionWatcherReDive.Test;
 

@@ -1,10 +1,20 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+@config "../tailwind.config.js";
 
 @layer base {
   body {
     @apply bg-canvas text-foreground font-sans antialiased;
     line-height: 1.60;
+  }
+  *, ::after, ::before, ::backdrop {
+    border-color: var(--color-gray-200, currentColor);
+  }
+}
+
+@utility scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  &::-webkit-scrollbar {
+    display: none;
   }
 }

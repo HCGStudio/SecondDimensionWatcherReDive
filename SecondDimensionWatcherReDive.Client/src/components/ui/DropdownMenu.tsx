@@ -35,7 +35,7 @@ export const DropdownMenuItem = React.forwardRef<
   <DropdownMenuPrimitive.Item
     ref={ref}
     className={cn(
-      "flex cursor-pointer select-none items-center gap-2 px-3 py-1.5 text-sm font-sans outline-none transition-colors data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+      "flex cursor-pointer select-none items-center gap-2 px-3 py-1.5 text-sm font-sans outline-hidden transition-colors data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
       color === "danger"
         ? "text-error hover:bg-error/10 focus:bg-error/10"
         : "text-foreground hover:bg-canvas focus:bg-canvas",

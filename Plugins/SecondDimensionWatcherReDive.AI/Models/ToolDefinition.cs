@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Schema;
+using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 
 namespace SecondDimensionWatcherReDive.AI.Models;
@@ -9,6 +10,7 @@ public sealed record ToolDefinition(string Name, string Description, JsonElement
     private static readonly JsonSerializerOptions SchemaSerializerOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
+        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower) },
         TypeInfoResolver = new DefaultJsonTypeInfoResolver()
     };
 
@@ -25,6 +27,6 @@ public sealed record ToolDefinition(string Name, string Description, JsonElement
         var schemaNode = JsonSchemaExporter.GetJsonSchemaAsNode(
             SchemaSerializerOptions, typeof(TParams), SchemaExporterOptions);
         var schemaElement = JsonSerializer.Deserialize<JsonElement>(schemaNode.ToJsonString());
-        return new ToolDefinition(name, description, schemaElement);
+        return new(name, description, schemaElement);
     }
 }

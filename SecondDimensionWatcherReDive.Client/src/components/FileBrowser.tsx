@@ -1,6 +1,6 @@
 import { CornerDownLeft, File, FolderOpen, Play } from "lucide-react";
 import React from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 
 import { useFileList } from "../file/hooks";
 import { IFileStoreListResult } from "../file/IFileStoreListResult";

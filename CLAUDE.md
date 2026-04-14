@@ -38,9 +38,11 @@ This is an anime/animation download management system (二次元观测器 Re:Div
 - **SecondDimensionWatcherReDive.Framework** — Shared abstractions: domain records and repository interfaces (`DataRepository/`), plugin interfaces, file download/storage, feeds, scheduled tasks, inference.
 - **SecondDimensionWatcherReDive.Test** — MSTest unit tests with Moq. Covers controllers, services, scheduled tasks, plugin events, file renaming, feed parsing, auth.
 - **SecondDimensionWatcherReDive.Client** — React/TypeScript SPA using Parcel bundler, Tailwind CSS, and Radix UI.
-- **Plugins/SecondDimensionWatcherReDive.AI** — Provider-agnostic AI engine abstraction. Defines `IAiEngine` streaming chat interface with tool-call support and two implementations: `OpenAiCompatibleEngine` (SSE streaming via OpenAI-compatible HTTP API, supports custom base URLs for Ollama/vLLM) and `AnthropicCompatibleEngine` (SSE streaming via Anthropic HTTP API). Includes message/tool/chat-update abstractions and provider-specific serialization DTOs.
-- **Plugins/SecondDimensionWatcherReDive.Inference.AI** — AI inference pipeline for metadata extraction. Contains a single `InferenceEngine` that orchestrates system prompts, TMDB tool dispatch (3 tools), rate limiting (`SemaphoreSlim` + configurable delay), and JSON parsing. Delegates all chat to `IAiEngine` from the AI plugin — no provider-specific code.
+- **Plugins/SecondDimensionWatcherReDive.AI** — Provider-agnostic AI engine abstraction. Defines `IAiEngine` streaming chat interface with tool-call support and two implementations: `OpenAiCompatibleEngine` (SSE streaming via OpenAI-compatible HTTP API, supports custom base URLs for Ollama/vLLM) and `AnthropicCompatibleEngine` (SSE streaming via Anthropic HTTP API). Also provides a pluggable tool system: `ITool`/`IToolExecutor`/`IToolExecutorBuilder` abstractions with `[Tool<TParam>]` attribute for source-generated tool boilerplate.
+- **Plugins/SecondDimensionWatcherReDive.Inference.AI** — AI inference pipeline for metadata extraction. `InferenceEngine` orchestrates system prompts, rate limiting (`SemaphoreSlim` + configurable delay), and JSON parsing. TMDB tools (`SearchTmdbTool`, `GetTmdbSeasonsTool`, `GetTmdbSeasonEpisodesTool`) are registered via `ToolExecutorBuilder`. Delegates all chat to `IAiEngine` from the AI plugin — no provider-specific code.
+- **Plugins/SecondDimensionWatcherReDive.Chat** — Conversational AI chat plugin. `ChatController` exposes REST endpoints for conversation CRUD and SSE-streamed message responses. Includes 7 tools (`QueryAnimationsTool`, `ManageFeedsTool`, `QuerySeasonTool`, `SubscribeBangumiTool`, `ManageTasksTool`, `ManageDownloadsTool`, `QueryFilesTool`) that let the AI interact with the system on behalf of the user. Depends on Framework repositories and the AI plugin's tool system.
 - **Plugins/SecondDimensionWatcherReDive.Plugin.FileRenamer** — Post-download file renaming with S##E## format, including subtitle files.
+- **Share/SecondDimensionWatcherReDive.Analyzers** — Roslyn incremental source generator. Finds partial classes with `[Tool<TParam>]` attribute and generates `Definition` property and `ExecuteAsync` method, eliminating tool boilerplate.
 
 ### Backend Data Flow
 
@@ -56,7 +58,7 @@ The system uses **System.Threading.Channels** for async inter-service communicat
 ### Provider/Strategy Pattern
 
 Download clients and file stores use a provider pattern:
-- `IFileDownloadClient` / `IFileDownloadClientProvider` — pluggable download backends (currently: qBittorrent remote)
+- `IFileDownloadClient` / `IFileDownloadClientProvider` — pluggable download backends (currently: qBittorrent remote). `IFileDownloadClientProvider` lives in Framework for cross-project reuse.
 - `IFileStore` / `IFileStoreProvider` — pluggable storage backends (currently: local disk)
 - `IFileOperator` — file rename operations routed through qBittorrent API (`TorrentFileOperator`) so qBittorrent stays aware of renames
 
@@ -66,7 +68,7 @@ The codebase uses a three-tier model architecture with repository interfaces for
 
 **1. EF Entity Classes** (`Models/`): Mutable classes mapped by EF Core (`ApplicationContext`). Only accessed inside `Repositories/`, `Program.cs`, and migrations.
 
-**2. Domain Records** (`Framework/DataRepository/`): `AnimationInfo`, `Animation`, `AnimationGroup`, `Feed`, `SeasonBangumi`, `BangumiSubgroup` — immutable `sealed record` types with no EF Core dependency. Used by controllers, services, and plugin code. Result types: `PagedResult<T>`, `AnimationGroupedResult`, `AnimationWithEpisodesResult`.
+**2. Domain Records** (`Framework/DataRepository/`): `AnimationInfo`, `Animation`, `AnimationGroup`, `Feed`, `SeasonBangumi`, `BangumiSubgroup`, `ChatConversationSummary`, `ChatConversationDetail`, `ChatMessageRecord` — immutable `sealed record` types with no EF Core dependency. Used by controllers, services, and plugin code. Result types: `PagedResult<T>`, `AnimationGroupedResult`, `AnimationWithEpisodesResult`. Also includes `AnimeSeason` enum (Spring, Summer, Autumn, Winter).
 
 **3. External DTOs** (`Controllers/External/`): API response types serialized to JSON. Separate from domain records to control the API surface. Converted from domain records via `Controllers/Converter.cs` extension methods (`ToExternal()`, `ToExternalResponseData()`).
 
@@ -81,6 +83,7 @@ The codebase uses a three-tier model architecture with repository interfaces for
 - `IFeedRepository` — ordered listing, URL queries, existence check, add, remove
 - `ISeasonBangumiRepository` — ordered queries, find by MikanId, add/remove batch, save
 - `IBangumiSubgroupRepository` — query by season bangumi, find by composite key, add, save
+- `IChatRepository` — conversation CRUD (create, list, delete, update title), message persistence (add single/batch, list, count), full conversation retrieval with messages
 
 **Repository implementations** (`Repositories/`): EF Core implementations registered as scoped services, sharing the same `ApplicationContext` per request.
 
@@ -129,11 +132,11 @@ AI inference is decoupled from feed sync — runs offline as a background task (
 6. Failed items increment `AiRetryCount`; users can reset via `POST /api/animationinfo/{id}/retry-inference`
 
 **Engine architecture (two-plugin split):**
-- `IAiEngine` (in `SecondDimensionWatcherReDive.AI`) — streaming `IAsyncEnumerable<IChatUpdate>` chat interface with tool-call support via `ChatOptions.ToolExecutor` callback. Update types: `TextDelta`, `ToolCallBegin`, `ToolCallDelta`, `ToolResultUpdate`, `Finished`
+- `IAiEngine` (in `SecondDimensionWatcherReDive.AI`) — streaming `IAsyncEnumerable<IChatUpdate>` chat interface with tool-call support via `ChatOptions.ToolExecutor`. Update types: `TextDelta`, `ToolCallBegin`, `ToolCallDelta`, `ToolResultUpdate`, `Finished`
 - `OpenAiCompatibleEngine` — SSE streaming via OpenAI-compatible HTTP API, supports custom base URLs (Ollama, vLLM, etc.), bearer token auth
 - `AnthropicCompatibleEngine` — SSE streaming via Anthropic HTTP API, x-api-key auth, configurable API version
-- `InferenceEngine` (in `SecondDimensionWatcherReDive.Inference.AI`) — provider-agnostic orchestrator with rate limiting (`SemaphoreSlim` + configurable delay), system prompt, tool dispatch (max 8 rounds), JSON parsing (handles markdown fences). Delegates all chat to `IAiEngine`
-- Three TMDB tool calls: `search_tmdb(query)` (find TMDB ID), `get_tmdb_seasons(tmdb_id)` (season/episode structure for normalization), `get_tmdb_season_episodes(tmdb_id, season_number)` (episode details for verification)
+- Tool system: `ITool` interface with static `Definition` + `ExecuteAsync`, `IToolExecutor` dispatches by name, `IToolExecutorBuilder` registers tools. `[Tool<TParam>]` attribute + source generator (`Share/SecondDimensionWatcherReDive.Analyzers`) eliminates boilerplate — tool authors only implement `ExecuteCoreAsync`
+- `InferenceEngine` (in `SecondDimensionWatcherReDive.Inference.AI`) — provider-agnostic orchestrator with rate limiting (`SemaphoreSlim` + configurable delay), system prompt, tool dispatch (max 8 rounds), JSON parsing (handles markdown fences). Three TMDB tools registered via `ToolExecutorBuilder`: `SearchTmdbTool`, `GetTmdbSeasonsTool`, `GetTmdbSeasonEpisodesTool`
 - TMDB season normalization handles: merged cours, absolute episode numbering, mismatched season labels
 
 ### Controllers
@@ -144,8 +147,9 @@ All controllers are `internal` (discovered via `InternalControllerFeatureProvide
 - `AuthController` (`/api/auth`) — register, login, refresh, verify
 - `FileController` (`/api/file`) — file listing, playback link generation (returns full absolute URL via `Url.ActionLink`), streaming. Depends on `IAnimationInfoRepository`.
 - `FeedController` (`/api/feed`) — CRUD for RSS feed subscriptions. Depends on `IFeedRepository`.
-- `SeasonController` (`/api/season`) — current season anime discovery from mikanani.me, subgroup browsing, one-click subscribe, supports browsing other seasons. Depends on `ISeasonBangumiRepository`, `IBangumiSubgroupRepository`, `IFeedRepository`.
+- `SeasonController` (`/api/season`) — current season anime discovery from mikanani.me, subgroup browsing, one-click subscribe, supports browsing other seasons. Season scraping delegated to `ISeasonScraper`. Depends on `ISeasonBangumiRepository`, `IBangumiSubgroupRepository`, `IFeedRepository`, `ISeasonScraper`.
 - `TasksController` (`/api/tasks`) — list background tasks with status, enqueue manual execution
+- `ChatController` (`/api/chat`, in `SecondDimensionWatcherReDive.Chat` plugin) — AI chat with conversation CRUD and SSE-streamed message responses. Supports tool execution (7 tools for querying animations, managing feeds, browsing seasons, controlling downloads, etc.). Depends on `IChatRepository`, `IAiEngine`.
 
 ### Feed Management
 
@@ -157,7 +161,7 @@ Feeds can be configured two ways (merged at sync time):
 
 ### Season Anime Discovery
 
-`ScrapeSeasonBangumi` scrapes mikanani.me homepage for current season anime (HTML parsing via HtmlAgilityPack). Data cached in `SeasonBangumi` + `BangumiSubgroup` DB tables. `SeasonController` exposes:
+`ScrapeSeasonBangumi` scrapes mikanani.me homepage for current season anime (HTML parsing via HtmlAgilityPack). Scraping logic is abstracted behind `ISeasonScraper` (implemented by `MikananiSeasonScraper`). Data cached in `SeasonBangumi` + `BangumiSubgroup` DB tables. `SeasonController` exposes:
 - Browse current season (cached) or other seasons (on-demand scrape via `/Home/BangumiCoverFlowByDayOfWeek` endpoint)
 - Subgroups per anime (on-demand scrape, cached 24h)
 - One-click subscribe (creates `Feed` record with mikanani RSS URL)
@@ -180,12 +184,14 @@ React 18 + TypeScript with Tailwind CSS for styling and Radix UI for accessible 
 - Downloading (`/downloading`) — Items currently being downloaded
 - Downloaded (`/downloaded`) — Completed downloads with file browser
 - Player (`/play/:animationId?file=`) — Video player page using Artplayer with fullscreen, PiP, speed control, screenshot, aspect ratio, flip, mini progress bar, and settings. Includes URL scheme buttons to open in local players (VLC, PotPlayer, IINA, mpv, nPlayer). Navigated to from FileBrowser play action.
+- Chat (`/chat`) — Conversational AI interface with conversation sidebar, SSE-streamed responses, tool call display, and model picker
 - Feeds (`/feeds`) — Subscription management + season discovery
 - Tasks (`/tasks`) — Background task dashboard with manual trigger
 - Login (`/login`) — Login/register with form validation
 
-**Key components:** `AnimationInfo` (editorial row-style episode item with inline download controls, progress bar, AI retry button), `FileBrowser` (sheet/slide-over for browsing downloaded files; play action navigates to PlayerPage), `ExternalPlayerButtons` (URL scheme buttons for opening video in VLC, PotPlayer, IINA, mpv, nPlayer), `SeasonDiscovery` (season anime browser with day-of-week grouping and season selector), `ProtectedRoute` (auth guard), `ToastProvider` (Radix Toast notifications).
-**UI primitives:** `src/components/ui/` — Button, Card, EmptyPrompt, FormRow, Input, Pagination, PasswordInput, Progress, Sheet, Spinner, Table.
+**Key components:** `AppHeader` (top navigation bar with links to all pages), `AnimationInfo` (editorial row-style episode item with inline download controls, progress bar, AI retry button), `FileBrowser` (sheet/slide-over for browsing downloaded files; play action navigates to PlayerPage), `ExternalPlayerButtons` (URL scheme buttons for opening video in VLC, PotPlayer, IINA, mpv, nPlayer), `SeasonDiscovery` (season anime browser with day-of-week grouping and season selector), `ProtectedRoute` (auth guard), `ToastProvider` (Radix Toast notifications).
+**Chat components:** `ChatSidebar` (conversation list with create/delete), `ChatMessageList`/`ChatMessage` (message rendering with markdown), `ChatInput` (text input with send), `ToolCallDisplay` (tool call and result rendering), `ModelPicker` (AI model selector). Chat module (`src/chat/`) provides `useStreamingChat` hook for SSE streaming with reducer-based state machine.
+**UI primitives:** `src/components/ui/` — Button, Card, DropdownMenu, EmptyPrompt, FormRow, Input, Pagination, PasswordInput, Progress, Sheet, Spinner, Table.
 
 ### Mock API Server
 

@@ -22,10 +22,13 @@ public static class InferenceServiceExtensions
         services.AddOptionsWithValidateOnStart<InferenceOptions, ValidateInferenceOptions>()
             .BindConfiguration(InferenceOptions.SectionName);
 
-        // Register TMDB tool
+        // Register TMDB tool and individual tool classes
         var tmdbApiKey = configuration["TmdbApiKey"];
         services.AddSingleton(_ => new TMDbClient(tmdbApiKey ?? string.Empty));
         services.AddSingleton<TmdbTool>();
+        services.AddSingleton<SearchTmdbTool>();
+        services.AddSingleton<GetTmdbSeasonsTool>();
+        services.AddSingleton<GetTmdbSeasonEpisodesTool>();
 
         // Register the inference engine (single implementation, provider-agnostic)
         services.AddScoped<IInferenceEngine, InferenceEngine>();

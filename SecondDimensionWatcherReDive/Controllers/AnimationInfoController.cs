@@ -4,7 +4,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Caching.Distributed;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
-using SecondDimensionWatcherReDive.Utils.FileDownload;
+using SecondDimensionWatcherReDive.Framework.FileDownload;
 
 namespace SecondDimensionWatcherReDive.Controllers;
 
