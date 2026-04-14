@@ -33,6 +33,11 @@ contents:
     dst: /etc/sdw-redive/appsettings.yml
     type: config|noreplace
 
+  - src: ./deployments/migrate-config.sh
+    dst: /usr/lib/sdw-redive/migrate-config.sh
+    file_info:
+      mode: 0755
+
   - dst: /var/lib/sdw-redive/downloads/
     type: dir
     file_info:

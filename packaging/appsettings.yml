@@ -28,12 +28,22 @@ MikananiFeeds: []
 
 # AI 推断配置（可选，留空 ApiKey 则禁用）
 # Provider: OpenAI 或 Anthropic（也支持任何 OpenAI 兼容端点）
+# 不设置 Provider 时默认为 OpenAI
+AI:
+  Provider: "OpenAI"
+  OpenAI:
+    BaseUrl: https://api.openai.com/v1
+    ApiKey: ""
+    Model: gpt-4o-mini
+    MaxTokens: 1024
+  Anthropic:
+    BaseUrl: https://api.anthropic.com
+    ApiKey: ""
+    Model: claude-sonnet-4-20250514
+    MaxTokens: 1024
+    ApiVersion: "2023-06-01"
+
 Inference:
-  Provider: OpenAI
-  BaseUrl: https://api.openai.com/v1
-  ApiKey: ""
-  Model: gpt-4o-mini
-  MaxTokens: 1024
   RateLimitDelayMs: 1000
 
 # Valkey / Redis 分布式缓存（可选，留空则使用内存缓存）

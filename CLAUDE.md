@@ -36,7 +36,8 @@ This is an anime/animation download management system (二次元观测器 Re:Div
 - **SecondDimensionWatcherReDive.Framework** — Shared abstractions (interfaces for plugins, file download, file storage, feeds, scheduled tasks). No implementations.
 - **SecondDimensionWatcherReDive.Test** — MSTest unit tests with Moq. Covers plugin events, file renaming, feed parsing, auth.
 - **SecondDimensionWatcherReDive.Client** — React/TypeScript SPA using Parcel bundler, Tailwind CSS, and Radix UI.
-- **Plugins/SecondDimensionWatcherReDive.Inference.AI** — AI inference engine (OpenAI SDK + Anthropic SDK) for metadata extraction with TMDB tool calling.
+- **Plugins/SecondDimensionWatcherReDive.AI** — Provider-agnostic AI engine abstraction. Defines `IAiEngine` streaming chat interface with tool-call support and two implementations: `OpenAiCompatibleEngine` (SSE streaming via OpenAI-compatible HTTP API, supports custom base URLs for Ollama/vLLM) and `AnthropicCompatibleEngine` (SSE streaming via Anthropic HTTP API). Includes message/tool/chat-update abstractions and provider-specific serialization DTOs.
+- **Plugins/SecondDimensionWatcherReDive.Inference.AI** — AI inference pipeline for metadata extraction. Contains a single `InferenceEngine` that orchestrates system prompts, TMDB tool dispatch (3 tools), rate limiting (`SemaphoreSlim` + configurable delay), and JSON parsing. Delegates all chat to `IAiEngine` from the AI plugin — no provider-specific code.
 - **Plugins/SecondDimensionWatcherReDive.Plugin.FileRenamer** — Post-download file renaming with S##E## format, including subtitle files.
 
 ### Backend Data Flow
@@ -95,11 +96,12 @@ AI inference is decoupled from feed sync — runs offline as a background task (
 5. Records are updated with metadata; `IsAiProcessed = true`
 6. Failed items increment `AiRetryCount`; users can reset via `POST /api/animationinfo/{id}/retry-inference`
 
-**Engine architecture:**
-- `InferenceEngineBase` — common rate limiting (`SemaphoreSlim` + configurable delay), system prompt, tool dispatch, JSON parsing
-- `OpenAiCompatibleEngine` — uses OpenAI .NET SDK with streaming (`CompleteChatStreamingAsync`), supports custom base URL
-- `AnthropicCompatibleEngine` — uses Anthropic.SDK with typed message/tool APIs
-- Two tool calls: `search_tmdb` (find TMDB ID) and `get_tmdb_seasons` (get season/episode structure for normalization)
+**Engine architecture (two-plugin split):**
+- `IAiEngine` (in `SecondDimensionWatcherReDive.AI`) — streaming `IAsyncEnumerable<IChatUpdate>` chat interface with tool-call support via `ChatOptions.ToolExecutor` callback. Update types: `TextDelta`, `ToolCallBegin`, `ToolCallDelta`, `ToolResultUpdate`, `Finished`
+- `OpenAiCompatibleEngine` — SSE streaming via OpenAI-compatible HTTP API, supports custom base URLs (Ollama, vLLM, etc.), bearer token auth
+- `AnthropicCompatibleEngine` — SSE streaming via Anthropic HTTP API, x-api-key auth, configurable API version
+- `InferenceEngine` (in `SecondDimensionWatcherReDive.Inference.AI`) — provider-agnostic orchestrator with rate limiting (`SemaphoreSlim` + configurable delay), system prompt, tool dispatch (max 8 rounds), JSON parsing (handles markdown fences). Delegates all chat to `IAiEngine`
+- Three TMDB tool calls: `search_tmdb(query)` (find TMDB ID), `get_tmdb_seasons(tmdb_id)` (season/episode structure for normalization), `get_tmdb_season_episodes(tmdb_id, season_number)` (episode details for verification)
 - TMDB season normalization handles: merged cours, absolute episode numbering, mismatched season labels
 
 ### Controllers
@@ -114,7 +116,7 @@ AI inference is decoupled from feed sync — runs offline as a background task (
 ### Feed Management
 
 Feeds can be configured two ways (merged at sync time):
-- Static: `MikananiFeeds` string array in `appsettings.json`
+- Static: `MikananiFeeds` string array in config (`appsettings.example.json` / `appsettings.yml`)
 - Dynamic: `Feed` entity in PostgreSQL, managed via `FeedController`
 
 `SyncFeed` background service runs every 10 minutes, fetches all feed URLs, and creates `AnimationInfo` records.
@@ -157,7 +159,7 @@ React 18 + TypeScript with Tailwind CSS for styling and Radix UI for accessible 
 
 Features: 25 anime entries with TMDB poster paths and mixed download states, grouped animations endpoint, simulated download progress, auth flow (any password), feed CRUD, season bangumi browsing, background task listing with enqueue, AI retry inference, mock file browser. Listens on port 5097 (matching the Parcel proxy target).
 
-## Key Configuration (appsettings.json)
+## Key Configuration (appsettings.example.json)
 
 - `ConnectionStrings:sdw` — PostgreSQL connection string
 - `JwtSecret` — Required JWT signing key
@@ -165,14 +167,21 @@ Features: 25 anime entries with TMDB poster paths and mixed download states, gro
 - `FileStore:Local` — Download directory path
 - `MikananiFeeds` — RSS feed URL array (static feeds)
 - `TmdbApiKey` — TMDB API key (used for AI inference metadata, poster images, and season info)
-- `Inference:ApiKey` — AI inference API key (optional; enables metadata extraction)
-- `Inference:Provider` — "OpenAI" or "Anthropic"
-- `Inference:BaseUrl` — Custom API endpoint (supports OpenAI-compatible proxies)
-- `Inference:Model` — Model name (e.g., "gpt-4o-mini", "claude-sonnet-4-20250514")
-- `Inference:MaxTokens` — Max response tokens (default: 1024)
+- `AI:Provider` — "OpenAI" or "Anthropic" (defaults to OpenAI if omitted)
+- `AI:OpenAI:ApiKey` — OpenAI API key (leave empty to disable AI inference)
+- `AI:OpenAI:BaseUrl` — OpenAI-compatible API endpoint (default: `https://api.openai.com/v1`; supports Ollama, vLLM, etc.)
+- `AI:OpenAI:Model` — Model name (e.g., "gpt-4o-mini")
+- `AI:OpenAI:MaxTokens` — Max response tokens (default: 1024)
+- `AI:Anthropic:ApiKey` — Anthropic API key
+- `AI:Anthropic:BaseUrl` — Anthropic API endpoint (default: `https://api.anthropic.com`)
+- `AI:Anthropic:Model` — Model name (e.g., "claude-sonnet-4-20250514")
+- `AI:Anthropic:MaxTokens` — Max response tokens (default: 1024)
+- `AI:Anthropic:ApiVersion` — Anthropic API version (default: "2023-06-01")
 - `Inference:RateLimitDelayMs` — Min interval between API calls (default: 1000ms)
 - `DisableCors` — Enable permissive CORS policy
 - `Valkey:ConnectionString` — Valkey/Redis connection string (optional; uses in-memory cache if empty)
 - `Valkey:InstanceName` — Cache key prefix (default: "sdw-redive:")
 
 EF Core migrations run automatically on application startup.
+
+Config migration: Users upgrading from pre-v2.2 (where AI config lived under `Inference:`) can run `deployments/migrate-config.sh` to automatically migrate to the new `AI:` config structure. For package installs, `postinstall.sh` runs this automatically.

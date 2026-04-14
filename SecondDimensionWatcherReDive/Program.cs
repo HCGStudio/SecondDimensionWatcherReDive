@@ -166,7 +166,14 @@ builder.Services.AddScoped<IFileStoreProvider, FileStoreProvider>();
 builder.Services.AddTransient<IFeedService, MikananiFeedService>();
 
 //Add AI Inference
-if (!string.IsNullOrEmpty(builder.Configuration["Inference:ApiKey"]))
+var aiProvider = builder.Configuration["AI:Provider"]
+                     is { Length: > 0 } p
+    ? p
+    : "OpenAI";
+var aiApiKey = string.Equals(aiProvider, "Anthropic", StringComparison.OrdinalIgnoreCase)
+    ? builder.Configuration["AI:Anthropic:ApiKey"]
+    : builder.Configuration["AI:OpenAI:ApiKey"];
+if (!string.IsNullOrEmpty(aiApiKey))
 {
     builder.Services.AddAIInference(builder.Configuration);
     builder.Services.AddSingleton<InferAnimationMetadata>();

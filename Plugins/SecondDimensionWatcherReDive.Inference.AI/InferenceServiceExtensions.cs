@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using SecondDimensionWatcherReDive.AI;
 using SecondDimensionWatcherReDive.Framework.Inference;
 using SecondDimensionWatcherReDive.Inference.AI.Configuration;
 using SecondDimensionWatcherReDive.Inference.AI.Engines;
@@ -14,24 +15,20 @@ public static class InferenceServiceExtensions
         this IServiceCollection services,
         IConfiguration configuration)
     {
-        services.Configure<InferenceOptions>(configuration.GetSection(InferenceOptions.SectionName));
+        // Register AI engine (provider selection handled inside)
+        services.AddAiEngine(configuration);
 
-        var inferenceOptions = configuration.GetSection(InferenceOptions.SectionName).Get<InferenceOptions>();
+        // Register inference-specific options
+        services.AddOptionsWithValidateOnStart<InferenceOptions, ValidateInferenceOptions>()
+            .BindConfiguration(InferenceOptions.SectionName);
 
         // Register TMDB tool
         var tmdbApiKey = configuration["TmdbApiKey"];
         services.AddSingleton(_ => new TMDbClient(tmdbApiKey ?? string.Empty));
         services.AddSingleton<TmdbTool>();
 
-        // Register the correct engine based on Provider config
-        if (string.Equals(inferenceOptions?.Provider, "Anthropic", StringComparison.OrdinalIgnoreCase))
-        {
-            services.AddScoped<IInferenceEngine, AnthropicCompatibleEngine>();
-        }
-        else
-        {
-            services.AddScoped<IInferenceEngine, OpenAiCompatibleEngine>();
-        }
+        // Register the inference engine (single implementation, provider-agnostic)
+        services.AddScoped<IInferenceEngine, InferenceEngine>();
 
         return services;
     }

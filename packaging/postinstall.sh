@@ -24,6 +24,12 @@ if grep -q '<Please fill this with a 32 length random string>' "$CONFIG" 2>/dev/
     sed -i "s|<Please fill this with a 32 length random string>|${JWT_SECRET}|" "$CONFIG"
 fi
 
+# Migrate legacy Inference:* config to AI:* structure (upgrade from <2.2)
+MIGRATE="/usr/lib/sdw-redive/migrate-config.sh"
+if [ -x "$MIGRATE" ]; then
+    "$MIGRATE" "$CONFIG" || true
+fi
+
 # Ensure data directory ownership
 chown -R sdw-redive:sdw-redive /var/lib/sdw-redive
 
