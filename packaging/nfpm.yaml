@@ -25,7 +25,6 @@ overrides:
 contents:
   - src: ./publish/**/*
     dst: /usr/lib/sdw-redive/
-    type: glob
 
   - src: ./packaging/sdw-redive.service
     dst: /usr/lib/systemd/system/sdw-redive.service
