@@ -26,16 +26,30 @@ module.exports = {
         "ring-deep": "#c2c0b6",
       },
       fontFamily: {
-        serif: ["Georgia", "Cambria", "'Times New Roman'", "serif"],
+        serif: [
+          "'Source Serif 4'",
+          "'Noto Serif SC'",
+          "Georgia",
+          "Cambria",
+          "'Times New Roman'",
+          "serif",
+        ],
         sans: [
-          "system-ui",
           "Inter",
+          "'Noto Sans SC'",
+          "system-ui",
           "-apple-system",
           "BlinkMacSystemFont",
           "'Segoe UI'",
           "sans-serif",
         ],
-        mono: ["ui-monospace", "SFMono-Regular", "'SF Mono'", "monospace"],
+        mono: [
+          "'JetBrains Mono'",
+          "ui-monospace",
+          "SFMono-Regular",
+          "'SF Mono'",
+          "monospace",
+        ],
       },
       lineHeight: {
         "heading-tight": "1.10",
