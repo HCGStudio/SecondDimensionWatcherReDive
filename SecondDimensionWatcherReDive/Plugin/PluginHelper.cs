@@ -24,4 +24,19 @@ public static class PluginHelper
 
         return webApplicationBuilder;
     }
+
+    public static WebApplication LoadPlugins(this WebApplication app)
+    {
+        var pluginServices = app.Services.GetRequiredService<IPluginServices>();
+        var plugins = app.Services.GetServices<IPlugin>()
+            .OrderBy(p => p.Order)
+            .ToList();
+
+        foreach (var plugin in plugins)
+        {
+            plugin.OnLoaded(pluginServices);
+        }
+
+        return app;
+    }
 }

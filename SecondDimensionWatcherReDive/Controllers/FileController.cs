@@ -7,7 +7,7 @@ using Microsoft.AspNetCore.StaticFiles;
 using System.Text.Json;
 using Microsoft.Extensions.Caching.Distributed;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
-using SecondDimensionWatcherReDive.Utils.FileStore;
+using SecondDimensionWatcherReDive.Framework.FileStore;
 
 namespace SecondDimensionWatcherReDive.Controllers;
 

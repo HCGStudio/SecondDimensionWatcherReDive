@@ -11,5 +11,5 @@ public interface IPluginEventRegister<out TParam>
     /// </summary>
     /// <typeparam name="TParam">The type of the event parameter.</typeparam>
     /// <param name="action">The action to associate with the event.</param>
-    public void Register(Func<TParam, Task> action);
+    public void Register(Func<TParam, CancellationToken, Task> action);
 }

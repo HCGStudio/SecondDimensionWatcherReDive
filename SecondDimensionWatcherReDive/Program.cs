@@ -213,6 +213,9 @@ builder.InitializePlugin();
 
 var app = builder.Build();
 
+//Load Plugins
+app.LoadPlugins();
+
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {

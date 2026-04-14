@@ -12,7 +12,7 @@ public class PluginEventTests
         var pluginEvent = new PluginEvent<FileDownloadStartParam>();
         FileDownloadStartParam? captured = null;
 
-        pluginEvent.Register(param =>
+        pluginEvent.Register((param, _) =>
         {
             captured = param;
             return Task.CompletedTask;
@@ -32,17 +32,17 @@ public class PluginEventTests
         var pluginEvent = new PluginEvent<FileDownloadCompleteParam>();
         var callOrder = new List<int>();
 
-        pluginEvent.Register(_ =>
+        pluginEvent.Register((_, _) =>
         {
             callOrder.Add(1);
             return Task.CompletedTask;
         });
-        pluginEvent.Register(_ =>
+        pluginEvent.Register((_, _) =>
         {
             callOrder.Add(2);
             return Task.CompletedTask;
         });
-        pluginEvent.Register(_ =>
+        pluginEvent.Register((_, _) =>
         {
             callOrder.Add(3);
             return Task.CompletedTask;

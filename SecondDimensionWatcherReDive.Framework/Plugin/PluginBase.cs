@@ -8,16 +8,16 @@ public abstract class PluginBase : IPlugin
     public abstract IPluginInfo Info { get; }
     public int Order { get; protected set; }
     
-    protected virtual Task BeforeDownloadBegin(FileDownloadStartParam param)
+    protected virtual Task BeforeDownloadBegin(FileDownloadStartParam param, CancellationToken cancellationToken)
     {
         return Task.CompletedTask;
     }
 
-    protected virtual Task OnDownloadCompleted(FileDownloadCompleteParam param)
+    protected virtual Task OnDownloadCompleted(FileDownloadCompleteParam param, CancellationToken cancellationToken)
     {
         return Task.CompletedTask;
     }
-    
+
     public virtual void OnLoaded(IPluginServices services)
     {
         services.RegisterEvent<FileDownloadStartParam>(PluginEventName.BeforeDownloadStarted, BeforeDownloadBegin);
