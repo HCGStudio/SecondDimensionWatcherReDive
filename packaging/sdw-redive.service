@@ -7,7 +7,7 @@ Type=notify
 User=sdw-redive
 Group=sdw-redive
 WorkingDirectory=/usr/lib/sdw-redive
-ExecStart=/usr/bin/dotnet /usr/lib/sdw-redive/SecondDimensionWatcherReDive.dll
+ExecStart=/usr/bin/dotnet /usr/lib/sdw-redive/SecondDimensionWatcherReDive.dll --config=/etc/sdw-redive/appsettings.yml
 Restart=on-failure
 RestartSec=10
 TimeoutStartSec=60

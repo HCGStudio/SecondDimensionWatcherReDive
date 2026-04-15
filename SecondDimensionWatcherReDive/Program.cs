@@ -50,8 +50,8 @@ builder.Services.AddControllers()
     });
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
-builder.Configuration.AddYamlFile("/etc/sdw-redive/appsettings.yml", optional: true, reloadOnChange: true);
-builder.Configuration.AddYamlFile("/usr/local/etc/sdw-redive/appsettings.yml", optional: true, reloadOnChange: true);
+if (builder.Configuration["Config"] is { } configPath)
+    builder.Configuration.AddYamlFile(configPath, optional: false, reloadOnChange: true);
 var passwordFile = builder.Configuration["PasswordFile"] ?? "password.json";
 builder.Configuration.AddJsonFile(passwordFile, optional: true, reloadOnChange: true);
 
