@@ -2,5 +2,5 @@ namespace SecondDimensionWatcherReDive.Plugin;
 
 public interface IPluginEventTrigger<in TParams>
 {
-    Task Invoke(TParams value, CancellationToken cancellationToken = default);
+    Task InvokeAsync(TParams value, CancellationToken cancellationToken);
 }

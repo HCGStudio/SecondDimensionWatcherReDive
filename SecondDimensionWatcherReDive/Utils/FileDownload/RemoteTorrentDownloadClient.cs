@@ -19,11 +19,12 @@ public class RemoteTorrentDownloadClient(
     public override string Name => FileDownloads.RemoteTorrentDownload;
     public override string SupportedFileStoreType => FileStores.LocalDiskStore;
 
-    public override async Task<bool> SubmitDownloadTask(
+    public override async Task<bool> SubmitDownloadTaskAsync(
         Guid itemId,
         string downloadUrl,
         byte[] cachedDownloadData,
-        string additionalDownloadInfo)
+        string additionalDownloadInfo,
+        CancellationToken cancellationToken)
     {
         using var content = new MultipartFormDataContent();
         content.Add(new ByteArrayContent(cachedDownloadData), "torrent", $"{itemId}.torrent");
@@ -38,21 +39,23 @@ public class RemoteTorrentDownloadClient(
         return response.IsSuccessStatusCode;
     }
 
-    public override async Task SubmitQueryDownloadProgress(
+    public override async Task SubmitQueryDownloadProgressAsync(
         Guid itemId,
         string downloadUrl,
         byte[] cachedDownloadData,
-        string additionalDownloadInfo)
+        string additionalDownloadInfo,
+        CancellationToken cancellationToken)
     {
         await remoteTorrentTrackRequest.Writer.WriteAsync(
             new(itemId, additionalDownloadInfo));
     }
 
-    public override async Task<bool> PauseDownloadTask(
+    public override async Task<bool> PauseDownloadTaskAsync(
         Guid itemId,
         string downloadUrl,
         byte[] cachedDownloadData,
-        string additionalDownloadInfo)
+        string additionalDownloadInfo,
+        CancellationToken cancellationToken)
     {
         using var content =
             new FormUrlEncodedContent([new("hashes", additionalDownloadInfo)]);
@@ -60,11 +63,12 @@ public class RemoteTorrentDownloadClient(
         return response.IsSuccessStatusCode;
     }
 
-    public override async Task<bool> ResumeDownloadTask(
+    public override async Task<bool> ResumeDownloadTaskAsync(
         Guid itemId,
         string downloadUrl,
         byte[] cachedDownloadData,
-        string additionalDownloadInfo)
+        string additionalDownloadInfo,
+        CancellationToken cancellationToken)
     {
         using var content =
             new FormUrlEncodedContent([new("hashes", additionalDownloadInfo)]);
@@ -72,12 +76,13 @@ public class RemoteTorrentDownloadClient(
         return response.IsSuccessStatusCode;
     }
 
-    public override async Task<CancelDownloadResult> CancelDownloadTask(
+    public override async Task<CancelDownloadResult> CancelDownloadTaskAsync(
         Guid itemId,
         string downloadUrl,
         byte[] cachedDownloadData,
         string additionalDownloadInfo,
-        bool removeFile)
+        bool removeFile,
+        CancellationToken cancellationToken)
     {
         var deleteFiles = removeFile ? "true" : "false";
         using var content = new FormUrlEncodedContent([

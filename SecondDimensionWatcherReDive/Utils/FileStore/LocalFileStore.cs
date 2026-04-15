@@ -6,7 +6,7 @@ public class LocalFileStore : IFileStore
 {
     public string Name => FileStores.LocalDiskStore;
 
-    public Task<Stream> OpenReadStream(string path)
+    public Task<Stream> OpenReadStreamAsync(string path, CancellationToken cancellationToken)
     {
         return Task.FromResult<Stream>(File.OpenRead(path));
     }
@@ -30,7 +30,7 @@ public class LocalFileStore : IFileStore
         await Task.CompletedTask;
     }
 
-    public Task<FileStoreInfo> FileInfo(string path)
+    public Task<FileStoreInfo> FileInfoAsync(string path, CancellationToken cancellationToken)
     {
         var fileAttr = File.GetAttributes(path);
         var isDirectory = (fileAttr & FileAttributes.Directory) != 0;
@@ -39,7 +39,7 @@ public class LocalFileStore : IFileStore
             fileSystemInfo.Name));
     }
 
-    public Task<bool> Exist(string path)
+    public Task<bool> ExistAsync(string path, CancellationToken cancellationToken)
     {
         return Task.FromResult(File.Exists(path) || Directory.Exists(path));
     }

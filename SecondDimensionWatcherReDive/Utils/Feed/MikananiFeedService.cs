@@ -23,7 +23,7 @@ public class MikananiFeedService(
         ? TimeZoneInfo.FindSystemTimeZoneById("China Standard Time")
         : TimeZoneInfo.FindSystemTimeZoneById("Asia/Shanghai");
 
-    public async Task<ICollection<AnimationAddRequest>> Sync(CancellationToken cancellationToken)
+    public async Task<ICollection<AnimationAddRequest>> SyncAsync(CancellationToken cancellationToken)
     {
         var configUrls = configuration.GetSection("MikananiFeeds").Get<string[]>() ?? [];
 

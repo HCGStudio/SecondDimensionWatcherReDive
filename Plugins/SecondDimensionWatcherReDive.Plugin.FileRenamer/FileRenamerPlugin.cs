@@ -48,7 +48,7 @@ public partial class FileRenamerPlugin(IServiceScopeFactory scopeFactory, ILogge
             LogFileRenameCompleted(logger, param.ItemId);
 
             // If StorePath is a single file (not a directory), update it to the new path after rename
-            var fileInfo = await fileStore.FileInfo(info.StorePath);
+            var fileInfo = await fileStore.FileInfoAsync(info.StorePath, cancellationToken);
             if (!fileInfo.IsDirectory && info.Season is not null && info.Episode is not null)
             {
                 var dir = Path.GetDirectoryName(fileInfo.Path)!;

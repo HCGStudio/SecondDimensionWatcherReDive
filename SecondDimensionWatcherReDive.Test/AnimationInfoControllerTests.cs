@@ -96,11 +96,12 @@ public class AnimationInfoControllerTests
             .ReturnsAsync(info);
 
         _downloadClientMock
-            .Setup(c => c.SubmitDownloadTask(
+            .Setup(c => c.SubmitDownloadTaskAsync(
                 id,
                 info.DownloadUrl,
                 info.CachedDownloadData,
-                info.AdditionalDownloadInfo))
+                info.AdditionalDownloadInfo,
+                CancellationToken.None))
             .ReturnsAsync(true);
 
         var result = await _controller.StartDownload(id, CancellationToken.None);
@@ -122,12 +123,13 @@ public class AnimationInfoControllerTests
             .ReturnsAsync(info);
 
         _downloadClientMock
-            .Setup(c => c.CancelDownloadTask(
+            .Setup(c => c.CancelDownloadTaskAsync(
                 id,
                 info.DownloadUrl,
                 info.CachedDownloadData,
                 info.AdditionalDownloadInfo,
-                false))
+                false,
+                CancellationToken.None))
             .ReturnsAsync(new CancelDownloadResult(true, false));
 
         var result = await _controller.CancelDownload(id, cancellationToken: CancellationToken.None);

@@ -8,7 +8,7 @@ public class PluginEvent<T> : IPluginEventRegister<T>, IPluginEventTrigger<T>
 
     public void Register(Func<T, CancellationToken, Task> action) => _handlers.Add(action);
 
-    public async Task Invoke(T value, CancellationToken cancellationToken = default)
+    public async Task InvokeAsync(T value, CancellationToken cancellationToken = default)
     {
         foreach (var handler in _handlers)
             await handler(value, cancellationToken);

@@ -100,7 +100,7 @@ public partial class SyncFeed(
 
     private async Task ProcessFeed(IFeedService feedService, CancellationToken cancellationToken)
     {
-        var requests = await feedService.Sync(cancellationToken);
+        var requests = await feedService.SyncAsync(cancellationToken);
         await Task.WhenAll(requests.Select(r => ProcessSingle(r, cancellationToken)));
     }
 

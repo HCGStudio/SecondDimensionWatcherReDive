@@ -19,7 +19,7 @@ public class PluginEventTests
         });
 
         var input = new FileDownloadStartParam(Guid.NewGuid(), "https://example.com", [], "hash123");
-        await pluginEvent.Invoke(input);
+        await pluginEvent.InvokeAsync(input);
 
         Assert.IsNotNull(captured);
         Assert.AreEqual(input.Id, captured.Id);
@@ -48,7 +48,7 @@ public class PluginEventTests
             return Task.CompletedTask;
         });
 
-        await pluginEvent.Invoke(new FileDownloadCompleteParam(Guid.NewGuid(), "/path", "local"));
+        await pluginEvent.InvokeAsync(new FileDownloadCompleteParam(Guid.NewGuid(), "/path", "local"));
 
         CollectionAssert.AreEqual(new[] { 1, 2, 3 }, callOrder);
     }
@@ -58,7 +58,7 @@ public class PluginEventTests
     {
         var pluginEvent = new PluginEvent<FileDownloadCompleteParam>();
 
-        await pluginEvent.Invoke(new FileDownloadCompleteParam(Guid.NewGuid(), "/path", "local"));
+        await pluginEvent.InvokeAsync(new FileDownloadCompleteParam(Guid.NewGuid(), "/path", "local"));
 
         // If we get here without exception, the test passes
     }

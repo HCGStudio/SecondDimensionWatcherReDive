@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - **NEVER use `npm` or `npx`**. This project uses Yarn Berry (PnP). Always use `yarn` for all frontend commands.
 - **NEVER reference `ApplicationContext` directly** outside of `Repositories/` implementations, `Program.cs` (DI + migrations), and EF Core migration files. All data access goes through repository interfaces defined in `Framework/DataRepository/`.
-- **CancellationToken parameters** must be named `cancellationToken` (not `ct`) and must NOT have default values in interface definitions.
+- **Async method conventions in interfaces**: All interface methods returning `Task` or `Task<T>` must (1) have names ending with `Async`, (2) accept a `CancellationToken cancellationToken` parameter, and (3) must NOT have default values on `CancellationToken` in interface definitions. The parameter must be named `cancellationToken` (not `ct`).
 
 ## Build & Development Commands
 

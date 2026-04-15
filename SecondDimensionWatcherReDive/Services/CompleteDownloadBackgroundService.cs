@@ -54,7 +54,7 @@ public partial class CompleteDownloadBackgroundService(
             LogFiringPluginEvent(logger, request.ItemId);
             var eventTrigger = scope.ServiceProvider
                 .GetRequiredService<IPluginEventTrigger<FileDownloadCompleteParam>>();
-            await eventTrigger.Invoke(new FileDownloadCompleteParam(
+            await eventTrigger.InvokeAsync(new FileDownloadCompleteParam(
                 request.ItemId, request.StorePath, request.FileStore), cancellationToken);
             LogPluginEventCompleted(logger, request.ItemId);
         }

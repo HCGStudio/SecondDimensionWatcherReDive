@@ -11,7 +11,7 @@ public partial class TorrentFileOperator(
     private readonly HttpClient _httpClient =
         httpClientFactory.CreateClient(nameof(RemoteTorrentDownloadClient));
 
-    public async Task<bool> Rename(string oldName, string newName)
+    public async Task<bool> RenameAsync(string oldName, string newName, CancellationToken cancellationToken)
     {
         try
         {

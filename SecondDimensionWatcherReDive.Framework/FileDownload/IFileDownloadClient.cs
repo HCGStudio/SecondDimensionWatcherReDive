@@ -31,11 +31,12 @@ public interface IFileDownloadClient
     ///     A task that represents the asynchronous operation. The task result contains a boolean that indicates if the
     ///     download task was submitted successfully.
     /// </returns>
-    public Task<bool> SubmitDownloadTask(
+    public Task<bool> SubmitDownloadTaskAsync(
         Guid itemId,
         string downloadUrl,
         byte[] cachedDownloadData,
-        string additionalDownloadInfo);
+        string additionalDownloadInfo,
+        CancellationToken cancellationToken);
 
     /// <summary>
     ///     Submits a query to check the progress of a download.
@@ -45,11 +46,12 @@ public interface IFileDownloadClient
     /// <param name="cachedDownloadData">Cached data for the download.</param>
     /// <param name="additionalDownloadInfo">Additional information for the download.</param>
     /// <returns>A task that represents the asynchronous operation.</returns>
-    public Task SubmitQueryDownloadProgress(
+    public Task SubmitQueryDownloadProgressAsync(
         Guid itemId,
         string downloadUrl,
         byte[] cachedDownloadData,
-        string additionalDownloadInfo);
+        string additionalDownloadInfo,
+        CancellationToken cancellationToken);
 
     /// <summary>
     ///     Pauses a download task.
@@ -62,11 +64,12 @@ public interface IFileDownloadClient
     ///     A task that represents the asynchronous operation. The task result contains a boolean indicating if the
     ///     download task was paused successfully.
     /// </returns>
-    public Task<bool> PauseDownloadTask(
+    public Task<bool> PauseDownloadTaskAsync(
         Guid itemId,
         string downloadUrl,
         byte[] cachedDownloadData,
-        string additionalDownloadInfo);
+        string additionalDownloadInfo,
+        CancellationToken cancellationToken);
 
     /// <summary>
     ///     Resumes a paused download task.
@@ -79,11 +82,12 @@ public interface IFileDownloadClient
     ///     A task that represents the asynchronous operation. The task result contains a boolean indicating if the
     ///     download task was resumed successfully.
     /// </returns>
-    public Task<bool> ResumeDownloadTask(
+    public Task<bool> ResumeDownloadTaskAsync(
         Guid itemId,
         string downloadUrl,
         byte[] cachedDownloadData,
-        string additionalDownloadInfo);
+        string additionalDownloadInfo,
+        CancellationToken cancellationToken);
 
     /// <summary>
     ///     Cancels a download task.
@@ -97,10 +101,11 @@ public interface IFileDownloadClient
     ///     A task that represents the asynchronous operation. The task result contains a CancelDownloadResult object
     ///     that indicates whether the cancellation was successful and if the file needs to be removed from the file store.
     /// </returns>
-    public Task<CancelDownloadResult> CancelDownloadTask(
+    public Task<CancelDownloadResult> CancelDownloadTaskAsync(
         Guid itemId,
         string downloadUrl,
         byte[] cachedDownloadData,
         string additionalDownloadInfo,
-        bool removeFile);
+        bool removeFile,
+        CancellationToken cancellationToken);
 }

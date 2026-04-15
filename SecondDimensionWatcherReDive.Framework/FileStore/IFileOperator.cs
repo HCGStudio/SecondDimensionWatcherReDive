@@ -2,5 +2,5 @@ namespace SecondDimensionWatcherReDive.Framework.FileStore;
 
 public interface IFileOperator
 {
-    public Task<bool> Rename(string oldName, string newName);
+    public Task<bool> RenameAsync(string oldName, string newName, CancellationToken cancellationToken);
 }

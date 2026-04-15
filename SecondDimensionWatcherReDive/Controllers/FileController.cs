@@ -42,7 +42,7 @@ internal partial class FileController(
         }
 
         var fileStore = fileStoreProvider.GetRequiredClient(info.FileStore);
-        var storePathInfo = await fileStore.FileInfo(info.StorePath);
+        var storePathInfo = await fileStore.FileInfoAsync(info.StorePath, cancellationToken);
         LogStorePathInfo(logger, info.StorePath, storePathInfo.IsDirectory);
 
         string targetPath;
@@ -62,7 +62,7 @@ internal partial class FileController(
             LogResolvedTargetPath(logger, targetPath, "storePath is file, ignoring relative path");
         }
 
-        if (!await fileStore.Exist(targetPath))
+        if (!await fileStore.ExistAsync(targetPath, cancellationToken))
         {
             LogTargetPathNotFound(logger, targetPath);
             return NotFound();
@@ -92,14 +92,14 @@ internal partial class FileController(
         }
 
         var fileStore = fileStoreProvider.GetRequiredClient(fileStoreToken.FileStore);
-        var fileInfo = await fileStore.FileInfo(fileStoreToken.Path);
+        var fileInfo = await fileStore.FileInfoAsync(fileStoreToken.Path, cancellationToken);
 
         var contentType = contentTypeProvider.TryGetContentType(fileInfo.FileName, out var type)
             ? type
             : "application/octet-stream";
 
         LogStreamingFile(logger, fileStoreToken.Path, contentType);
-        return File(await fileStore.OpenReadStream(fileStoreToken.Path), contentType, fileInfo.FileName);
+        return File(await fileStore.OpenReadStreamAsync(fileStoreToken.Path, cancellationToken), contentType, fileInfo.FileName);
     }
 
     [HttpGet("list")]
@@ -121,13 +121,13 @@ internal partial class FileController(
             ? info.StorePath
             : Path.Combine(info.StorePath, relativeDir));
 
-        if (!await fileStore.Exist(targetPath))
+        if (!await fileStore.ExistAsync(targetPath, cancellationToken))
         {
             LogTargetPathNotFound(logger, targetPath);
             return NotFound();
         }
 
-        var fileInfo = await fileStore.FileInfo(targetPath);
+        var fileInfo = await fileStore.FileInfoAsync(targetPath, cancellationToken);
         LogListPathInfo(logger, targetPath, fileInfo.IsDirectory);
 
         if (!fileInfo.IsDirectory)

@@ -10,5 +10,5 @@ public interface IFeedService
     /// </summary>
     /// <param name="cancellationToken">A cancellation token that can be used to cancel the operation.</param>
     /// <returns>A collection of AnimationAddRequest objects.</returns>
-    public Task<ICollection<AnimationAddRequest>> Sync(CancellationToken cancellationToken);
+    public Task<ICollection<AnimationAddRequest>> SyncAsync(CancellationToken cancellationToken);
 }

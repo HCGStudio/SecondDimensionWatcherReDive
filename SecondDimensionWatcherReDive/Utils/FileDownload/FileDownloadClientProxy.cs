@@ -19,77 +19,87 @@ public class FileDownloadClientProxy : IFileDownloadClient
     public string Name => _poxyObject.Name;
     public string SupportedFileStoreType => _poxyObject.SupportedFileStoreType;
     public string FileDownloadType => _poxyObject.FileDownloadType;
-    public async Task<bool> SubmitDownloadTask(
-        Guid itemId,
-        string downloadUrl,
-        byte[] cachedDownloadData,
-        string additionalDownloadInfo)
-    {
-        await _beforeDownloadStartEventTrigger.Invoke(
-            new FileDownloadStartParam(
-                itemId,
-                downloadUrl,
-                cachedDownloadData, 
-                additionalDownloadInfo));
-        return await _poxyObject.SubmitDownloadTask(
-            itemId,
-            downloadUrl,
-            cachedDownloadData,
-            additionalDownloadInfo);
-    }
-
-    public async Task SubmitQueryDownloadProgress(
-        Guid itemId,
-        string downloadUrl,
-        byte[] cachedDownloadData,
-        string additionalDownloadInfo)
-    {
-        await _poxyObject.SubmitQueryDownloadProgress(
-            itemId,
-            downloadUrl,
-            cachedDownloadData,
-            additionalDownloadInfo);
-    }
-
-    public async Task<bool> PauseDownloadTask(
-        Guid itemId,
-        string downloadUrl,
-        byte[] cachedDownloadData,
-        string additionalDownloadInfo)
-    {
-        return await _poxyObject.PauseDownloadTask(
-            itemId,
-            downloadUrl,
-            cachedDownloadData,
-            additionalDownloadInfo);
-    }
-
-    public async Task<bool> ResumeDownloadTask(
-        Guid itemId,
-        string downloadUrl,
-        byte[] cachedDownloadData,
-        string additionalDownloadInfo)
-    {
-        return await _poxyObject.ResumeDownloadTask(
-            itemId,
-            downloadUrl,
-            cachedDownloadData,
-            additionalDownloadInfo);
-    }
-
-    public async Task<CancelDownloadResult> CancelDownloadTask(
+    public async Task<bool> SubmitDownloadTaskAsync(
         Guid itemId,
         string downloadUrl,
         byte[] cachedDownloadData,
         string additionalDownloadInfo,
-        bool removeFile)
+        CancellationToken cancellationToken)
     {
-        return await _poxyObject.CancelDownloadTask(
+        await _beforeDownloadStartEventTrigger.InvokeAsync(
+            new FileDownloadStartParam(
+                itemId,
+                downloadUrl,
+                cachedDownloadData,
+                additionalDownloadInfo), cancellationToken);
+        return await _poxyObject.SubmitDownloadTaskAsync(
             itemId,
             downloadUrl,
             cachedDownloadData,
             additionalDownloadInfo,
-            removeFile);
+            cancellationToken);
+    }
+
+    public async Task SubmitQueryDownloadProgressAsync(
+        Guid itemId,
+        string downloadUrl,
+        byte[] cachedDownloadData,
+        string additionalDownloadInfo,
+        CancellationToken cancellationToken)
+    {
+        await _poxyObject.SubmitQueryDownloadProgressAsync(
+            itemId,
+            downloadUrl,
+            cachedDownloadData,
+            additionalDownloadInfo,
+            cancellationToken);
+    }
+
+    public async Task<bool> PauseDownloadTaskAsync(
+        Guid itemId,
+        string downloadUrl,
+        byte[] cachedDownloadData,
+        string additionalDownloadInfo,
+        CancellationToken cancellationToken)
+    {
+        return await _poxyObject.PauseDownloadTaskAsync(
+            itemId,
+            downloadUrl,
+            cachedDownloadData,
+            additionalDownloadInfo,
+            cancellationToken);
+    }
+
+    public async Task<bool> ResumeDownloadTaskAsync(
+        Guid itemId,
+        string downloadUrl,
+        byte[] cachedDownloadData,
+        string additionalDownloadInfo,
+        CancellationToken cancellationToken)
+    {
+        return await _poxyObject.ResumeDownloadTaskAsync(
+            itemId,
+            downloadUrl,
+            cachedDownloadData,
+            additionalDownloadInfo,
+            cancellationToken);
+    }
+
+    public async Task<CancelDownloadResult> CancelDownloadTaskAsync(
+        Guid itemId,
+        string downloadUrl,
+        byte[] cachedDownloadData,
+        string additionalDownloadInfo,
+        bool removeFile,
+        CancellationToken cancellationToken)
+    {
+        return await _poxyObject.CancelDownloadTaskAsync(
+            itemId,
+            downloadUrl,
+            cachedDownloadData,
+            additionalDownloadInfo,
+            removeFile,
+            cancellationToken);
     }
 
     public static FileDownloadClientProxy Create(IFileDownloadClient client, IServiceProvider serviceProvider)

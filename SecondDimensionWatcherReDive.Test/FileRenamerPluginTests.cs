@@ -67,11 +67,11 @@ public class FileRenamerPluginTests
             .Setup(r => r.FindByIdWithAnimationAsync(itemId, CancellationToken.None))
             .ReturnsAsync(info);
         _mockFileStore
-            .Setup(s => s.FileInfo("/downloads/anime"))
+            .Setup(s => s.FileInfoAsync("/downloads/anime", CancellationToken.None))
             .ReturnsAsync(new FileStoreInfo(true, "/downloads/anime", "anime"));
 
         var pluginEvent = CreatePluginEventAndLoad();
-        await pluginEvent.Invoke(new FileDownloadCompleteParam(itemId, "/downloads/anime", "local"));
+        await pluginEvent.InvokeAsync(new FileDownloadCompleteParam(itemId, "/downloads/anime", "local"));
 
         _mockFileRenamer.Verify(
             r => r.RenameAsync(
@@ -95,7 +95,7 @@ public class FileRenamerPluginTests
             .ReturnsAsync(info);
 
         var pluginEvent = CreatePluginEventAndLoad();
-        await pluginEvent.Invoke(new FileDownloadCompleteParam(itemId, "/downloads/anime", "local"));
+        await pluginEvent.InvokeAsync(new FileDownloadCompleteParam(itemId, "/downloads/anime", "local"));
 
         _mockFileRenamer.Verify(
             r => r.RenameAsync(It.IsAny<FileRenameContext>(), It.IsAny<CancellationToken>()),
@@ -113,7 +113,7 @@ public class FileRenamerPluginTests
             .ReturnsAsync(info);
 
         var pluginEvent = CreatePluginEventAndLoad();
-        await pluginEvent.Invoke(new FileDownloadCompleteParam(itemId, "/downloads/anime", "local"));
+        await pluginEvent.InvokeAsync(new FileDownloadCompleteParam(itemId, "/downloads/anime", "local"));
 
         _mockFileRenamer.Verify(
             r => r.RenameAsync(It.IsAny<FileRenameContext>(), It.IsAny<CancellationToken>()),
@@ -130,7 +130,7 @@ public class FileRenamerPluginTests
             .ReturnsAsync((AnimationInfo?)null);
 
         var pluginEvent = CreatePluginEventAndLoad();
-        await pluginEvent.Invoke(new FileDownloadCompleteParam(itemId, "/downloads/anime", "local"));
+        await pluginEvent.InvokeAsync(new FileDownloadCompleteParam(itemId, "/downloads/anime", "local"));
 
         _mockFileRenamer.Verify(
             r => r.RenameAsync(It.IsAny<FileRenameContext>(), It.IsAny<CancellationToken>()),
@@ -154,7 +154,7 @@ public class FileRenamerPluginTests
         var pluginEvent = CreatePluginEventAndLoad();
 
         // Should not throw — the plugin catches exceptions internally
-        await pluginEvent.Invoke(new FileDownloadCompleteParam(itemId, "/downloads/anime", "local"));
+        await pluginEvent.InvokeAsync(new FileDownloadCompleteParam(itemId, "/downloads/anime", "local"));
     }
 
     [TestMethod]
@@ -168,11 +168,11 @@ public class FileRenamerPluginTests
             .Setup(r => r.FindByIdWithAnimationAsync(itemId, CancellationToken.None))
             .ReturnsAsync(info);
         _mockFileStore
-            .Setup(s => s.FileInfo("/downloads/anime"))
+            .Setup(s => s.FileInfoAsync("/downloads/anime", CancellationToken.None))
             .ReturnsAsync(new FileStoreInfo(true, "/downloads/anime", "anime"));
 
         var pluginEvent = CreatePluginEventAndLoad();
-        await pluginEvent.Invoke(new FileDownloadCompleteParam(itemId, "/downloads/anime", "local"));
+        await pluginEvent.InvokeAsync(new FileDownloadCompleteParam(itemId, "/downloads/anime", "local"));
 
         _mockFileRenamer.Verify(
             r => r.RenameAsync(

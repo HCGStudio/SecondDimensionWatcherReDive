@@ -74,11 +74,12 @@ internal class AnimationInfoController(
             return Conflict();
 
         var downloadClient = fileDownloadClientProvider.GetRequiredClient(info.DownloadType);
-        var success = await downloadClient.SubmitDownloadTask(
+        var success = await downloadClient.SubmitDownloadTaskAsync(
             id,
             info.DownloadUrl,
             info.CachedDownloadData,
-            info.AdditionalDownloadInfo);
+            info.AdditionalDownloadInfo,
+            cancellationToken);
 
         if (!success) return BadRequest();
 
@@ -99,8 +100,8 @@ internal class AnimationInfoController(
 
         try
         {
-            return await downloadClient.PauseDownloadTask(id, info.DownloadUrl, info.CachedDownloadData,
-                info.AdditionalDownloadInfo)
+            return await downloadClient.PauseDownloadTaskAsync(id, info.DownloadUrl, info.CachedDownloadData,
+                info.AdditionalDownloadInfo, cancellationToken)
                 ? Ok()
                 : StatusCode(StatusCodes.Status500InternalServerError);
         }
@@ -122,8 +123,8 @@ internal class AnimationInfoController(
 
         try
         {
-            return await downloadClient.ResumeDownloadTask(id, info.DownloadUrl, info.CachedDownloadData,
-                info.AdditionalDownloadInfo)
+            return await downloadClient.ResumeDownloadTaskAsync(id, info.DownloadUrl, info.CachedDownloadData,
+                info.AdditionalDownloadInfo, cancellationToken)
                 ? Ok()
                 : StatusCode(StatusCodes.Status500InternalServerError);
         }
@@ -146,12 +147,13 @@ internal class AnimationInfoController(
             return Conflict();
 
         var downloadClient = fileDownloadClientProvider.GetRequiredClient(info.DownloadType);
-        var result = await downloadClient.CancelDownloadTask(
+        var result = await downloadClient.CancelDownloadTaskAsync(
             id,
             info.DownloadUrl,
             info.CachedDownloadData,
             info.AdditionalDownloadInfo,
-            removeFile);
+            removeFile,
+            cancellationToken);
 
         if (!result.IsSuccess)
             return StatusCode(StatusCodes.Status500InternalServerError);

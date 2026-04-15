@@ -22,7 +22,7 @@ public partial class VideoFileRenamer(
 
     public async Task RenameAsync(FileRenameContext context, CancellationToken cancellationToken)
     {
-        if (!await fileStore.Exist(context.StorePath))
+        if (!await fileStore.ExistAsync(context.StorePath, cancellationToken))
         {
             LogStorePathNotExist(logger, context.StorePath);
             return;
@@ -50,7 +50,7 @@ public partial class VideoFileRenamer(
 
         if (context.Episode != null)
         {
-            await RenameSingleEpisode(videoFiles, allFiles, animationName, context.Season, context.Episode.Value);
+            await RenameSingleEpisode(videoFiles, allFiles, animationName, context.Season, context.Episode.Value, cancellationToken);
         }
         else
         {
@@ -61,7 +61,7 @@ public partial class VideoFileRenamer(
 
     private async Task RenameSingleEpisode(
         List<FileStoreInfo> videoFiles, List<FileStoreInfo> allFiles,
-        string animationName, int season, int episode)
+        string animationName, int season, int episode, CancellationToken cancellationToken)
     {
         // If multiple video files, pick the largest one as the main video
         var target = videoFiles.Count == 1
@@ -74,7 +74,7 @@ public partial class VideoFileRenamer(
 
         if (target.Path != newPath)
         {
-            var success = await fileOperator.Rename(target.Path, newPath);
+            var success = await fileOperator.RenameAsync(target.Path, newPath, cancellationToken);
             if (success)
                 LogRenamed(logger, target.FileName, newName);
             else
@@ -82,7 +82,7 @@ public partial class VideoFileRenamer(
         }
 
         var newBaseName = FormatFileName(animationName, season, episode, "");
-        await RenameMatchingSubtitles(target.FileName, newBaseName, allFiles);
+        await RenameMatchingSubtitles(target.FileName, newBaseName, allFiles, cancellationToken);
     }
 
     private async Task RenameMultipleEpisodes(
@@ -113,7 +113,7 @@ public partial class VideoFileRenamer(
 
             if (file.Path != newPath)
             {
-                var success = await fileOperator.Rename(file.Path, newPath);
+                var success = await fileOperator.RenameAsync(file.Path, newPath, cancellationToken);
                 if (success)
                     LogRenamed(logger, file.FileName, newName);
                 else
@@ -121,7 +121,7 @@ public partial class VideoFileRenamer(
             }
 
             var newBaseName = FormatFileName(animationName, inferredSeason, result.Episode.Value, "");
-            await RenameMatchingSubtitles(file.FileName, newBaseName, allFiles);
+            await RenameMatchingSubtitles(file.FileName, newBaseName, allFiles, cancellationToken);
         }
     }
 
@@ -130,7 +130,7 @@ public partial class VideoFileRenamer(
     ///     to match the new base name, preserving any language suffix (e.g. ".zh.srt", ".chs.ass").
     /// </summary>
     private async Task RenameMatchingSubtitles(
-        string videoFileName, string newBaseName, List<FileStoreInfo> allFiles)
+        string videoFileName, string newBaseName, List<FileStoreInfo> allFiles, CancellationToken cancellationToken)
     {
         var videoBase = Path.GetFileNameWithoutExtension(videoFileName);
 
@@ -156,7 +156,7 @@ public partial class VideoFileRenamer(
 
             if (file.Path == newSubPath) continue;
 
-            var success = await fileOperator.Rename(file.Path, newSubPath);
+            var success = await fileOperator.RenameAsync(file.Path, newSubPath, cancellationToken);
             if (success)
                 LogSubtitleRenamed(logger, file.FileName, newSubName);
             else
