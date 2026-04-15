@@ -1,18 +1,18 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace SecondDimensionWatcherReDive.AI.Serialization;
+namespace SecondDimensionWatcherReDive.AI.External;
 
 // ── Request ──
 
-internal sealed class OpenAiChatRequest
+internal sealed class OpenAIChatRequest
 {
     public required string Model { get; init; }
 
-    public required List<OpenAiMessage> Messages { get; init; }
+    public required List<OpenAIMessage> Messages { get; init; }
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public List<OpenAiTool>? Tools { get; init; }
+    public List<OpenAITool>? Tools { get; init; }
 
     public bool Stream { get; init; } = true;
 
@@ -20,7 +20,7 @@ internal sealed class OpenAiChatRequest
     public int? MaxTokens { get; init; }
 }
 
-internal sealed class OpenAiMessage
+internal sealed class OpenAIMessage
 {
     public required string Role { get; init; }
 
@@ -28,20 +28,20 @@ internal sealed class OpenAiMessage
     public string? Content { get; init; }
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public List<OpenAiToolCallDto>? ToolCalls { get; init; }
+    public List<OpenAIToolCall>? ToolCalls { get; init; }
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? ToolCallId { get; init; }
 }
 
-internal sealed class OpenAiTool
+internal sealed class OpenAITool
 {
     public string Type { get; init; } = "function";
 
-    public required OpenAiFunctionDef Function { get; init; }
+    public required OpenAIFunctionDef Function { get; init; }
 }
 
-internal sealed class OpenAiFunctionDef
+internal sealed class OpenAIFunctionDef
 {
     public required string Name { get; init; }
 
@@ -52,16 +52,16 @@ internal sealed class OpenAiFunctionDef
     public JsonElement? Parameters { get; init; }
 }
 
-internal sealed class OpenAiToolCallDto
+internal sealed class OpenAIToolCall
 {
     public required string Id { get; init; }
 
     public string Type { get; init; } = "function";
 
-    public required OpenAiFunctionCall Function { get; init; }
+    public required OpenAIFunctionCall Function { get; init; }
 }
 
-internal sealed class OpenAiFunctionCall
+internal sealed class OpenAIFunctionCall
 {
     public required string Name { get; init; }
 
@@ -70,32 +70,32 @@ internal sealed class OpenAiFunctionCall
 
 // ── Streaming Response ──
 
-internal sealed class OpenAiChatChunk
+internal sealed class OpenAIChatChunk
 {
     public string? Id { get; set; }
 
-    public List<OpenAiChoice>? Choices { get; set; }
+    public List<OpenAIChoice>? Choices { get; set; }
 }
 
-internal sealed class OpenAiChoice
+internal sealed class OpenAIChoice
 {
     public int Index { get; set; }
 
-    public OpenAiDelta? Delta { get; set; }
+    public OpenAIDelta? Delta { get; set; }
 
     public string? FinishReason { get; set; }
 }
 
-internal sealed class OpenAiDelta
+internal sealed class OpenAIDelta
 {
     public string? Role { get; set; }
 
     public string? Content { get; set; }
 
-    public List<OpenAiToolCallChunk>? ToolCalls { get; set; }
+    public List<OpenAIToolCallChunk>? ToolCalls { get; set; }
 }
 
-internal sealed class OpenAiToolCallChunk
+internal sealed class OpenAIToolCallChunk
 {
     public int Index { get; set; }
 
@@ -103,10 +103,10 @@ internal sealed class OpenAiToolCallChunk
 
     public string? Type { get; set; }
 
-    public OpenAiFunctionCallChunk? Function { get; set; }
+    public OpenAIFunctionCallChunk? Function { get; set; }
 }
 
-internal sealed class OpenAiFunctionCallChunk
+internal sealed class OpenAIFunctionCallChunk
 {
     public string? Name { get; set; }
 
@@ -115,12 +115,12 @@ internal sealed class OpenAiFunctionCallChunk
 
 // ── Models List ──
 
-internal sealed class OpenAiModelsResponse
+internal sealed class OpenAIModelsResponse
 {
-    public List<OpenAiModelDto>? Data { get; set; }
+    public List<OpenAIModelEntry>? Data { get; set; }
 }
 
-internal sealed class OpenAiModelDto
+internal sealed class OpenAIModelEntry
 {
     public string? Id { get; set; }
 

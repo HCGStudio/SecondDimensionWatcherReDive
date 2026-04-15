@@ -3,7 +3,7 @@ using System.Text.Json.Schema;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 
-namespace SecondDimensionWatcherReDive.AI.Models;
+namespace SecondDimensionWatcherReDive.Framework.AI;
 
 public sealed record ToolDefinition(string Name, string Description, JsonElement ParametersSchema)
 {

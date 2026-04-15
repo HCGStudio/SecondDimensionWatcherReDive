@@ -11,7 +11,7 @@ using SecondDimensionWatcherReDive.Inference.AI.Tools;
 namespace SecondDimensionWatcherReDive.Inference.AI.Engines;
 
 public sealed partial class InferenceEngine(
-    IAiEngine aiEngine,
+    IAIEngine aiEngine,
     IServiceProvider serviceProvider,
     IOptions<InferenceOptions> options,
     ILogger<InferenceEngine> logger) : IInferenceEngine

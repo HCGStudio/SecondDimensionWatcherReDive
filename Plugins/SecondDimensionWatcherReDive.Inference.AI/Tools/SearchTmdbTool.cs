@@ -1,5 +1,7 @@
-using SecondDimensionWatcherReDive.AI.Abstractions;
+using System.Text.Json;
 using SecondDimensionWatcherReDive.AI.Models;
+using SecondDimensionWatcherReDive.Framework.AI;
+using SecondDimensionWatcherReDive.Framework.Attributes;
 
 namespace SecondDimensionWatcherReDive.Inference.AI.Tools;
 
@@ -8,10 +10,11 @@ namespace SecondDimensionWatcherReDive.Inference.AI.Tools;
     "Search TMDB (The Movie Database) for an anime by name to get its TMDB ID and metadata.")]
 internal sealed partial class SearchTmdbTool(TmdbTool tmdbTool) : ITool
 {
-    public async Task<IToolExecutionResult> ExecuteCoreAsync(
+    public async Task<IToolResult> ExecuteCoreAsync(
         SearchTmdbParams param, CancellationToken cancellationToken)
     {
         var result = await tmdbTool.SearchAsync(param.Query, cancellationToken);
-        return new ToolStringResult(result);
+        using var doc = JsonDocument.Parse(result);
+        return new ToolSuccessResult<JsonElement>(doc.RootElement.Clone());
     }
 }

@@ -1,4 +1,4 @@
-namespace SecondDimensionWatcherReDive.AI.Models;
+namespace SecondDimensionWatcherReDive.Framework.Attributes;
 
 [AttributeUsage(AttributeTargets.Class, Inherited = false)]
 public sealed class ToolAttribute<TParam>(string name, string description) : Attribute

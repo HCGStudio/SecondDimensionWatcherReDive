@@ -1,3 +1,5 @@
+using SecondDimensionWatcherReDive.Framework.AI;
+
 namespace SecondDimensionWatcherReDive.AI.Abstractions;
 
 public interface IToolExecutorBuilder

@@ -16,7 +16,7 @@ public static class InferenceServiceExtensions
         IConfiguration configuration)
     {
         // Register AI engine (provider selection handled inside)
-        services.AddAiEngine(configuration);
+        services.AddAIEngine(configuration);
 
         // Register inference-specific options
         services.AddOptionsWithValidateOnStart<InferenceOptions, ValidateInferenceOptions>()

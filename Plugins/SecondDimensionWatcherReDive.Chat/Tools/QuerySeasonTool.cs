@@ -1,5 +1,6 @@
-using SecondDimensionWatcherReDive.AI.Abstractions;
 using SecondDimensionWatcherReDive.AI.Models;
+using SecondDimensionWatcherReDive.Framework.AI;
+using SecondDimensionWatcherReDive.Framework.Attributes;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 
 namespace SecondDimensionWatcherReDive.Chat.Tools;
@@ -12,51 +13,70 @@ internal sealed partial class QuerySeasonTool(
     IBangumiSubgroupRepository bangumiSubgroupRepository,
     ISeasonScraper seasonScraper) : ITool
 {
-    private async Task<IToolExecutionResult> ExecuteCoreAsync(
+    private async Task<IToolResult> ExecuteCoreAsync(
         QuerySeasonParams param, CancellationToken cancellationToken)
     {
-        var result = param.Action switch
+        return param.Action switch
         {
-            QuerySeasonAction.CurrentSeason => await QueryCurrentSeasonAsync(cancellationToken),
-            QuerySeasonAction.BrowseSeason => await BrowseSeasonAsync(param, cancellationToken),
+            QuerySeasonAction.CurrentSeason => new ToolSuccessResult<SeasonListResult>(
+                await QueryCurrentSeasonAsync(cancellationToken)),
+            QuerySeasonAction.BrowseSeason => new ToolSuccessResult<SeasonListResult>(
+                await BrowseSeasonAsync(param, cancellationToken)),
             QuerySeasonAction.Subgroups => await QuerySubgroupsAsync(param, cancellationToken),
-            _ => ChatToolHelper.Serialize(new ToolError($"Unknown action: {param.Action}"))
+            _ => new ToolFailureResult($"Unknown action: {param.Action}")
         };
-        return new ToolStringResult(result);
     }
 
-    private async Task<string> QueryCurrentSeasonAsync(CancellationToken cancellationToken)
+    private async Task<SeasonListResult> QueryCurrentSeasonAsync(CancellationToken cancellationToken)
     {
         var bangumis = await seasonBangumiRepository.GetAllOrderedByDayAndTitleAsync(cancellationToken);
-        return ChatToolHelper.Serialize(new SeasonListResult(
+        return new SeasonListResult(
             bangumis.Count,
             bangumis.Select(b => new BangumiSummary(
-                b.Id, b.MikanId, b.Title, b.DayOfWeek, b.ImageUrl))));
+                b.Id, b.MikanId, b.Title, b.DayOfWeek, b.ImageUrl)));
     }
 
-    private async Task<string> BrowseSeasonAsync(QuerySeasonParams param, CancellationToken cancellationToken)
+    private async Task<SeasonListResult> BrowseSeasonAsync(QuerySeasonParams param, CancellationToken cancellationToken)
     {
         if (param.Year is null || param.Season is null)
             return await QueryCurrentSeasonAsync(cancellationToken);
 
         var bangumis = await seasonScraper.ScrapeSeasonAsync(param.Year.Value, param.Season.Value, cancellationToken);
-        return ChatToolHelper.Serialize(new SeasonListResult(
+        return new SeasonListResult(
             bangumis.Count,
-            bangumis.Select(b => new BangumiSummary(b.Id, b.MikanId, b.Title, b.DayOfWeek, b.ImageUrl))));
+            bangumis.Select(b => new BangumiSummary(b.Id, b.MikanId, b.Title, b.DayOfWeek, b.ImageUrl)));
     }
 
-    private async Task<string> QuerySubgroupsAsync(QuerySeasonParams param, CancellationToken cancellationToken)
+    private async Task<IToolResult> QuerySubgroupsAsync(QuerySeasonParams param, CancellationToken cancellationToken)
     {
         if (param.MikanId is null)
-            return ChatToolHelper.Serialize(new ToolError("mikan_id is required"));
+            return new ToolFailureResult("mikan_id is required");
 
         var bangumi = await seasonBangumiRepository.FindByMikanIdAsync(param.MikanId.Value, cancellationToken);
         if (bangumi is null)
-            return ChatToolHelper.Serialize(new ToolError("Bangumi not found"));
+            return new ToolFailureResult("Bangumi not found");
 
         var subgroups = await bangumiSubgroupRepository.GetBySeasonBangumiIdAsync(bangumi.Id, cancellationToken);
-        return ChatToolHelper.Serialize(new SubgroupListResult(
+        return new ToolSuccessResult<SubgroupListResult>(new SubgroupListResult(
             bangumi.Title,
             subgroups.Select(s => new SubgroupSummary(s.MikanSubgroupId, s.Name))));
     }
 }
+
+internal enum QuerySeasonAction
+{
+    CurrentSeason,
+    BrowseSeason,
+    Subgroups
+}
+
+internal sealed record QuerySeasonParams(
+    QuerySeasonAction Action,
+    int? Year = null,
+    AnimeSeason? Season = null,
+    int? MikanId = null);
+
+internal sealed record SeasonListResult(int Count, IEnumerable<BangumiSummary> Bangumis);
+internal sealed record BangumiSummary(Guid Id, int MikanId, string Title, int DayOfWeek, string? ImageUrl);
+internal sealed record SubgroupListResult(string BangumiTitle, IEnumerable<SubgroupSummary> Subgroups);
+internal sealed record SubgroupSummary(int MikanSubgroupId, string Name);

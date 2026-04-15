@@ -2,9 +2,9 @@ using SecondDimensionWatcherReDive.AI.Models;
 
 namespace SecondDimensionWatcherReDive.AI.Abstractions;
 
-public interface IAiEngine
+public interface IAIEngine
 {
-    Task<IReadOnlyList<AiModel>> GetAvailableModelsAsync(CancellationToken cancellationToken);
+    Task<IReadOnlyList<AIModel>> GetAvailableModelsAsync(CancellationToken cancellationToken);
 
     IAsyncEnumerable<IChatUpdate> ChatAsync(
         IReadOnlyList<IMessage> messages,

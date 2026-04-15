@@ -1,5 +1,6 @@
-using SecondDimensionWatcherReDive.AI.Abstractions;
 using SecondDimensionWatcherReDive.AI.Models;
+using SecondDimensionWatcherReDive.Framework.AI;
+using SecondDimensionWatcherReDive.Framework.Attributes;
 using SecondDimensionWatcherReDive.Framework.Tasks;
 
 namespace SecondDimensionWatcherReDive.Chat.Tools;
@@ -10,16 +11,16 @@ namespace SecondDimensionWatcherReDive.Chat.Tools;
 internal sealed partial class ManageTasksTool(
     IEnumerable<IScheduledTask> scheduledTasks) : ITool
 {
-    private Task<IToolExecutionResult> ExecuteCoreAsync(
+    private Task<IToolResult> ExecuteCoreAsync(
         ManageTasksParams param, CancellationToken cancellationToken)
     {
         var taskList = scheduledTasks.ToList();
 
-        string result;
+        IToolResult result;
         switch (param.Action)
         {
             case ManageTasksAction.List:
-                result = ChatToolHelper.Serialize(new TaskListResult(
+                result = new ToolSuccessResult<TaskListResult>(new TaskListResult(
                     taskList.Select(t => new TaskSummary(
                         t.Id, t.Interval.ToString(), t.IsEnabled, t.LastRunAt, t.IsRunning))));
                 break;
@@ -28,7 +29,7 @@ internal sealed partial class ManageTasksTool(
             {
                 if (string.IsNullOrEmpty(param.TaskId))
                 {
-                    result = ChatToolHelper.Serialize(new ToolError("task_id is required"));
+                    result = new ToolFailureResult("task_id is required");
                     break;
                 }
 
@@ -36,20 +37,35 @@ internal sealed partial class ManageTasksTool(
                     string.Equals(t.Id, param.TaskId, StringComparison.OrdinalIgnoreCase));
                 if (task is null)
                 {
-                    result = ChatToolHelper.Serialize(new ToolError($"Task '{param.TaskId}' not found"));
+                    result = new ToolFailureResult($"Task '{param.TaskId}' not found");
                     break;
                 }
 
                 task.Enqueue();
-                result = ChatToolHelper.Serialize(new TaskRunResult(true, $"Task '{param.TaskId}' has been enqueued"));
+                result = new ToolSuccessResult<TaskRunResult>(
+                    new TaskRunResult(true, $"Task '{param.TaskId}' has been enqueued"));
                 break;
             }
 
             default:
-                result = ChatToolHelper.Serialize(new ToolError($"Unknown action: {param.Action}"));
+                result = new ToolFailureResult($"Unknown action: {param.Action}");
                 break;
         }
 
-        return Task.FromResult<IToolExecutionResult>(new ToolStringResult(result));
+        return Task.FromResult(result);
     }
 }
+
+internal enum ManageTasksAction
+{
+    List,
+    Run
+}
+
+internal sealed record ManageTasksParams(
+    ManageTasksAction Action,
+    string? TaskId = null);
+
+internal sealed record TaskListResult(IEnumerable<TaskSummary> Tasks);
+internal sealed record TaskSummary(string Id, string Interval, bool IsEnabled, DateTimeOffset? LastRunAt, bool IsRunning);
+internal sealed record TaskRunResult(bool Success, string Message);

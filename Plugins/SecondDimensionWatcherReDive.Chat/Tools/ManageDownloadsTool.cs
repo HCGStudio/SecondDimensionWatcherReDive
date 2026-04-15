@@ -1,5 +1,6 @@
-using SecondDimensionWatcherReDive.AI.Abstractions;
 using SecondDimensionWatcherReDive.AI.Models;
+using SecondDimensionWatcherReDive.Framework.AI;
+using SecondDimensionWatcherReDive.Framework.Attributes;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Framework.FileDownload;
 
@@ -12,36 +13,35 @@ internal sealed partial class ManageDownloadsTool(
     IAnimationInfoRepository animationInfoRepository,
     IFileDownloadClientProvider fileDownloadClientProvider) : ITool
 {
-    private async Task<IToolExecutionResult> ExecuteCoreAsync(
+    private async Task<IToolResult> ExecuteCoreAsync(
         ManageDownloadsParams param, CancellationToken cancellationToken)
     {
         if (!Guid.TryParse(param.AnimationId, out var animationId))
-            return new ToolStringResult(ChatToolHelper.Serialize(new ToolError("Invalid or missing animation_id")), false);
+            return new ToolFailureResult("Invalid or missing animation_id");
 
         var info = await animationInfoRepository.FindByIdAsync(animationId, cancellationToken);
         if (info is null)
-            return new ToolStringResult(ChatToolHelper.Serialize(new ToolError("Animation not found")), false);
+            return new ToolFailureResult("Animation not found");
 
         var client = fileDownloadClientProvider.GetClient(info.DownloadType);
         if (client is null)
-            return new ToolStringResult(ChatToolHelper.Serialize(new ToolError($"No download client for type: {info.DownloadType}")), false);
+            return new ToolFailureResult($"No download client for type: {info.DownloadType}");
 
-        var result = param.Action switch
+        return param.Action switch
         {
             ManageDownloadsAction.Start => await StartDownloadAsync(info, client, cancellationToken),
             ManageDownloadsAction.Pause => await PauseDownloadAsync(info, client, cancellationToken),
             ManageDownloadsAction.Resume => await ResumeDownloadAsync(info, client, cancellationToken),
             ManageDownloadsAction.Cancel => await CancelDownloadAsync(info, client, param.RemoveFile ?? false, cancellationToken),
-            _ => ChatToolHelper.Serialize(new ToolError($"Unknown action: {param.Action}"))
+            _ => new ToolFailureResult($"Unknown action: {param.Action}")
         };
-        return new ToolStringResult(result);
     }
 
-    private async Task<string> StartDownloadAsync(
+    private async Task<IToolResult> StartDownloadAsync(
         AnimationInfo info, IFileDownloadClient client, CancellationToken cancellationToken)
     {
         if (info.IsDownloadTracked)
-            return ChatToolHelper.Serialize(new ToolError("Download already tracked"));
+            return new ToolFailureResult("Download already tracked");
 
         await client.SubmitDownloadTaskAsync(info.Id, info.DownloadUrl, info.CachedDownloadData,
             info.AdditionalDownloadInfo, cancellationToken);
@@ -53,24 +53,26 @@ internal sealed partial class ManageDownloadsTool(
         };
         await animationInfoRepository.UpdateAsync(updated, cancellationToken);
 
-        return ChatToolHelper.Serialize(new ToolSuccess(true, "Download started"));
+        return new ToolSuccessResult<string>("Download started");
     }
 
-    private async Task<string> PauseDownloadAsync(AnimationInfo info, IFileDownloadClient client, CancellationToken cancellationToken)
+    private async Task<IToolResult> PauseDownloadAsync(
+        AnimationInfo info, IFileDownloadClient client, CancellationToken cancellationToken)
     {
-        var result = await client.PauseDownloadTaskAsync(info.Id, info.DownloadUrl,
+        var success = await client.PauseDownloadTaskAsync(info.Id, info.DownloadUrl,
             info.CachedDownloadData, info.AdditionalDownloadInfo, cancellationToken);
-        return ChatToolHelper.Serialize(new ToolSuccess(result));
+        return new ToolSuccessResult<bool>(success);
     }
 
-    private async Task<string> ResumeDownloadAsync(AnimationInfo info, IFileDownloadClient client, CancellationToken cancellationToken)
+    private async Task<IToolResult> ResumeDownloadAsync(
+        AnimationInfo info, IFileDownloadClient client, CancellationToken cancellationToken)
     {
-        var result = await client.ResumeDownloadTaskAsync(info.Id, info.DownloadUrl,
+        var success = await client.ResumeDownloadTaskAsync(info.Id, info.DownloadUrl,
             info.CachedDownloadData, info.AdditionalDownloadInfo, cancellationToken);
-        return ChatToolHelper.Serialize(new ToolSuccess(result));
+        return new ToolSuccessResult<bool>(success);
     }
 
-    private async Task<string> CancelDownloadAsync(
+    private async Task<IToolResult> CancelDownloadAsync(
         AnimationInfo info, IFileDownloadClient client, bool removeFile, CancellationToken cancellationToken)
     {
         var result = await client.CancelDownloadTaskAsync(info.Id, info.DownloadUrl,
@@ -86,6 +88,19 @@ internal sealed partial class ManageDownloadsTool(
             await animationInfoRepository.UpdateAsync(updated, cancellationToken);
         }
 
-        return ChatToolHelper.Serialize(new ToolSuccess(result.IsSuccess));
+        return new ToolSuccessResult<bool>(result.IsSuccess);
     }
 }
+
+internal enum ManageDownloadsAction
+{
+    Start,
+    Pause,
+    Resume,
+    Cancel
+}
+
+internal sealed record ManageDownloadsParams(
+    ManageDownloadsAction Action,
+    string AnimationId,
+    bool? RemoveFile = null);

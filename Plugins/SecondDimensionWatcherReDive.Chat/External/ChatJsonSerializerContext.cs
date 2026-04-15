@@ -11,8 +11,8 @@ namespace SecondDimensionWatcherReDive.Chat.External;
 [JsonSerializable(typeof(ChatConversationSummary))]
 [JsonSerializable(typeof(IReadOnlyList<ChatConversationSummary>))]
 [JsonSerializable(typeof(ChatConversationDetail))]
-[JsonSerializable(typeof(IReadOnlyList<AiModel>))]
-[JsonSerializable(typeof(AiModel[]))]
+[JsonSerializable(typeof(IReadOnlyList<AIModel>))]
+[JsonSerializable(typeof(AIModel[]))]
 // SSE event types (serialized via JsonSerializer.Serialize with typed JsonTypeInfo)
 [JsonSerializable(typeof(SseTextDelta))]
 [JsonSerializable(typeof(SseToolCallBegin))]

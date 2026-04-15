@@ -2,7 +2,7 @@ using System.ComponentModel.DataAnnotations;
 
 namespace SecondDimensionWatcherReDive.AI.Configuration;
 
-public sealed class OpenAiOptions
+public sealed class OpenAIOptions
 {
     public const string SectionName = "AI:OpenAI";
 

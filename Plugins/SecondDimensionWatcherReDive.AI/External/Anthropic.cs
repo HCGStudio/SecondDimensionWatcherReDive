@@ -1,7 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace SecondDimensionWatcherReDive.AI.Serialization;
+namespace SecondDimensionWatcherReDive.AI.External;
 
 // ── Request ──
 
@@ -142,12 +142,12 @@ internal sealed class AnthropicMessageDeltaData
 
 internal sealed class AnthropicModelsResponse
 {
-    public List<AnthropicModelDto>? Data { get; set; }
+    public List<AnthropicModelEntry>? Data { get; set; }
 
     public bool HasMore { get; set; }
 }
 
-internal sealed class AnthropicModelDto
+internal sealed class AnthropicModelEntry
 {
     public string? Id { get; set; }
 

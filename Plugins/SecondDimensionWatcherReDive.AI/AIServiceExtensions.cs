@@ -4,12 +4,13 @@ using Microsoft.Extensions.Options;
 using SecondDimensionWatcherReDive.AI.Abstractions;
 using SecondDimensionWatcherReDive.AI.Configuration;
 using SecondDimensionWatcherReDive.AI.Engines;
+using SecondDimensionWatcherReDive.AI.Providers;
 
 namespace SecondDimensionWatcherReDive.AI;
 
-public static class AiServiceExtensions
+public static class AIServiceExtensions
 {
-    public static IServiceCollection AddAiEngine(
+    public static IServiceCollection AddAIEngine(
         this IServiceCollection services,
         IConfiguration configuration)
     {
@@ -23,7 +24,7 @@ public static class AiServiceExtensions
             services.AddOptionsWithValidateOnStart<AnthropicOptions, ValidateAnthropicOptions>()
                 .BindConfiguration(AnthropicOptions.SectionName);
 
-            services.AddHttpClient("AnthropicAi", (sp, client) =>
+            services.AddHttpClient("AnthropicAI", (sp, client) =>
             {
                 var opts = sp.GetRequiredService<IOptions<AnthropicOptions>>().Value;
                 client.BaseAddress = new(opts.BaseUrl.TrimEnd('/') + "/");
@@ -31,23 +32,25 @@ public static class AiServiceExtensions
                 client.DefaultRequestHeaders.Add("anthropic-version", opts.ApiVersion);
             });
 
-            services.AddScoped<IAiEngine, AnthropicCompatibleEngine>();
+            services.AddScoped<IAIProvider, AnthropicProvider>();
         }
         else
         {
-            services.AddOptionsWithValidateOnStart<OpenAiOptions, ValidateOpenAiOptions>()
-                .BindConfiguration(OpenAiOptions.SectionName);
+            services.AddOptionsWithValidateOnStart<OpenAIOptions, ValidateOpenAIOptions>()
+                .BindConfiguration(OpenAIOptions.SectionName);
 
-            services.AddHttpClient("OpenAi", (sp, client) =>
+            services.AddHttpClient("OpenAI", (sp, client) =>
             {
-                var opts = sp.GetRequiredService<IOptions<OpenAiOptions>>().Value;
+                var opts = sp.GetRequiredService<IOptions<OpenAIOptions>>().Value;
                 client.BaseAddress = new(opts.BaseUrl.TrimEnd('/') + "/");
                 client.DefaultRequestHeaders.Authorization =
                     new("Bearer", opts.ApiKey);
             });
 
-            services.AddScoped<IAiEngine, OpenAiCompatibleEngine>();
+            services.AddScoped<IAIProvider, OpenAIProvider>();
         }
+
+        services.AddScoped<IAIEngine, AIEngine>();
 
         return services;
     }

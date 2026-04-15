@@ -30,7 +30,7 @@ internal sealed partial class ChatController(
     [HttpGet("status")]
     public ChatStatusResponse GetStatus()
     {
-        var aiEngine = serviceProvider.GetService<IAiEngine>();
+        var aiEngine = serviceProvider.GetService<IAIEngine>();
         var provider = serviceProvider.GetService<IConfiguration>()?["AI:Provider"];
         LogStatusCheck(provider, aiEngine is not null);
         return new ChatStatusResponse(aiEngine is not null, provider);
@@ -39,7 +39,7 @@ internal sealed partial class ChatController(
     [HttpGet("models")]
     public async Task<IActionResult> GetModels(CancellationToken cancellationToken)
     {
-        var aiEngine = serviceProvider.GetService<IAiEngine>();
+        var aiEngine = serviceProvider.GetService<IAIEngine>();
         if (aiEngine is null)
             return StatusCode(503);
 
@@ -52,7 +52,7 @@ internal sealed partial class ChatController(
         catch (Exception ex)
         {
             LogModelsFetchFailed(ex);
-            return Ok(Array.Empty<AiModel>());
+            return Ok(Array.Empty<AIModel>());
         }
     }
 
@@ -112,7 +112,7 @@ internal sealed partial class ChatController(
         [FromBody] SendMessageRequest request,
         CancellationToken cancellationToken)
     {
-        var aiEngine = serviceProvider.GetService<IAiEngine>();
+        var aiEngine = serviceProvider.GetService<IAIEngine>();
         if (aiEngine is null)
             return TypedResults.StatusCode(503);
 
@@ -172,7 +172,7 @@ internal sealed partial class ChatController(
     }
 
     private async IAsyncEnumerable<SseItem<string>> StreamChatEvents(
-        IAiEngine aiEngine,
+        IAIEngine aiEngine,
         List<IMessage> messages,
         ChatOptions chatOptions,
         Guid conversationId,
@@ -194,7 +194,7 @@ internal sealed partial class ChatController(
     }
 
     private async Task ProduceChatEventsAsync(
-        IAiEngine aiEngine,
+        IAIEngine aiEngine,
         List<IMessage> messages,
         ChatOptions chatOptions,
         Guid conversationId,
@@ -258,15 +258,16 @@ internal sealed partial class ChatController(
                         var toolName = currentToolCalls.TryGetValue(toolResult.ToolCallId, out var tcBuilder)
                             ? tcBuilder.Name
                             : null;
-                        LogToolResult(conversationId, toolName, toolResult.ToolCallId, toolResult.Result.Length);
+                        var resultText = toolResult.Result.GetRawText();
+                        LogToolResult(conversationId, toolName, toolResult.ToolCallId, resultText.Length);
                         currentToolResults.Add(new ChatMessageRecord(
-                            Guid.NewGuid(), "tool", toolResult.Result, null,
+                            Guid.NewGuid(), "tool", resultText, null,
                             toolResult.ToolCallId, toolName,
                             0, DateTimeOffset.Now)); // Order assigned during flush
                         hasToolResults = true;
                         await writer.WriteAsync(
                             new SseItem<string>(
-                                JsonSerializer.Serialize(new SseToolResult(toolResult.ToolCallId, toolName ?? "", toolResult.Result),
+                                JsonSerializer.Serialize(new SseToolResult(toolResult.ToolCallId, toolName ?? "", resultText),
                                     ChatJsonSerializerContext.Default.SseToolResult),
                                 "tool_result"),
                             cancellationToken);

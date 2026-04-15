@@ -8,7 +8,7 @@ namespace SecondDimensionWatcherReDive.Analyzers;
 [Generator]
 public sealed class ToolGenerator : IIncrementalGenerator
 {
-    private const string ToolAttributeMetadataName = "SecondDimensionWatcherReDive.AI.Models.ToolAttribute`1";
+    private const string ToolAttributeMetadataName = "SecondDimensionWatcherReDive.Framework.Attributes.ToolAttribute`1";
 
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
@@ -39,9 +39,7 @@ public sealed class ToolGenerator : IIncrementalGenerator
         }
 
         if (!isPartial)
-        {
             return null;
-        }
 
         // Get the attribute data
         var attributeData = context.Attributes[0];
@@ -117,8 +115,8 @@ public sealed class ToolGenerator : IIncrementalGenerator
         sb.AppendLine("{");
 
         // Generate static Definition property
-        sb.AppendLine("    public static global::SecondDimensionWatcherReDive.AI.Models.ToolDefinition Definition { get; } =");
-        sb.Append("        global::SecondDimensionWatcherReDive.AI.Models.ToolDefinition.Create<");
+        sb.AppendLine("    public static global::SecondDimensionWatcherReDive.Framework.AI.ToolDefinition Definition { get; } =");
+        sb.Append("        global::SecondDimensionWatcherReDive.Framework.AI.ToolDefinition.Create<");
         sb.Append(info.ParamTypeFqn);
         sb.AppendLine(">(");
         sb.Append("            \"");
@@ -128,8 +126,8 @@ public sealed class ToolGenerator : IIncrementalGenerator
         sb.AppendLine("\");");
         sb.AppendLine();
 
-        // Generate ExecuteAsync method
-        sb.AppendLine("    public async global::System.Threading.Tasks.Task<global::SecondDimensionWatcherReDive.AI.Abstractions.IToolExecutionResult> ExecuteAsync(");
+        // Generate ExecuteAsync method — param deserialization only, no result serialization
+        sb.AppendLine("    public async global::System.Threading.Tasks.Task<global::SecondDimensionWatcherReDive.Framework.AI.IToolResult> ExecuteAsync(");
         sb.AppendLine("        global::System.Text.Json.JsonElement arguments,");
         sb.AppendLine("        global::System.Threading.CancellationToken cancellationToken)");
         sb.AppendLine("    {");
@@ -137,9 +135,9 @@ public sealed class ToolGenerator : IIncrementalGenerator
         sb.Append(info.ParamTypeFqn);
         sb.AppendLine(">(");
         sb.AppendLine("            arguments,");
-        sb.AppendLine("            global::SecondDimensionWatcherReDive.AI.Models.ToolJsonOptions.ParameterOptions);");
+        sb.AppendLine("            global::SecondDimensionWatcherReDive.AI.Models.ToolJsonOptions.Options);");
         sb.AppendLine("        if (param is null)");
-        sb.Append("            return new global::SecondDimensionWatcherReDive.AI.Models.ToolErrorResult(\"Failed to deserialize parameters for tool '");
+        sb.Append("            return new global::SecondDimensionWatcherReDive.AI.Models.ToolFailureResult(\"Failed to deserialize parameters for tool '");
         sb.Append(escapedName);
         sb.AppendLine("'\");");
         sb.AppendLine("        return await ExecuteCoreAsync(param, cancellationToken);");

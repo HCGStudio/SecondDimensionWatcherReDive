@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace SecondDimensionWatcherReDive.AI.Serialization;
+namespace SecondDimensionWatcherReDive.AI.External;
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower)]
 [JsonSerializable(typeof(AnthropicMessagesRequest))]
