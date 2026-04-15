@@ -13,6 +13,7 @@ COPY SecondDimensionWatcherReDive.slnx .
 COPY SecondDimensionWatcherReDive.Framework/ SecondDimensionWatcherReDive.Framework/
 COPY SecondDimensionWatcherReDive/ SecondDimensionWatcherReDive/
 COPY Plugins/ Plugins/
+COPY Share/ Share/
 COPY --from=frontend-build /app/dist SecondDimensionWatcherReDive/wwwroot/
 RUN dotnet restore SecondDimensionWatcherReDive/SecondDimensionWatcherReDive.csproj
 RUN dotnet publish SecondDimensionWatcherReDive/SecondDimensionWatcherReDive.csproj -c Release -o /app --no-restore
