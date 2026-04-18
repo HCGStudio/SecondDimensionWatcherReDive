@@ -15,8 +15,6 @@ public class FileRenamerPluginTests
 {
     private Mock<IAnimationInfoRepository> _mockAnimationInfoRepo = null!;
     private Mock<IFileRenamer> _mockFileRenamer = null!;
-    private Mock<IFileStoreProvider> _mockFileStoreProvider = null!;
-    private Mock<IFileStore> _mockFileStore = null!;
     private Mock<IServiceScopeFactory> _mockScopeFactory = null!;
     private FileRenamerPlugin _plugin = null!;
 
@@ -28,12 +26,6 @@ public class FileRenamerPluginTests
     {
         _mockAnimationInfoRepo = new Mock<IAnimationInfoRepository>();
         _mockFileRenamer = new Mock<IFileRenamer>();
-        _mockFileStoreProvider = new Mock<IFileStoreProvider>();
-        _mockFileStore = new Mock<IFileStore>();
-
-        _mockFileStoreProvider
-            .Setup(p => p.GetRequiredClient(It.IsAny<string>()))
-            .Returns(_mockFileStore.Object);
 
         var mockScope = new Mock<IServiceScope>();
         _mockScopeFactory = new Mock<IServiceScopeFactory>();
@@ -47,9 +39,6 @@ public class FileRenamerPluginTests
         mockScopeServiceProvider
             .Setup(p => p.GetService(typeof(IFileRenamer)))
             .Returns(_mockFileRenamer.Object);
-        mockScopeServiceProvider
-            .Setup(p => p.GetService(typeof(IFileStoreProvider)))
-            .Returns(_mockFileStoreProvider.Object);
 
         _plugin = new FileRenamerPlugin(
             _mockScopeFactory.Object,
@@ -66,16 +55,13 @@ public class FileRenamerPluginTests
         _mockAnimationInfoRepo
             .Setup(r => r.FindByIdWithAnimationAsync(itemId, CancellationToken.None))
             .ReturnsAsync(info);
-        _mockFileStore
-            .Setup(s => s.FileInfoAsync("/downloads/anime", CancellationToken.None))
-            .ReturnsAsync(new FileStoreInfo(true, "/downloads/anime", "anime"));
 
         var pluginEvent = CreatePluginEventAndLoad();
         await pluginEvent.InvokeAsync(new FileDownloadCompleteParam(itemId, "/downloads/anime", "local"));
 
         _mockFileRenamer.Verify(
             r => r.RenameAsync(
-                It.Is<FileRenameContext>(c =>
+                It.Is<FileRenameRequest>(c =>
                     c.AnimationName == "My Anime" &&
                     c.Season == 1 &&
                     c.Episode == 5 &&
@@ -98,7 +84,10 @@ public class FileRenamerPluginTests
         await pluginEvent.InvokeAsync(new FileDownloadCompleteParam(itemId, "/downloads/anime", "local"));
 
         _mockFileRenamer.Verify(
-            r => r.RenameAsync(It.IsAny<FileRenameContext>(), It.IsAny<CancellationToken>()),
+            r => r.RenameAsync(It.IsAny<FileRenameRequest>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        _mockFileRenamer.Verify(
+            r => r.RenameMultipleAsync(It.IsAny<MultipleFileRenameRequest>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
 
@@ -116,7 +105,10 @@ public class FileRenamerPluginTests
         await pluginEvent.InvokeAsync(new FileDownloadCompleteParam(itemId, "/downloads/anime", "local"));
 
         _mockFileRenamer.Verify(
-            r => r.RenameAsync(It.IsAny<FileRenameContext>(), It.IsAny<CancellationToken>()),
+            r => r.RenameAsync(It.IsAny<FileRenameRequest>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        _mockFileRenamer.Verify(
+            r => r.RenameMultipleAsync(It.IsAny<MultipleFileRenameRequest>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
 
@@ -133,7 +125,10 @@ public class FileRenamerPluginTests
         await pluginEvent.InvokeAsync(new FileDownloadCompleteParam(itemId, "/downloads/anime", "local"));
 
         _mockFileRenamer.Verify(
-            r => r.RenameAsync(It.IsAny<FileRenameContext>(), It.IsAny<CancellationToken>()),
+            r => r.RenameAsync(It.IsAny<FileRenameRequest>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        _mockFileRenamer.Verify(
+            r => r.RenameMultipleAsync(It.IsAny<MultipleFileRenameRequest>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
 
@@ -148,7 +143,7 @@ public class FileRenamerPluginTests
             .Setup(r => r.FindByIdWithAnimationAsync(itemId, CancellationToken.None))
             .ReturnsAsync(info);
         _mockFileRenamer
-            .Setup(r => r.RenameAsync(It.IsAny<FileRenameContext>(), It.IsAny<CancellationToken>()))
+            .Setup(r => r.RenameAsync(It.IsAny<FileRenameRequest>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new InvalidOperationException("Rename failed"));
 
         var pluginEvent = CreatePluginEventAndLoad();
@@ -167,18 +162,42 @@ public class FileRenamerPluginTests
         _mockAnimationInfoRepo
             .Setup(r => r.FindByIdWithAnimationAsync(itemId, CancellationToken.None))
             .ReturnsAsync(info);
-        _mockFileStore
-            .Setup(s => s.FileInfoAsync("/downloads/anime", CancellationToken.None))
-            .ReturnsAsync(new FileStoreInfo(true, "/downloads/anime", "anime"));
 
         var pluginEvent = CreatePluginEventAndLoad();
         await pluginEvent.InvokeAsync(new FileDownloadCompleteParam(itemId, "/downloads/anime", "local"));
 
         _mockFileRenamer.Verify(
             r => r.RenameAsync(
-                It.Is<FileRenameContext>(c => c.Season == 1),
+                It.Is<FileRenameRequest>(c => c.Season == 1),
                 CancellationToken.None),
             Times.Once);
+    }
+
+    [TestMethod]
+    public async Task OnDownloadCompleted_EpisodeNull_CallsRenameMultipleAsync()
+    {
+        var itemId = Guid.NewGuid();
+        var info = CreateTestInfo(itemId, season: 1, episode: null, storePath: "/downloads/anime",
+            fileStore: "local", animation: TestAnimation);
+
+        _mockAnimationInfoRepo
+            .Setup(r => r.FindByIdWithAnimationAsync(itemId, CancellationToken.None))
+            .ReturnsAsync(info);
+
+        var pluginEvent = CreatePluginEventAndLoad();
+        await pluginEvent.InvokeAsync(new FileDownloadCompleteParam(itemId, "/downloads/anime", "local"));
+
+        _mockFileRenamer.Verify(
+            r => r.RenameMultipleAsync(
+                It.Is<MultipleFileRenameRequest>(c =>
+                    c.AnimationName == "My Anime" &&
+                    c.Season == 1 &&
+                    c.Path == "/downloads/anime"),
+                CancellationToken.None),
+            Times.Once);
+        _mockFileRenamer.Verify(
+            r => r.RenameAsync(It.IsAny<FileRenameRequest>(), It.IsAny<CancellationToken>()),
+            Times.Never);
     }
 
     [TestMethod]

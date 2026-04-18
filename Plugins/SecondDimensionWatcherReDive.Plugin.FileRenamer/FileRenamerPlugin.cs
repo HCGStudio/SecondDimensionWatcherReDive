@@ -22,7 +22,6 @@ public partial class FileRenamerPlugin(IServiceScopeFactory scopeFactory, ILogge
 
         var animationInfoRepository = scope.ServiceProvider.GetRequiredService<IAnimationInfoRepository>();
         var fileRenamer = scope.ServiceProvider.GetRequiredService<IFileRenamer>();
-        var fileStoreProvider = scope.ServiceProvider.GetRequiredService<IFileStoreProvider>();
 
         var info = await animationInfoRepository.FindByIdWithAnimationAsync(param.ItemId, cancellationToken);
         if (info?.Animation is null || info.StorePath is null)
@@ -31,53 +30,38 @@ public partial class FileRenamerPlugin(IServiceScopeFactory scopeFactory, ILogge
             return;
         }
 
-        var fileStore = fileStoreProvider.GetRequiredClient(info.FileStore!);
-
         LogStartingFileRename(logger, param.ItemId, info.Animation.Name, info.Season, info.Episode, info.StorePath);
 
         try
         {
-            var context = new FileRenameContext(
-                AnimationName: info.Animation.Name,
-                Season: info.Season ?? 1,
-                Episode: info.Episode,
-                OriginalTitle: info.Title,
-                StorePath: info.StorePath);
-
-            await fileRenamer.RenameAsync(context, cancellationToken);
-            LogFileRenameCompleted(logger, param.ItemId);
-
-            // If StorePath is a single file (not a directory), update it to the new path after rename
-            var fileInfo = await fileStore.FileInfoAsync(info.StorePath, cancellationToken);
-            if (!fileInfo.IsDirectory && info.Season is not null && info.Episode is not null)
+            if (info.Episode is not null)
             {
-                var dir = Path.GetDirectoryName(fileInfo.Path)!;
-                var ext = Path.GetExtension(fileInfo.Path);
-                var newName = $"{SanitizeFileName(info.Animation.Name)} S{info.Season:D2}E{info.Episode:D2}{ext}";
-                var newPath = Path.Combine(dir, newName);
+                var request = new FileRenameRequest(
+                    AnimationName: info.Animation.Name,
+                    Season: info.Season ?? 1,
+                    Episode: info.Episode.Value,
+                    StorePath: info.StorePath,
+                    AnimationInfo: info);
 
-                if (File.Exists(newPath))
-                {
-                    var updatedInfo = info with { StorePath = newPath };
-                    await animationInfoRepository.UpdateAsync(updatedInfo, cancellationToken);
-                    LogStorePathUpdated(logger, param.ItemId, newPath);
-                }
-                else
-                {
-                    LogStorePathUpdateSkipped(logger, param.ItemId, newPath);
-                }
+                await fileRenamer.RenameAsync(request, cancellationToken);
             }
+            else
+            {
+                var request = new MultipleFileRenameRequest(
+                    AnimationName: info.Animation.Name,
+                    Season: info.Season ?? 1,
+                    OriginalTitle: info.Title,
+                    Path: info.StorePath);
+
+                await fileRenamer.RenameMultipleAsync(request, cancellationToken);
+            }
+
+            LogFileRenameCompleted(logger, param.ItemId);
         }
         catch (Exception ex)
         {
             LogFileRenameFailed(logger, ex, param.ItemId);
         }
-    }
-
-    private static string SanitizeFileName(string name)
-    {
-        var invalid = Path.GetInvalidFileNameChars();
-        return string.Concat(name.Select(c => invalid.Contains(c) ? '_' : c));
     }
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Starting file rename for {ItemId}: animation={AnimationName}, S{Season}E{Episode}, storePath={StorePath}")]
@@ -91,10 +75,4 @@ public partial class FileRenamerPlugin(IServiceScopeFactory scopeFactory, ILogge
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Rename skipped for {ItemId}: animationNull={AnimationNull}, storePathNull={StorePathNull}")]
     private static partial void LogRenameSkipped(ILogger logger, Guid itemId, bool animationNull, bool storePathNull);
-
-    [LoggerMessage(Level = LogLevel.Information, Message = "Updated StorePath for {ItemId} after rename: {NewPath}")]
-    private static partial void LogStorePathUpdated(ILogger logger, Guid itemId, string newPath);
-
-    [LoggerMessage(Level = LogLevel.Debug, Message = "StorePath update skipped for {ItemId}: new path does not exist: {NewPath}")]
-    private static partial void LogStorePathUpdateSkipped(ILogger logger, Guid itemId, string newPath);
 }

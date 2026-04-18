@@ -1,14 +1,25 @@
+using SecondDimensionWatcherReDive.Framework.DataRepository;
+
 namespace SecondDimensionWatcherReDive.Framework.FileStore;
 
 /// <summary>
-///     Data needed to rename downloaded video files.
+///     Request for renaming a single-episode download.
 /// </summary>
-public record FileRenameContext(
+public record FileRenameRequest(
     string AnimationName,
     int Season,
-    int? Episode,
+    int Episode,
+    string StorePath,
+    AnimationInfo AnimationInfo);
+
+/// <summary>
+///     Request for renaming multiple-episode downloads using AI inference.
+/// </summary>
+public record MultipleFileRenameRequest(
+    string AnimationName,
+    int Season,
     string OriginalTitle,
-    string StorePath);
+    string Path);
 
 /// <summary>
 ///     Interface for renaming downloaded video files to a standardized naming format.
@@ -16,7 +27,14 @@ public record FileRenameContext(
 public interface IFileRenamer
 {
     /// <summary>
-    ///     Renames video files to the "Name SxxEyy" format.
+    ///     Renames a single-episode video file to the "Name SxxEyy [tag]" format.
+    ///     For file-backed stores, also updates <see cref="AnimationInfo.StorePath" /> to the new path.
     /// </summary>
-    Task RenameAsync(FileRenameContext context, CancellationToken cancellationToken);
+    Task RenameAsync(FileRenameRequest request, CancellationToken cancellationToken);
+
+    /// <summary>
+    ///     Renames multiple video files across one or more directories using AI inference to determine episode numbers.
+    ///     Each file is renamed to the "Name SxxEyy [tag]" format independently.
+    /// </summary>
+    Task RenameMultipleAsync(MultipleFileRenameRequest request, CancellationToken cancellationToken);
 }

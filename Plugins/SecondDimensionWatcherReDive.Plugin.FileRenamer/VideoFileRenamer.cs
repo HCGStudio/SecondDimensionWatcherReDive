@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Framework.FileStore;
 using SecondDimensionWatcherReDive.Framework.Inference;
 
@@ -7,6 +8,7 @@ namespace SecondDimensionWatcherReDive.Plugin.FileRenamer;
 public partial class VideoFileRenamer(
     IFileStore fileStore,
     IFileOperator fileOperator,
+    IAnimationInfoRepository animationInfoRepository,
     ILogger<VideoFileRenamer> logger,
     IInferenceEngine? inferenceEngine = null) : IFileRenamer
 {
@@ -20,75 +22,28 @@ public partial class VideoFileRenamer(
         ".srt", ".ass", ".ssa", ".sub", ".idx", ".vtt"
     };
 
-    public async Task RenameAsync(FileRenameContext context, CancellationToken cancellationToken)
+    public async Task RenameAsync(FileRenameRequest request, CancellationToken cancellationToken)
     {
-        if (!await fileStore.ExistAsync(context.StorePath, cancellationToken))
-        {
-            LogStorePathNotExist(logger, context.StorePath);
-            return;
-        }
+        var files = await EnumerateVideoFilesAsync(request.StorePath, cancellationToken);
+        if (files is null) return;
 
-        var animationName = SanitizeFileName(context.AnimationName);
+        var storeInfo = await fileStore.FileInfoAsync(request.StorePath, cancellationToken);
+        var animationName = SanitizeFileName(request.AnimationName);
 
-        var videoFiles = new List<FileStoreInfo>();
-        var allFiles = new List<FileStoreInfo>();
-        await foreach (var file in fileStore.EnumerateDirectory(context.StorePath))
-        {
-            if (!file.IsDirectory)
-            {
-                allFiles.Add(file);
-                if (VideoExtensions.Contains(Path.GetExtension(file.FileName)))
-                    videoFiles.Add(file);
-            }
-        }
+        var newPath = await RenameSingleEpisode(
+            files.Value.VideoFiles, files.Value.AllFiles, animationName, request.Season, request.Episode, cancellationToken);
 
-        if (videoFiles.Count == 0)
+        // Only update StorePath for file-backed stores; directory roots must not be
+        // collapsed to a file path or downstream file browsing breaks.
+        if (!storeInfo.IsDirectory && newPath is not null)
         {
-            LogNoVideoFiles(logger, context.StorePath);
-            return;
-        }
-
-        if (context.Episode != null)
-        {
-            await RenameSingleEpisode(videoFiles, allFiles, animationName, context.Season, context.Episode.Value, cancellationToken);
-        }
-        else
-        {
-            await RenameMultipleEpisodes(
-                videoFiles, allFiles, animationName, context.Season, context.OriginalTitle, cancellationToken);
+            var updatedInfo = request.AnimationInfo with { StorePath = newPath };
+            await animationInfoRepository.UpdateAsync(updatedInfo, cancellationToken);
+            LogStorePathUpdated(logger, request.AnimationInfo.Id, newPath);
         }
     }
 
-    private async Task RenameSingleEpisode(
-        List<FileStoreInfo> videoFiles, List<FileStoreInfo> allFiles,
-        string animationName, int season, int episode, CancellationToken cancellationToken)
-    {
-        // If multiple video files, pick the largest one as the main video
-        var target = videoFiles.Count == 1
-            ? videoFiles[0]
-            : videoFiles.OrderByDescending(f => new FileInfo(f.Path).Length).First();
-
-        var ext = Path.GetExtension(target.FileName);
-        var newName = FormatFileName(animationName, season, episode, ext);
-        var newPath = Path.Combine(Path.GetDirectoryName(target.Path)!, newName);
-
-        if (target.Path != newPath)
-        {
-            var success = await fileOperator.RenameAsync(target.Path, newPath, cancellationToken);
-            if (success)
-                LogRenamed(logger, target.FileName, newName);
-            else
-                LogRenameFailed(logger, target.FileName, newName);
-        }
-
-        var newBaseName = FormatFileName(animationName, season, episode, "");
-        await RenameMatchingSubtitles(target.FileName, newBaseName, allFiles, cancellationToken);
-    }
-
-    private async Task RenameMultipleEpisodes(
-        List<FileStoreInfo> videoFiles, List<FileStoreInfo> allFiles,
-        string animationName, int season,
-        string originalTitle, CancellationToken cancellationToken)
+    public async Task RenameMultipleAsync(MultipleFileRenameRequest request, CancellationToken cancellationToken)
     {
         if (inferenceEngine == null)
         {
@@ -96,9 +51,14 @@ public partial class VideoFileRenamer(
             return;
         }
 
-        foreach (var file in videoFiles)
+        var files = await EnumerateVideoFilesAsync(request.Path, cancellationToken);
+        if (files is null) return;
+
+        var animationName = SanitizeFileName(request.AnimationName);
+
+        foreach (var file in files.Value.VideoFiles)
         {
-            var result = await inferenceEngine.InferAsync(file.FileName, originalTitle, cancellationToken);
+            var result = await inferenceEngine.InferAsync(file.FileName, request.OriginalTitle, cancellationToken);
 
             if (result?.Episode == null)
             {
@@ -106,9 +66,10 @@ public partial class VideoFileRenamer(
                 continue;
             }
 
+            var tag = GenerateRandomTag();
             var ext = Path.GetExtension(file.FileName);
-            var inferredSeason = result.Season ?? season;
-            var newName = FormatFileName(animationName, inferredSeason, result.Episode.Value, ext);
+            var inferredSeason = result.Season ?? request.Season;
+            var newName = FormatFileName(animationName, inferredSeason, result.Episode.Value, tag, ext);
             var newPath = Path.Combine(Path.GetDirectoryName(file.Path)!, newName);
 
             if (file.Path != newPath)
@@ -120,9 +81,74 @@ public partial class VideoFileRenamer(
                     LogRenameFailed(logger, file.FileName, newName);
             }
 
-            var newBaseName = FormatFileName(animationName, inferredSeason, result.Episode.Value, "");
-            await RenameMatchingSubtitles(file.FileName, newBaseName, allFiles, cancellationToken);
+            var newBaseName = FormatFileName(animationName, inferredSeason, result.Episode.Value, tag, "");
+            await RenameMatchingSubtitles(file.FileName, newBaseName, files.Value.AllFiles, cancellationToken);
         }
+    }
+
+    private async Task<(List<FileStoreInfo> VideoFiles, List<FileStoreInfo> AllFiles)?> EnumerateVideoFilesAsync(
+        string storePath, CancellationToken cancellationToken)
+    {
+        if (!await fileStore.ExistAsync(storePath, cancellationToken))
+        {
+            LogStorePathNotExist(logger, storePath);
+            return null;
+        }
+
+        var videoFiles = new List<FileStoreInfo>();
+        var allFiles = new List<FileStoreInfo>();
+        await foreach (var file in fileStore.EnumerateDirectory(storePath))
+        {
+            if (!file.IsDirectory)
+            {
+                allFiles.Add(file);
+                if (VideoExtensions.Contains(Path.GetExtension(file.FileName)))
+                    videoFiles.Add(file);
+            }
+        }
+
+        if (videoFiles.Count == 0)
+        {
+            LogNoVideoFiles(logger, storePath);
+            return null;
+        }
+
+        return (videoFiles, allFiles);
+    }
+
+    private async Task<string?> RenameSingleEpisode(
+        List<FileStoreInfo> videoFiles, List<FileStoreInfo> allFiles,
+        string animationName, int season, int episode, CancellationToken cancellationToken)
+    {
+        // If multiple video files, pick the largest one as the main video
+        var target = videoFiles.Count == 1
+            ? videoFiles[0]
+            : videoFiles.OrderByDescending(f => new FileInfo(f.Path).Length).First();
+
+        var tag = GenerateRandomTag();
+        var ext = Path.GetExtension(target.FileName);
+        var newName = FormatFileName(animationName, season, episode, tag, ext);
+        var newPath = Path.Combine(Path.GetDirectoryName(target.Path)!, newName);
+
+        string? renamedPath = null;
+        if (target.Path != newPath)
+        {
+            var success = await fileOperator.RenameAsync(target.Path, newPath, cancellationToken);
+            if (success)
+            {
+                LogRenamed(logger, target.FileName, newName);
+                renamedPath = newPath;
+            }
+            else
+            {
+                LogRenameFailed(logger, target.FileName, newName);
+            }
+        }
+
+        var newBaseName = FormatFileName(animationName, season, episode, tag, "");
+        await RenameMatchingSubtitles(target.FileName, newBaseName, allFiles, cancellationToken);
+
+        return renamedPath;
     }
 
     /// <summary>
@@ -164,9 +190,19 @@ public partial class VideoFileRenamer(
         }
     }
 
-    private static string FormatFileName(string animationName, int season, int episode, string ext)
+    private static string FormatFileName(string animationName, int season, int episode, string tag, string ext)
     {
-        return $"{animationName} S{season:D2}E{episode:D2}{ext}";
+        return $"{animationName} S{season:D2}E{episode:D2} [{tag}]{ext}";
+    }
+
+    private static string GenerateRandomTag(int length = 5)
+    {
+        const string chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+        return string.Create(length, chars, static (span, state) =>
+        {
+            for (var i = 0; i < span.Length; i++)
+                span[i] = state[Random.Shared.Next(state.Length)];
+        });
     }
 
     private static string SanitizeFileName(string name)
@@ -198,4 +234,7 @@ public partial class VideoFileRenamer(
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to rename subtitle: {Old} -> {New}")]
     private static partial void LogSubtitleRenameFailed(ILogger logger, string old, string @new);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Updated StorePath for {ItemId} after rename: {NewPath}")]
+    private static partial void LogStorePathUpdated(ILogger logger, Guid itemId, string newPath);
 }
