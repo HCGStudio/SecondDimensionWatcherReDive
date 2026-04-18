@@ -1,0 +1,38 @@
+using System.Xml;
+using System.Xml.Serialization;
+
+namespace SecondDimensionWatcherReDive.WebDav.Xml;
+
+[XmlType("prop", Namespace = WebDavConstants.DavNamespace)]
+public sealed class Prop
+{
+    [XmlElement("creationdate", Namespace = WebDavConstants.DavNamespace)]
+    public string? CreationDate { get; set; }
+
+    [XmlElement("displayname", Namespace = WebDavConstants.DavNamespace)]
+    public string? DisplayName { get; set; }
+
+    [XmlElement("getcontentlength", Namespace = WebDavConstants.DavNamespace)]
+    public string? GetContentLength { get; set; }
+
+    [XmlElement("getcontenttype", Namespace = WebDavConstants.DavNamespace)]
+    public string? GetContentType { get; set; }
+
+    [XmlElement("getetag", Namespace = WebDavConstants.DavNamespace)]
+    public string? GetETag { get; set; }
+
+    [XmlElement("getlastmodified", Namespace = WebDavConstants.DavNamespace)]
+    public string? GetLastModified { get; set; }
+
+    [XmlElement("resourcetype", Namespace = WebDavConstants.DavNamespace)]
+    public ResourceType? ResourceType { get; set; }
+
+    [XmlElement("lockdiscovery", Namespace = WebDavConstants.DavNamespace)]
+    public LockDiscovery? LockDiscovery { get; set; }
+
+    [XmlElement("supportedlock", Namespace = WebDavConstants.DavNamespace)]
+    public SupportedLock? SupportedLock { get; set; }
+
+    [XmlAnyElement]
+    public List<XmlElement> Extensions { get; set; } = [];
+}

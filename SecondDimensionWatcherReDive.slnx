@@ -7,6 +7,7 @@
     <Project Path="Plugins/SecondDimensionWatcherReDive.Chat/SecondDimensionWatcherReDive.Chat.csproj" />
     <Project Path="Plugins/SecondDimensionWatcherReDive.Inference.AI/SecondDimensionWatcherReDive.Inference.AI.csproj" />
     <Project Path="Plugins/SecondDimensionWatcherReDive.Plugin.FileRenamer/SecondDimensionWatcherReDive.Plugin.FileRenamer.csproj" />
+    <Project Path="Plugins/SecondDimensionWatcherReDive.WebDav/SecondDimensionWatcherReDive.WebDav.csproj" />
   </Folder>
   <Folder Name="/Share/">
     <Project Path="Share/SecondDimensionWatcherReDive.Analyzers/SecondDimensionWatcherReDive.Analyzers.csproj" />

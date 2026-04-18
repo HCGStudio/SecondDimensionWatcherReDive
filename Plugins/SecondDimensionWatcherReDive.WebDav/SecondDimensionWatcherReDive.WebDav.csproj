@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <RootNamespace>SecondDimensionWatcherReDive.WebDav</RootNamespace>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <InternalsVisibleTo Include="SecondDimensionWatcherReDive" />
+        <InternalsVisibleTo Include="SecondDimensionWatcherReDive.Test" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\..\SecondDimensionWatcherReDive.Framework\SecondDimensionWatcherReDive.Framework.csproj" />
+    </ItemGroup>
+
+</Project>
