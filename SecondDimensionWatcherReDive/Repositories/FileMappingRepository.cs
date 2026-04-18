@@ -30,6 +30,29 @@ public class FileMappingRepository(Models.ApplicationContext context) : IFileMap
         return entities.Select(e => e.ToRecord()).ToList();
     }
 
+    public async Task<IReadOnlyList<RootEntry>> GetRootEntriesAsync(CancellationToken cancellationToken)
+    {
+        var rows = await context.FileMappings
+            .AsNoTracking()
+            .Where(m => m.VirtualPath.Length > 1 && m.VirtualPath.StartsWith("/"))
+            .Select(m => new
+            {
+                Path = m.VirtualPath,
+                NextSlash = m.VirtualPath.IndexOf('/', 1)
+            })
+            .Select(x => new
+            {
+                Name = x.NextSlash < 0
+                    ? x.Path.Substring(1)
+                    : x.Path.Substring(1, x.NextSlash - 1),
+                IsDirectory = x.NextSlash > 0
+            })
+            .Distinct()
+            .ToListAsync(cancellationToken);
+
+        return rows.Select(r => new RootEntry(r.Name, r.IsDirectory)).ToList();
+    }
+
     private static string EscapeLikePattern(string value)
     {
         return value

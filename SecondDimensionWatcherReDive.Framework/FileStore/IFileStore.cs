@@ -1,6 +1,11 @@
 ﻿namespace SecondDimensionWatcherReDive.Framework.FileStore;
 
-public record FileStoreInfo(bool IsDirectory, string Path, string FileName);
+public record FileStoreInfo(
+    bool IsDirectory,
+    string Path,
+    string FileName,
+    long? Length = null,
+    DateTimeOffset? LastModifiedUtc = null);
 
 public interface IFileStore
 {

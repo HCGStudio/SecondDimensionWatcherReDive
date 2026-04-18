@@ -12,6 +12,7 @@ namespace SecondDimensionWatcherReDive.Test;
 public class AnimationInfoControllerTests
 {
     private Mock<IAnimationInfoRepository> _repoMock = null!;
+    private Mock<IFileMappingRepository> _fileMappingRepoMock = null!;
     private Mock<IDistributedCache> _cacheMock = null!;
     private Mock<IFileDownloadClientProvider> _providerMock = null!;
     private Mock<IFileDownloadClient> _downloadClientMock = null!;
@@ -21,6 +22,7 @@ public class AnimationInfoControllerTests
     public void Setup()
     {
         _repoMock = new Mock<IAnimationInfoRepository>();
+        _fileMappingRepoMock = new Mock<IFileMappingRepository>();
         _cacheMock = new Mock<IDistributedCache>();
         _providerMock = new Mock<IFileDownloadClientProvider>();
         _downloadClientMock = new Mock<IFileDownloadClient>();
@@ -31,6 +33,7 @@ public class AnimationInfoControllerTests
 
         _controller = new AnimationInfoController(
             _repoMock.Object,
+            _fileMappingRepoMock.Object,
             _cacheMock.Object,
             _providerMock.Object)
         {

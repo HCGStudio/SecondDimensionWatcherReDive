@@ -1,4 +1,4 @@
-﻿using SecondDimensionWatcherReDive.Framework.FileStore;
+using SecondDimensionWatcherReDive.Framework.FileStore;
 
 namespace SecondDimensionWatcherReDive.Utils.FileStore;
 
@@ -16,7 +16,8 @@ public class LocalFileStore : IFileStore
         var fileInfo = new FileInfo(path);
         if (fileInfo.Exists)
         {
-            yield return new FileStoreInfo(false, path, fileInfo.Name);
+            yield return new FileStoreInfo(false, path, fileInfo.Name, fileInfo.Length,
+                new DateTimeOffset(fileInfo.LastWriteTimeUtc, TimeSpan.Zero));
             yield break;
         }
 
@@ -24,8 +25,12 @@ public class LocalFileStore : IFileStore
 
         if (!directoryInfo.Exists) yield break;
         foreach (var fileSystemInfo in directoryInfo.EnumerateFileSystemInfos())
-            yield return new FileStoreInfo((fileSystemInfo.Attributes & FileAttributes.Directory) != 0,
-                fileSystemInfo.FullName, fileSystemInfo.Name);
+        {
+            var isDirectory = (fileSystemInfo.Attributes & FileAttributes.Directory) != 0;
+            long? length = !isDirectory && fileSystemInfo is FileInfo fi ? fi.Length : null;
+            yield return new FileStoreInfo(isDirectory, fileSystemInfo.FullName, fileSystemInfo.Name, length,
+                new DateTimeOffset(fileSystemInfo.LastWriteTimeUtc, TimeSpan.Zero));
+        }
 
         await Task.CompletedTask;
     }
@@ -35,8 +40,9 @@ public class LocalFileStore : IFileStore
         var fileAttr = File.GetAttributes(path);
         var isDirectory = (fileAttr & FileAttributes.Directory) != 0;
         FileSystemInfo fileSystemInfo = isDirectory ? new DirectoryInfo(path) : new FileInfo(path);
-        return Task.FromResult(new FileStoreInfo((fileAttr & FileAttributes.Directory) != 0, fileSystemInfo.FullName,
-            fileSystemInfo.Name));
+        long? length = !isDirectory && fileSystemInfo is FileInfo fi ? fi.Length : null;
+        return Task.FromResult(new FileStoreInfo(isDirectory, fileSystemInfo.FullName, fileSystemInfo.Name, length,
+            new DateTimeOffset(fileSystemInfo.LastWriteTimeUtc, TimeSpan.Zero)));
     }
 
     public Task<bool> ExistAsync(string path, CancellationToken cancellationToken)

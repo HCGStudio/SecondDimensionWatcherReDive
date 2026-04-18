@@ -74,6 +74,8 @@ public static class WebDavXml
     {
         var namespaces = new XmlSerializerNamespaces();
         namespaces.Add(WebDavConstants.DavNamespacePrefix, WebDavConstants.DavNamespace);
+        namespaces.Add(WebDavConstants.Win32NamespacePrefix, WebDavConstants.Win32Namespace);
+        namespaces.Add(WebDavConstants.ApacheDavNamespacePrefix, WebDavConstants.ApacheDavNamespace);
         return namespaces;
     }
 }

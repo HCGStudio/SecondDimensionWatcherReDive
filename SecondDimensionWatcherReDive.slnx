@@ -1,6 +1,7 @@
 <Solution>
   <Project Path="SecondDimensionWatcherReDive.Framework/SecondDimensionWatcherReDive.Framework.csproj" />
   <Project Path="SecondDimensionWatcherReDive.Test/SecondDimensionWatcherReDive.Test.csproj" />
+  <Project Path="SecondDimensionWatcherReDive.IntegrationTest/SecondDimensionWatcherReDive.IntegrationTest.csproj" />
   <Project Path="SecondDimensionWatcherReDive/SecondDimensionWatcherReDive.csproj" />
   <Folder Name="/Plugins/">
     <Project Path="Plugins/SecondDimensionWatcherReDive.AI/SecondDimensionWatcherReDive.AI.csproj" />

@@ -33,6 +33,27 @@ public sealed class Prop
     [XmlElement("supportedlock", Namespace = WebDavConstants.DavNamespace)]
     public SupportedLock? SupportedLock { get; set; }
 
+    [XmlElement("quota-available-bytes", Namespace = WebDavConstants.DavNamespace)]
+    public string? QuotaAvailableBytes { get; set; }
+
+    [XmlElement("quota-used-bytes", Namespace = WebDavConstants.DavNamespace)]
+    public string? QuotaUsedBytes { get; set; }
+
+    [XmlElement("Win32CreationTime", Namespace = WebDavConstants.Win32Namespace)]
+    public string? Win32CreationTime { get; set; }
+
+    [XmlElement("Win32LastAccessTime", Namespace = WebDavConstants.Win32Namespace)]
+    public string? Win32LastAccessTime { get; set; }
+
+    [XmlElement("Win32LastModifiedTime", Namespace = WebDavConstants.Win32Namespace)]
+    public string? Win32LastModifiedTime { get; set; }
+
+    [XmlElement("Win32FileAttributes", Namespace = WebDavConstants.Win32Namespace)]
+    public string? Win32FileAttributes { get; set; }
+
+    [XmlElement("executable", Namespace = WebDavConstants.ApacheDavNamespace)]
+    public string? Executable { get; set; }
+
     [XmlAnyElement]
     public List<XmlElement> Extensions { get; set; } = [];
 }

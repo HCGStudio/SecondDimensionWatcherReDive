@@ -42,5 +42,6 @@
       <ProjectReference Include="..\SecondDimensionWatcherReDive.Framework\SecondDimensionWatcherReDive.Framework.csproj" />
       <ProjectReference Include="..\Plugins\SecondDimensionWatcherReDive.Chat\SecondDimensionWatcherReDive.Chat.csproj" />
       <ProjectReference Include="..\Plugins\SecondDimensionWatcherReDive.Inference.AI\SecondDimensionWatcherReDive.Inference.AI.csproj" />
+      <ProjectReference Include="..\Plugins\SecondDimensionWatcherReDive.WebDav\SecondDimensionWatcherReDive.WebDav.csproj" />
     </ItemGroup>
 </Project>

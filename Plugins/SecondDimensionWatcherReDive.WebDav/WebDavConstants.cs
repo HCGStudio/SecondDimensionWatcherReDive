@@ -4,6 +4,10 @@ public static class WebDavConstants
 {
     public const string DavNamespace = "DAV:";
     public const string DavNamespacePrefix = "d";
+    public const string Win32Namespace = "urn:schemas-microsoft-com:";
+    public const string Win32NamespacePrefix = "z";
+    public const string ApacheDavNamespace = "http://apache.org/dav/props/";
+    public const string ApacheDavNamespacePrefix = "a";
     public const string XmlContentType = "application/xml; charset=utf-8";
 
     public static class Headers

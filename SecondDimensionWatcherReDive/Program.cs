@@ -9,7 +9,9 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.Net.Http.Headers;
 using SecondDimensionWatcherReDive;
+using SecondDimensionWatcherReDive.Auth;
 using SecondDimensionWatcherReDive.Data;
+using SecondDimensionWatcherReDive.WebDav;
 using SecondDimensionWatcherReDive.Framework.Feed;
 using SecondDimensionWatcherReDive.Framework.FileDownload;
 using SecondDimensionWatcherReDive.Framework.FileStore;
@@ -49,7 +51,8 @@ builder.Services.AddControllers()
             .First();
         manager.FeatureProviders.Remove(defaultProvider);
         manager.FeatureProviders.Add(new InternalControllerFeatureProvider());
-    });
+    })
+    .AddWebDav();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 if (builder.Configuration["Config"] is { } configPath)
@@ -98,7 +101,8 @@ builder.Services.AddAuthentication(options =>
 {
     options.SaveToken = true;
     options.TokenValidationParameters = tokenValidationParams;
-});
+}).AddScheme<Microsoft.AspNetCore.Authentication.AuthenticationSchemeOptions, BasicAuthenticationHandler>(
+    BasicAuthenticationHandler.SchemeName, _ => { });
 
 //Add distributed cache (Valkey / Redis or in-memory fallback)
 var valkeyConnection = builder.Configuration["Valkey:ConnectionString"];
@@ -243,7 +247,8 @@ app.MapControllers();
 if (app.Environment.IsDevelopment())
 {
     app.UseWhen(
-        context => !context.Request.Path.StartsWithSegments("/api"),
+        context => !context.Request.Path.StartsWithSegments("/api") &&
+                   !context.Request.Path.StartsWithSegments("/webdav"),
         then =>
         {
             then.UseSpa(config =>

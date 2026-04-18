@@ -8,6 +8,8 @@ public interface IFileMappingRepository
 
     Task<IReadOnlyList<FileMapping>> GetByVirtualPathPrefixAsync(string virtualPathPrefix, CancellationToken cancellationToken);
 
+    Task<IReadOnlyList<RootEntry>> GetRootEntriesAsync(CancellationToken cancellationToken);
+
     Task<bool> VirtualPathExistsAsync(string virtualPath, CancellationToken cancellationToken);
 
     Task<bool> ExistsForAnimationInfoAsync(Guid animationInfoId, CancellationToken cancellationToken);

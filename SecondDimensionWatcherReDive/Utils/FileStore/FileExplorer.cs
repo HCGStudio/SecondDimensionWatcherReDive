@@ -12,6 +12,17 @@ public class FileExplorer(
         CancellationToken cancellationToken)
     {
         var prefix = NormalizeDirectory(token.Path);
+
+        if (prefix == "/")
+        {
+            var roots = await fileMappingRepository.GetRootEntriesAsync(cancellationToken);
+            return roots
+                .Select<RootEntry, IFileExploreToken>(r => r.IsDirectory
+                    ? new DirectoryToken("/" + r.Name, r.Name)
+                    : new FileToken("/" + r.Name, r.Name))
+                .ToList();
+        }
+
         var mappings = await fileMappingRepository.GetByVirtualPathPrefixAsync(prefix, cancellationToken);
 
         var results = new List<IFileExploreToken>();
