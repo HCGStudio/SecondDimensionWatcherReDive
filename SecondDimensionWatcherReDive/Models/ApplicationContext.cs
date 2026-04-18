@@ -20,9 +20,14 @@ public class ApplicationContext : DbContext
     public DbSet<ChatConversation> ChatConversations { get; set; }
     public DbSet<ChatMessage> ChatMessages { get; set; }
     public DbSet<FileMapping> FileMappings { get; set; }
+    public DbSet<MigrationMarker> MigrationMarkers { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<MigrationMarker>()
+            .HasKey(m => m.Key);
+
+
         modelBuilder.Entity<SeasonBangumi>()
             .HasIndex(b => b.MikanId)
             .IsUnique();

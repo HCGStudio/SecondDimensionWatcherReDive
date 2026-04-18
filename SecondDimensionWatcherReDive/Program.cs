@@ -21,6 +21,7 @@ using SecondDimensionWatcherReDive.Repositories;
 using SecondDimensionWatcherReDive.Chat;
 using SecondDimensionWatcherReDive.Plugin;
 using SecondDimensionWatcherReDive.Services;
+using SecondDimensionWatcherReDive.MigrationTasks;
 using SecondDimensionWatcherReDive.Utils.Feed;
 using SecondDimensionWatcherReDive.Utils.FileDownload;
 using SecondDimensionWatcherReDive.Utils.FileStore;
@@ -35,8 +36,10 @@ builder.Host.UseSystemd();
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
-        options.JsonSerializerOptions.TypeInfoResolverChain.Add(SecondDimensionWatcherReDive.Controllers.External.AppJsonSerializerContext.Default);
-        options.JsonSerializerOptions.TypeInfoResolverChain.Add(SecondDimensionWatcherReDive.Chat.External.ChatJsonSerializerContext.Default);
+        options.JsonSerializerOptions.TypeInfoResolverChain.Add(SecondDimensionWatcherReDive.Controllers.External
+            .AppJsonSerializerContext.Default);
+        options.JsonSerializerOptions.TypeInfoResolverChain.Add(SecondDimensionWatcherReDive.Chat.External
+            .ChatJsonSerializerContext.Default);
     })
     .AddApplicationPart(typeof(ChatServiceExtensions).Assembly)
     .ConfigureApplicationPartManager(manager =>
@@ -167,6 +170,9 @@ builder.Services.AddSingleton<ScrapeSeasonBangumi>();
 builder.Services.AddSingleton<IScheduledTask>(sp => sp.GetRequiredService<ScrapeSeasonBangumi>());
 builder.Services.AddHostedService<ScheduledTaskBackgroundService<ScrapeSeasonBangumi>>();
 
+builder.Services.AddSingleton<IMigrationTask, MigrateFileMappings>();
+builder.Services.AddSingleton<MigrationTaskRunner>();
+
 //Add download and store
 builder.Services.AddScoped<IFileDownloadClient, RemoteTorrentDownloadClient>();
 builder.Services.AddScoped<IFileStore, LocalFileStore>();
@@ -188,11 +194,12 @@ builder.Services.AddScoped<ISeasonBangumiRepository, SeasonBangumiRepository>();
 builder.Services.AddScoped<IBangumiSubgroupRepository, BangumiSubgroupRepository>();
 builder.Services.AddScoped<IChatRepository, ChatRepository>();
 builder.Services.AddScoped<IFileMappingRepository, FileMappingRepository>();
+builder.Services.AddScoped<IMigrationMarkerRepository, MigrationMarkerRepository>();
 builder.Services.AddSingleton<ISeasonScraper, MikananiSeasonScraper>();
 
 //Add AI Inference
 var aiProvider = builder.Configuration["AI:Provider"]
-                     is { Length: > 0 } p
+    is { Length: > 0 } p
     ? p
     : "OpenAI";
 var aiApiKey = string.Equals(aiProvider, "Anthropic", StringComparison.OrdinalIgnoreCase)
@@ -210,10 +217,7 @@ if (!string.IsNullOrEmpty(aiApiKey))
 builder.Services.AddChat();
 
 //Add SPA Hosting
-builder.Services.AddSpaStaticFiles(options =>
-{
-    options.RootPath = "wwwroot";
-});
+builder.Services.AddSpaStaticFiles(options => { options.RootPath = "wwwroot"; });
 
 //Initialize Plugin
 builder.InitializePlugin();
@@ -244,7 +248,8 @@ if (app.Environment.IsDevelopment())
         {
             then.UseSpa(config =>
             {
-                var workingDirectory = Path.Combine(Directory.GetCurrentDirectory(), "../SecondDimensionWatcherReDive.Client");
+                var workingDirectory = Path.Combine(Directory.GetCurrentDirectory(),
+                    "../SecondDimensionWatcherReDive.Client");
                 config.UseAspSpaDevelopmentServer(
                     app.Lifetime,
                     "yarn",
@@ -273,5 +278,10 @@ await using (var scope = app.Services.CreateAsyncScope())
     await using var context = scope.ServiceProvider.GetRequiredService<ApplicationContext>();
     await context.Database.MigrateAsync();
 }
+
+// Run data migrations to completion before the host starts so that hosted
+// services, scheduled tasks, and request handlers never observe a
+// half-migrated database.
+await app.Services.GetRequiredService<MigrationTaskRunner>().RunAsync(CancellationToken.None);
 
 await app.RunAsync();

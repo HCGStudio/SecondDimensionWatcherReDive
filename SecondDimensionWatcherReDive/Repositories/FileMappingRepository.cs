@@ -45,6 +45,13 @@ public class FileMappingRepository(Models.ApplicationContext context) : IFileMap
             .AnyAsync(m => m.VirtualPath == virtualPath, cancellationToken);
     }
 
+    public async Task<bool> ExistsForAnimationInfoAsync(Guid animationInfoId, CancellationToken cancellationToken)
+    {
+        return await context.FileMappings
+            .AsNoTracking()
+            .AnyAsync(m => m.AnimationInfoId == animationInfoId, cancellationToken);
+    }
+
     public async Task RemoveByAnimationInfoAsync(Guid animationInfoId, CancellationToken cancellationToken)
     {
         await context.FileMappings

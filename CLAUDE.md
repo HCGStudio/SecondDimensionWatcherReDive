@@ -98,7 +98,8 @@ The codebase uses a three-tier model architecture with repository interfaces for
 - `ISeasonBangumiRepository` — ordered queries, find by MikanId, add/remove batch, save
 - `IBangumiSubgroupRepository` — query by season bangumi, find by composite key, add, save
 - `IChatRepository` — conversation CRUD (create, list, delete, update title), message persistence (add single/batch, list, count), full conversation retrieval with messages
-- `IFileMappingRepository` — add batch of mappings, find by virtual path, prefix query, existence check, remove by `AnimationInfoId`
+- `IFileMappingRepository` — add batch of mappings, find by virtual path, prefix query, existence check (per-path and per-`AnimationInfoId`), remove by `AnimationInfoId`
+- `IMigrationMarkerRepository` — `ExistsAsync(key)` / `SetAsync(key)` over the `MigrationMarkers` table; one-shot data migrations gate themselves on this
 
 **Repository implementations** (`Repositories/`): EF Core implementations registered as scoped services, sharing the same `ApplicationContext` per request.
 
@@ -133,6 +134,15 @@ Channel-driven event processors (always running, end with BackgroundService suff
 - **FetchRemoteTorrentBackgroundService** — Polls qBittorrent every 500ms for download status
 - **UpdateDownloadStatusBackgroundService** — Caches download progress in memory
 - **CompleteDownloadBackgroundService** — Finalizes downloads, invokes `IFileMapper` to build virtual-FS mappings, then fires the `OnFileDownloadCompleted` plugin event
+
+### Data Migration Tasks
+
+One-shot data migrations (distinct from EF Core schema migrations) run once per database during startup, before the host begins serving requests.
+
+- `IMigrationTask` (Framework/Tasks/) — `Key` + `ExecuteAsync(CancellationToken)`. Implementations are registered as singletons and discovered via DI (`IEnumerable<IMigrationTask>`).
+- `MigrationTaskRunner` (`MigrationTasks/`) — iterates registered migrations, skips any whose `Key` is already in `MigrationMarkers`, runs the rest, and writes the marker on success. Failures abort startup so a half-migrated DB never serves traffic.
+- Invoked from `Program.cs` after `context.Database.MigrateAsync()` and before `app.RunAsync()`.
+- Current migrations: **MigrateFileMappings** — backfills `FileMapping` rows for previously-completed downloads (pages through `IAnimationInfoRepository.GetDownloadedPagedAsync`, skips records still pending AI inference to avoid racing `InferAnimationMetadata`'s mapping pass, calls `IFileMapper.MapDownloadAsync` per item).
 
 ### AI Inference Pipeline
 

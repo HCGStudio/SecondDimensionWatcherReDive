@@ -10,5 +10,7 @@ public interface IFileMappingRepository
 
     Task<bool> VirtualPathExistsAsync(string virtualPath, CancellationToken cancellationToken);
 
+    Task<bool> ExistsForAnimationInfoAsync(Guid animationInfoId, CancellationToken cancellationToken);
+
     Task RemoveByAnimationInfoAsync(Guid animationInfoId, CancellationToken cancellationToken);
 }
