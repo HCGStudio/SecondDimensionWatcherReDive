@@ -105,6 +105,7 @@ public class AnimationInfoRepository(Models.ApplicationContext context) : IAnima
     {
         var entity = await context.AnimationInfo
             .Include(a => a.Animation)
+            .Include(a => a.Group)
             .FirstOrDefaultAsync(a => a.Id == id, cancellationToken);
         return entity?.ToRecord();
     }

@@ -19,12 +19,20 @@ public class ApplicationContext : DbContext
     public DbSet<BangumiSubgroup> BangumiSubgroups { get; set; }
     public DbSet<ChatConversation> ChatConversations { get; set; }
     public DbSet<ChatMessage> ChatMessages { get; set; }
+    public DbSet<FileMapping> FileMappings { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<SeasonBangumi>()
             .HasIndex(b => b.MikanId)
             .IsUnique();
+
+        modelBuilder.Entity<FileMapping>()
+            .HasIndex(m => m.VirtualPath)
+            .IsUnique();
+
+        modelBuilder.Entity<FileMapping>()
+            .HasIndex(m => m.AnimationInfoId);
 
         modelBuilder.Entity<BangumiSubgroup>()
             .HasIndex(s => new { s.SeasonBangumiId, s.MikanSubgroupId })

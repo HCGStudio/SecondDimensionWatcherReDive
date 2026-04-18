@@ -56,6 +56,13 @@ internal static class RepositoryConverter
             entity.Name,
             entity.ScrapedAt);
 
+    public static DataRepo.FileMapping ToRecord(this Models.FileMapping entity) =>
+        new(entity.Id,
+            entity.AnimationInfoId,
+            entity.VirtualPath,
+            entity.PhysicalPath,
+            entity.FileStore);
+
     // Record -> Entity
 
     public static Models.AnimationInfo ToEntity(this DataRepo.AnimationInfo record) =>
@@ -126,6 +133,16 @@ internal static class RepositoryConverter
             MikanSubgroupId = record.MikanSubgroupId,
             Name = record.Name,
             ScrapedAt = record.ScrapedAt
+        };
+
+    public static Models.FileMapping ToEntity(this DataRepo.FileMapping record) =>
+        new()
+        {
+            Id = record.Id,
+            AnimationInfoId = record.AnimationInfoId,
+            VirtualPath = record.VirtualPath,
+            PhysicalPath = record.PhysicalPath,
+            FileStore = record.FileStore
         };
 
     // Record -> Entity updater (apply record properties to tracked entity)

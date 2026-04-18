@@ -28,7 +28,9 @@ public class RemoteTorrentDownloadClient(
     {
         using var content = new MultipartFormDataContent();
         content.Add(new ByteArrayContent(cachedDownloadData), "torrent", $"{itemId}.torrent");
-        content.Add(new StringContent(Path.GetFullPath(configuration["FileStore:Local"] ?? "./download")), "savepath");
+        var basePath = Path.GetFullPath(configuration["FileStore:Local"] ?? "./download");
+        var savePath = Path.Combine(basePath, additionalDownloadInfo);
+        content.Add(new StringContent(savePath), "savepath");
 
         using var response = await _httpClient.PostAsync("/api/v2/torrents/add", content);
 

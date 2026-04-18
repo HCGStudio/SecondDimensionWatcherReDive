@@ -16,7 +16,7 @@ namespace SecondDimensionWatcherReDive.Controllers;
 [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
 internal partial class FileController(
     IAnimationInfoRepository animationInfoRepository,
-    IFileStoreProvider fileStoreProvider,
+    IFileExplorer fileExplorer,
     IDistributedCache distributedCache,
     IContentTypeProvider contentTypeProvider,
     ILogger<FileController> logger) : ControllerBase
@@ -34,43 +34,20 @@ internal partial class FileController(
     {
         LogGenerateLinkRequest(logger, payload.Id, payload.Path);
 
-        var info = await animationInfoRepository.FindByIdAsync(payload.Id, cancellationToken);
-        if (info is null || !info.IsDownloadFinished || info.FileStore is null || info.StorePath is null)
+        var info = await animationInfoRepository.FindByIdWithAnimationAsync(payload.Id, cancellationToken);
+        if (info is null || !info.IsDownloadFinished)
         {
             LogAnimationNotFound(logger, payload.Id);
             return NotFound();
         }
 
-        var fileStore = fileStoreProvider.GetRequiredClient(info.FileStore);
-        var storePathInfo = await fileStore.FileInfoAsync(info.StorePath, cancellationToken);
-        LogStorePathInfo(logger, info.StorePath, storePathInfo.IsDirectory);
-
-        string targetPath;
-        if (string.IsNullOrWhiteSpace(payload.Path))
-        {
-            targetPath = Path.GetFullPath(info.StorePath);
-            LogResolvedTargetPath(logger, targetPath, "storePath directly");
-        }
-        else if (storePathInfo.IsDirectory)
-        {
-            targetPath = Path.GetFullPath(Path.Combine(info.StorePath, payload.Path));
-            LogResolvedTargetPath(logger, targetPath, "directory + relative path");
-        }
-        else
-        {
-            targetPath = Path.GetFullPath(info.StorePath);
-            LogResolvedTargetPath(logger, targetPath, "storePath is file, ignoring relative path");
-        }
-
-        if (!await fileStore.ExistAsync(targetPath, cancellationToken))
-        {
-            LogTargetPathNotFound(logger, targetPath);
-            return NotFound();
-        }
+        var virtualPath = ResolveVirtualPath(info, payload.Path);
+        LogResolvedTargetPath(logger, virtualPath, "virtual path");
 
         var token = GenerateToken(64);
         await distributedCache.SetStringAsync(token,
-            JsonSerializer.Serialize(new External.FileStoreToken(targetPath, info.FileStore), External.AppJsonSerializerContext.Default.FileStoreToken),
+            JsonSerializer.Serialize(new External.FileStoreToken(virtualPath, string.Empty),
+                External.AppJsonSerializerContext.Default.FileStoreToken),
             new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = TimeSpan.FromDays(1) },
             cancellationToken);
         var url = Url.ActionLink(nameof(GetFile), values: new { token })!;
@@ -91,15 +68,15 @@ internal partial class FileController(
             return NotFound();
         }
 
-        var fileStore = fileStoreProvider.GetRequiredClient(fileStoreToken.FileStore);
-        var fileInfo = await fileStore.FileInfoAsync(fileStoreToken.Path, cancellationToken);
-
-        var contentType = contentTypeProvider.TryGetContentType(fileInfo.FileName, out var type)
+        var fileName = Path.GetFileName(fileStoreToken.Path);
+        var contentType = contentTypeProvider.TryGetContentType(fileName, out var type)
             ? type
             : "application/octet-stream";
 
         LogStreamingFile(logger, fileStoreToken.Path, contentType);
-        return File(await fileStore.OpenReadStreamAsync(fileStoreToken.Path, cancellationToken), contentType, fileInfo.FileName);
+        var stream = await fileExplorer.OpenReadStreamAsync(
+            new FileToken(fileStoreToken.Path, fileName), cancellationToken);
+        return File(stream, contentType, fileName);
     }
 
     [HttpGet("list")]
@@ -109,32 +86,50 @@ internal partial class FileController(
     {
         LogListRequest(logger, id, relativeDir);
 
-        var info = await animationInfoRepository.FindByIdAsync(id, cancellationToken);
-        if (info is null || !info.IsDownloadFinished || info.FileStore is null || info.StorePath is null)
+        var info = await animationInfoRepository.FindByIdWithAnimationAsync(id, cancellationToken);
+        if (info is null || !info.IsDownloadFinished)
         {
             LogAnimationNotFound(logger, id);
             return NotFound();
         }
 
-        var fileStore = fileStoreProvider.GetRequiredClient(info.FileStore);
-        var targetPath = Path.GetFullPath(string.IsNullOrWhiteSpace(relativeDir)
-            ? info.StorePath
-            : Path.Combine(info.StorePath, relativeDir));
+        var virtualPath = ResolveVirtualPath(info, relativeDir);
+        LogListPathInfo(logger, virtualPath, true);
 
-        if (!await fileStore.ExistAsync(targetPath, cancellationToken))
+        var tokens = await fileExplorer.EnumerateDirectoryAsync(
+            new DirectoryToken(virtualPath, Path.GetFileName(virtualPath.TrimEnd('/'))),
+            cancellationToken);
+
+        var results = tokens.Select<IFileExploreToken, External.FileStoreListResult>(t => t switch
         {
-            LogTargetPathNotFound(logger, targetPath);
-            return NotFound();
-        }
+            FileToken f => new External.FileStoreListResult(f.FileName, false, null),
+            DirectoryToken d => new External.FileStoreListResult(d.FileName, true, d.FileName),
+            _ => throw new InvalidOperationException()
+        });
+        return Ok(results);
+    }
 
-        var fileInfo = await fileStore.FileInfoAsync(targetPath, cancellationToken);
-        LogListPathInfo(logger, targetPath, fileInfo.IsDirectory);
+    private static string ResolveVirtualPath(AnimationInfo info, string? relative)
+    {
+        var root = GetAnimationVirtualRoot(info);
+        if (string.IsNullOrWhiteSpace(relative)) return root;
+        var trimmed = relative.Trim('/');
+        return string.IsNullOrEmpty(trimmed) ? root : $"{root}/{trimmed}";
+    }
 
-        if (!fileInfo.IsDirectory)
-            return Ok(fileStore.EnumerateDirectory(targetPath)
-                .Select(i => new External.FileStoreListResult(i.FileName, i.IsDirectory, i.IsDirectory ? i.FileName : null)));
+    private static string GetAnimationVirtualRoot(AnimationInfo info)
+    {
+        if (info.Animation is null || info.Season is null) return "/unknown";
+        var animationName = SanitizePathSegment(info.Animation.Name);
+        var subGroup = SanitizePathSegment(info.Group?.Name ?? "Unknown");
+        return $"/{animationName}/{subGroup}";
+    }
 
-        return Ok(new[] { new External.FileStoreListResult(fileInfo.FileName, false, null) });
+    private static string SanitizePathSegment(string name)
+    {
+        var invalid = Path.GetInvalidFileNameChars();
+        var sanitized = string.Concat(name.Select(c => invalid.Contains(c) || c == '/' ? '_' : c)).Trim();
+        return string.IsNullOrEmpty(sanitized) ? "Unknown" : sanitized;
     }
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "GenerateLink request for animation {Id}, relative path: {Path}")]
@@ -143,14 +138,8 @@ internal partial class FileController(
     [LoggerMessage(Level = LogLevel.Debug, Message = "Animation {Id} not found or not eligible for file access")]
     private static partial void LogAnimationNotFound(ILogger logger, Guid id);
 
-    [LoggerMessage(Level = LogLevel.Debug, Message = "StorePath {StorePath} isDirectory={IsDirectory}")]
-    private static partial void LogStorePathInfo(ILogger logger, string storePath, bool isDirectory);
-
     [LoggerMessage(Level = LogLevel.Debug, Message = "Resolved target path: {TargetPath} ({Reason})")]
     private static partial void LogResolvedTargetPath(ILogger logger, string targetPath, string reason);
-
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Target path does not exist: {TargetPath}")]
-    private static partial void LogTargetPathNotFound(ILogger logger, string targetPath);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Generated play link for animation {Id}: {Url}")]
     private static partial void LogLinkGenerated(ILogger logger, Guid id, string url);

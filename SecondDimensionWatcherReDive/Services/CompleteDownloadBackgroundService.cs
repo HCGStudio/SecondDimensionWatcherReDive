@@ -3,6 +3,7 @@ using SecondDimensionWatcherReDive.Data;
 using SecondDimensionWatcherReDive.Framework.PluginParams;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Plugin;
+using SecondDimensionWatcherReDive.Utils.FileStore;
 
 namespace SecondDimensionWatcherReDive.Services;
 
@@ -48,6 +49,17 @@ public partial class CompleteDownloadBackgroundService(
         await animationInfoRepository.UpdateAsync(info, cancellationToken);
         LogDownloadMarkedFinished(logger, request.ItemId, info.Title);
 
+        // Build virtual-fs mappings for the downloaded files.
+        try
+        {
+            var fileMapper = scope.ServiceProvider.GetRequiredService<IFileMapper>();
+            await fileMapper.MapDownloadAsync(request.ItemId, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            LogFileMappingFailed(logger, ex, request.ItemId);
+        }
+
         // Fire plugin event
         try
         {
@@ -81,4 +93,7 @@ public partial class CompleteDownloadBackgroundService(
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "OnFileDownloadCompleted event failed for {ItemId}")]
     private static partial void LogDownloadCompletedEventFailed(ILogger logger, Exception ex, Guid itemId);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "File mapping failed for {ItemId}")]
+    private static partial void LogFileMappingFailed(ILogger logger, Exception ex, Guid itemId);
 }

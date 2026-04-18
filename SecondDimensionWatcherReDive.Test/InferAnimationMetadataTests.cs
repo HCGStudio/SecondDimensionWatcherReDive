@@ -6,6 +6,7 @@ using SecondDimensionWatcherReDive.Framework.Inference;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Inference.AI.Tools;
 using SecondDimensionWatcherReDive.Services;
+using SecondDimensionWatcherReDive.Utils.FileStore;
 using TMDbLib.Client;
 
 namespace SecondDimensionWatcherReDive.Test;
@@ -17,6 +18,7 @@ public class InferAnimationMetadataTests
     private Mock<IAnimationRepository> _mockAnimationRepo = null!;
     private Mock<IAnimationGroupRepository> _mockAnimationGroupRepo = null!;
     private Mock<IInferenceEngine> _mockInferenceEngine = null!;
+    private Mock<IFileMapper> _mockFileMapper = null!;
     private InferAnimationMetadata _task = null!;
     private MethodInfo _processItemMethod = null!;
 
@@ -27,6 +29,7 @@ public class InferAnimationMetadataTests
         _mockAnimationRepo = new Mock<IAnimationRepository>();
         _mockAnimationGroupRepo = new Mock<IAnimationGroupRepository>();
         _mockInferenceEngine = new Mock<IInferenceEngine>();
+        _mockFileMapper = new Mock<IFileMapper>();
 
         var mockScopeFactory = new Mock<IServiceScopeFactory>();
 
@@ -66,6 +69,7 @@ public class InferAnimationMetadataTests
             _mockAnimationRepo.Object,
             _mockAnimationGroupRepo.Object,
             _mockInferenceEngine.Object,
+            _mockFileMapper.Object,
             cancellationToken
         })!;
     }

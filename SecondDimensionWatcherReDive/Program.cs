@@ -20,7 +20,6 @@ using SecondDimensionWatcherReDive.Models;
 using SecondDimensionWatcherReDive.Repositories;
 using SecondDimensionWatcherReDive.Chat;
 using SecondDimensionWatcherReDive.Plugin;
-using SecondDimensionWatcherReDive.Plugin.FileRenamer;
 using SecondDimensionWatcherReDive.Services;
 using SecondDimensionWatcherReDive.Utils.Feed;
 using SecondDimensionWatcherReDive.Utils.FileDownload;
@@ -171,10 +170,11 @@ builder.Services.AddHostedService<ScheduledTaskBackgroundService<ScrapeSeasonBan
 //Add download and store
 builder.Services.AddScoped<IFileDownloadClient, RemoteTorrentDownloadClient>();
 builder.Services.AddScoped<IFileStore, LocalFileStore>();
-builder.Services.AddScoped<IFileOperator, TorrentFileOperator>();
 
 builder.Services.AddScoped<IFileDownloadClientProvider, FileDownloadClientProvider>();
 builder.Services.AddScoped<IFileStoreProvider, FileStoreProvider>();
+builder.Services.AddScoped<IFileExplorer, FileExplorer>();
+builder.Services.AddScoped<IFileMapper, FileMapper>();
 
 //Add feed
 builder.Services.AddTransient<IFeedService, MikananiFeedService>();
@@ -187,6 +187,7 @@ builder.Services.AddScoped<IFeedRepository, FeedRepository>();
 builder.Services.AddScoped<ISeasonBangumiRepository, SeasonBangumiRepository>();
 builder.Services.AddScoped<IBangumiSubgroupRepository, BangumiSubgroupRepository>();
 builder.Services.AddScoped<IChatRepository, ChatRepository>();
+builder.Services.AddScoped<IFileMappingRepository, FileMappingRepository>();
 builder.Services.AddSingleton<ISeasonScraper, MikananiSeasonScraper>();
 
 //Add AI Inference
@@ -204,9 +205,6 @@ if (!string.IsNullOrEmpty(aiApiKey))
     builder.Services.AddSingleton<IScheduledTask>(sp => sp.GetRequiredService<InferAnimationMetadata>());
     builder.Services.AddHostedService<ScheduledTaskBackgroundService<InferAnimationMetadata>>();
 }
-
-//Add File Renamer
-builder.Services.AddFileRenamer();
 
 //Add Chat
 builder.Services.AddChat();

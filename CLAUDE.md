@@ -36,12 +36,11 @@ This is an anime/animation download management system (二次元观测器 Re:Div
 
 - **SecondDimensionWatcherReDive** — Main ASP.NET Core web API. Internal controllers (`Controllers/`), external API DTOs (`Controllers/External/`), EF Core repository implementations (`Repositories/`), EF entity models (`Models/`), background services, download/feed implementations, SPA hosting.
 - **SecondDimensionWatcherReDive.Framework** — Shared abstractions: domain records and repository interfaces (`DataRepository/`), plugin interfaces, file download/storage, feeds, scheduled tasks, inference. Also defines core AI tool contracts (`AI/`): `ITool` (static abstract `Definition` + `ExecuteAsync`), `IToolResult` (`object? Result` + `bool IsSuccess`), `ToolDefinition` (with `Create<TParams>` JSON Schema generation), and the `[Tool<TParam>]` attribute (`Attributes/`) consumed by the source generator.
-- **SecondDimensionWatcherReDive.Test** — MSTest unit tests with Moq. Covers controllers, services, scheduled tasks, plugin events, file renaming, feed parsing, auth.
+- **SecondDimensionWatcherReDive.Test** — MSTest unit tests with Moq. Covers controllers, services, scheduled tasks, plugin events, feed parsing, auth.
 - **SecondDimensionWatcherReDive.Client** — React/TypeScript SPA using Parcel bundler, Tailwind CSS, and Radix UI.
 - **Plugins/SecondDimensionWatcherReDive.AI** — AI engine abstraction with provider/engine split. Defines `IAIEngine` (streaming chat interface with tool-call support) and `IAIProvider` (provider-specific API call abstraction with `GetAvailableModelsAsync` and `StreamChatCompletionAsync`). The unified `AIEngine` implements the multi-round tool execution loop and delegates API calls to `IAIProvider`. Two provider implementations: `OpenAIProvider` (SSE streaming via OpenAI-compatible HTTP API, supports custom base URLs for Ollama/vLLM) and `AnthropicProvider` (SSE streaming via Anthropic HTTP API). Provides the tool execution layer: `IToolExecutor`/`IToolExecutorBuilder` dispatch tools by name, `ToolExecutorBuilder` registers `ITool` implementations, and `DefaultToolExecutor` handles result serialization. Result types: `ToolSuccessResult<T>` and `ToolFailureResult` (implement `IToolResult` from Framework) are returned by tool authors; `DefaultToolExecutor` serializes them into `ToolResult(IsSuccess, JsonElement)` — failures are wrapped as `{"error":"..."}` so the AI model can distinguish errors from successes.
 - **Plugins/SecondDimensionWatcherReDive.Inference.AI** — AI inference pipeline for metadata extraction. `InferenceEngine` orchestrates system prompts, rate limiting (`SemaphoreSlim` + configurable delay), and JSON parsing. TMDB tools (`SearchTmdbTool`, `GetTmdbSeasonsTool`, `GetTmdbSeasonEpisodesTool`) are registered via `ToolExecutorBuilder`. Delegates all chat to `IAIEngine` from the AI plugin — no provider-specific code.
-- **Plugins/SecondDimensionWatcherReDive.Chat** — Conversational AI chat plugin. `ChatController` exposes REST endpoints for conversation CRUD and SSE-streamed message responses. Includes 7 tools (`QueryAnimationsTool`, `ManageFeedsTool`, `QuerySeasonTool`, `SubscribeBangumiTool`, `ManageTasksTool`, `ManageDownloadsTool`, `QueryFilesTool`) that let the AI interact with the system on behalf of the user. Depends on Framework repositories and the AI plugin's tool system.
-- **Plugins/SecondDimensionWatcherReDive.Plugin.FileRenamer** — Post-download file renaming to `Name SxxEyy [tag]` format (5-char lowercase-alphanumeric tag), including matching subtitle files. `IFileRenamer` exposes two methods: `RenameAsync(FileRenameRequest)` for single-episode downloads (also updates `AnimationInfo.StorePath` via `IAnimationInfoRepository` for file-backed stores) and `RenameMultipleAsync(MultipleFileRenameRequest)` for batched multi-episode downloads (requires `IInferenceEngine` to infer per-file episode numbers).
+- **Plugins/SecondDimensionWatcherReDive.Chat** — Conversational AI chat plugin. `ChatController` exposes REST endpoints for conversation CRUD and SSE-streamed message responses. Includes 7 tools (`QueryAnimationsTool`, `ManageFeedsTool`, `QuerySeasonTool`, `SubscribeBangumiTool`, `ManageTasksTool`, `ManageDownloadsTool`, `QueryFilesTool`) that let the AI interact with the system on behalf of the user. `QueryFilesTool` browses the virtual filesystem via `IFileExplorer`. Depends on Framework repositories and the AI plugin's tool system.
 - **Plugins/SecondDimensionWatcherReDive.WebDav** — WebDAV (RFC 4918) base primitives. No controllers/resource logic yet. Provides: HTTP method attributes (`Http/`) — `HttpPropFindAttribute`, `HttpPropPatchAttribute`, `HttpMkcolAttribute`, `HttpCopyAttribute`, `HttpMoveAttribute`, `HttpLockAttribute`, `HttpUnlockAttribute`, all subclassing `WebDavHttpMethodAttribute : HttpMethodAttribute` so routing works automatically. XML schema types (`Xml/`) annotated with `System.Xml.Serialization` attributes bound to the `DAV:` namespace: `MultiStatus`, `DavResponse`, `PropStat`, `Prop` (with `[XmlAnyElement]` for dead-properties), `ResourceType`, `PropFindRequest` (allprop/propname/prop/include), `PropertyUpdate` (set/remove operations), `LockInfo`, `ActiveLock`, `LockDiscovery`, `SupportedLock`, `LockScope`/`LockType`, `LockToken`, `Owner`, `DavError`. `WebDavXml` static helper provides cached `XmlSerializer`-per-type with DTD prohibited and `d:` prefix for `DAV:`. Action results (`Results/`): `WebDavXmlResult<T>` (generic base), `MultiStatusResult` (207), `LockedResult` (423), `FailedDependencyResult` (424), `InsufficientStorageResult` (507). XML input/output formatters (`Formatters/`) restrict themselves to types in the WebDAV XML namespace. `WebDavServiceExtensions.AddWebDav(IMvcBuilder)` inserts formatters at position 0. Constants: `WebDavConstants` (DAV namespace, header names, Depth/Timeout tokens, XML MIME), `WebDavStatusCodes` (207/422/423/424/507 + `FormatStatusLine`).
 - **Share/SecondDimensionWatcherReDive.Analyzers** — Roslyn incremental source generator. Finds partial classes with `[Tool<TParam>]` attribute (from `Framework.Attributes`) and generates a static `Definition` property (via `Framework.AI.ToolDefinition.Create<TParam>`) and an `ExecuteAsync` method that deserializes `JsonElement` arguments using `ToolJsonOptions.Options`, then delegates to the author's `ExecuteCoreAsync`. Deserialization failures return `ToolFailureResult`.
 
@@ -50,18 +49,32 @@ This is an anime/animation download management system (二次元观测器 Re:Div
 The system uses **System.Threading.Channels** for async inter-service communication:
 
 1. User triggers download via `AnimationInfoController`
-2. `RemoteTorrentDownloadClient` submits torrent to qBittorrent API, writes to `RemoteTorrentTrackRequest` channel
+2. `RemoteTorrentDownloadClient` submits torrent to qBittorrent API with savepath `{FileStore:Local}/{torrentHash}` so concurrent downloads never collide on disk, then writes to `RemoteTorrentTrackRequest` channel
 3. `FetchRemoteTorrentBackgroundService` polls qBittorrent status, writes to `FileDownloadStatus` channel
 4. `UpdateDownloadStatusBackgroundService` updates an in-memory cache with progress (finished items expire after 5 min)
-5. On completion, `DownloadCompleteRequest` channel triggers `CompleteDownloadBackgroundService` to update the DB
-6. `CompleteDownloadBackgroundService` fires `OnFileDownloadCompleted` plugin event, then runs `VideoFileRenamer`
+5. On completion, `DownloadCompleteRequest` channel triggers `CompleteDownloadBackgroundService` to update the DB (`IsDownloadFinished`, `FileStore`, `StorePath`)
+6. `CompleteDownloadBackgroundService` invokes `IFileMapper` to build virtual-path mappings, then fires the `OnFileDownloadCompleted` plugin event. Files on disk are never renamed.
 
 ### Provider/Strategy Pattern
 
 Download clients and file stores use a provider pattern:
 - `IFileDownloadClient` / `IFileDownloadClientProvider` — pluggable download backends (currently: qBittorrent remote). `IFileDownloadClientProvider` lives in Framework for cross-project reuse.
-- `IFileStore` / `IFileStoreProvider` — pluggable storage backends (currently: local disk)
-- `IFileOperator` — file rename operations routed through qBittorrent API (`TorrentFileOperator`) so qBittorrent stays aware of renames
+- `IFileStore` / `IFileStoreProvider` — pluggable storage backends (currently: local disk). Used for raw byte reads and directory walks, keyed by the `FileStore` string stored on each `FileMapping`.
+
+### Virtual Filesystem (File Mapping)
+
+Downloaded files are never renamed on disk. Instead, a `FileMapping` DB table records `{ VirtualPath, PhysicalPath, FileStore, AnimationInfoId }` rows and callers browse/stream via a virtual tree.
+
+- **`IFileMapper`** (`Utils/FileStore/FileMapper.cs`) — invoked by `CompleteDownloadBackgroundService` after each completed download. Walks `StorePath` via `IFileStore`, computes virtual paths, resolves collisions, and persists rows via `IFileMappingRepository`. Uses `IInferenceEngine` for multi-episode torrents.
+- **`IFileExplorer`** (`Framework/FileStore/IFileExplorer.cs`, impl in `Utils/FileStore/FileExplorer.cs`) — virtual-FS navigator. `EnumerateDirectoryAsync(DirectoryToken)` queries mappings by virtual-path prefix and emits `FileToken`/`DirectoryToken` children. `OpenReadStreamAsync(FileToken)` resolves the mapping and reads via `IFileStore`. Used by `FileController` and the Chat `QueryFilesTool`.
+- **`IFileMappingRepository`** — CRUD + prefix query over `FileMapping` rows. Unique index on `VirtualPath`.
+
+**Virtual path rules** (applied by `FileMapper`):
+- Known single-episode (`Animation`, `Season`, `Episode` all present on `AnimationInfo`): largest video → `/{animeName}/{subGroup}/{animeName} S{season:D2}E{episode:D2}{ext}`. Matching subtitles inherit the same base with their language suffix preserved (e.g. `.zh.srt`). Other files fall through to the unknown rule.
+- Known multi-episode (`Episode` null, `Animation` and `Season` set): each video is passed through `IInferenceEngine.InferAsync` to derive a per-file episode. On success → the same `SxxEyy` shape. On failure → unknown rule.
+- Unknown (no `Animation` or no `Season`): `/unknown/{relativePathUnderStore}`, preserving torrent subdirectories.
+- `subGroup` defaults to `Unknown` when `AnimationInfo.Group` is null. Path segments are sanitized (`Path.GetInvalidFileNameChars` + `/` replaced with `_`).
+- Collisions: on virtual-path conflict (in-batch or against existing rows), suffix ` (n)` is inserted before the extension: `name.mkv` → `name (2).mkv`, incrementing until unique.
 
 ### Repository Pattern (Data Access)
 
@@ -69,7 +82,7 @@ The codebase uses a three-tier model architecture with repository interfaces for
 
 **1. EF Entity Classes** (`Models/`): Mutable classes mapped by EF Core (`ApplicationContext`). Only accessed inside `Repositories/`, `Program.cs`, and migrations.
 
-**2. Domain Records** (`Framework/DataRepository/`): `AnimationInfo`, `Animation`, `AnimationGroup`, `Feed`, `SeasonBangumi`, `BangumiSubgroup`, `ChatConversationSummary`, `ChatConversationDetail`, `ChatMessageRecord` — immutable `sealed record` types with no EF Core dependency. Used by controllers, services, and plugin code. Result types: `PagedResult<T>`, `AnimationGroupedResult`, `AnimationWithEpisodesResult`. Also includes `AnimeSeason` enum (Spring, Summer, Autumn, Winter).
+**2. Domain Records** (`Framework/DataRepository/`): `AnimationInfo`, `Animation`, `AnimationGroup`, `Feed`, `SeasonBangumi`, `BangumiSubgroup`, `FileMapping`, `ChatConversationSummary`, `ChatConversationDetail`, `ChatMessageRecord` — immutable `sealed record` types with no EF Core dependency. Used by controllers, services, and plugin code. Result types: `PagedResult<T>`, `AnimationGroupedResult`, `AnimationWithEpisodesResult`. Also includes `AnimeSeason` enum (Spring, Summer, Autumn, Winter).
 
 **3. External DTOs** (`Controllers/External/`): API response types serialized to JSON. Separate from domain records to control the API surface. Converted from domain records via `Controllers/Converter.cs` extension methods (`ToExternal()`, `ToExternalResponseData()`).
 
@@ -85,6 +98,7 @@ The codebase uses a three-tier model architecture with repository interfaces for
 - `ISeasonBangumiRepository` — ordered queries, find by MikanId, add/remove batch, save
 - `IBangumiSubgroupRepository` — query by season bangumi, find by composite key, add, save
 - `IChatRepository` — conversation CRUD (create, list, delete, update title), message persistence (add single/batch, list, count), full conversation retrieval with messages
+- `IFileMappingRepository` — add batch of mappings, find by virtual path, prefix query, existence check, remove by `AnimationInfoId`
 
 **Repository implementations** (`Repositories/`): EF Core implementations registered as scoped services, sharing the same `ApplicationContext` per request.
 
@@ -118,7 +132,7 @@ Registered scheduled tasks:
 Channel-driven event processors (always running, end with BackgroundService suffix):
 - **FetchRemoteTorrentBackgroundService** — Polls qBittorrent every 500ms for download status
 - **UpdateDownloadStatusBackgroundService** — Caches download progress in memory
-- **CompleteDownloadBackgroundService** — Finalizes downloads, triggers plugins and file renaming
+- **CompleteDownloadBackgroundService** — Finalizes downloads, invokes `IFileMapper` to build virtual-FS mappings, then fires the `OnFileDownloadCompleted` plugin event
 
 ### AI Inference Pipeline
 
@@ -146,7 +160,7 @@ All controllers are `internal` (discovered via `InternalControllerFeatureProvide
 
 - `AnimationInfoController` (`/api/animationinfo`) — CRUD for animations, download/pause/resume/cancel, grouped listing by Animation, retry AI inference. Depends on `IAnimationInfoRepository`.
 - `AuthController` (`/api/auth`) — register, login, refresh, verify
-- `FileController` (`/api/file`) — file listing, playback link generation (returns full absolute URL via `Url.ActionLink`), streaming. Depends on `IAnimationInfoRepository`.
+- `FileController` (`/api/file`) — virtual-FS browsing, playback link generation (returns full absolute URL via `Url.ActionLink`), streaming. Each animation's virtual root is derived from `Animation.Name` + `Group.Name` (known) or `/unknown` (otherwise); the controller delegates list/stream to `IFileExplorer`. Depends on `IAnimationInfoRepository`, `IFileExplorer`.
 - `FeedController` (`/api/feed`) — CRUD for RSS feed subscriptions. Depends on `IFeedRepository`.
 - `SeasonController` (`/api/season`) — current season anime discovery from mikanani.me, subgroup browsing, one-click subscribe, supports browsing other seasons. Season scraping delegated to `ISeasonScraper`. Depends on `ISeasonBangumiRepository`, `IBangumiSubgroupRepository`, `IFeedRepository`, `ISeasonScraper`.
 - `TasksController` (`/api/tasks`) — list background tasks with status, enqueue manual execution

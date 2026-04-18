@@ -25,7 +25,6 @@
 
     <ItemGroup>
         <ProjectReference Include="..\SecondDimensionWatcherReDive\SecondDimensionWatcherReDive.csproj"/>
-        <ProjectReference Include="..\Plugins\SecondDimensionWatcherReDive.Plugin.FileRenamer\SecondDimensionWatcherReDive.Plugin.FileRenamer.csproj"/>
     </ItemGroup>
 
 </Project>

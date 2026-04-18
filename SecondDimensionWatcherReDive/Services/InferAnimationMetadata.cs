@@ -2,6 +2,7 @@ using SecondDimensionWatcherReDive.Framework.Inference;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Framework.Tasks;
 using SecondDimensionWatcherReDive.Inference.AI.Tools;
+using SecondDimensionWatcherReDive.Utils.FileStore;
 
 namespace SecondDimensionWatcherReDive.Services;
 
@@ -32,6 +33,7 @@ public partial class InferAnimationMetadata(
         var animationRepository = scope.ServiceProvider.GetRequiredService<IAnimationRepository>();
         var animationGroupRepository = scope.ServiceProvider.GetRequiredService<IAnimationGroupRepository>();
         var inferenceEngine = scope.ServiceProvider.GetRequiredService<IInferenceEngine>();
+        var fileMapper = scope.ServiceProvider.GetRequiredService<IFileMapper>();
 
         var pendingItems = await animationInfoRepository.GetPendingInferenceAsync(MaxRetryCount, cancellationToken);
 
@@ -41,7 +43,7 @@ public partial class InferAnimationMetadata(
         foreach (var item in pendingItems)
         {
             await ProcessItem(item, animationInfoRepository, animationRepository, animationGroupRepository,
-                inferenceEngine, cancellationToken);
+                inferenceEngine, fileMapper, cancellationToken);
         }
     }
 
@@ -51,6 +53,7 @@ public partial class InferAnimationMetadata(
         IAnimationRepository animationRepository,
         IAnimationGroupRepository animationGroupRepository,
         IInferenceEngine inferenceEngine,
+        IFileMapper fileMapper,
         CancellationToken cancellationToken)
     {
         try
@@ -107,6 +110,21 @@ public partial class InferAnimationMetadata(
             await animationInfoRepository.UpdateAsync(item, cancellationToken);
 
             LogInferenceCompleted(logger, item.Id, item.Title);
+
+            // Inference may have populated path-defining metadata (Animation, Group,
+            // Season, Episode). If the file is already on disk, rebuild its mappings
+            // so the canonical virtual path replaces the prior /unknown/... fallback.
+            if (item.IsDownloadFinished)
+            {
+                try
+                {
+                    await fileMapper.MapDownloadAsync(item.Id, cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    LogRemapFailed(logger, ex, item.Id);
+                }
+            }
         }
         catch (OperationCanceledException)
         {
@@ -129,4 +147,7 @@ public partial class InferAnimationMetadata(
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "AI inference failed for AnimationInfo {Id}: {Title} (retry {RetryCount}/{MaxRetry})")]
     private static partial void LogInferenceFailed(ILogger logger, Exception ex, Guid id, string title, int retryCount, int maxRetry);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Re-mapping files after inference failed for AnimationInfo {Id}")]
+    private static partial void LogRemapFailed(ILogger logger, Exception ex, Guid id);
 }

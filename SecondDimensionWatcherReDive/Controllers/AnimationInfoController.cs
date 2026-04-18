@@ -13,6 +13,7 @@ namespace SecondDimensionWatcherReDive.Controllers;
 [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
 internal class AnimationInfoController(
     IAnimationInfoRepository animationInfoRepository,
+    IFileMappingRepository fileMappingRepository,
     IDistributedCache distributedCache,
     IFileDownloadClientProvider fileDownloadClientProvider)
     : ControllerBase
@@ -158,6 +159,7 @@ internal class AnimationInfoController(
         if (!result.IsSuccess)
             return StatusCode(StatusCodes.Status500InternalServerError);
 
+        await fileMappingRepository.RemoveByAnimationInfoAsync(id, cancellationToken);
         var updated = info with { IsDownloadTracked = false, IsDownloadFinished = false };
         await animationInfoRepository.UpdateAsync(updated, cancellationToken);
         return Ok();

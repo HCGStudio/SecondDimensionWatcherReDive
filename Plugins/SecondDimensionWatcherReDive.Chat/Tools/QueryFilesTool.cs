@@ -11,7 +11,7 @@ namespace SecondDimensionWatcherReDive.Chat.Tools;
     "Query the file list of downloaded animations. Supports browsing subdirectories.")]
 internal sealed partial class QueryFilesTool(
     IAnimationInfoRepository animationInfoRepository,
-    IFileStoreProvider fileStoreProvider) : ITool
+    IFileExplorer fileExplorer) : ITool
 {
     private async Task<IToolResult> ExecuteCoreAsync(
         QueryFilesParams param, CancellationToken cancellationToken)
@@ -19,28 +19,45 @@ internal sealed partial class QueryFilesTool(
         if (!Guid.TryParse(param.AnimationId, out var animationId))
             return new ToolFailureResult("Invalid or missing animation_id");
 
-        var info = await animationInfoRepository.FindByIdAsync(animationId, cancellationToken);
+        var info = await animationInfoRepository.FindByIdWithAnimationAsync(animationId, cancellationToken);
         if (info is null)
             return new ToolFailureResult("Animation not found");
 
-        if (!info.IsDownloadFinished || info.FileStore is null || info.StorePath is null)
-            return new ToolFailureResult("Download not finished or no file store configured");
+        if (!info.IsDownloadFinished)
+            return new ToolFailureResult("Download not finished");
 
-        var store = fileStoreProvider.GetClient(info.FileStore);
-        if (store is null)
-            return new ToolFailureResult($"File store '{info.FileStore}' not found");
+        var root = GetAnimationVirtualRoot(info);
+        var virtualPath = string.IsNullOrWhiteSpace(param.RelativeDir)
+            ? root
+            : $"{root}/{param.RelativeDir.Trim('/')}";
 
-        var targetPath = param.RelativeDir is not null
-            ? Path.Combine(info.StorePath, param.RelativeDir)
-            : info.StorePath;
+        var tokens = await fileExplorer.EnumerateDirectoryAsync(
+            new DirectoryToken(virtualPath, Path.GetFileName(virtualPath.TrimEnd('/'))),
+            cancellationToken);
 
-        var files = new List<FileSummary>();
-        await foreach (var f in store.EnumerateDirectory(targetPath))
+        var files = tokens.Select(t => t switch
         {
-            files.Add(new FileSummary(f.FileName, f.IsDirectory, f.Path));
-        }
+            FileToken f => new FileSummary(f.FileName, false, f.Path),
+            DirectoryToken d => new FileSummary(d.FileName, true, d.Path),
+            _ => throw new InvalidOperationException()
+        }).ToList();
 
-        return new ToolSuccessResult<FileListResult>(new FileListResult(info.Title, targetPath, files));
+        return new ToolSuccessResult<FileListResult>(new FileListResult(info.Title, virtualPath, files));
+    }
+
+    private static string GetAnimationVirtualRoot(AnimationInfo info)
+    {
+        if (info.Animation is null || info.Season is null) return "/unknown";
+        var animationName = SanitizePathSegment(info.Animation.Name);
+        var subGroup = SanitizePathSegment(info.Group?.Name ?? "Unknown");
+        return $"/{animationName}/{subGroup}";
+    }
+
+    private static string SanitizePathSegment(string name)
+    {
+        var invalid = Path.GetInvalidFileNameChars();
+        var sanitized = string.Concat(name.Select(c => invalid.Contains(c) || c == '/' ? '_' : c)).Trim();
+        return string.IsNullOrEmpty(sanitized) ? "Unknown" : sanitized;
     }
 }
 
