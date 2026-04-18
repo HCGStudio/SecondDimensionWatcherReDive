@@ -23,8 +23,9 @@ overrides:
       - valkey
 
 contents:
-  - src: ./publish/**/*
-    dst: /usr/lib/sdw-redive/
+  - src: ./publish/
+    dst: /usr/lib/sdw-redive
+    type: tree
 
   - src: ./packaging/sdw-redive.service
     dst: /usr/lib/systemd/system/sdw-redive.service
@@ -38,7 +39,21 @@ contents:
     file_info:
       mode: 0755
 
-  - dst: /var/lib/sdw-redive/downloads/
+  - dst: /etc/sdw-redive
+    type: dir
+    file_info:
+      mode: 0755
+      owner: root
+      group: root
+
+  - dst: /var/lib/sdw-redive
+    type: dir
+    file_info:
+      mode: 0755
+      owner: sdw-redive
+      group: sdw-redive
+
+  - dst: /var/lib/sdw-redive/downloads
     type: dir
     file_info:
       mode: 0755
