@@ -14,6 +14,7 @@ public static class ChatServiceExtensions
         services.AddScoped<ManageTasksTool>();
         services.AddScoped<ManageDownloadsTool>();
         services.AddScoped<QueryFilesTool>();
+        services.AddScoped<IConversationTitleGenerator, ConversationTitleGenerator>();
         return services;
     }
 }

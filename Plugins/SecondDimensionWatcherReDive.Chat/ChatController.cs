@@ -23,6 +23,7 @@ namespace SecondDimensionWatcherReDive.Chat;
 [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
 internal sealed partial class ChatController(
     IChatRepository chatRepository,
+    IServiceScopeFactory scopeFactory,
     IServiceProvider serviceProvider,
     ILogger<ChatController> logger) : ControllerBase
 {
@@ -135,14 +136,10 @@ internal sealed partial class ChatController(
 
         LogUserMessageReceived(id, messageOrder - 1, request.Content.Length);
 
-        // Auto-generate title from first user message
-        if (conversation.Title is null)
-        {
-            var autoTitle = request.Content.Length > 30
-                ? request.Content[..30] + "..."
-                : request.Content;
-            await chatRepository.UpdateConversationTitleAsync(id, autoTitle, cancellationToken);
-        }
+        // Snapshot whether this conversation already had any assistant message before this turn.
+        // Used after the first assistant message is saved to trigger one-time auto title generation.
+        var hadPriorAssistant = conversation.Messages.Any(m => m.Role == "assistant");
+        var titleEligible = ConversationTitleGenerator.IsAutoTitleEligible(conversation.Title);
 
         // Build message history for AI
         var messages = BuildMessagesFromHistory(conversation.Messages, request.Content);
@@ -168,7 +165,9 @@ internal sealed partial class ChatController(
         LogStreamingStarted(id, request.Model);
 
         return TypedResults.ServerSentEvents(
-            StreamChatEvents(aiEngine, messages, chatOptions, id, messageOrder, cancellationToken));
+            StreamChatEvents(aiEngine, messages, chatOptions, id, messageOrder,
+                request.Content, !hadPriorAssistant && titleEligible, request.Model,
+                cancellationToken));
     }
 
     private async IAsyncEnumerable<SseItem<string>> StreamChatEvents(
@@ -177,6 +176,9 @@ internal sealed partial class ChatController(
         ChatOptions chatOptions,
         Guid conversationId,
         int messageOrder,
+        string firstUserMessage,
+        bool autoTitleEligible,
+        string? model,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         var channel = Channel.CreateUnbounded<SseItem<string>>();
@@ -184,6 +186,7 @@ internal sealed partial class ChatController(
         // Producer: runs AI chat streaming in background, writes SSE items to channel
         _ = ProduceChatEventsAsync(
             aiEngine, messages, chatOptions, conversationId, messageOrder,
+            firstUserMessage, autoTitleEligible, model,
             channel.Writer, cancellationToken);
 
         // Consumer: yield items from channel as SSE events
@@ -199,6 +202,9 @@ internal sealed partial class ChatController(
         ChatOptions chatOptions,
         Guid conversationId,
         int messageOrder,
+        string firstUserMessage,
+        bool autoTitleEligible,
+        string? model,
         ChannelWriter<SseItem<string>> writer,
         CancellationToken cancellationToken)
     {
@@ -207,6 +213,7 @@ internal sealed partial class ChatController(
         var currentToolResults = new List<ChatMessageRecord>();
         var messagesToSave = new List<ChatMessageRecord>();
         var hasToolResults = false;
+        string? firstAssistantContentForTitle = null;
 
         try
         {
@@ -310,6 +317,15 @@ internal sealed partial class ChatController(
             {
                 await chatRepository.AddMessagesAsync(conversationId, messagesToSave, CancellationToken.None);
                 LogMessagesSaved(conversationId, messagesToSave.Count);
+
+                // Capture data needed for the post-stream auto-title task.
+                if (autoTitleEligible)
+                {
+                    var firstAssistant = messagesToSave
+                        .FirstOrDefault(m => m.Role == "assistant" && !string.IsNullOrWhiteSpace(m.Content));
+                    if (firstAssistant is not null)
+                        firstAssistantContentForTitle = firstAssistant.Content;
+                }
             }
         }
         catch (Exception ex)
@@ -319,6 +335,32 @@ internal sealed partial class ChatController(
         finally
         {
             writer.Complete();
+        }
+
+        // Title generation runs detached from the SSE response: the client's sendMessage()
+        // resolves as soon as writer.Complete() above closes the stream. The title call has
+        // its own DI scope (the request scope is about to dispose) and a hard timeout so a
+        // stalled provider can never hang the conversation.
+        if (firstAssistantContentForTitle is not null)
+        {
+            _ = RunAutoTitleAsync(conversationId, firstUserMessage, firstAssistantContentForTitle, model);
+        }
+    }
+
+    private async Task RunAutoTitleAsync(
+        Guid conversationId, string firstUserMessage, string firstAssistantMessage, string? model)
+    {
+        try
+        {
+            await using var scope = scopeFactory.CreateAsyncScope();
+            var generator = scope.ServiceProvider.GetRequiredService<IConversationTitleGenerator>();
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            await generator.TryAutoTitleAsync(
+                conversationId, firstUserMessage, firstAssistantMessage, model, cts.Token);
+        }
+        catch (Exception ex)
+        {
+            LogAutoTitleTaskFailed(ex, conversationId);
         }
     }
 
@@ -459,5 +501,8 @@ internal sealed partial class ChatController(
 
     [LoggerMessage(Level = LogLevel.Error, Message = "[Chat] Conversation {ConversationId}: failed to save messages to database")]
     private partial void LogSaveFailed(Exception ex, Guid conversationId);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "[Chat] Conversation {ConversationId}: detached auto-title task failed")]
+    private partial void LogAutoTitleTaskFailed(Exception ex, Guid conversationId);
 
 }
