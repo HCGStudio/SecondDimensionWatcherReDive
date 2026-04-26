@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <TargetFramework>net10.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <RootNamespace>SecondDimensionWatcherReDive.FUSE</RootNamespace>
+        <AssemblyName>sdwfuse</AssemblyName>
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+        <RuntimeIdentifiers>linux-x64;linux-arm64</RuntimeIdentifiers>
+        <InvariantGlobalization>true</InvariantGlobalization>
+
+        <!-- NativeAOT. AOT analyzers run on every build (not just publish) so trim/AOT
+             violations surface at compile time, while the actual native image is only
+             produced when `dotnet publish -r linux-x64` runs on a Linux build host. -->
+        <PublishAot>true</PublishAot>
+        <IsAotCompatible>true</IsAotCompatible>
+        <IlcOptimizationPreference>Speed</IlcOptimizationPreference>
+        <IlcGenerateStackTraceData>true</IlcGenerateStackTraceData>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="10.0.5" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <!-- DirectPInvoke teaches the AOT compiler to emit a direct call to the symbol
+             instead of an indirect lookup through DllImportResolver. The matching
+             LinkerArg pulls libfuse3 in dynamically so the symbol resolves at link
+             time. We do NOT statically link libfuse3 — distros ship the kernel-matched
+             .so and the version skew that produces is not worth chasing.
+             libc is already linked into every AOT binary (the C runtime is mandatory),
+             so it only needs DirectPInvoke — no extra LinkerArg. -->
+        <DirectPInvoke Include="fuse3" />
+        <LinkerArg Include="-lfuse3" />
+        <DirectPInvoke Include="libc" />
+    </ItemGroup>
+
+</Project>
