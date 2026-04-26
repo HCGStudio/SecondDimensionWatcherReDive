@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Headers;
 using System.Reflection;
 using System.Text;
@@ -120,6 +121,7 @@ else
 }
 
 //Configure HTTP client
+builder.Services.AddTransient<QBittorrentAuthHandler>();
 builder.Services.AddHttpClient("RemoteTorrentDownloadClient", client =>
 {
     client.BaseAddress = new Uri(builder.Configuration["Torrent:Remote:Url"]!);
@@ -134,7 +136,13 @@ builder.Services.AddHttpClient("RemoteTorrentDownloadClient", client =>
         client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("SecondDimensionWatcherReDive",
             Assembly.GetCallingAssembly().GetName().Version?.ToString() ?? "2.0"));
     }
-});
+})
+.ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+{
+    CookieContainer = new CookieContainer(),
+    UseCookies = true
+})
+.AddHttpMessageHandler<QBittorrentAuthHandler>();
 
 builder.Services.AddHttpClient("Feed", client =>
 {

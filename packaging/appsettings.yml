@@ -9,9 +9,12 @@ ConnectionStrings:
 JwtSecret: "<Please fill this with a 32 length random string>"
 
 # qBittorrent Web API 地址（必填）
+# UserName / Password 留空表示 qBittorrent 未启用鉴权（或已通过白名单放行本机）
 Torrent:
   Remote:
     Url: "http://localhost:8080"
+    UserName: ""
+    Password: ""
 
 # 下载文件存储路径
 FileStore:

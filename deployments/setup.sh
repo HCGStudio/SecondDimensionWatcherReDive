@@ -426,6 +426,16 @@ configure_system_config() {
     if [ -n "${QB_URL:-}" ]; then
         sudo sed -i "s|Url: \"http://localhost:8080\"|Url: \"${QB_URL}\"|" "$config"
     fi
+    echo "qBittorrent 鉴权（如未启用 WebUI 鉴权或已加入白名单，请回车跳过）"
+    read -rp "  用户名: " QB_USER
+    read -rsp "  密码:   " QB_PASS
+    echo
+    # YAML defaults for both keys are empty strings, so plain substitution
+    # is safe even when the input is empty (no-op for blanks).
+    sudo sed -i \
+        -e "/^  Remote:/,/^[A-Z]/s|UserName: \"\"|UserName: \"${QB_USER:-}\"|" \
+        -e "/^  Remote:/,/^[A-Z]/s|Password: \"\"|Password: \"${QB_PASS:-}\"|" \
+        "$config"
 
     # --- AI config ---
     configure_ai
@@ -511,6 +521,21 @@ deploy_container() {
     echo "Generated secrets:"
     echo "  PostgreSQL password: $db_pass"
     echo "  JWT secret: $jwt"
+
+    # qBittorrent credentials (optional). For the bundled qBittorrent
+    # service, leave blank and either configure BypassAuthSubnetWhitelist
+    # in qBittorrent or set credentials here matching the WebUI password
+    # you set on first launch.
+    echo
+    echo "--- qBittorrent 鉴权（如未启用 WebUI 鉴权或已加入白名单，请回车跳过）---"
+    read -rp "  用户名: " QB_USER
+    read -rsp "  密码:   " QB_PASS
+    echo
+    sed -i.bak \
+        -e "s|Torrent__Remote__UserName: \"\"|Torrent__Remote__UserName: \"${QB_USER:-}\"|" \
+        -e "s|Torrent__Remote__Password: \"\"|Torrent__Remote__Password: \"${QB_PASS:-}\"|" \
+        "$deploy_dir/podman-compose.yml"
+    rm -f "$deploy_dir/podman-compose.yml.bak"
 
     # AI config
     configure_ai
