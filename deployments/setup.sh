@@ -168,14 +168,25 @@ configure_ai() {
         AI_MODEL="${AI_MODEL:-$default_model}"
 
         echo
-        read -rp "请输入 TMDB API Key（https://www.themoviedb.org/settings/api，可回车跳过）: " TMDB_KEY
+        echo "TMDB API Key（必填，用于番剧元数据、季度信息和海报图片）"
+        echo "申请步骤："
+        echo "  1) 注册账号: https://www.themoviedb.org/signup"
+        echo "  2) 打开:     https://www.themoviedb.org/settings/api"
+        echo "  3) 点击 \"创建\" → 选择 \"Developer\"（免费） → 填写表单"
+        echo "  4) 复制 \"API 密钥 (v3 auth)\" 字段的值"
+        while [ -z "${TMDB_KEY:-}" ]; do
+            read -rp "请输入 TMDB API Key: " TMDB_KEY
+            if [ -z "$TMDB_KEY" ]; then
+                echo "TMDB API Key 不能为空。如确实无法获取，请按 Ctrl+C 退出后稍后手动配置。"
+            fi
+        done
 
         echo
         echo "AI 配置:"
         echo "  Provider: $AI_PROVIDER"
         echo "  Base URL: $AI_BASE_URL"
         echo "  Model:    $AI_MODEL"
-        [ -n "${TMDB_KEY:-}" ] && echo "  TMDB:     (已设置)"
+        echo "  TMDB:     (已设置)"
     else
         echo "跳过 AI 配置。"
     fi
@@ -567,17 +578,17 @@ read -rp "请选择 [1/2/3]: " DEPLOY_METHOD
 echo
 
 # Release channel (for non-container methods)
-RELEASE_CHANNEL="pre"
+RELEASE_CHANNEL="stable"
 if [ "${DEPLOY_METHOD:-1}" != "2" ]; then
     echo "选择版本："
-    echo "  1) 最新正式版"
-    echo "  2) 最新预发布版（当前仅有预发布版）"
+    echo "  1) 最新正式版（推荐）"
+    echo "  2) 最新预发布版"
     read -rp "请选择 [1/2]: " CHANNEL_CHOICE
     echo
 
-    case "${CHANNEL_CHOICE:-2}" in
-        1) RELEASE_CHANNEL="stable" ;;
-        *) RELEASE_CHANNEL="pre" ;;
+    case "${CHANNEL_CHOICE:-1}" in
+        2) RELEASE_CHANNEL="pre" ;;
+        *) RELEASE_CHANNEL="stable" ;;
     esac
 fi
 
