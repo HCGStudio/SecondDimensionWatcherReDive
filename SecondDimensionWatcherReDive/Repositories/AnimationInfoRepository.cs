@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Microsoft.EntityFrameworkCore;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Framework.FileDownload;
@@ -110,13 +111,15 @@ public class AnimationInfoRepository(Models.ApplicationContext context) : IAnima
         return entity?.ToRecord();
     }
 
-    public async IAsyncEnumerable<AnimationInfo> GetUnfinishedTorrentDownloadsAsync()
+    public async IAsyncEnumerable<AnimationInfo> GetUnfinishedTorrentDownloadsAsync(
+        [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         await foreach (var info in context.AnimationInfo
                            .Where(i => i.IsDownloadTracked
                                        && !i.IsDownloadFinished
                                        && i.DownloadType == FileDownloadTypes.TorrentDownload)
-                           .AsAsyncEnumerable())
+                           .AsAsyncEnumerable()
+                           .WithCancellation(cancellationToken))
         {
             yield return info.ToRecord();
         }

@@ -14,7 +14,7 @@ public interface IAnimationInfoRepository
 
     Task<AnimationInfo?> FindByIdWithAnimationAsync(Guid id, CancellationToken cancellationToken);
 
-    IAsyncEnumerable<AnimationInfo> GetUnfinishedTorrentDownloadsAsync();
+    IAsyncEnumerable<AnimationInfo> GetUnfinishedTorrentDownloadsAsync(CancellationToken cancellationToken);
 
     Task<IReadOnlyList<AnimationInfo>> GetPendingInferenceAsync(int maxRetryCount, CancellationToken cancellationToken);
 

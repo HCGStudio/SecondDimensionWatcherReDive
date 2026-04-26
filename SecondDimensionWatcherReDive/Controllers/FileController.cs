@@ -76,7 +76,7 @@ internal partial class FileController(
         LogStreamingFile(logger, fileStoreToken.Path, contentType);
         var stream = await fileExplorer.OpenReadStreamAsync(
             new FileToken(fileStoreToken.Path, fileName), cancellationToken);
-        return File(stream, contentType, fileName);
+        return File(stream, contentType, fileName, enableRangeProcessing: true);
     }
 
     [HttpGet("list")]

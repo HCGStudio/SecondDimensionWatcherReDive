@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Runtime.CompilerServices;
 using System.Threading.Channels;
 using SecondDimensionWatcherReDive.Data;
 using SecondDimensionWatcherReDive.Framework.FileStore;
@@ -18,12 +19,13 @@ public partial class FetchRemoteTorrentBackgroundService(
 {
     private readonly HttpClient _httpClient = httpClientFactory.CreateClient(nameof(RemoteTorrentDownloadClient));
 
-    private async IAsyncEnumerable<RemoteTorrentTrackRequest> FetchUnfinishedTaskFromDb()
+    private async IAsyncEnumerable<RemoteTorrentTrackRequest> FetchUnfinishedTaskFromDb(
+        [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         await using var scope = scopeFactory.CreateAsyncScope();
         var animationInfoRepository = scope.ServiceProvider.GetRequiredService<IAnimationInfoRepository>();
 
-        await foreach (var info in animationInfoRepository.GetUnfinishedTorrentDownloadsAsync())
+        await foreach (var info in animationInfoRepository.GetUnfinishedTorrentDownloadsAsync(cancellationToken))
             yield return new RemoteTorrentTrackRequest(info.Id, info.AdditionalDownloadInfo);
     }
 
@@ -33,7 +35,7 @@ public partial class FetchRemoteTorrentBackgroundService(
         var tracked = new ConcurrentDictionary<string, RemoteTorrentTrackRequest>();
 
         // Add unfinished to track
-        await foreach (var request in FetchUnfinishedTaskFromDb().WithCancellation(cancellationToken))
+        await foreach (var request in FetchUnfinishedTaskFromDb(cancellationToken))
             tracked[request.Hash] = request;
 
         _ = Task.Run(async () =>

@@ -1,5 +1,6 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -31,10 +32,8 @@ internal partial class AuthController : ControllerBase
 
     private static string RandomString(int length)
     {
-        var random = new Random();
         const string chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-        return new string(Enumerable.Repeat(chars, length)
-            .Select(x => x[random.Next(x.Length)]).ToArray());
+        return RandomNumberGenerator.GetString(chars, length);
     }
 
     private async Task<External.LoginResult> GenerateJwtTokenAsync()
