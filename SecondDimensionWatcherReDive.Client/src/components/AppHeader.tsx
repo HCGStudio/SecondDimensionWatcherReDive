@@ -5,6 +5,7 @@ import {
   Home,
   LayoutGrid,
   List,
+  Menu,
   MessageSquare,
   Settings,
   User,
@@ -28,6 +29,24 @@ import {
   DropdownMenuTrigger,
 } from "./ui/DropdownMenu";
 
+interface NavItem {
+  icon: React.ReactNode;
+  labelKey: string;
+  path: string;
+}
+
+const useNavItems = (): NavItem[] => [
+  { icon: <Home size={16} />, labelKey: "nav.home", path: "/" },
+  { icon: <Download size={16} />, labelKey: "nav.downloading", path: "/downloading" },
+  { icon: <List size={16} />, labelKey: "nav.downloaded", path: "/downloaded" },
+  { icon: <LayoutGrid size={16} />, labelKey: "nav.feeds", path: "/feeds" },
+  { icon: <Settings size={16} />, labelKey: "nav.tasks", path: "/tasks" },
+  { icon: <MessageSquare size={16} />, labelKey: "nav.chat", path: "/chat" },
+];
+
+const isPathActive = (pathname: string, path: string): boolean =>
+  pathname === path || (path === "/" && pathname === "/main");
+
 interface NavLinkProps {
   icon: React.ReactNode;
   label: string;
@@ -37,9 +56,7 @@ interface NavLinkProps {
 const NavLink: React.FC<NavLinkProps> = ({ icon, label, path }) => {
   const navigate = useNavigate();
   const location = useLocation();
-  const isActive =
-    location.pathname === path ||
-    (path === "/" && location.pathname === "/main");
+  const isActive = isPathActive(location.pathname, path);
 
   return (
     <button
@@ -54,6 +71,52 @@ const NavLink: React.FC<NavLinkProps> = ({ icon, label, path }) => {
       {icon}
       {label}
     </button>
+  );
+};
+
+const MobileNavMenu: React.FC = () => {
+  const { t } = useTranslation();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const items = useNavItems();
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className="lg:hidden inline-flex items-center justify-center rounded-md p-1.5 text-muted hover:text-foreground hover:bg-canvas transition-colors"
+          aria-label={t("nav.menu")}
+        >
+          <Menu size={18} />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" sideOffset={8} className="min-w-[12rem]">
+        {items.map((item) => {
+          const isActive = isPathActive(location.pathname, item.path);
+          return (
+            <DropdownMenuItem
+              key={item.path}
+              onSelect={() => navigate(item.path)}
+              className={cn(
+                "gap-2.5",
+                isActive && "bg-canvas text-foreground font-medium",
+              )}
+            >
+              <span
+                className={cn(
+                  "inline-flex",
+                  isActive ? "text-foreground" : "text-muted",
+                )}
+              >
+                {item.icon}
+              </span>
+              {t(item.labelKey)}
+            </DropdownMenuItem>
+          );
+        })}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 };
 
@@ -116,48 +179,32 @@ export const AppHeader: React.FC = () => {
   const { t } = useTranslation();
   const { data: status } = useLoginStatus();
   const navigate = useNavigate();
+  const items = useNavItems();
 
   return (
     <header className="sticky top-0 z-30 border-b border-border bg-surface/95 backdrop-blur">
-      <nav className="flex h-14 items-center justify-between px-6">
-        <div className="flex items-center gap-6">
+      <nav className="flex h-14 items-center justify-between gap-2 px-4 sm:px-6">
+        <div className="flex min-w-0 items-center gap-2 lg:gap-6">
+          <MobileNavMenu />
           <a
-            className="flex items-center gap-2 font-serif text-lg font-medium text-foreground cursor-pointer"
+            className="flex min-w-0 items-center gap-2 font-serif text-lg font-medium text-foreground cursor-pointer"
             onClick={() => navigate("/")}
           >
-            <Clapperboard size={20} />
-            {t("appName")}
+            <Clapperboard size={20} className="shrink-0" />
+            <span className="truncate">{t("appName")}</span>
           </a>
-          <div className="flex items-center gap-1">
-            <NavLink icon={<Home size={16} />} label={t("nav.home")} path="/" />
-            <NavLink
-              icon={<Download size={16} />}
-              label={t("nav.downloading")}
-              path="/downloading"
-            />
-            <NavLink
-              icon={<List size={16} />}
-              label={t("nav.downloaded")}
-              path="/downloaded"
-            />
-            <NavLink
-              icon={<LayoutGrid size={16} />}
-              label={t("nav.feeds")}
-              path="/feeds"
-            />
-            <NavLink
-              icon={<Settings size={16} />}
-              label={t("nav.tasks")}
-              path="/tasks"
-            />
-            <NavLink
-              icon={<MessageSquare size={16} />}
-              label={t("nav.chat")}
-              path="/chat"
-            />
+          <div className="hidden lg:flex items-center gap-1">
+            {items.map((item) => (
+              <NavLink
+                key={item.path}
+                icon={item.icon}
+                label={t(item.labelKey)}
+                path={item.path}
+              />
+            ))}
           </div>
         </div>
-        <div>
+        <div className="shrink-0">
           {status ? (
             <UserMenu />
           ) : (

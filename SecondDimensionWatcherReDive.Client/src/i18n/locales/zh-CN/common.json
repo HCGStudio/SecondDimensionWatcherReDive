@@ -6,7 +6,8 @@
     "downloaded": "已下载",
     "feeds": "订阅管理",
     "tasks": "后台任务",
-    "chat": "AI 助手"
+    "chat": "AI 助手",
+    "menu": "打开导航"
   },
   "user": {
     "account": "账户",
