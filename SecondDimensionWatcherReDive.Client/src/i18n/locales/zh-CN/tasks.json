@@ -1,0 +1,43 @@
+{
+  "title": "后台任务",
+  "columns": {
+    "name": "任务名称",
+    "description": "描述",
+    "interval": "执行间隔",
+    "lastRun": "上次执行",
+    "status": "状态",
+    "actions": "操作"
+  },
+  "runNow": "立即运行",
+  "running": "运行中",
+  "idle": "空闲",
+  "empty": {
+    "title": "暂无后台任务",
+    "body": "没有已注册的定时任务"
+  },
+  "loadFailed": "无法获取任务列表，请稍后重试",
+  "interval": {
+    "lessThanMinute": "< 1分钟",
+    "day": "{{count}}天",
+    "hour": "{{count}}小时",
+    "minute": "{{count}}分钟"
+  },
+  "toast": {
+    "success": "任务「{{name}}」执行完成",
+    "failure": "任务「{{name}}」执行失败"
+  },
+  "metadata": {
+    "SyncFeed": {
+      "name": "SyncFeed",
+      "description": "同步 RSS 订阅"
+    },
+    "ScrapeSeasonBangumi": {
+      "name": "ScrapeSeasonBangumi",
+      "description": "更新当季番组列表"
+    },
+    "InferAnimationMetadata": {
+      "name": "InferAnimationMetadata",
+      "description": "AI 元数据推断"
+    }
+  }
+}

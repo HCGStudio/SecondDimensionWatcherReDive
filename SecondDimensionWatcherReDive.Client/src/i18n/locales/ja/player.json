@@ -1,0 +1,9 @@
+{
+  "missingId": "アニメ ID がありません",
+  "generateLinkFailed": "再生リンクの生成に失敗しました",
+  "playFailed": "再生に失敗しました",
+  "unknownFile": "不明なファイル",
+  "back": "戻る",
+  "useExternalHint": "再生できない場合はローカルプレーヤーをお試しください",
+  "openInExternal": "ローカルプレーヤーで開く："
+}

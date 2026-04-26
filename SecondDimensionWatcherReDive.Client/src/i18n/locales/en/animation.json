@@ -1,0 +1,44 @@
+{
+  "sectionTitle": "Anime",
+  "uncategorized": "Uncategorized",
+  "episodeCount_one": "{{count}} episode",
+  "episodeCount_other": "{{count}} episodes",
+  "back": "Back",
+  "empty": {
+    "main": {
+      "title": "No anime yet",
+      "body": "Subscribe to an RSS feed and anime will appear here"
+    },
+    "downloading": "Nothing is downloading right now",
+    "downloaded": "No downloads yet",
+    "animeNotFound": {
+      "title": "Anime not found",
+      "body": "It may have been removed or has not been indexed yet"
+    }
+  },
+  "finished": "Finished",
+  "actions": {
+    "download": "Download",
+    "pause": "Pause",
+    "resume": "Resume",
+    "browse": "Browse files",
+    "more": "More actions",
+    "delete": "Delete",
+    "reinfer": "Re-infer",
+    "inferAi": "Infer with AI",
+    "requesting": "Requesting..."
+  },
+  "confirm": {
+    "deleteFile": "Delete the downloaded files?",
+    "cancelAndDelete": "Cancel the download and delete the files?"
+  },
+  "toast": {
+    "queued": "Queued for inference",
+    "actionFailed": "Action failed",
+    "downloadFailed": "Download failed",
+    "downloadFailedDesc": "Could not submit the download task",
+    "pauseFailed": "Failed to pause",
+    "resumeFailed": "Failed to resume",
+    "deleteFailed": "Failed to delete"
+  }
+}

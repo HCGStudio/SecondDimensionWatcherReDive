@@ -1,5 +1,6 @@
 import { CornerDownLeft, File, FolderOpen, Play } from "lucide-react";
 import React from "react";
+import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router";
 
 import { useFileList } from "../file/hooks";
@@ -13,6 +14,7 @@ interface FileBrowserProps {
 }
 
 export const FileBrowser: React.FC<FileBrowserProps> = ({ animationId }) => {
+  const { t } = useTranslation("files");
   const [relativeDir, setRelativeDir] = React.useState<string | undefined>(
     undefined,
   );
@@ -45,7 +47,7 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({ animationId }) => {
 
   if (error) {
     return (
-      <p className="text-sm text-error">加载文件列表失败</p>
+      <p className="text-sm text-error">{t("browser.loadFailed")}</p>
     );
   }
 
@@ -56,7 +58,7 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({ animationId }) => {
   const columns: TableColumn<IFileStoreListResult>[] = [
     {
       field: "fileName",
-      name: "文件名",
+      name: t("browser.filename"),
       render: (value: string, item: IFileStoreListResult) => (
         <div className="flex items-center gap-2">
           <span className="shrink-0 text-muted">
@@ -77,13 +79,13 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({ animationId }) => {
       ),
     },
     {
-      name: "操作",
+      name: t("browser.actions"),
       render: (_value: any, item: IFileStoreListResult) =>
         !item.isDirectory ? (
           <Button
             variant="icon"
             size="sm"
-            aria-label="播放"
+            aria-label={t("browser.play")}
             onClick={() =>
               onPlay(
                 relativeDir
@@ -104,7 +106,7 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({ animationId }) => {
       {relativeDir ? (
         <Button variant="ghost" size="sm" onClick={onGoUp} className="mb-2">
           <CornerDownLeft size={16} />
-          返回上级
+          {t("browser.goUp")}
         </Button>
       ) : null}
       <Table items={files} columns={columns} />

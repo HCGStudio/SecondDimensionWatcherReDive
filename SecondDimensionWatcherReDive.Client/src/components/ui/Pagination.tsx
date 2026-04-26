@@ -5,6 +5,7 @@ import {
   ChevronsRight,
 } from "lucide-react";
 import React from "react";
+import { useTranslation } from "react-i18next";
 
 import { cn } from "../../lib/cn";
 
@@ -19,6 +20,7 @@ export const Pagination: React.FC<PaginationProps> = ({
   activePage,
   onPageClick,
 }) => {
+  const { t } = useTranslation();
   if (pageCount <= 1) return null;
 
   const pages = React.useMemo(() => {
@@ -52,7 +54,7 @@ export const Pagination: React.FC<PaginationProps> = ({
         className={cn(btnBase, "p-1.5 text-muted hover:text-foreground")}
         onClick={() => onPageClick(0)}
         disabled={activePage === 0}
-        aria-label="第一页"
+        aria-label={t("pagination.first")}
       >
         <ChevronsLeft size={16} />
       </button>
@@ -60,7 +62,7 @@ export const Pagination: React.FC<PaginationProps> = ({
         className={cn(btnBase, "p-1.5 text-muted hover:text-foreground")}
         onClick={() => onPageClick(activePage - 1)}
         disabled={activePage === 0}
-        aria-label="上一页"
+        aria-label={t("pagination.prev")}
       >
         <ChevronLeft size={16} />
       </button>
@@ -81,7 +83,7 @@ export const Pagination: React.FC<PaginationProps> = ({
                 : "text-foreground hover:bg-canvas",
             )}
             onClick={() => onPageClick(page)}
-            aria-label={`第 ${page + 1} 页`}
+            aria-label={t("pagination.page", { page: page + 1 })}
             aria-current={page === activePage ? "page" : undefined}
           >
             {page + 1}
@@ -93,7 +95,7 @@ export const Pagination: React.FC<PaginationProps> = ({
         className={cn(btnBase, "p-1.5 text-muted hover:text-foreground")}
         onClick={() => onPageClick(activePage + 1)}
         disabled={activePage === pageCount - 1}
-        aria-label="下一页"
+        aria-label={t("pagination.next")}
       >
         <ChevronRight size={16} />
       </button>
@@ -101,7 +103,7 @@ export const Pagination: React.FC<PaginationProps> = ({
         className={cn(btnBase, "p-1.5 text-muted hover:text-foreground")}
         onClick={() => onPageClick(pageCount - 1)}
         disabled={activePage === pageCount - 1}
-        aria-label="最后一页"
+        aria-label={t("pagination.last")}
       >
         <ChevronsRight size={16} />
       </button>

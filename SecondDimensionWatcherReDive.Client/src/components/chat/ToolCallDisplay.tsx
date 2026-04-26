@@ -1,5 +1,6 @@
 import { ChevronDown, ChevronRight } from "lucide-react";
 import React, { useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { StreamingToolCall } from "../../chat/useStreamingChat";
 import { ToolCallInfo } from "../../chat/types";
@@ -28,6 +29,7 @@ export const ToolCallItem: React.FC<{
   toolCall: (ToolCallInfo & { result?: string }) | StreamingToolCall;
   isStreaming?: boolean;
 }> = ({ toolCall, isStreaming }) => {
+  const { t } = useTranslation("chat");
   const [expanded, setExpanded] = useState(false);
 
   return (
@@ -41,7 +43,7 @@ export const ToolCallItem: React.FC<{
         <span className="font-mono text-xs">{toolCall.name}</span>
         {isStreaming && !("result" in toolCall && toolCall.result) && (
           <span className="ml-auto text-xs text-subtle animate-pulse">
-            执行中...
+            {t("tool.executing")}
           </span>
         )}
       </button>
@@ -49,7 +51,7 @@ export const ToolCallItem: React.FC<{
         <div className="border-t border-border-light px-3 py-2 space-y-2">
           {toolCall.arguments && (
             <div>
-              <div className="text-xs text-subtle mb-1">参数</div>
+              <div className="text-xs text-subtle mb-1">{t("tool.arguments")}</div>
               <pre className="text-xs font-mono bg-canvas rounded p-2 overflow-x-auto whitespace-pre-wrap break-all">
                 {formatJson(toolCall.arguments)}
               </pre>
@@ -57,7 +59,7 @@ export const ToolCallItem: React.FC<{
           )}
           {"result" in toolCall && toolCall.result && (
             <div>
-              <div className="text-xs text-subtle mb-1">结果</div>
+              <div className="text-xs text-subtle mb-1">{t("tool.result")}</div>
               <pre className="text-xs font-mono bg-canvas rounded p-2 overflow-x-auto whitespace-pre-wrap break-all max-h-48 overflow-y-auto">
                 {formatJson(toolCall.result)}
               </pre>

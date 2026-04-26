@@ -1,0 +1,47 @@
+{
+  "browser": {
+    "loadFailed": "Failed to load file list",
+    "filename": "Name",
+    "actions": "Actions",
+    "play": "Play",
+    "goUp": "Up one level"
+  },
+  "webdav": {
+    "button": "WebDAV access",
+    "title": "WebDAV access",
+    "description": "Mount completed downloads via WebDAV to browse and play them directly from your file manager or video player.",
+    "connection": "Connection details",
+    "address": "Server URL",
+    "username": "Username",
+    "password": "Password",
+    "passwordHelp": "Set at deploy time via the <code>{{key}}</code> config entry. The server stores a BCrypt hash and cannot reveal it — regenerate if forgotten.",
+    "notes": "Notes",
+    "noteReadOnly": "This gateway is <accent>read-only</accent>. Upload, delete, and rename are not supported.",
+    "noteBasicAuth": "Only Basic auth is enabled — put it behind an HTTPS reverse proxy if exposed publicly.",
+    "notePathSame": "The path layout matches the Downloaded page, grouped by anime and subtitle group.",
+    "examples": "Examples",
+    "macos": {
+      "title": "macOS Finder",
+      "step1": "In Finder press ⌘ + K to open Connect to Server",
+      "step2": "Enter the server address <code>{{endpoint}}</code>",
+      "step3": "Username <code>{{username}}</code>, password as above"
+    },
+    "windows": {
+      "title": "Windows File Explorer",
+      "step1": "Right-click This PC → Add a network location",
+      "step2": "Enter the location <code>{{endpoint}}</code>",
+      "step3": "Provide the username and password when prompted"
+    },
+    "mobile": {
+      "title": "Mobile players (Infuse / VLC / nPlayer, etc.)",
+      "step1": "Add a new source of type WebDAV server",
+      "step2": "URL <code>{{endpoint}}</code>",
+      "step3": "Username <code>{{username}}</code>, password as above"
+    },
+    "copy": {
+      "success": "{{label}} copied",
+      "failed": "Copy failed — please copy manually",
+      "copyLabel": "Copy {{label}}"
+    }
+  }
+}

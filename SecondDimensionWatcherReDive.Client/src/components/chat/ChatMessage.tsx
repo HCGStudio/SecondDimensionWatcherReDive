@@ -1,4 +1,5 @@
 import React from "react";
+import { useTranslation } from "react-i18next";
 
 import { ChatMessageData, parseToolCalls } from "../../chat/types";
 import { useTypewriter } from "../../chat/useTypewriter";
@@ -71,6 +72,7 @@ export const StreamingMessage: React.FC<StreamingMessageProps> = ({
   contentBlocks,
   isStreaming,
 }) => {
+  const { t } = useTranslation("chat");
   // Find the last text block index for typewriter animation
   const lastTextIdx = contentBlocks.reduce(
     (acc, block, i) => (block.type === "text" ? i : acc),
@@ -112,7 +114,7 @@ export const StreamingMessage: React.FC<StreamingMessageProps> = ({
           return null;
         })}
         {isStreaming && contentBlocks.length === 0 && (
-          <div className="text-sm text-subtle animate-pulse">思考中...</div>
+          <div className="text-sm text-subtle animate-pulse">{t("thinking")}</div>
         )}
       </div>
     </div>

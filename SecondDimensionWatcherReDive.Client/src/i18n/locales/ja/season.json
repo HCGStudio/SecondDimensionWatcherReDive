@@ -1,0 +1,38 @@
+{
+  "title": "アニメ一覧",
+  "days": {
+    "monday": "月曜日",
+    "tuesday": "火曜日",
+    "wednesday": "水曜日",
+    "thursday": "木曜日",
+    "friday": "金曜日",
+    "saturday": "土曜日",
+    "sunday": "日曜日",
+    "movie": "劇場版",
+    "ova": "OVA"
+  },
+  "seasons": {
+    "winter": "冬",
+    "spring": "春",
+    "summer": "夏",
+    "autumn": "秋"
+  },
+  "seasonLabel": "{{year}}年 {{season}}",
+  "refresh": "更新",
+  "lastUpdated": "最終更新: {{time}}",
+  "empty": "アニメデータがありません。更新ボタンを押してください",
+  "subscribe": "購読",
+  "subscribed": "購読済み",
+  "subgroups": "字幕グループ",
+  "allSubgroups": "すべての字幕グループ",
+  "selectSubgroup": "字幕グループを選んで購読",
+  "loadSubgroupsFailed": "字幕グループの読み込みに失敗しました",
+  "noSubgroups": "字幕グループのデータがありません",
+  "toast": {
+    "updated": "アニメ一覧を更新しました",
+    "updateFailed": "更新に失敗しました。しばらくしてから再度お試しください。",
+    "subscribed": "「{{name}}」を購読しました",
+    "subscribedSubgroup": "「{{title}} - {{subgroup}}」を購読しました",
+    "subscribeFailed": "購読に失敗しました"
+  }
+}

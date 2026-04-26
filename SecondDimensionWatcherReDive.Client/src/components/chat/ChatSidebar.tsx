@@ -1,5 +1,6 @@
 import { MessageSquare, Plus, Trash2 } from "lucide-react";
 import React from "react";
+import { useTranslation } from "react-i18next";
 
 import { ChatConversation } from "../../chat/types";
 import { cn } from "../../lib/cn";
@@ -20,17 +21,18 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
   onCreate,
   onDelete,
 }) => {
+  const { t } = useTranslation("chat");
   return (
     <div className="flex h-full w-[280px] flex-col border-r border-border bg-surface">
       <div className="flex items-center justify-between p-4 border-b border-border-light">
         <h2 className="font-serif text-base font-medium text-foreground">
-          对话
+          {t("conversations")}
         </h2>
         <Button
           variant="icon"
           size="sm"
           onClick={onCreate}
-          title="新建对话"
+          title={t("newConversation")}
         >
           <Plus size={18} />
         </Button>
@@ -38,7 +40,7 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
       <div className="flex-1 overflow-y-auto p-2 space-y-0.5">
         {conversations.length === 0 && (
           <div className="px-3 py-8 text-center text-sm text-subtle">
-            暂无对话
+            {t("noConversations")}
           </div>
         )}
         {conversations.map((conv) => (
@@ -54,7 +56,7 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
           >
             <MessageSquare size={14} className="flex-shrink-0" />
             <span className="flex-1 truncate text-sm">
-              {conv.title || "新对话"}
+              {conv.title || t("untitledConversation")}
             </span>
             <button
               onClick={(e) => {
@@ -62,7 +64,7 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
                 onDelete(conv.id);
               }}
               className="hidden group-hover:block flex-shrink-0 rounded p-0.5 text-subtle hover:text-error transition-colors"
-              title="删除对话"
+              title={t("deleteConversation")}
             >
               <Trash2 size={14} />
             </button>

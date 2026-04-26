@@ -1,5 +1,6 @@
 import { AlertTriangle, Plus, Trash2 } from "lucide-react";
 import React from "react";
+import { useTranslation } from "react-i18next";
 
 import { useFeeds } from "../feed/hooks";
 import { addFeed, removeFeed } from "../feed/utils";
@@ -14,6 +15,7 @@ import { Table, type TableColumn } from "../components/ui/Table";
 import { PageTemplate } from "./PageTemplate";
 
 export const FeedsPage: React.FC = () => {
+  const { t } = useTranslation(["feeds", "errors"]);
   const { data: feeds, error, mutate } = useFeeds();
   const { addToast } = useToast();
   const [url, setUrl] = React.useState("");
@@ -26,49 +28,49 @@ export const FeedsPage: React.FC = () => {
       setUrl("");
       setName("");
       await mutate();
-      addToast({ title: "订阅添加成功", color: "success" });
+      addToast({ title: t("feeds:toast.added"), color: "success" });
     } catch {
-      addToast({ title: "添加订阅失败", color: "danger" });
+      addToast({ title: t("feeds:toast.addFailed"), color: "danger" });
     }
-  }, [url, name, mutate, addToast]);
+  }, [url, name, mutate, addToast, t]);
 
   const onRemove = React.useCallback(
     async (id: string) => {
       try {
         await removeFeed(id);
         await mutate();
-        addToast({ title: "订阅已删除", color: "success" });
+        addToast({ title: t("feeds:toast.deleted"), color: "success" });
       } catch {
-        addToast({ title: "删除订阅失败", color: "danger" });
+        addToast({ title: t("feeds:toast.deleteFailed"), color: "danger" });
       }
     },
-    [mutate, addToast],
+    [mutate, addToast, t],
   );
 
   const columns: TableColumn<IFeed>[] = [
     {
       field: "name",
-      name: "名称",
+      name: t("feeds:columns.name"),
       render: (value: string | undefined) => value || "-",
     },
     {
       field: "url",
-      name: "URL",
+      name: t("feeds:columns.url"),
       truncateText: true,
     },
     {
       field: "createdAt",
-      name: "添加时间",
+      name: t("feeds:columns.createdAt"),
       render: (value: string) => new Date(value).toLocaleString(),
     },
     {
-      name: "操作",
+      name: t("feeds:columns.actions"),
       render: (_value: any, item: IFeed) => (
         <Button
           variant="icon"
           color="danger"
           size="sm"
-          aria-label="删除"
+          aria-label={t("feeds:columns.delete")}
           onClick={() => onRemove(item.id)}
         >
           <Trash2 size={16} />
@@ -82,18 +84,20 @@ export const FeedsPage: React.FC = () => {
     <PageTemplate>
       <SeasonDiscovery />
       <hr className="my-8 border-border-light" />
-      <h2 className="mb-4 font-serif text-xl font-medium text-foreground">手动订阅</h2>
+      <h2 className="mb-4 font-serif text-xl font-medium text-foreground">
+        {t("feeds:manualSubscribe")}
+      </h2>
       <div className="flex items-end gap-4">
-        <FormRow label="订阅 URL" className="flex-1">
+        <FormRow label={t("feeds:urlLabel")} className="flex-1">
           <Input
-            placeholder="https://mikanani.me/RSS/..."
+            placeholder={t("feeds:urlPlaceholder")}
             value={url}
             onChange={(e) => setUrl(e.target.value)}
           />
         </FormRow>
-        <FormRow label="名称（可选）">
+        <FormRow label={t("feeds:nameLabel")}>
           <Input
-            placeholder="我的订阅"
+            placeholder={t("feeds:namePlaceholder")}
             value={name}
             onChange={(e) => setName(e.target.value)}
           />
@@ -101,7 +105,7 @@ export const FeedsPage: React.FC = () => {
         <FormRow hasEmptyLabelSpace>
           <Button onClick={onAdd}>
             <Plus size={16} />
-            添加
+            {t("feeds:add")}
           </Button>
         </FormRow>
       </div>
@@ -109,15 +113,15 @@ export const FeedsPage: React.FC = () => {
         {error ? (
           <EmptyPrompt
             icon={<AlertTriangle size={48} />}
-            title={<h2>加载失败</h2>}
-            body={<p>无法获取订阅列表，请稍后重试</p>}
+            title={<h2>{t("errors:loadFailed")}</h2>}
+            body={<p>{t("feeds:loadFailed")}</p>}
           />
         ) : feeds && feeds.length > 0 ? (
           <Table items={feeds} columns={columns} />
         ) : feeds ? (
           <EmptyPrompt
-            title={<h2>暂无订阅</h2>}
-            body={<p>添加 RSS 订阅以自动获取动画更新</p>}
+            title={<h2>{t("feeds:empty.title")}</h2>}
+            body={<p>{t("feeds:empty.body")}</p>}
           />
         ) : null}
       </div>

@@ -1,0 +1,47 @@
+{
+  "browser": {
+    "loadFailed": "加载文件列表失败",
+    "filename": "文件名",
+    "actions": "操作",
+    "play": "播放",
+    "goUp": "返回上级"
+  },
+  "webdav": {
+    "button": "WebDAV 接入",
+    "title": "WebDAV 接入",
+    "description": "通过 WebDAV 协议挂载已下载文件，可直接在系统资源管理器或视频播放器中浏览、播放。",
+    "connection": "连接信息",
+    "address": "服务地址",
+    "username": "用户名",
+    "password": "密码",
+    "passwordHelp": "由部署时在配置项 <code>{{key}}</code> 中设定。服务端以 BCrypt 哈希存储，无法回显——若忘记请重新生成。",
+    "notes": "说明",
+    "noteReadOnly": "当前为<accent>只读</accent>网关，不支持上传、删除或重命名。",
+    "noteBasicAuth": "仅启用 Basic 鉴权，建议在公网访问时通过 HTTPS 反向代理。",
+    "notePathSame": "路径结构与「已下载」页一致，子分组按番组与字幕组组织。",
+    "examples": "连接示例",
+    "macos": {
+      "title": "macOS Finder",
+      "step1": "在 Finder 中按 ⌘ + K 打开「连接服务器」",
+      "step2": "服务器地址填入 <code>{{endpoint}}</code>",
+      "step3": "用户名 <code>{{username}}</code>，密码同上"
+    },
+    "windows": {
+      "title": "Windows 资源管理器",
+      "step1": "在「此电脑」右键 →「添加一个网络位置」",
+      "step2": "位置填入 <code>{{endpoint}}</code>",
+      "step3": "出现凭据弹窗时填入用户名密码"
+    },
+    "mobile": {
+      "title": "移动端播放器（Infuse / VLC / nPlayer 等）",
+      "step1": "新增「WebDAV 服务器」类型的源",
+      "step2": "URL 填 <code>{{endpoint}}</code>",
+      "step3": "用户名 <code>{{username}}</code>，密码同上"
+    },
+    "copy": {
+      "success": "{{label}}已复制",
+      "failed": "复制失败，请手动复制",
+      "copyLabel": "复制{{label}}"
+    }
+  }
+}

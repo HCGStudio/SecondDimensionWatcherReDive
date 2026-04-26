@@ -1,0 +1,36 @@
+{
+  "appName": "SDW Re:Dive",
+  "nav": {
+    "home": "Home",
+    "downloading": "Downloading",
+    "downloaded": "Downloaded",
+    "feeds": "Feeds",
+    "tasks": "Tasks",
+    "chat": "AI Chat"
+  },
+  "user": {
+    "account": "Account",
+    "language": "Language",
+    "logout": "Sign out",
+    "login": "Sign in"
+  },
+  "languages": {
+    "zh-CN": "中文（简体）",
+    "en": "English",
+    "ja": "日本語"
+  },
+  "pagination": {
+    "first": "First page",
+    "prev": "Previous page",
+    "next": "Next page",
+    "last": "Last page",
+    "page": "Page {{page}}"
+  },
+  "passwordInput": {
+    "show": "Show password",
+    "hide": "Hide password"
+  },
+  "actions": {
+    "close": "Close"
+  }
+}

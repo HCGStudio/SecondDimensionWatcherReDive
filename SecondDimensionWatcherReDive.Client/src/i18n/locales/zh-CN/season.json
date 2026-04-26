@@ -1,0 +1,38 @@
+{
+  "title": "番组列表",
+  "days": {
+    "monday": "星期一",
+    "tuesday": "星期二",
+    "wednesday": "星期三",
+    "thursday": "星期四",
+    "friday": "星期五",
+    "saturday": "星期六",
+    "sunday": "星期日",
+    "movie": "剧场版",
+    "ova": "OVA"
+  },
+  "seasons": {
+    "winter": "冬季",
+    "spring": "春季",
+    "summer": "夏季",
+    "autumn": "秋季"
+  },
+  "seasonLabel": "{{year}} {{season}}",
+  "refresh": "刷新",
+  "lastUpdated": "上次更新: {{time}}",
+  "empty": "暂无新番数据，请点击刷新获取",
+  "subscribe": "订阅",
+  "subscribed": "已订阅",
+  "subgroups": "字幕组",
+  "allSubgroups": "全部字幕组",
+  "selectSubgroup": "选择字幕组订阅",
+  "loadSubgroupsFailed": "加载字幕组失败",
+  "noSubgroups": "暂无字幕组数据",
+  "toast": {
+    "updated": "新番列表已更新",
+    "updateFailed": "更新失败，请稍后重试",
+    "subscribed": "已订阅「{{name}}」",
+    "subscribedSubgroup": "已订阅「{{title}} - {{subgroup}}」",
+    "subscribeFailed": "订阅失败"
+  }
+}

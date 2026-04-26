@@ -1,0 +1,43 @@
+{
+  "sectionTitle": "动画",
+  "uncategorized": "未分类",
+  "episodeCount": "{{count}} 个剧集",
+  "back": "返回",
+  "empty": {
+    "main": {
+      "title": "暂无动画",
+      "body": "订阅 RSS 源后，动画将在这里显示"
+    },
+    "downloading": "暂无下载中的项目",
+    "downloaded": "暂无已下载的项目",
+    "animeNotFound": {
+      "title": "未找到该动画",
+      "body": "该动画可能已被移除或尚未收录"
+    }
+  },
+  "finished": "已完成",
+  "actions": {
+    "download": "下载",
+    "pause": "暂停",
+    "resume": "恢复",
+    "browse": "浏览文件",
+    "more": "更多操作",
+    "delete": "删除",
+    "reinfer": "重新推断",
+    "inferAi": "AI 推断",
+    "requesting": "请求中..."
+  },
+  "confirm": {
+    "deleteFile": "确定要删除已下载的文件吗？",
+    "cancelAndDelete": "确定要取消下载并删除文件吗？"
+  },
+  "toast": {
+    "queued": "已加入推断队列",
+    "actionFailed": "操作失败",
+    "downloadFailed": "下载失败",
+    "downloadFailedDesc": "无法提交下载任务",
+    "pauseFailed": "暂停失败",
+    "resumeFailed": "恢复失败",
+    "deleteFailed": "删除失败"
+  }
+}

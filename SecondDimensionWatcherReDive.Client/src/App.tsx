@@ -5,11 +5,17 @@ import { SWRConfig } from "swr";
 import { Main } from "./Main";
 import fetcher from "./auth/httpClient";
 import { ToastProvider } from "./components/ToastProvider";
-import { initDayjs } from "./utils/initDayjs";
+import i18n from "./i18n";
+import { setDayjsLocale } from "./utils/initDayjs";
 
 import "./styles.css";
 
-initDayjs();
+void setDayjsLocale(i18n.language);
+document.documentElement.lang = i18n.language;
+i18n.on("languageChanged", (lng) => {
+  void setDayjsLocale(lng);
+  document.documentElement.lang = lng;
+});
 
 const root = createRoot(document.getElementById("app")!);
 root.render(

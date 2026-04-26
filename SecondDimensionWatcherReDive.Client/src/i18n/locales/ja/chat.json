@@ -1,0 +1,22 @@
+{
+  "aiNotConfigured": "AI 機能が未設定です",
+  "aiNotConfiguredHelp": "サーバー側で AI Provider と API Key を設定してください。詳細は appsettings.example.json の AI セクションをご覧ください。",
+  "selectOrCreate": "会話を選択または新規作成",
+  "createHint": "左の + をクリックして新しい会話を始めましょう",
+  "newConversation": "新しい会話",
+  "conversations": "会話",
+  "deleteConversation": "会話を削除",
+  "untitledConversation": "新しい会話",
+  "emptyTitle": "新しい会話を始めましょう",
+  "emptyHelp": "アニメのダウンロードや購読管理について聞いてみてください",
+  "inputPlaceholder": "メッセージを入力... (Shift+Enter で改行)",
+  "selectModel": "モデルを選択",
+  "noModels": "利用可能なモデルがありません",
+  "noConversations": "会話はまだありません",
+  "thinking": "考え中...",
+  "tool": {
+    "executing": "実行中...",
+    "arguments": "引数",
+    "result": "結果"
+  }
+}

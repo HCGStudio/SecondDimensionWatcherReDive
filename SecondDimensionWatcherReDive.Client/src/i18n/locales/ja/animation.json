@@ -1,0 +1,43 @@
+{
+  "sectionTitle": "アニメ",
+  "uncategorized": "未分類",
+  "episodeCount": "{{count}} 話",
+  "back": "戻る",
+  "empty": {
+    "main": {
+      "title": "アニメがありません",
+      "body": "RSS フィードを購読するとここに表示されます"
+    },
+    "downloading": "ダウンロード中の項目はありません",
+    "downloaded": "ダウンロード済みの項目はありません",
+    "animeNotFound": {
+      "title": "アニメが見つかりません",
+      "body": "削除されたか、まだ登録されていない可能性があります"
+    }
+  },
+  "finished": "完了",
+  "actions": {
+    "download": "ダウンロード",
+    "pause": "一時停止",
+    "resume": "再開",
+    "browse": "ファイルを開く",
+    "more": "その他の操作",
+    "delete": "削除",
+    "reinfer": "再推論",
+    "inferAi": "AI で推論",
+    "requesting": "リクエスト中..."
+  },
+  "confirm": {
+    "deleteFile": "ダウンロード済みのファイルを削除しますか？",
+    "cancelAndDelete": "ダウンロードを中止してファイルを削除しますか？"
+  },
+  "toast": {
+    "queued": "推論キューに追加しました",
+    "actionFailed": "操作に失敗しました",
+    "downloadFailed": "ダウンロードに失敗しました",
+    "downloadFailedDesc": "ダウンロードタスクを送信できませんでした",
+    "pauseFailed": "一時停止に失敗しました",
+    "resumeFailed": "再開に失敗しました",
+    "deleteFailed": "削除に失敗しました"
+  }
+}

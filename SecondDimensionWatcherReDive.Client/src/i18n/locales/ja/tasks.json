@@ -1,0 +1,43 @@
+{
+  "title": "バックグラウンドタスク",
+  "columns": {
+    "name": "タスク名",
+    "description": "説明",
+    "interval": "実行間隔",
+    "lastRun": "前回実行",
+    "status": "状態",
+    "actions": "操作"
+  },
+  "runNow": "今すぐ実行",
+  "running": "実行中",
+  "idle": "待機中",
+  "empty": {
+    "title": "バックグラウンドタスクがありません",
+    "body": "登録されているスケジュールタスクがありません"
+  },
+  "loadFailed": "タスク一覧を取得できませんでした。しばらくしてから再度お試しください。",
+  "interval": {
+    "lessThanMinute": "1 分未満",
+    "day": "{{count}} 日",
+    "hour": "{{count}} 時間",
+    "minute": "{{count}} 分"
+  },
+  "toast": {
+    "success": "タスク「{{name}}」を完了しました",
+    "failure": "タスク「{{name}}」が失敗しました"
+  },
+  "metadata": {
+    "SyncFeed": {
+      "name": "SyncFeed",
+      "description": "RSS フィードを同期"
+    },
+    "ScrapeSeasonBangumi": {
+      "name": "ScrapeSeasonBangumi",
+      "description": "今期アニメ一覧を更新"
+    },
+    "InferAnimationMetadata": {
+      "name": "InferAnimationMetadata",
+      "description": "AI メタデータ推論"
+    }
+  }
+}

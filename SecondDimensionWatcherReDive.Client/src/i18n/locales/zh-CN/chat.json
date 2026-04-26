@@ -1,0 +1,22 @@
+{
+  "aiNotConfigured": "AI 功能未配置",
+  "aiNotConfiguredHelp": "请在服务端配置 AI Provider 和 API Key 后使用此功能。详见 appsettings.example.json 中的 AI 配置项。",
+  "selectOrCreate": "选择或创建对话",
+  "createHint": "点击左侧 + 创建新对话开始聊天",
+  "newConversation": "新建对话",
+  "conversations": "对话",
+  "deleteConversation": "删除对话",
+  "untitledConversation": "新对话",
+  "emptyTitle": "开始一段新对话",
+  "emptyHelp": "试试问我关于动画下载、订阅管理的问题",
+  "inputPlaceholder": "输入消息... (Shift+Enter 换行)",
+  "selectModel": "选择模型",
+  "noModels": "无可用模型",
+  "noConversations": "暂无对话",
+  "thinking": "思考中...",
+  "tool": {
+    "executing": "执行中...",
+    "arguments": "参数",
+    "result": "结果"
+  }
+}

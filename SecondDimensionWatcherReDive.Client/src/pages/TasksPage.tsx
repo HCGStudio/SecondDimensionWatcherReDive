@@ -1,5 +1,6 @@
 import { AlertTriangle, Loader2, Play } from "lucide-react";
 import React from "react";
+import { useTranslation } from "react-i18next";
 
 import { useToast } from "../components/ToastProvider";
 import { Button } from "../components/ui/Button";
@@ -7,34 +8,40 @@ import { EmptyPrompt } from "../components/ui/EmptyPrompt";
 import { Spinner } from "../components/ui/Spinner";
 import { Table, type TableColumn } from "../components/ui/Table";
 import { useTasks } from "../tasks/hooks";
-import { getTaskMetadata } from "../tasks/taskMetadata";
+import { useTaskMetadata } from "../tasks/taskMetadata";
 import { runTask } from "../tasks/utils";
 import { ITask } from "../tasks/types";
 import { PageTemplate } from "./PageTemplate";
 
-function formatInterval(interval: string): string {
-  const match = interval.match(/^(\d+)\.?(\d{2}):(\d{2}):(\d{2})$/);
-  if (match) {
-    const [, days, hours, minutes] = match;
-    const parts: string[] = [];
-    if (parseInt(days) > 0) parts.push(`${parseInt(days)}天`);
-    if (parseInt(hours) > 0) parts.push(`${parseInt(hours)}小时`);
-    if (parseInt(minutes) > 0) parts.push(`${parseInt(minutes)}分钟`);
-    return parts.join(" ") || "< 1分钟";
-  }
-  // Try HH:MM:SS format
-  const match2 = interval.match(/^(\d{2}):(\d{2}):(\d{2})$/);
-  if (match2) {
-    const [, hours, minutes] = match2;
-    const parts: string[] = [];
-    if (parseInt(hours) > 0) parts.push(`${parseInt(hours)}小时`);
-    if (parseInt(minutes) > 0) parts.push(`${parseInt(minutes)}分钟`);
-    return parts.join(" ") || "< 1分钟";
-  }
-  return interval;
+function useFormatInterval(): (interval: string) => string {
+  const { t } = useTranslation("tasks");
+  return (interval: string): string => {
+    const tokens = (days: number, hours: number, minutes: number): string => {
+      const parts: string[] = [];
+      if (days > 0) parts.push(t("interval.day", { count: days }));
+      if (hours > 0) parts.push(t("interval.hour", { count: hours }));
+      if (minutes > 0) parts.push(t("interval.minute", { count: minutes }));
+      return parts.join(" ") || t("interval.lessThanMinute");
+    };
+
+    const match = interval.match(/^(\d+)\.?(\d{2}):(\d{2}):(\d{2})$/);
+    if (match) {
+      const [, days, hours, minutes] = match;
+      return tokens(parseInt(days), parseInt(hours), parseInt(minutes));
+    }
+    const match2 = interval.match(/^(\d{2}):(\d{2}):(\d{2})$/);
+    if (match2) {
+      const [, hours, minutes] = match2;
+      return tokens(0, parseInt(hours), parseInt(minutes));
+    }
+    return interval;
+  };
 }
 
 export const TasksPage: React.FC = () => {
+  const { t } = useTranslation(["tasks", "errors"]);
+  const getTaskMetadata = useTaskMetadata();
+  const formatInterval = useFormatInterval();
   const { data: tasks, error, mutate } = useTasks();
   const { addToast } = useToast();
   const [runningTasks, setRunningTasks] = React.useState<Set<string>>(new Set());
@@ -46,12 +53,12 @@ export const TasksPage: React.FC = () => {
         await runTask(id);
         await mutate();
         addToast({
-          title: `任务「${getTaskMetadata(id).name}」执行完成`,
+          title: t("tasks:toast.success", { name: getTaskMetadata(id).name }),
           color: "success",
         });
       } catch {
         addToast({
-          title: `任务「${getTaskMetadata(id).name}」执行失败`,
+          title: t("tasks:toast.failure", { name: getTaskMetadata(id).name }),
           color: "danger",
         });
       } finally {
@@ -62,44 +69,44 @@ export const TasksPage: React.FC = () => {
         });
       }
     },
-    [mutate, addToast],
+    [mutate, addToast, t, getTaskMetadata],
   );
 
   const columns: TableColumn<ITask>[] = [
     {
-      name: "任务名称",
+      name: t("tasks:columns.name"),
       render: (_value: any, item: ITask) => getTaskMetadata(item.id).name,
     },
     {
-      name: "描述",
+      name: t("tasks:columns.description"),
       render: (_value: any, item: ITask) => getTaskMetadata(item.id).description,
     },
     {
       field: "interval",
-      name: "执行间隔",
+      name: t("tasks:columns.interval"),
       render: (value: string) => formatInterval(value),
     },
     {
       field: "lastRunAt",
-      name: "上次执行",
+      name: t("tasks:columns.lastRun"),
       render: (value: string | null) =>
         value ? new Date(value).toLocaleString() : "-",
     },
     {
-      name: "状态",
+      name: t("tasks:columns.status"),
       render: (_value: any, item: ITask) =>
         item.isRunning || runningTasks.has(item.id) ? (
           <span className="inline-flex items-center gap-1.5 text-sm text-brand">
             <Loader2 size={14} className="animate-spin" />
-            运行中
+            {t("tasks:running")}
           </span>
         ) : (
-          <span className="text-sm text-success">空闲</span>
+          <span className="text-sm text-success">{t("tasks:idle")}</span>
         ),
       width: "100px",
     },
     {
-      name: "操作",
+      name: t("tasks:columns.actions"),
       render: (_value: any, item: ITask) => (
         <Button
           size="sm"
@@ -108,7 +115,7 @@ export const TasksPage: React.FC = () => {
           onClick={() => onRun(item.id)}
         >
           <Play size={14} />
-          立即运行
+          {t("tasks:runNow")}
         </Button>
       ),
       width: "130px",
@@ -118,13 +125,13 @@ export const TasksPage: React.FC = () => {
   return (
     <PageTemplate>
       <h2 className="mb-6 font-serif text-xl font-medium text-foreground">
-        后台任务
+        {t("tasks:title")}
       </h2>
       {error ? (
         <EmptyPrompt
           icon={<AlertTriangle size={48} />}
-          title={<h2>加载失败</h2>}
-          body={<p>无法获取任务列表，请稍后重试</p>}
+          title={<h2>{t("errors:loadFailed")}</h2>}
+          body={<p>{t("tasks:loadFailed")}</p>}
         />
       ) : !tasks ? (
         <div className="flex justify-center py-8">
@@ -134,8 +141,8 @@ export const TasksPage: React.FC = () => {
         <Table items={tasks} columns={columns} />
       ) : (
         <EmptyPrompt
-          title={<h2>暂无后台任务</h2>}
-          body={<p>没有已注册的定时任务</p>}
+          title={<h2>{t("tasks:empty.title")}</h2>}
+          body={<p>{t("tasks:empty.body")}</p>}
         />
       )}
     </PageTemplate>

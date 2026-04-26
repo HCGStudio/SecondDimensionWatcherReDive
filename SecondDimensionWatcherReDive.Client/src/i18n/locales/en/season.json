@@ -1,0 +1,38 @@
+{
+  "title": "Anime list",
+  "days": {
+    "monday": "Monday",
+    "tuesday": "Tuesday",
+    "wednesday": "Wednesday",
+    "thursday": "Thursday",
+    "friday": "Friday",
+    "saturday": "Saturday",
+    "sunday": "Sunday",
+    "movie": "Movies",
+    "ova": "OVAs"
+  },
+  "seasons": {
+    "winter": "Winter",
+    "spring": "Spring",
+    "summer": "Summer",
+    "autumn": "Autumn"
+  },
+  "seasonLabel": "{{season}} {{year}}",
+  "refresh": "Refresh",
+  "lastUpdated": "Last updated: {{time}}",
+  "empty": "No anime data yet — click Refresh to fetch",
+  "subscribe": "Subscribe",
+  "subscribed": "Subscribed",
+  "subgroups": "Subtitle groups",
+  "allSubgroups": "All subtitle groups",
+  "selectSubgroup": "Pick a subtitle group to subscribe",
+  "loadSubgroupsFailed": "Failed to load subtitle groups",
+  "noSubgroups": "No subtitle groups available",
+  "toast": {
+    "updated": "Anime list updated",
+    "updateFailed": "Update failed. Please try again later.",
+    "subscribed": "Subscribed to \"{{name}}\"",
+    "subscribedSubgroup": "Subscribed to \"{{title}} - {{subgroup}}\"",
+    "subscribeFailed": "Subscription failed"
+  }
+}

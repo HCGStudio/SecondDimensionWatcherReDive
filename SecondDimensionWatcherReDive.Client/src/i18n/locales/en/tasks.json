@@ -1,0 +1,46 @@
+{
+  "title": "Background tasks",
+  "columns": {
+    "name": "Task",
+    "description": "Description",
+    "interval": "Interval",
+    "lastRun": "Last run",
+    "status": "Status",
+    "actions": "Actions"
+  },
+  "runNow": "Run now",
+  "running": "Running",
+  "idle": "Idle",
+  "empty": {
+    "title": "No background tasks",
+    "body": "No scheduled tasks are registered"
+  },
+  "loadFailed": "Could not load the task list. Please try again later.",
+  "interval": {
+    "lessThanMinute": "< 1 minute",
+    "day_one": "{{count}} day",
+    "day_other": "{{count}} days",
+    "hour_one": "{{count}} hour",
+    "hour_other": "{{count}} hours",
+    "minute_one": "{{count}} minute",
+    "minute_other": "{{count}} minutes"
+  },
+  "toast": {
+    "success": "Task \"{{name}}\" finished",
+    "failure": "Task \"{{name}}\" failed"
+  },
+  "metadata": {
+    "SyncFeed": {
+      "name": "SyncFeed",
+      "description": "Sync RSS feeds"
+    },
+    "ScrapeSeasonBangumi": {
+      "name": "ScrapeSeasonBangumi",
+      "description": "Refresh the current season anime list"
+    },
+    "InferAnimationMetadata": {
+      "name": "InferAnimationMetadata",
+      "description": "AI metadata inference"
+    }
+  }
+}

@@ -205,7 +205,7 @@ JWT Bearer tokens with BCrypt password hashing. Refresh token flow via `AuthCont
 
 ### Frontend
 
-React 18 + TypeScript with Tailwind CSS for styling and Radix UI for accessible interactive primitives (Dialog, Toast, Progress). Uses SWR for data fetching, React Router v6 for routing, lucide-react for icons, Artplayer for video playback. Design system follows DESIGN.md (warm parchment canvas, serif headlines, terracotta accents).
+React 18 + TypeScript with Tailwind CSS for styling and Radix UI for accessible interactive primitives (Dialog, Toast, Progress). Uses SWR for data fetching, React Router v6 for routing, lucide-react for icons, Artplayer for video playback, react-i18next for localization (zh-CN / en / ja). Design system follows DESIGN.md (warm parchment canvas, serif headlines, terracotta accents).
 
 **Pages:**
 - Main (`/`) — Anime card grid grouped by TMDB ID, with poster images; uncategorized section for unmatched items
@@ -218,9 +218,23 @@ React 18 + TypeScript with Tailwind CSS for styling and Radix UI for accessible 
 - Tasks (`/tasks`) — Background task dashboard with manual trigger
 - Login (`/login`) — Login/register with form validation
 
-**Key components:** `AppHeader` (top navigation bar with links to all pages), `AnimationInfo` (editorial row-style episode item with inline download controls, progress bar, AI retry button), `FileBrowser` (sheet/slide-over for browsing downloaded files; play action navigates to PlayerPage), `ExternalPlayerButtons` (URL scheme buttons for opening video in VLC, PotPlayer, IINA, mpv, nPlayer), `SeasonDiscovery` (season anime browser with day-of-week grouping and season selector), `ProtectedRoute` (auth guard), `ToastProvider` (Radix Toast notifications).
+**Key components:** `AppHeader` (top navigation bar with links to all pages and a user dropdown containing the language picker + logout), `AnimationInfo` (editorial row-style episode item with inline download controls, progress bar, AI retry button), `FileBrowser` (sheet/slide-over for browsing downloaded files; play action navigates to PlayerPage), `ExternalPlayerButtons` (URL scheme buttons for opening video in VLC, PotPlayer, IINA, mpv, nPlayer), `SeasonDiscovery` (season anime browser with day-of-week grouping and season selector), `ProtectedRoute` (auth guard), `ToastProvider` (Radix Toast notifications).
 **Chat components:** `ChatSidebar` (conversation list with create/delete), `ChatMessageList`/`ChatMessage` (message rendering with markdown), `ChatInput` (text input with send), `ToolCallDisplay` (tool call and result rendering), `ModelPicker` (AI model selector). Chat module (`src/chat/`) provides `useStreamingChat` hook for SSE streaming with reducer-based state machine.
 **UI primitives:** `src/components/ui/` — Button, Card, DropdownMenu, EmptyPrompt, FormRow, Input, Pagination, PasswordInput, Progress, Sheet, Spinner, Table.
+
+### Internationalization (i18n)
+
+Frontend UI strings are localized via **react-i18next** with bundled translation resources (no async HTTP loading). Supported languages: **zh-CN** (default/source), **en**, **ja**.
+
+- `src/i18n/index.ts` — calls `i18next.init()` at module load. Uses `i18next-browser-languagedetector` with order `localStorage → navigator`, persisted under `localStorage["i18n.lng"]`. `fallbackLng` is `zh-CN`. `nonExplicitSupportedLngs: true` so `en-US` → `en`, `zh-TW` → `zh-CN`. Resources are bundled (no Suspense needed: `react.useSuspense: false`).
+- `src/i18n/resources.ts` — static `import` of every locale JSON, assembled into the resources map.
+- `src/i18n/locales/{zh-CN,en,ja}/{common,auth,errors,animation,files,chat,feeds,season,tasks,player}.json` — 10 namespaces grouped by feature/page surface. To add a string, edit all three language files. To add a language, drop a folder of JSON files matching the structure and add it to `supportedLanguages` in `src/i18n/index.ts`.
+- `src/App.tsx` — imports `./i18n` so init runs before `createRoot`, then bridges `i18n.on("languageChanged")` to `setDayjsLocale(lng)` and `document.documentElement.lang`.
+- `src/utils/initDayjs.ts` exports `setDayjsLocale(lng)` which dynamically imports the matching dayjs locale module and calls `dayjs.locale(...)`. Plugins (`duration`, `relativeTime`) are extended once at module load.
+- The language switcher lives inside the user dropdown in `AppHeader` (Radix DropdownMenu). It calls `i18n.changeLanguage(lng)` directly; persistence is automatic via the detector. Language labels are always rendered in their native form (`中文（简体）` / `English` / `日本語`) regardless of UI language — see `languageLabels` in `src/i18n/index.ts`.
+- Components access translations via `useTranslation(<ns>)` from `react-i18next`, e.g. `const { t } = useTranslation("animation")`. For multiple namespaces use `useTranslation(["animation", "errors"])` and prefix keys: `t("errors:loadFailed")`. The `Trans` component handles inline elements (e.g. `<code>` placeholders in `WebDavAccessSheet`).
+- Some constants in `src/season/SeasonDiscovery.tsx` (`SEASONS = ["冬","春","夏","秋"]`) are intentionally Chinese — they are upstream IDs that match the mikanani.me API, not user-facing strings; the UI converts them via `SEASON_KEY` to localized labels under the `season:seasons.*` keys.
+- Task metadata (in `src/tasks/taskMetadata.ts`) is exposed via the `useTaskMetadata()` hook which reads from the `tasks:metadata.{id}.{name|description}` keys.
 
 ### Mock API Server
 

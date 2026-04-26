@@ -1,5 +1,6 @@
 import { AlertTriangle, ArrowLeft, Clapperboard, Film } from "lucide-react";
 import React from "react";
+import { useTranslation } from "react-i18next";
 import { useNavigate, useParams } from "react-router";
 
 import { useGroupedAnimations } from "../animation/hooks";
@@ -14,6 +15,7 @@ const AnimeCard: React.FC<{
   anime: IAnimationWithEpisodes;
   onClick: () => void;
 }> = ({ anime, onClick }) => {
+  const { t } = useTranslation("animation");
   const posterUrl = tmdbImageUrl(anime.posterPath, "w300");
 
   return (
@@ -45,7 +47,7 @@ const AnimeCard: React.FC<{
           ) : null}
         </div>
         <p className="text-xs text-muted">
-          {anime.episodeCount} 个剧集
+          {t("episodeCount", { count: anime.episodeCount })}
         </p>
       </div>
     </button>
@@ -53,6 +55,7 @@ const AnimeCard: React.FC<{
 };
 
 export const EpisodeListPage: React.FC = () => {
+  const { t } = useTranslation(["animation", "errors"]);
   const { tmdbId } = useParams<{ tmdbId: string }>();
   const navigate = useNavigate();
   const { data, error } = useGroupedAnimations();
@@ -62,8 +65,8 @@ export const EpisodeListPage: React.FC = () => {
       <PageTemplate>
         <EmptyPrompt
           icon={<AlertTriangle size={48} />}
-          title={<h2>加载失败</h2>}
-          body={<p>无法获取数据，请稍后重试</p>}
+          title={<h2>{t("errors:loadFailed")}</h2>}
+          body={<p>{t("errors:fetchFailed")}</p>}
         />
       </PageTemplate>
     );
@@ -86,8 +89,8 @@ export const EpisodeListPage: React.FC = () => {
       <PageTemplate>
         <EmptyPrompt
           icon={<Clapperboard size={48} />}
-          title={<h2>未找到该动画</h2>}
-          body={<p>该动画可能已被移除或尚未收录</p>}
+          title={<h2>{t("animation:empty.animeNotFound.title")}</h2>}
+          body={<p>{t("animation:empty.animeNotFound.body")}</p>}
         />
       </PageTemplate>
     );
@@ -102,7 +105,7 @@ export const EpisodeListPage: React.FC = () => {
         className="mb-6 inline-flex items-center gap-1.5 text-sm text-muted hover:text-foreground transition-colors cursor-pointer"
       >
         <ArrowLeft size={16} />
-        返回
+        {t("animation:back")}
       </button>
 
       <div className="mb-6 flex gap-5">
@@ -124,7 +127,7 @@ export const EpisodeListPage: React.FC = () => {
             </p>
           ) : null}
           <p className="mt-2 text-sm text-muted">
-            {anime.episodeCount} 个剧集
+            {t("animation:episodeCount", { count: anime.episodeCount })}
           </p>
         </div>
       </div>
@@ -139,6 +142,7 @@ export const EpisodeListPage: React.FC = () => {
 };
 
 export const MainPage: React.FC = () => {
+  const { t } = useTranslation(["animation", "errors"]);
   const navigate = useNavigate();
   const { data, error } = useGroupedAnimations();
 
@@ -147,8 +151,8 @@ export const MainPage: React.FC = () => {
       <PageTemplate>
         <EmptyPrompt
           icon={<AlertTriangle size={48} />}
-          title={<h2>加载失败</h2>}
-          body={<p>无法获取数据，请稍后重试</p>}
+          title={<h2>{t("errors:loadFailed")}</h2>}
+          body={<p>{t("errors:fetchFailed")}</p>}
         />
       </PageTemplate>
     );
@@ -169,7 +173,7 @@ export const MainPage: React.FC = () => {
       {data.animations.length > 0 ? (
         <>
           <h2 className="mb-5 font-serif text-xl font-medium text-foreground">
-            动画
+            {t("animation:sectionTitle")}
           </h2>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {data.animations.map((anime) => (
@@ -186,7 +190,7 @@ export const MainPage: React.FC = () => {
       {data.uncategorized.length > 0 ? (
         <div className={data.animations.length > 0 ? "mt-10" : ""}>
           <h2 className="mb-5 font-serif text-xl font-medium text-foreground">
-            未分类
+            {t("animation:uncategorized")}
           </h2>
           {data.uncategorized.map((item) => (
             <AnimationInfo value={item} key={item.id} />
@@ -197,8 +201,8 @@ export const MainPage: React.FC = () => {
       {data.animations.length === 0 && data.uncategorized.length === 0 ? (
         <EmptyPrompt
           icon={<Clapperboard size={48} />}
-          title={<h2>暂无动画</h2>}
-          body={<p>订阅 RSS 源后，动画将在这里显示</p>}
+          title={<h2>{t("animation:empty.main.title")}</h2>}
+          body={<p>{t("animation:empty.main.body")}</p>}
         />
       ) : null}
     </PageTemplate>

@@ -1,5 +1,6 @@
 import { AlertTriangle } from "lucide-react";
 import React from "react";
+import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router";
 
 import { useDownloadingAnimations } from "../animation/hooks";
@@ -10,6 +11,7 @@ import { PAGE_SIZE } from "../config";
 import { PageTemplate } from "./PageTemplate";
 
 export const DownloadingPage: React.FC = () => {
+  const { t } = useTranslation(["animation", "errors"]);
   const [searchParams, setSearchParams] = useSearchParams();
   const actualPage = Math.max(
     1,
@@ -39,13 +41,13 @@ export const DownloadingPage: React.FC = () => {
       {error ? (
         <EmptyPrompt
           icon={<AlertTriangle size={48} />}
-          title={<h2>加载失败</h2>}
-          body={<p>无法获取数据，请稍后重试</p>}
+          title={<h2>{t("errors:loadFailed")}</h2>}
+          body={<p>{t("errors:fetchFailed")}</p>}
         />
       ) : info && info.data.length > 0 ? (
         info.data.map((i) => <AnimationInfo value={i} key={i.id} />)
       ) : info ? (
-        <EmptyPrompt title={<h2>暂无下载中的项目</h2>} />
+        <EmptyPrompt title={<h2>{t("animation:empty.downloading")}</h2>} />
       ) : null}
       {info && pageCount > 1 ? (
         <div className="mt-8 flex justify-center">

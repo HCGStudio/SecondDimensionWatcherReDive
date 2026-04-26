@@ -1,0 +1,9 @@
+{
+  "missingId": "缺少动画 ID",
+  "generateLinkFailed": "生成播放链接失败",
+  "playFailed": "播放失败",
+  "unknownFile": "未知文件",
+  "back": "返回",
+  "useExternalHint": "如果视频无法播放，请尝试使用本地播放器",
+  "openInExternal": "在本地播放器中打开："
+}

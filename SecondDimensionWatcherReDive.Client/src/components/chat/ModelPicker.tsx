@@ -1,5 +1,6 @@
 import { ChevronDown } from "lucide-react";
 import React from "react";
+import { useTranslation } from "react-i18next";
 
 import { AiModel } from "../../chat/types";
 import {
@@ -20,6 +21,7 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
   selectedModel,
   onSelect,
 }) => {
+  const { t } = useTranslation("chat");
   const selected = models.find((m) => m.id === selectedModel);
 
   return (
@@ -27,7 +29,7 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
       <DropdownMenuTrigger asChild>
         <button className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-muted hover:text-foreground transition-colors">
           <span className="max-w-[200px] truncate">
-            {selected?.name ?? "选择模型"}
+            {selected?.name ?? t("selectModel")}
           </span>
           <ChevronDown size={14} />
         </button>
@@ -42,7 +44,7 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
           </DropdownMenuItem>
         ))}
         {models.length === 0 && (
-          <div className="px-3 py-2 text-sm text-subtle">无可用模型</div>
+          <div className="px-3 py-2 text-sm text-subtle">{t("noModels")}</div>
         )}
       </DropdownMenuContent>
     </DropdownMenu>

@@ -1,0 +1,7 @@
+{
+  "pageError": "Something went wrong",
+  "unknown": "Unknown error",
+  "backToHome": "Back to home",
+  "loadFailed": "Failed to load",
+  "fetchFailed": "Could not fetch data. Please try again later."
+}

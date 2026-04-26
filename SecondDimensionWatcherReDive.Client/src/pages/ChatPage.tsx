@@ -1,5 +1,6 @@
 import { MessageSquare } from "lucide-react";
 import React, { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useNavigate, useParams } from "react-router";
 
 import { createConversation, deleteConversation } from "../chat/api";
@@ -20,6 +21,7 @@ import { EmptyPrompt } from "../components/ui/EmptyPrompt";
 import { Spinner } from "../components/ui/Spinner";
 
 export const ChatPage: React.FC = () => {
+  const { t } = useTranslation("chat");
   const { conversationId } = useParams<{ conversationId?: string }>();
   const navigate = useNavigate();
   const { data: chatStatus, isLoading: statusLoading } = useChatStatus();
@@ -130,8 +132,8 @@ export const ChatPage: React.FC = () => {
         <main className="mx-auto max-w-5xl px-6 py-8">
           <EmptyPrompt
             icon={<MessageSquare size={48} className="text-subtle" />}
-            title="AI 功能未配置"
-            body="请在服务端配置 AI Provider 和 API Key 后使用此功能。详见 appsettings.example.json 中的 AI 配置项。"
+            title={t("aiNotConfigured")}
+            body={t("aiNotConfiguredHelp")}
           />
         </main>
       </div>
@@ -191,9 +193,9 @@ export const ChatPage: React.FC = () => {
                   size={48}
                   className="mx-auto mb-4 text-subtle"
                 />
-                <p className="font-serif text-lg text-muted">选择或创建对话</p>
+                <p className="font-serif text-lg text-muted">{t("selectOrCreate")}</p>
                 <p className="text-sm text-subtle mt-1">
-                  点击左侧 + 创建新对话开始聊天
+                  {t("createHint")}
                 </p>
                 <Button
                   variant="solid"
@@ -201,7 +203,7 @@ export const ChatPage: React.FC = () => {
                   onClick={handleCreateConversation}
                   className="mt-4"
                 >
-                  新建对话
+                  {t("newConversation")}
                 </Button>
               </div>
             </div>

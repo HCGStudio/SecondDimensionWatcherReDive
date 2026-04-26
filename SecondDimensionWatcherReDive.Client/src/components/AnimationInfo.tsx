@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import dayjs from "dayjs";
 import React from "react";
+import { useTranslation } from "react-i18next";
 
 import { IAnimationInfo } from "../animation/IAnimationInfo";
 import { useAnimationDownloadStatus } from "../animation/hooks";
@@ -88,6 +89,7 @@ const DownloadProgress: React.FC<{ id: string }> = ({ id }) => {
 };
 
 const ActionButtons: React.FC<{ value: IAnimationInfo }> = ({ value }) => {
+  const { t } = useTranslation("animation");
   const { data: status } = useAnimationDownloadStatus(
     value.isDownloadTracked && !value.isDownloadFinished ? value.id : "",
   );
@@ -96,27 +98,29 @@ const ActionButtons: React.FC<{ value: IAnimationInfo }> = ({ value }) => {
   const [isRetrying, setIsRetrying] = React.useState(false);
 
   const showRetryItem = value.isAiProcessed;
-  const retryLabel = value.animation ? "重新推断" : "AI 推断";
+  const retryLabel = value.animation
+    ? t("actions.reinfer")
+    : t("actions.inferAi");
 
   const onRetryInference = React.useCallback(async () => {
     setIsRetrying(true);
     try {
       await retryInference(value.id);
-      addToast({ title: "已加入推断队列", color: "success" });
+      addToast({ title: t("toast.queued"), color: "success" });
     } catch {
-      addToast({ title: "操作失败", color: "danger" });
+      addToast({ title: t("toast.actionFailed"), color: "danger" });
     } finally {
       setIsRetrying(false);
     }
-  }, [value.id, addToast]);
+  }, [value.id, addToast, t]);
 
   const onDelete = React.useCallback(() => {
-    if (window.confirm("确定要删除已下载的文件吗？")) {
+    if (window.confirm(t("confirm.deleteFile"))) {
       cancelDownload(value.id, true).catch(() =>
-        addToast({ title: "删除失败", color: "danger" }),
+        addToast({ title: t("toast.deleteFailed"), color: "danger" }),
       );
     }
-  }, [value.id, addToast]);
+  }, [value.id, addToast, t]);
 
   const hasOverflowItems =
     showRetryItem ||
@@ -132,13 +136,13 @@ const ActionButtons: React.FC<{ value: IAnimationInfo }> = ({ value }) => {
             size="sm"
             variant="outline"
             className="px-2 py-2"
-            title="下载"
+            title={t("actions.download")}
             onClick={() =>
               submitDownload(value.id).catch(() =>
                 addToast({
-                  title: "下载失败",
+                  title: t("toast.downloadFailed"),
                   color: "danger",
-                  text: "无法提交下载任务",
+                  text: t("toast.downloadFailedDesc"),
                 }),
               )
             }
@@ -154,10 +158,10 @@ const ActionButtons: React.FC<{ value: IAnimationInfo }> = ({ value }) => {
                 size="sm"
                 variant="outline"
                 className="px-2 py-2"
-                title="暂停"
+                title={t("actions.pause")}
                 onClick={() =>
                   pauseDownload(value.id).catch(() =>
-                    addToast({ title: "暂停失败", color: "danger" }),
+                    addToast({ title: t("toast.pauseFailed"), color: "danger" }),
                   )
                 }
               >
@@ -169,10 +173,10 @@ const ActionButtons: React.FC<{ value: IAnimationInfo }> = ({ value }) => {
                 size="sm"
                 variant="outline"
                 className="px-2 py-2"
-                title="恢复"
+                title={t("actions.resume")}
                 onClick={() =>
                   resumeDownload(value.id).catch(() =>
-                    addToast({ title: "恢复失败", color: "danger" }),
+                    addToast({ title: t("toast.resumeFailed"), color: "danger" }),
                   )
                 }
               >
@@ -187,7 +191,7 @@ const ActionButtons: React.FC<{ value: IAnimationInfo }> = ({ value }) => {
             size="sm"
             variant="outline"
             className="px-2 py-2"
-            title="浏览文件"
+            title={t("actions.browse")}
             onClick={() => setIsSheetOpen(true)}
           >
             <FolderOpen size={16} />
@@ -198,7 +202,12 @@ const ActionButtons: React.FC<{ value: IAnimationInfo }> = ({ value }) => {
         {hasOverflowItems ? (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button size="sm" variant="outline" className="px-2 py-2" aria-label="更多操作">
+              <Button
+                size="sm"
+                variant="outline"
+                className="px-2 py-2"
+                aria-label={t("actions.more")}
+              >
                 <Ellipsis size={16} />
               </Button>
             </DropdownMenuTrigger>
@@ -212,7 +221,7 @@ const ActionButtons: React.FC<{ value: IAnimationInfo }> = ({ value }) => {
                     size={14}
                     className={isRetrying ? "animate-spin" : ""}
                   />
-                  {isRetrying ? "请求中..." : retryLabel}
+                  {isRetrying ? t("actions.requesting") : retryLabel}
                 </DropdownMenuItem>
               ) : null}
 
@@ -226,22 +235,22 @@ const ActionButtons: React.FC<{ value: IAnimationInfo }> = ({ value }) => {
                 <DropdownMenuItem
                   color="danger"
                   onSelect={() => {
-                    if (window.confirm("确定要取消下载并删除文件吗？")) {
+                    if (window.confirm(t("confirm.cancelAndDelete"))) {
                       cancelDownload(value.id, true).catch(() =>
-                        addToast({ title: "删除失败", color: "danger" }),
+                        addToast({ title: t("toast.deleteFailed"), color: "danger" }),
                       );
                     }
                   }}
                 >
                   <Trash2 size={14} />
-                  删除
+                  {t("actions.delete")}
                 </DropdownMenuItem>
               ) : null}
 
               {value.isDownloadTracked && value.isDownloadFinished ? (
                 <DropdownMenuItem color="danger" onSelect={onDelete}>
                   <Trash2 size={14} />
-                  删除
+                  {t("actions.delete")}
                 </DropdownMenuItem>
               ) : null}
             </DropdownMenuContent>
@@ -264,6 +273,7 @@ const ActionButtons: React.FC<{ value: IAnimationInfo }> = ({ value }) => {
 };
 
 export const AnimationInfo: React.FC<IAnimationInfoProps> = ({ value }) => {
+  const { t } = useTranslation("animation");
   const tag = formatEpisodeTag(value.season, value.episode);
   const isDownloading =
     value.isDownloadTracked && !value.isDownloadFinished;
@@ -296,7 +306,7 @@ export const AnimationInfo: React.FC<IAnimationInfoProps> = ({ value }) => {
             {value.isDownloadFinished ? (
               <>
                 <span>·</span>
-                <span className="text-success">已完成</span>
+                <span className="text-success">{t("finished")}</span>
               </>
             ) : null}
           </div>

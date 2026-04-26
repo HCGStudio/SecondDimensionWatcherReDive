@@ -1,4 +1,5 @@
 import React from "react";
+import { useTranslation } from "react-i18next";
 import { createBrowserRouter } from "react-router";
 import { RouterProvider } from "react-router/dom";
 
@@ -72,5 +73,9 @@ const router = createBrowserRouter([
 ]);
 
 export const Main: React.FC = () => {
+  const { t } = useTranslation();
+  React.useEffect(() => {
+    document.title = `${t("appName")} Re:Dive`;
+  }, [t]);
   return <RouterProvider router={router} />;
 };

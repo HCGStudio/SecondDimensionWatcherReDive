@@ -1,0 +1,9 @@
+{
+  "missingId": "Missing animation ID",
+  "generateLinkFailed": "Failed to generate playback link",
+  "playFailed": "Playback failed",
+  "unknownFile": "Unknown file",
+  "back": "Back",
+  "useExternalHint": "If the video does not play, try a local player",
+  "openInExternal": "Open in local player:"
+}

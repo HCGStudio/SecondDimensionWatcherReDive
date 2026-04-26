@@ -1,6 +1,7 @@
 import Artplayer from "artplayer";
 import { AlertTriangle, ArrowLeft } from "lucide-react";
 import React from "react";
+import { useTranslation } from "react-i18next";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 
 import { generatePlaybackLink } from "../file/utils";
@@ -12,13 +13,16 @@ import { Spinner } from "../components/ui/Spinner";
 import { PageTemplate } from "./PageTemplate";
 
 export const PlayerPage: React.FC = () => {
+  const { t, i18n } = useTranslation("player");
   const { animationId } = useParams<{ animationId: string }>();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { addToast } = useToast();
 
   const file = searchParams.get("file") ?? undefined;
-  const fileName = file ? file.split("/").pop() ?? file : "未知文件";
+  const fileName = file
+    ? (file.split("/").pop() ?? file)
+    : t("unknownFile");
 
   const [playbackUrl, setPlaybackUrl] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(true);
@@ -29,7 +33,7 @@ export const PlayerPage: React.FC = () => {
 
   React.useEffect(() => {
     if (!animationId) {
-      setError("缺少动画 ID");
+      setError(t("missingId"));
       setLoading(false);
       return;
     }
@@ -43,8 +47,8 @@ export const PlayerPage: React.FC = () => {
       })
       .catch(() => {
         if (cancelled) return;
-        setError("生成播放链接失败");
-        addToast({ title: "生成播放链接失败", color: "danger" });
+        setError(t("generateLinkFailed"));
+        addToast({ title: t("generateLinkFailed"), color: "danger" });
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -53,15 +57,22 @@ export const PlayerPage: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [animationId, file, addToast]);
+  }, [animationId, file, addToast, t]);
 
   React.useEffect(() => {
     if (!playbackUrl || !playerContainerRef.current) return;
 
+    const lng = i18n.resolvedLanguage ?? i18n.language;
+    const artplayerLang = lng.toLowerCase().startsWith("zh")
+      ? "zh-cn"
+      : lng.toLowerCase().startsWith("ja")
+      ? "ja"
+      : "en";
+
     const art = new Artplayer({
       container: playerContainerRef.current,
       url: playbackUrl,
-      lang: navigator.language.startsWith("zh") ? "zh-cn" : "en",
+      lang: artplayerLang,
       autoplay: false,
       fullscreen: true,
       pip: true,
@@ -88,7 +99,7 @@ export const PlayerPage: React.FC = () => {
       art.destroy(false);
       artRef.current = null;
     };
-  }, [playbackUrl]);
+  }, [playbackUrl, i18n.resolvedLanguage, i18n.language]);
 
   const goBack = React.useCallback(() => {
     if (window.history.length > 1) {
@@ -102,7 +113,7 @@ export const PlayerPage: React.FC = () => {
     <PageTemplate>
       <Button variant="ghost" size="sm" onClick={goBack} className="mb-4">
         <ArrowLeft size={16} />
-        返回
+        {t("back")}
       </Button>
 
       {loading ? (
@@ -112,10 +123,10 @@ export const PlayerPage: React.FC = () => {
       ) : error ? (
         <EmptyPrompt
           icon={<AlertTriangle size={48} />}
-          title="播放失败"
+          title={t("playFailed")}
           body={<p>{error}</p>}
           actions={
-            <Button onClick={goBack}>返回</Button>
+            <Button onClick={goBack}>{t("back")}</Button>
           }
         />
       ) : playbackUrl ? (
@@ -131,7 +142,7 @@ export const PlayerPage: React.FC = () => {
                   {fileName}
                 </p>
                 <p className="mt-0.5 text-xs text-muted">
-                  如果视频无法播放，请尝试使用本地播放器
+                  {t("useExternalHint")}
                 </p>
               </div>
               <ExternalPlayerButtons playbackUrl={playbackUrl} />

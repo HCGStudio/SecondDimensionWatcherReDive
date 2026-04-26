@@ -1,23 +1,25 @@
+import { useTranslation } from "react-i18next";
+
 export interface TaskMetadata {
   name: string;
   description: string;
 }
 
-export const TASK_METADATA: Record<string, TaskMetadata> = {
-  SyncFeed: {
-    name: "SyncFeed",
-    description: "同步 RSS 订阅",
-  },
-  ScrapeSeasonBangumi: {
-    name: "ScrapeSeasonBangumi",
-    description: "更新当季番组列表",
-  },
-  InferAnimationMetadata: {
-    name: "InferAnimationMetadata",
-    description: "AI 元数据推断",
-  },
-};
+const KNOWN_TASK_IDS = [
+  "SyncFeed",
+  "ScrapeSeasonBangumi",
+  "InferAnimationMetadata",
+] as const;
 
-export function getTaskMetadata(id: string): TaskMetadata {
-  return TASK_METADATA[id] ?? { name: id, description: "" };
+export function useTaskMetadata(): (id: string) => TaskMetadata {
+  const { t } = useTranslation("tasks");
+  return (id: string): TaskMetadata => {
+    if ((KNOWN_TASK_IDS as readonly string[]).includes(id)) {
+      return {
+        name: t(`metadata.${id}.name`),
+        description: t(`metadata.${id}.description`),
+      };
+    }
+    return { name: id, description: "" };
+  };
 }

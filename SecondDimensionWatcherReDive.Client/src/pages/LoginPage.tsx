@@ -1,4 +1,5 @@
 import React from "react";
+import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router";
 import { mutate } from "swr";
 
@@ -11,6 +12,7 @@ import { PasswordInput } from "../components/ui/PasswordInput";
 import { PageTemplate } from "./PageTemplate";
 
 export const LoginPage: React.FC = () => {
+  const { t } = useTranslation("auth");
   const { data: registerInfo } = useAllowRegister();
   const { data: status } = useLoginStatus();
   const [password, setPassword] = React.useState("");
@@ -88,33 +90,31 @@ export const LoginPage: React.FC = () => {
         {status ? null : registerInfo?.allow ? (
           <form onSubmit={onRegister}>
             <h2 className="font-serif text-2xl font-medium leading-heading">
-              请设置密码
+              {t("setupTitle")}
             </h2>
             <p className="mt-2 text-sm text-muted leading-body">
-              您是第一次使用二次元观测器，请设置密码。
+              {t("setupHelp")}
             </p>
             <div className="mt-6 space-y-4">
-              <FormRow label="密码">
+              <FormRow label={t("password")}>
                 <PasswordInput
-                  placeholder="请输入密码"
+                  placeholder={t("passwordPlaceholder")}
                   value={password}
                   onChange={onPasswordChange}
                 />
               </FormRow>
               <FormRow
-                label="重复密码"
+                label={t("repeatPassword")}
                 isInvalid={
                   (password !== passwordConfirm && passwordConfirm.length > 0) ||
                   registerFailed
                 }
                 error={[
-                  registerFailed
-                    ? "注册失败，请重试"
-                    : "两次密码输入不一致",
+                  registerFailed ? t("registerFailed") : t("mismatch"),
                 ]}
               >
                 <PasswordInput
-                  placeholder="重复密码"
+                  placeholder={t("repeatPassword")}
                   value={passwordConfirm}
                   onChange={onPasswordConfirmChange}
                   isInvalid={
@@ -130,23 +130,23 @@ export const LoginPage: React.FC = () => {
                   password.length === 0
                 }
               >
-                {isSubmitting ? "注册中..." : "注册"}
+                {isSubmitting ? t("registering") : t("register")}
               </Button>
             </div>
           </form>
         ) : (
           <form onSubmit={onLogin}>
             <h2 className="font-serif text-2xl font-medium leading-heading">
-              欢迎回来
+              {t("welcomeBack")}
             </h2>
             <div className="mt-6 space-y-4">
               <FormRow
-                label="密码"
+                label={t("password")}
                 isInvalid={loginFailed}
-                error={["密码不正确"]}
+                error={[t("wrongPassword")]}
               >
                 <PasswordInput
-                  placeholder="请输入密码"
+                  placeholder={t("passwordPlaceholder")}
                   value={password}
                   onChange={onPasswordChange}
                   isInvalid={loginFailed}
@@ -156,7 +156,7 @@ export const LoginPage: React.FC = () => {
                 type="submit"
                 disabled={isSubmitting || password.length === 0}
               >
-                {isSubmitting ? "登录中..." : "登录"}
+                {isSubmitting ? t("loggingIn") : t("login")}
               </Button>
             </div>
           </form>

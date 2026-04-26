@@ -1,5 +1,6 @@
 import { ExternalLink } from "lucide-react";
 import React from "react";
+import { useTranslation } from "react-i18next";
 
 import { Button } from "./ui/Button";
 
@@ -38,9 +39,10 @@ interface ExternalPlayerButtonsProps {
 export const ExternalPlayerButtons: React.FC<ExternalPlayerButtonsProps> = ({
   playbackUrl,
 }) => {
+  const { t } = useTranslation("player");
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <span className="text-xs text-muted">在本地播放器中打开：</span>
+      <span className="text-xs text-muted">{t("openInExternal")}</span>
       {PLAYERS.map((player) => (
         <Button
           key={player.name}

@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from "react";
+import { useTranslation } from "react-i18next";
 
 import { ChatMessageData } from "../../chat/types";
 import { StreamingContentBlock } from "../../chat/useStreamingChat";
@@ -45,6 +46,7 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = ({
   isStreaming,
   pendingUserMessage,
 }) => {
+  const { t } = useTranslation("chat");
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -58,9 +60,9 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = ({
       {groups.length === 0 && !isStreaming && !pendingUserMessage && (
         <div className="flex items-center justify-center h-full text-subtle">
           <div className="text-center">
-            <p className="font-serif text-lg text-muted">开始一段新对话</p>
+            <p className="font-serif text-lg text-muted">{t("emptyTitle")}</p>
             <p className="text-sm mt-1">
-              试试问我关于动画下载、订阅管理的问题
+              {t("emptyHelp")}
             </p>
           </div>
         </div>

@@ -1,0 +1,26 @@
+{
+  "manualSubscribe": "手動で購読",
+  "urlLabel": "フィード URL",
+  "urlPlaceholder": "https://mikanani.me/RSS/...",
+  "nameLabel": "名前（任意）",
+  "namePlaceholder": "マイ購読",
+  "add": "追加",
+  "columns": {
+    "name": "名前",
+    "url": "URL",
+    "createdAt": "追加日時",
+    "actions": "操作",
+    "delete": "削除"
+  },
+  "empty": {
+    "title": "購読はまだありません",
+    "body": "RSS フィードを追加するとアニメの更新を自動取得します"
+  },
+  "loadFailed": "購読リストを取得できませんでした。しばらくしてから再度お試しください。",
+  "toast": {
+    "added": "購読を追加しました",
+    "addFailed": "購読の追加に失敗しました",
+    "deleted": "購読を削除しました",
+    "deleteFailed": "購読の削除に失敗しました"
+  }
+}

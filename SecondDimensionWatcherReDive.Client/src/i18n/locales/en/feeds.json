@@ -1,0 +1,26 @@
+{
+  "manualSubscribe": "Add a feed",
+  "urlLabel": "Feed URL",
+  "urlPlaceholder": "https://mikanani.me/RSS/...",
+  "nameLabel": "Name (optional)",
+  "namePlaceholder": "My feed",
+  "add": "Add",
+  "columns": {
+    "name": "Name",
+    "url": "URL",
+    "createdAt": "Added",
+    "actions": "Actions",
+    "delete": "Delete"
+  },
+  "empty": {
+    "title": "No feeds yet",
+    "body": "Add an RSS feed to start collecting anime updates automatically"
+  },
+  "loadFailed": "Could not load the feed list. Please try again later.",
+  "toast": {
+    "added": "Feed added",
+    "addFailed": "Failed to add feed",
+    "deleted": "Feed removed",
+    "deleteFailed": "Failed to remove feed"
+  }
+}
