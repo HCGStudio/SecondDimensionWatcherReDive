@@ -23,4 +23,6 @@ FROM mcr.microsoft.com/dotnet/aspnet:10.0
 WORKDIR /app
 COPY --from=backend-build /app .
 EXPOSE 8080
+# Optional: read-only NFSv4 export (set Nfs:Enabled=true to activate; publish port at run time).
+EXPOSE 2049
 ENTRYPOINT ["dotnet", "SecondDimensionWatcherReDive.dll"]

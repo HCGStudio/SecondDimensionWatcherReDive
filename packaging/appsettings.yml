@@ -49,6 +49,16 @@ AI:
 Inference:
   RateLimitDelayMs: 1000
 
+# NFSv4 只读导出（可选，默认关闭）
+# 客户端示例: sudo mount -t nfs4 -o vers=4,nolock,port=2049 host:/ /mnt
+# Linux 上 2049 为特权端口，容器中需显式发布或改为非特权端口
+Nfs:
+  Enabled: false
+  Port: 2049
+  BindAddress: "0.0.0.0"
+  LeaseSeconds: 90
+  MaxConnections: 32
+
 # Valkey / Redis 分布式缓存（可选，留空则使用内存缓存）
 # Valkey:
 #   ConnectionString: "localhost:6379"

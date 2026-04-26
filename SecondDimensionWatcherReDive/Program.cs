@@ -20,6 +20,7 @@ using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Framework.Tasks;
 using SecondDimensionWatcherReDive.Inference.AI;
 using SecondDimensionWatcherReDive.Models;
+using SecondDimensionWatcherReDive.NFS;
 using SecondDimensionWatcherReDive.Repositories;
 using SecondDimensionWatcherReDive.Chat;
 using SecondDimensionWatcherReDive.Plugin;
@@ -228,6 +229,12 @@ if (!string.IsNullOrEmpty(aiApiKey))
 
 //Add Chat
 builder.Services.AddChat();
+
+//Add NFS (read-only NFSv4 export over the virtual filesystem)
+if (builder.Configuration.GetValue<bool?>("Nfs:Enabled") ?? false)
+{
+    builder.Services.AddNfs();
+}
 
 //Add SPA Hosting
 builder.Services.AddSpaStaticFiles(options => { options.RootPath = "wwwroot"; });

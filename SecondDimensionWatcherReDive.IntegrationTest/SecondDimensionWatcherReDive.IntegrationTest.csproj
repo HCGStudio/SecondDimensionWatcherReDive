@@ -24,6 +24,7 @@
         <ProjectReference Include="..\SecondDimensionWatcherReDive\SecondDimensionWatcherReDive.csproj" />
         <ProjectReference Include="..\SecondDimensionWatcherReDive.Framework\SecondDimensionWatcherReDive.Framework.csproj" />
         <ProjectReference Include="..\Plugins\SecondDimensionWatcherReDive.WebDav\SecondDimensionWatcherReDive.WebDav.csproj" />
+        <ProjectReference Include="..\Plugins\SecondDimensionWatcherReDive.NFS\SecondDimensionWatcherReDive.NFS.csproj" />
     </ItemGroup>
 
 </Project>
