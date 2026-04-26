@@ -32,26 +32,25 @@ public class FileMappingRepository(Models.ApplicationContext context) : IFileMap
 
     public async Task<IReadOnlyList<RootEntry>> GetRootEntriesAsync(CancellationToken cancellationToken)
     {
-        var rows = await context.FileMappings
-            .AsNoTracking()
-            .Where(m => m.VirtualPath.Length > 1 && m.VirtualPath.StartsWith("/"))
-            .Select(m => new
-            {
-                Path = m.VirtualPath,
-                NextSlash = m.VirtualPath.IndexOf('/', 1)
-            })
-            .Select(x => new
-            {
-                Name = x.NextSlash < 0
-                    ? x.Path.Substring(1)
-                    : x.Path.Substring(1, x.NextSlash - 1),
-                IsDirectory = x.NextSlash > 0
-            })
-            .Distinct()
+        // Raw SQL: the chained .Select(...).Select(...).Distinct() over IndexOf/Substring
+        // does not dedupe under Npgsql 10 — three mappings under the same root produced
+        // three duplicate rows at the WebDAV root. split_part is unambiguous and runs
+        // server-side so we don't load every mapping.
+        var rows = await context.Database
+            .SqlQueryRaw<RootEntryRow>(
+                """
+                SELECT DISTINCT
+                    split_part("VirtualPath", '/', 2) AS "Name",
+                    position('/' IN substring("VirtualPath" FROM 2)) > 0 AS "IsDirectory"
+                FROM "FileMappings"
+                WHERE length("VirtualPath") > 1 AND "VirtualPath" LIKE '/%'
+                """)
             .ToListAsync(cancellationToken);
 
         return rows.Select(r => new RootEntry(r.Name, r.IsDirectory)).ToList();
     }
+
+    private sealed record RootEntryRow(string Name, bool IsDirectory);
 
     private static string EscapeLikePattern(string value)
     {
