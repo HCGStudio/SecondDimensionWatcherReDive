@@ -42,6 +42,7 @@ services:
       - "6881:6881/udp"
     volumes:
       - downloads:/downloads
+      - ./qbittorrent-config:/config
     restart: unless-stopped
 
   sdw-redive:

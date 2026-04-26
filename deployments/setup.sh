@@ -522,12 +522,27 @@ deploy_container() {
     echo "  PostgreSQL password: $db_pass"
     echo "  JWT secret: $jwt"
 
-    # qBittorrent credentials (optional). For the bundled qBittorrent
-    # service, leave blank and either configure BypassAuthSubnetWhitelist
-    # in qBittorrent or set credentials here matching the WebUI password
-    # you set on first launch.
+    # Pre-seed qBittorrent.conf with a subnet whitelist covering RFC1918
+    # ranges so sdw-redive can call the WebUI from inside the container
+    # network without credentials. Skip if a conf already exists so we
+    # never clobber prior state on re-deploy.
+    mkdir -p "$deploy_dir/qbittorrent-config/qBittorrent"
+    local qb_conf="$deploy_dir/qbittorrent-config/qBittorrent/qBittorrent.conf"
+    if [ ! -f "$qb_conf" ]; then
+        cat > "$qb_conf" << 'EOF'
+[Preferences]
+WebUI\AuthSubnetWhitelistEnabled=true
+WebUI\AuthSubnetWhitelist=10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
+EOF
+        echo "已预设 qBittorrent 内网鉴权白名单 (10/8, 172.16/12, 192.168/16)。"
+        echo "sdw-redive 通过容器网络访问 WebUI 时无需凭据。"
+    fi
+
+    # qBittorrent credentials are optional with the whitelist seeded above.
+    # Only fill them in if the user wants belt-and-suspenders, or is pointing
+    # at an external qBittorrent instance not covered by the whitelist.
     echo
-    echo "--- qBittorrent 鉴权（如未启用 WebUI 鉴权或已加入白名单，请回车跳过）---"
+    echo "--- qBittorrent 鉴权（已自动开启内网白名单，外部实例或追加密码时填写，否则回车跳过）---"
     read -rp "  用户名: " QB_USER
     read -rsp "  密码:   " QB_PASS
     echo
