@@ -83,7 +83,7 @@ The codebase uses a three-tier model architecture with repository interfaces for
 
 **1. EF Entity Classes** (`Models/`): Mutable classes mapped by EF Core (`ApplicationContext`). Only accessed inside `Repositories/`, `Program.cs`, and migrations.
 
-**2. Domain Records** (`Framework/DataRepository/`): `AnimationInfo`, `Animation`, `AnimationGroup`, `Feed`, `SeasonBangumi`, `BangumiSubgroup`, `FileMapping`, `ChatConversationSummary`, `ChatConversationDetail`, `ChatMessageRecord` — immutable `sealed record` types with no EF Core dependency. Used by controllers, services, and plugin code. Result types: `PagedResult<T>`, `AnimationGroupedResult`, `AnimationWithEpisodesResult`. Also includes `AnimeSeason` enum (Spring, Summer, Autumn, Winter).
+**2. Domain Records** (`Framework/DataRepository/`): `AnimationInfo`, `Animation`, `AnimationGroup`, `Feed`, `SeasonBangumi`, `BangumiSubgroup`, `FileMapping`, `WebDavToken`, `ChatConversationSummary`, `ChatConversationDetail`, `ChatMessageRecord` — immutable `sealed record` types with no EF Core dependency. Used by controllers, services, and plugin code. Result types: `PagedResult<T>`, `AnimationGroupedResult`, `AnimationWithEpisodesResult`. Also includes `AnimeSeason` enum (Spring, Summer, Autumn, Winter).
 
 **3. External DTOs** (`Controllers/External/`): API response types serialized to JSON. Separate from domain records to control the API surface. Converted from domain records via `Controllers/Converter.cs` extension methods (`ToExternal()`, `ToExternalResponseData()`).
 
@@ -100,6 +100,7 @@ The codebase uses a three-tier model architecture with repository interfaces for
 - `IBangumiSubgroupRepository` — query by season bangumi, find by composite key, add, save
 - `IChatRepository` — conversation CRUD (create, list, delete, update title), message persistence (add single/batch, list, count), full conversation retrieval with messages
 - `IFileMappingRepository` — add batch of mappings, find by virtual path, prefix query, existence check (per-path and per-`AnimationInfoId`), remove by `AnimationInfoId`
+- `IWebDavTokenRepository` — list all tokens (newest first), find by username, existence check by username, add, remove by id. Backs the per-device WebDAV Basic-auth flow
 - `IMigrationMarkerRepository` — `ExistsAsync(key)` / `SetAsync(key)` over the `MigrationMarkers` table; one-shot data migrations gate themselves on this
 
 **Repository implementations** (`Repositories/`): EF Core implementations registered as scoped services, sharing the same `ApplicationContext` per request.
@@ -177,6 +178,7 @@ All controllers are `internal` (discovered via `InternalControllerFeatureProvide
 - `TasksController` (`/api/tasks`) — list background tasks with status, enqueue manual execution
 - `ChatController` (`/api/chat`, in `SecondDimensionWatcherReDive.Chat` plugin) — AI chat with conversation CRUD and SSE-streamed message responses. Supports tool execution (7 tools for querying animations, managing feeds, browsing seasons, controlling downloads, etc.). Depends on `IChatRepository`, `IAIEngine`.
 - `WebDavController` (`/webdav/{*path}`) — read-only WebDAV gateway over the virtual filesystem. Implements `OPTIONS` (advertises DAV class 1, `Allow: OPTIONS, PROPFIND, HEAD, GET`), `PROPFIND` (Depth: 0/1; infinite-depth on collections returns 403 to avoid full-table scans; empty body treated as allprop), and `GET`/`HEAD` with range support. Write methods (`PROPPATCH`, `MKCOL`, `COPY`, `MOVE`, `LOCK`, `UNLOCK`, `PUT`, `DELETE`) return 405. Resource resolution: exact `FileMapping` match → file; prefix match → synthetic collection; root `/` is always a collection. `getcontentlength`/`getlastmodified`/`getetag`/`creationdate` come from `IFileStore.FileInfoAsync` (`FileStoreInfo.Length` + `LastModifiedUtc`). Authenticated with the `Basic` scheme only — does NOT use JWT. Excluded from the dev-mode SPA proxy. Depends on `IFileExplorer`, `IFileMappingRepository`, `IFileStoreProvider`, `IContentTypeProvider`.
+- `WebDavTokenController` (`/api/webdav-tokens`, JWT-protected) — manages per-device Basic-auth credentials for WebDAV. `GET` lists tokens (no plaintext), `POST` issues a new `(username, plaintext token)` pair (auto-generates `sdw-XXXXXXXX` username if not supplied; usernames must match `^[A-Za-z0-9._-]{3,32}$`; plaintext is a 32-byte URL-safe base64 string returned ONCE), `DELETE /{id}` revokes. Plaintext is BCrypt-hashed before persisting. Depends on `IWebDavTokenRepository`.
 
 ### Feed Management
 
@@ -201,7 +203,7 @@ In development, the main project proxies non-`/api` requests to the Parcel dev s
 
 JWT Bearer tokens with BCrypt password hashing. Refresh token flow via `AuthController`. All `/api` endpoints require JWT authentication. Frontend uses `ProtectedRoute` component to redirect unauthenticated users to `/login`. The HTTP client (`httpClient.ts`) handles automatic token refresh with deduplication on 401 responses, and throws on non-OK responses so SWR error boundaries work correctly.
 
-`/webdav` uses a separate HTTP Basic scheme (`BasicAuthenticationHandler` in `Auth/`, scheme name `"Basic"`, registered alongside JWT in `Program.cs`). Fixed username `sdwuser`; password is BCrypt-verified against `Password:Value` in configuration. On challenge it emits `WWW-Authenticate: Basic realm="SecondDimensionWatcher WebDAV", charset="UTF-8"`. The WebDAV controller opts into this scheme explicitly via `[Authorize(AuthenticationSchemes = BasicAuthenticationHandler.SchemeName)]` — JWT clients cannot reach WebDAV and Basic clients cannot reach `/api`.
+`/webdav` uses a separate HTTP Basic scheme (`BasicAuthenticationHandler` in `Auth/`, scheme name `"Basic"`, registered alongside JWT in `Program.cs`). Credentials are per-device tokens issued via `WebDavTokenController` and stored in the `WebDavTokens` table — the handler looks up the row by username through `IWebDavTokenRepository.FindByUsernameAsync` and BCrypt-verifies the supplied password against the stored `TokenHash`. There is no fixed username and no shared password in configuration. On challenge it emits `WWW-Authenticate: Basic realm="SecondDimensionWatcher WebDAV", charset="UTF-8"`. The WebDAV controller opts into this scheme explicitly via `[Authorize(AuthenticationSchemes = BasicAuthenticationHandler.SchemeName)]` — JWT clients cannot reach WebDAV and Basic clients cannot reach `/api`.
 
 ### Frontend
 
@@ -218,7 +220,7 @@ React 18 + TypeScript with Tailwind CSS for styling and Radix UI for accessible 
 - Tasks (`/tasks`) — Background task dashboard with manual trigger
 - Login (`/login`) — Login/register with form validation
 
-**Key components:** `AppHeader` (top navigation bar with links to all pages and a user dropdown containing the language picker + logout), `AnimationInfo` (editorial row-style episode item with inline download controls, progress bar, AI retry button), `FileBrowser` (sheet/slide-over for browsing downloaded files; play action navigates to PlayerPage), `ExternalPlayerButtons` (URL scheme buttons for opening video in VLC, PotPlayer, IINA, mpv, nPlayer), `SeasonDiscovery` (season anime browser with day-of-week grouping and season selector), `ProtectedRoute` (auth guard), `ToastProvider` (Radix Toast notifications).
+**Key components:** `AppHeader` (top navigation bar with links to all pages and a user dropdown containing the language picker + logout), `AnimationInfo` (editorial row-style episode item with inline download controls, progress bar, AI retry button), `FileBrowser` (sheet/slide-over for browsing downloaded files; play action navigates to PlayerPage), `ExternalPlayerButtons` (URL scheme buttons for opening video in VLC, PotPlayer, IINA, mpv, nPlayer), `WebDavAccessSheet` (mounted on DownloadedPage; lists existing WebDAV tokens via `/api/webdav-tokens`, issues new ones, shows the plaintext token once with copy-to-clipboard, and revokes), `SeasonDiscovery` (season anime browser with day-of-week grouping and season selector), `ProtectedRoute` (auth guard), `ToastProvider` (Radix Toast notifications).
 **Chat components:** `ChatSidebar` (conversation list with create/delete), `ChatMessageList`/`ChatMessage` (message rendering with markdown), `ChatInput` (text input with send), `ToolCallDisplay` (tool call and result rendering), `ModelPicker` (AI model selector). Chat module (`src/chat/`) provides `useStreamingChat` hook for SSE streaming with reducer-based state machine.
 **UI primitives:** `src/components/ui/` — Button, Card, DropdownMenu, EmptyPrompt, FormRow, Input, Pagination, PasswordInput, Progress, Sheet, Spinner, Table.
 
@@ -246,7 +248,7 @@ Features: 25 anime entries with TMDB poster paths and mixed download states, gro
 
 - `ConnectionStrings:sdw` — PostgreSQL connection string
 - `JwtSecret` — Required JWT signing key
-- `Password:Value` — BCrypt hash of the WebDAV Basic-auth password (username is fixed `sdwuser`). Required to authenticate WebDAV requests.
+- `Password:Value` — BCrypt hash of the JWT login password. When empty, `/api/auth/register` is open and writes the first user's hash to the path in `PasswordFile` (default `password.json`); once set, `/api/auth/login` BCrypt-verifies against this value. Unrelated to WebDAV.
 - `Torrent:Remote:Url` — qBittorrent API endpoint
 - `FileStore:Local` — Download directory path
 - `MikananiFeeds` — RSS feed URL array (static feeds)
