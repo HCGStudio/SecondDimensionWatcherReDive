@@ -129,67 +129,70 @@ configure_valkey() {
 
 configure_ai() {
     echo
-    echo "=== AI 元数据推断配置 ==="
-    echo "AI 推断可自动识别动画的 TMDB ID、季度、集数等元数据。"
-    echo "需要 AI API 密钥和 TMDB API 密钥。可稍后手动配置。"
-    echo
-    read -rp "是否现在配置 AI 推断？[y/N] " CONFIGURE_AI
+    echo "=== AI 元数据推断配置（必填） ==="
+    echo "AI 推断用于自动识别动画的 TMDB ID、季度、集数等元数据。"
+    echo "需要 AI API 密钥和 TMDB API 密钥。"
 
     AI_PROVIDER="" AI_BASE_URL="" AI_API_KEY="" AI_MODEL="" TMDB_KEY=""
 
-    if [[ "${CONFIGURE_AI:-}" =~ ^[Yy]$ ]]; then
-        echo
-        echo "选择 AI 提供商："
-        echo "  1) OpenAI（默认）"
-        echo "  2) Anthropic"
-        echo "  3) OpenAI 兼容端点（Ollama / vLLM / LiteLLM 等）"
-        read -rp "请选择 [1/2/3]: " AI_CHOICE
+    echo
+    echo "选择 AI 提供商："
+    echo "  1) OpenAI（默认）"
+    echo "  2) Anthropic"
+    echo "  3) OpenAI 兼容端点（Ollama / vLLM / LiteLLM 等）"
+    read -rp "请选择 [1/2/3]: " AI_CHOICE
 
-        case "${AI_CHOICE:-1}" in
-            2)
-                AI_PROVIDER="Anthropic"
-                AI_BASE_URL="https://api.anthropic.com"
-                local default_model="claude-sonnet-4-20250514"
-                ;;
-            3)
-                AI_PROVIDER="OpenAI"
+    local default_model
+    case "${AI_CHOICE:-1}" in
+        2)
+            AI_PROVIDER="Anthropic"
+            AI_BASE_URL="https://api.anthropic.com"
+            default_model="claude-sonnet-4-20250514"
+            ;;
+        3)
+            AI_PROVIDER="OpenAI"
+            while [ -z "${AI_BASE_URL:-}" ]; do
                 read -rp "请输入 API 端点 URL: " AI_BASE_URL
-                local default_model="gpt-4o-mini"
-                ;;
-            *)
-                AI_PROVIDER="OpenAI"
-                AI_BASE_URL="https://api.openai.com/v1"
-                local default_model="gpt-4o-mini"
-                ;;
-        esac
+                [ -z "$AI_BASE_URL" ] && echo "API 端点 URL 不能为空。"
+            done
+            default_model="gpt-4o-mini"
+            ;;
+        *)
+            AI_PROVIDER="OpenAI"
+            AI_BASE_URL="https://api.openai.com/v1"
+            default_model="gpt-4o-mini"
+            ;;
+    esac
 
+    while [ -z "${AI_API_KEY:-}" ]; do
         read -rp "请输入 API Key: " AI_API_KEY
-        read -rp "请输入模型名称 [${default_model}]: " AI_MODEL
-        AI_MODEL="${AI_MODEL:-$default_model}"
+        if [ -z "$AI_API_KEY" ]; then
+            echo "API Key 不能为空。如确实无法获取，请按 Ctrl+C 退出后稍后手动配置。"
+        fi
+    done
+    read -rp "请输入模型名称 [${default_model}]: " AI_MODEL
+    AI_MODEL="${AI_MODEL:-$default_model}"
 
-        echo
-        echo "TMDB API Key（必填，用于番剧元数据、季度信息和海报图片）"
-        echo "申请步骤："
-        echo "  1) 注册账号: https://www.themoviedb.org/signup"
-        echo "  2) 打开:     https://www.themoviedb.org/settings/api"
-        echo "  3) 点击 \"创建\" → 选择 \"Developer\"（免费） → 填写表单"
-        echo "  4) 复制 \"API 密钥 (v3 auth)\" 字段的值"
-        while [ -z "${TMDB_KEY:-}" ]; do
-            read -rp "请输入 TMDB API Key: " TMDB_KEY
-            if [ -z "$TMDB_KEY" ]; then
-                echo "TMDB API Key 不能为空。如确实无法获取，请按 Ctrl+C 退出后稍后手动配置。"
-            fi
-        done
+    echo
+    echo "TMDB API Key（必填，用于番剧元数据、季度信息和海报图片）"
+    echo "申请步骤："
+    echo "  1) 注册账号: https://www.themoviedb.org/signup"
+    echo "  2) 打开:     https://www.themoviedb.org/settings/api"
+    echo "  3) 点击 \"创建\" → 选择 \"Developer\"（免费） → 填写表单"
+    echo "  4) 复制 \"API 密钥 (v3 auth)\" 字段的值"
+    while [ -z "${TMDB_KEY:-}" ]; do
+        read -rp "请输入 TMDB API Key: " TMDB_KEY
+        if [ -z "$TMDB_KEY" ]; then
+            echo "TMDB API Key 不能为空。如确实无法获取，请按 Ctrl+C 退出后稍后手动配置。"
+        fi
+    done
 
-        echo
-        echo "AI 配置:"
-        echo "  Provider: $AI_PROVIDER"
-        echo "  Base URL: $AI_BASE_URL"
-        echo "  Model:    $AI_MODEL"
-        echo "  TMDB:     (已设置)"
-    else
-        echo "跳过 AI 配置。"
-    fi
+    echo
+    echo "AI 配置:"
+    echo "  Provider: $AI_PROVIDER"
+    echo "  Base URL: $AI_BASE_URL"
+    echo "  Model:    $AI_MODEL"
+    echo "  TMDB:     (已设置)"
 }
 
 # ============================================================
