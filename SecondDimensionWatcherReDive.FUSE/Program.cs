@@ -14,12 +14,6 @@ internal static unsafe class Program
 
     private static int Main(string[] args)
     {
-        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
-        {
-            Console.Error.WriteLine("sdwfuse only runs on Linux (libfuse3 is required).");
-            return 2;
-        }
-
         if (args.Length == 0 || args[0] is "-h" or "--help" or "help")
         {
             PrintUsage();
@@ -29,7 +23,15 @@ internal static unsafe class Program
         if (args[0] is "--version" or "-V")
         {
             Console.WriteLine($"sdwfuse {Version}");
+            Console.WriteLine("Licensed under the Apache License 2.0.");
+            Console.WriteLine("Dynamically links libfuse3 (LGPL-2.1-only) — see THIRD_PARTY_NOTICES.md.");
             return 0;
+        }
+
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+        {
+            Console.Error.WriteLine("sdwfuse only runs on Linux (libfuse3 is required).");
+            return 2;
         }
 
         if (args[0] != "mount")

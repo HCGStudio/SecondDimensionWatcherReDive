@@ -308,7 +308,10 @@ jobs:
         run: |
           mkdir -p dist
           cp SecondDimensionWatcherReDive.FUSE/README.md publish-fuse/README.md
-          tar -czf "dist/sdwfuse_${VERSION}_linux-${{ matrix.arch }}.tar.gz" -C publish-fuse sdwfuse README.md
+          cp LICENSE publish-fuse/LICENSE
+          cp SecondDimensionWatcherReDive.FUSE/THIRD_PARTY_NOTICES.md publish-fuse/THIRD_PARTY_NOTICES.md
+          tar -czf "dist/sdwfuse_${VERSION}_linux-${{ matrix.arch }}.tar.gz" \
+            -C publish-fuse sdwfuse README.md LICENSE THIRD_PARTY_NOTICES.md
 
       - name: Upload sdwfuse packages
         uses: actions/upload-artifact@v4

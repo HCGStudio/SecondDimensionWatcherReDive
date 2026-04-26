@@ -11,6 +11,12 @@
         <RuntimeIdentifiers>linux-x64;linux-arm64</RuntimeIdentifiers>
         <InvariantGlobalization>true</InvariantGlobalization>
 
+        <!-- Licensing. The wrapper code is Apache-2.0 (matches the parent repo).
+             Runtime dependency on libfuse3 is dynamic — see THIRD_PARTY_NOTICES.md
+             for the LGPL-2.1 compliance argument. -->
+        <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+        <Copyright>Copyright (c) mahoshojoHCG and contributors</Copyright>
+
         <!-- NativeAOT. AOT analyzers run on every build (not just publish) so trim/AOT
              violations surface at compile time, while the actual native image is only
              produced when `dotnet publish -r linux-x64` runs on a Linux build host. -->

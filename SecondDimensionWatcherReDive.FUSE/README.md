@@ -100,3 +100,22 @@ Environment-variable fallbacks: `SDW_FUSE_SERVER`, `SDW_FUSE_USERNAME`, `SDW_FUS
 - Empty mount with no errors — verify your account can list the same paths via WebDAV at
   `<server>/webdav/`. If WebDAV works but FUSE does not, file an issue with
   `--debug` output attached.
+
+## License
+
+`sdwfuse` itself is licensed under the **Apache License 2.0** — the canonical
+copy lives at the repository root in [`../LICENSE`](../LICENSE), and is
+re-distributed in every `sdwfuse` package at `/usr/share/doc/sdwfuse/LICENSE`
+and inside the standalone tarball.
+
+It dynamically links against **libfuse3** (LGPL-2.1-only), which the user installs from
+their distribution's package manager. libfuse3 is not bundled, statically linked, or
+redistributed by this project. The `.deb` / `.rpm` / `pkg.tar.zst` packages declare
+libfuse3 as a runtime dependency; the standalone tarball does the same in spirit and
+expects the system `libfuse3.so.3` to be present.
+
+Full third-party notices (libfuse3 + the .NET runtime statically embedded by
+NativeAOT) live in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). If you
+re-distribute the `sdwfuse` binary alongside libfuse3 — for example, by bundling both
+inside a container image — you take on the LGPL-2.1 redistribution obligations for
+libfuse3; please read the notices before doing so.
