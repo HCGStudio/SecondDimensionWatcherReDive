@@ -45,7 +45,7 @@ services:
     restart: unless-stopped
 
   sdw-redive:
-    image: ghcr.io/hcgstudio/sdw-redive:prerelease-latest
+    image: ghcr.io/hcgstudio/sdw-redive:latest
     ports:
       - "5097:8080"
     environment:
