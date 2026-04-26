@@ -23,9 +23,9 @@ const variantClasses: Record<ButtonVariant, string> = {
 
 const solidColorClasses: Record<ButtonColor, string> = {
   default: "bg-brand hover:bg-accent shadow-ring-brand",
-  danger: "bg-error hover:bg-red-700 shadow-[0px_0px_0px_1px_#b53333]",
-  warning: "bg-warning hover:bg-yellow-600 shadow-[0px_0px_0px_1px_#e6a23c]",
-  success: "bg-success hover:bg-green-700 shadow-[0px_0px_0px_1px_#198754]",
+  danger: "bg-error hover:opacity-90 shadow-ring-error",
+  warning: "bg-warning hover:opacity-90 shadow-ring-warning",
+  success: "bg-success hover:opacity-90 shadow-ring-success",
 };
 
 const textColorClasses: Record<ButtonColor, string> = {

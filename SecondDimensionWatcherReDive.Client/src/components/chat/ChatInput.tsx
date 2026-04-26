@@ -51,7 +51,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSend, disabled }) => {
           placeholder={t("inputPlaceholder")}
           disabled={disabled}
           rows={1}
-          className="flex-1 resize-none rounded-lg border border-border bg-white px-3 py-2 text-sm text-foreground placeholder:text-subtle focus:outline-hidden focus:border-focus transition-colors scrollbar-none"
+          className="flex-1 resize-none rounded-lg border border-border bg-canvas px-3 py-2 text-sm text-foreground placeholder:text-subtle focus:outline-hidden focus:border-focus transition-colors scrollbar-none"
         />
         <Button
           variant="solid"

@@ -7,7 +7,7 @@
     line-height: 1.60;
   }
   *, ::after, ::before, ::backdrop {
-    border-color: var(--color-gray-200, currentColor);
+    border-color: var(--color-border-light, currentColor);
   }
 }
 

@@ -69,6 +69,9 @@ module.exports = {
       boxShadow: {
         ring: "0px 0px 0px 1px #d1cfc5",
         "ring-brand": "0px 0px 0px 1px #c96442",
+        "ring-error": "0px 0px 0px 1px #b53333",
+        "ring-warning": "0px 0px 0px 1px #e6a23c",
+        "ring-success": "0px 0px 0px 1px #198754",
         whisper: "rgba(0,0,0,0.05) 0px 4px 24px",
         inset: "inset 0px 0px 0px 1px rgba(0,0,0,0.15)",
       },

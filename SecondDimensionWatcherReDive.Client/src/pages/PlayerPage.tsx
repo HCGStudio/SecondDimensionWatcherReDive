@@ -12,6 +12,8 @@ import { EmptyPrompt } from "../components/ui/EmptyPrompt";
 import { Spinner } from "../components/ui/Spinner";
 import { PageTemplate } from "./PageTemplate";
 
+const BRAND_TERRACOTTA = "#c96442";
+
 export const PlayerPage: React.FC = () => {
   const { t, i18n } = useTranslation("player");
   const { animationId } = useParams<{ animationId: string }>();
@@ -80,7 +82,7 @@ export const PlayerPage: React.FC = () => {
       aspectRatio: true,
       screenshot: true,
       setting: true,
-      theme: "#c96442",
+      theme: BRAND_TERRACOTTA,
       volume: 0.8,
       muted: false,
       autoSize: true,
@@ -131,7 +133,7 @@ export const PlayerPage: React.FC = () => {
         />
       ) : playbackUrl ? (
         <>
-          <div className="overflow-hidden rounded-2xl border border-border bg-[#141413] shadow-xs">
+          <div className="overflow-hidden rounded-2xl border border-border bg-dark-deep shadow-whisper">
             <div ref={playerContainerRef} className="aspect-video w-full" />
           </div>
 

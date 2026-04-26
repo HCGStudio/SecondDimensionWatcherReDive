@@ -79,7 +79,7 @@ export const Pagination: React.FC<PaginationProps> = ({
               btnBase,
               "min-w-[32px] px-2 py-1 text-sm",
               page === activePage
-                ? "bg-brand text-white shadow-ring-brand"
+                ? "bg-brand text-surface shadow-ring-brand"
                 : "text-foreground hover:bg-canvas",
             )}
             onClick={() => onPageClick(page)}
