@@ -1,0 +1,45 @@
+{
+  "pageTitle": "设置",
+  "webdav": {
+    "title": "WebDAV 凭据",
+    "intro": "在这里为每台设备生成独立的 WebDAV 用户名和访问令牌，可随时撤销。访问令牌在数据库中以 BCrypt 哈希保存，明文仅在创建时显示一次。",
+    "create": {
+      "title": "创建新凭据",
+      "usernameLabel": "用户名（可选）",
+      "usernamePlaceholder": "留空则自动生成",
+      "usernameHelp": "用户名仅允许字母、数字、点、下划线、连字符，长度 3-32。",
+      "descriptionLabel": "备注（可选）",
+      "descriptionPlaceholder": "例如：客厅 Mac mini",
+      "submit": "生成"
+    },
+    "created": {
+      "title": "凭据已创建",
+      "warning": "请立即复制访问令牌——离开此页面后将无法再次查看。",
+      "usernameLabel": "用户名",
+      "tokenLabel": "访问令牌",
+      "dismiss": "我已保存"
+    },
+    "list": {
+      "empty": {
+        "title": "尚未创建任何凭据",
+        "body": "点击上方「生成」即可为新设备创建一对用户名和访问令牌。"
+      },
+      "columns": {
+        "username": "用户名",
+        "description": "备注",
+        "createdAt": "创建时间",
+        "actions": "操作"
+      },
+      "deleteConfirm": "确认撤销凭据「{{username}}」吗？此操作不可恢复。",
+      "deleteAria": "撤销 {{username}}"
+    },
+    "toast": {
+      "created": "凭据已生成",
+      "createFailed": "生成失败，请稍后重试",
+      "deleted": "凭据已撤销",
+      "deleteFailed": "撤销失败",
+      "copied": "已复制到剪贴板",
+      "copyFailed": "复制失败，请手动复制"
+    }
+  }
+}

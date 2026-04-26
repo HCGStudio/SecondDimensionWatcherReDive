@@ -12,6 +12,7 @@ import { FeedsPage } from "./pages/FeedsPage";
 import { LoginPage } from "./pages/LoginPage";
 import { MainPage, EpisodeListPage } from "./pages/MainPage";
 import { PlayerPage } from "./pages/PlayerPage";
+import { SettingsPage } from "./pages/SettingsPage";
 import { TasksPage } from "./pages/TasksPage";
 
 const router = createBrowserRouter([
@@ -63,6 +64,11 @@ const router = createBrowserRouter([
   {
     path: "/chat/:conversationId",
     element: <ProtectedRoute><ChatPage /></ProtectedRoute>,
+    errorElement: <ErrorPage />,
+  },
+  {
+    path: "/settings",
+    element: <ProtectedRoute><SettingsPage /></ProtectedRoute>,
     errorElement: <ErrorPage />,
   },
   {

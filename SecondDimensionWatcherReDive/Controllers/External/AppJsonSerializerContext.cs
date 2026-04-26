@@ -24,4 +24,9 @@ namespace SecondDimensionWatcherReDive.Controllers.External;
 [JsonSerializable(typeof(RefreshToken))]
 [JsonSerializable(typeof(AddFeedRequest))]
 [JsonSerializable(typeof(PasswordConfig))]
+[JsonSerializable(typeof(WebDavTokenSummary))]
+[JsonSerializable(typeof(List<WebDavTokenSummary>))]
+[JsonSerializable(typeof(IReadOnlyList<WebDavTokenSummary>))]
+[JsonSerializable(typeof(CreateWebDavTokenRequest))]
+[JsonSerializable(typeof(CreateWebDavTokenResponse))]
 internal partial class AppJsonSerializerContext : JsonSerializerContext;

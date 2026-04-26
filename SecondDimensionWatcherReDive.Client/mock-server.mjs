@@ -213,6 +213,16 @@ let feeds = [
   { id: randomUUID(), url: "https://mikanani.me/RSS/Bangumi?bangumiId=3200", name: "药屋少女的呢喃", createdAt: new Date(Date.now() - 86400_000).toISOString() },
 ];
 
+// WebDAV access tokens
+let webDavTokens = [
+  {
+    id: randomUUID(),
+    username: "sdw-demo01",
+    description: "客厅 Mac mini",
+    createdAt: new Date(Date.now() - 86400_000).toISOString(),
+  },
+];
+
 // Mock file tree
 const FILE_TREE = {
   "": [
@@ -532,6 +542,50 @@ async function route(method, pathname, searchParams, req, res) {
       const before = feeds.length;
       feeds = feeds.filter((f) => f.id !== m[1]);
       return empty(res, feeds.length < before ? 200 : 404);
+    }
+  }
+
+  // --- WebDAV access tokens ---
+
+  if (method === "GET" && pathname === "/api/webdav-tokens") {
+    return json(res, webDavTokens);
+  }
+
+  if (method === "POST" && pathname === "/api/webdav-tokens") {
+    return readBody(req).then((body) => {
+      const requested = (body.username ?? "").trim();
+      if (requested && !/^[A-Za-z0-9._-]{3,32}$/.test(requested)) {
+        return json(res, { error: "Invalid username" }, 400);
+      }
+      const username =
+        requested ||
+        "sdw-" +
+          Array.from(randomBytes(4))
+            .map((b) => (b % 36).toString(36))
+            .join("")
+            .slice(0, 8);
+      if (webDavTokens.some((t) => t.username === username)) {
+        return json(res, { error: "Username already exists" }, 409);
+      }
+      const description = (body.description ?? "").trim() || undefined;
+      const token = randomBytes(32).toString("base64url");
+      const record = {
+        id: randomUUID(),
+        username,
+        description,
+        createdAt: new Date().toISOString(),
+      };
+      webDavTokens.unshift(record);
+      return json(res, { ...record, token });
+    });
+  }
+
+  {
+    const m = pathname.match(/^\/api\/webdav-tokens\/(.+)$/);
+    if (method === "DELETE" && m) {
+      const before = webDavTokens.length;
+      webDavTokens = webDavTokens.filter((t) => t.id !== m[1]);
+      return empty(res, webDavTokens.length < before ? 204 : 404);
     }
   }
 

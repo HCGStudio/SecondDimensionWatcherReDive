@@ -63,6 +63,13 @@ internal static class RepositoryConverter
             entity.PhysicalPath,
             entity.FileStore);
 
+    public static DataRepo.WebDavToken ToRecord(this Models.WebDavToken entity) =>
+        new(entity.Id,
+            entity.Username,
+            entity.TokenHash,
+            entity.Description,
+            entity.CreatedAt);
+
     // Record -> Entity
 
     public static Models.AnimationInfo ToEntity(this DataRepo.AnimationInfo record) =>
@@ -143,6 +150,16 @@ internal static class RepositoryConverter
             VirtualPath = record.VirtualPath,
             PhysicalPath = record.PhysicalPath,
             FileStore = record.FileStore
+        };
+
+    public static Models.WebDavToken ToEntity(this DataRepo.WebDavToken record) =>
+        new()
+        {
+            Id = record.Id,
+            Username = record.Username,
+            TokenHash = record.TokenHash,
+            Description = record.Description,
+            CreatedAt = record.CreatedAt
         };
 
     // Record -> Entity updater (apply record properties to tracked entity)

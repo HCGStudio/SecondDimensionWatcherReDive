@@ -1,6 +1,7 @@
 import {
   Check,
   Clapperboard,
+  Cog,
   Download,
   Home,
   LayoutGrid,
@@ -42,6 +43,7 @@ const useNavItems = (): NavItem[] => [
   { icon: <LayoutGrid size={16} />, labelKey: "nav.feeds", path: "/feeds" },
   { icon: <Settings size={16} />, labelKey: "nav.tasks", path: "/tasks" },
   { icon: <MessageSquare size={16} />, labelKey: "nav.chat", path: "/chat" },
+  { icon: <Cog size={16} />, labelKey: "nav.settings", path: "/settings" },
 ];
 
 const isPathActive = (pathname: string, path: string): boolean =>

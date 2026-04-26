@@ -199,6 +199,7 @@ builder.Services.AddScoped<IBangumiSubgroupRepository, BangumiSubgroupRepository
 builder.Services.AddScoped<IChatRepository, ChatRepository>();
 builder.Services.AddScoped<IFileMappingRepository, FileMappingRepository>();
 builder.Services.AddScoped<IMigrationMarkerRepository, MigrationMarkerRepository>();
+builder.Services.AddScoped<IWebDavTokenRepository, WebDavTokenRepository>();
 builder.Services.AddSingleton<ISeasonScraper, MikananiSeasonScraper>();
 
 //Add AI Inference

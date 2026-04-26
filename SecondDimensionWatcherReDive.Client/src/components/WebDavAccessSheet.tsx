@@ -1,6 +1,7 @@
-import { Copy, HardDrive } from "lucide-react";
+import { Copy, ExternalLink, HardDrive } from "lucide-react";
 import React from "react";
 import { Trans, useTranslation } from "react-i18next";
+import { useNavigate } from "react-router";
 
 import { useToast } from "./ToastProvider";
 import { Button } from "./ui/Button";
@@ -12,8 +13,6 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "./ui/Sheet";
-
-const WEBDAV_USERNAME = "sdwuser";
 
 const buildEndpoint = (): string => {
   if (typeof window === "undefined") return "/webdav/";
@@ -27,6 +26,7 @@ export const WebDavAccessSheet: React.FC = () => {
   const { t } = useTranslation("files");
   const endpoint = React.useMemo(buildEndpoint, []);
   const { addToast } = useToast();
+  const navigate = useNavigate();
 
   const copy = React.useCallback(
     async (value: string, label: string) => {
@@ -69,25 +69,17 @@ export const WebDavAccessSheet: React.FC = () => {
                 value={endpoint}
                 onCopy={() => copy(endpoint, t("webdav.address"))}
               />
-              <CredentialRow
-                label={t("webdav.username")}
-                value={WEBDAV_USERNAME}
-                onCopy={() => copy(WEBDAV_USERNAME, t("webdav.username"))}
-              />
               <div className="rounded-md border border-border-light bg-canvas px-3 py-2 text-sm leading-body">
-                <div className="text-xs uppercase tracking-wide text-subtle">
-                  {t("webdav.password")}
-                </div>
-                <div className="mt-0.5 text-foreground">
-                  <Trans
-                    i18nKey="webdav.passwordHelp"
-                    t={t}
-                    values={{ key: "Password:Value" }}
-                    components={{
-                      code: <code className="rounded bg-surface px-1 font-mono text-xs" />,
-                    }}
-                  />
-                </div>
+                <p className="text-foreground">{t("webdav.credentialsHint")}</p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="mt-3"
+                  onClick={() => navigate("/settings")}
+                >
+                  <ExternalLink size={14} />
+                  {t("webdav.openSettings")}
+                </Button>
               </div>
             </div>
           </section>
@@ -126,13 +118,7 @@ export const WebDavAccessSheet: React.FC = () => {
                     values={{ endpoint }}
                     components={{ code: codeNode }}
                   />,
-                  <Trans
-                    key="macos-3"
-                    i18nKey="webdav.macos.step3"
-                    t={t}
-                    values={{ username: WEBDAV_USERNAME }}
-                    components={{ code: codeNode }}
-                  />,
+                  t("webdav.macos.step3"),
                 ]}
               />
               <PlatformGuide
@@ -160,13 +146,7 @@ export const WebDavAccessSheet: React.FC = () => {
                     values={{ endpoint }}
                     components={{ code: codeNode }}
                   />,
-                  <Trans
-                    key="mobile-3"
-                    i18nKey="webdav.mobile.step3"
-                    t={t}
-                    values={{ username: WEBDAV_USERNAME }}
-                    components={{ code: codeNode }}
-                  />,
+                  t("webdav.mobile.step3"),
                 ]}
               />
             </div>

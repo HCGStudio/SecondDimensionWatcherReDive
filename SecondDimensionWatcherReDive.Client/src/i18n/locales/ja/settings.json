@@ -1,0 +1,45 @@
+{
+  "pageTitle": "設定",
+  "webdav": {
+    "title": "WebDAV 認証情報",
+    "intro": "デバイスごとに個別の WebDAV ユーザー名とアクセストークンを発行できます。トークンはデータベースに BCrypt ハッシュで保存され、平文は作成時に一度だけ表示されます。いつでも失効可能です。",
+    "create": {
+      "title": "新しい認証情報を作成",
+      "usernameLabel": "ユーザー名（任意）",
+      "usernamePlaceholder": "空欄で自動生成",
+      "usernameHelp": "ユーザー名は英数字、ドット、アンダースコア、ハイフンのみ、3-32 文字。",
+      "descriptionLabel": "メモ（任意）",
+      "descriptionPlaceholder": "例：リビングの Mac mini",
+      "submit": "生成"
+    },
+    "created": {
+      "title": "認証情報を作成しました",
+      "warning": "アクセストークンは今すぐコピーしてください。このページを離れると再表示できません。",
+      "usernameLabel": "ユーザー名",
+      "tokenLabel": "アクセストークン",
+      "dismiss": "保存しました"
+    },
+    "list": {
+      "empty": {
+        "title": "認証情報はまだありません",
+        "body": "上の「生成」をクリックして、新しいデバイス用のユーザー名とアクセストークンを作成してください。"
+      },
+      "columns": {
+        "username": "ユーザー名",
+        "description": "メモ",
+        "createdAt": "作成日時",
+        "actions": "操作"
+      },
+      "deleteConfirm": "認証情報「{{username}}」を失効させますか？この操作は取り消せません。",
+      "deleteAria": "{{username}} を失効"
+    },
+    "toast": {
+      "created": "認証情報を作成しました",
+      "createFailed": "作成に失敗しました",
+      "deleted": "認証情報を失効しました",
+      "deleteFailed": "失効に失敗しました",
+      "copied": "クリップボードにコピーしました",
+      "copyFailed": "コピーに失敗しました。手動でコピーしてください"
+    }
+  }
+}

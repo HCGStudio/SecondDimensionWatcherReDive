@@ -9,12 +9,11 @@
   "webdav": {
     "button": "WebDAV 接続",
     "title": "WebDAV 接続",
-    "description": "WebDAV でダウンロード済みファイルをマウントし、ファイラーや動画プレーヤーから直接閲覧・再生できます。",
+    "description": "WebDAV でダウンロード済みファイルをマウントし、ファイラーや動画プレーヤーから直接閲覧・再生できます。認証情報は「設定」ページで作成・管理します。",
     "connection": "接続情報",
     "address": "サーバー URL",
-    "username": "ユーザー名",
-    "password": "パスワード",
-    "passwordHelp": "デプロイ時に <code>{{key}}</code> 設定で指定します。サーバーは BCrypt ハッシュで保存するため復元できません。忘れた場合は再生成してください。",
+    "credentialsHint": "WebDAV のユーザー名とアクセストークンは「設定」ページで発行します。デバイスごとに個別の認証情報を作成し、いつでも失効できます。",
+    "openSettings": "設定ページを開く",
     "notes": "注意",
     "noteReadOnly": "現在は<accent>読み取り専用</accent>ゲートウェイです。アップロード・削除・改名はできません。",
     "noteBasicAuth": "Basic 認証のみ対応です。インターネットに公開する際は HTTPS リバースプロキシ経由を推奨します。",
@@ -24,19 +23,19 @@
       "title": "macOS Finder",
       "step1": "Finder で ⌘ + K を押し「サーバへ接続」を開く",
       "step2": "サーバーアドレスに <code>{{endpoint}}</code>",
-      "step3": "ユーザー名 <code>{{username}}</code>、パスワードは上記と同じ"
+      "step3": "ダイアログが出たら、「設定」ページで作成したユーザー名とアクセストークンを入力"
     },
     "windows": {
       "title": "Windows エクスプローラー",
       "step1": "「PC」を右クリック →「ネットワークの場所を追加する」",
       "step2": "場所に <code>{{endpoint}}</code>",
-      "step3": "資格情報のダイアログが出たらユーザー名とパスワードを入力"
+      "step3": "資格情報のダイアログが出たら「設定」ページのユーザー名とアクセストークンを入力"
     },
     "mobile": {
       "title": "モバイルプレーヤー（Infuse / VLC / nPlayer など）",
       "step1": "「WebDAV サーバー」タイプのソースを追加",
       "step2": "URL <code>{{endpoint}}</code>",
-      "step3": "ユーザー名 <code>{{username}}</code>、パスワードは上記と同じ"
+      "step3": "ユーザー名とパスワードは「設定」ページで発行したものを使用"
     },
     "copy": {
       "success": "{{label}}をコピーしました",

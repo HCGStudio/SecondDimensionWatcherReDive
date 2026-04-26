@@ -41,6 +41,9 @@ internal static class Converter
     public static External.Feed ToExternal(this Feed record) =>
         new(record.Id, record.Url, record.Name, record.CreatedAt);
 
+    public static External.WebDavTokenSummary ToExternal(this WebDavToken record) =>
+        new(record.Id, record.Username, record.Description, record.CreatedAt);
+
     public static External.SeasonBangumi ToExternal(this SeasonBangumi record) =>
         new(record.Id,
             record.MikanId,

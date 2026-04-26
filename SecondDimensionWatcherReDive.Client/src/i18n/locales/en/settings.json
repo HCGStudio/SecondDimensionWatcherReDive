@@ -1,0 +1,45 @@
+{
+  "pageTitle": "Settings",
+  "webdav": {
+    "title": "WebDAV credentials",
+    "intro": "Issue per-device WebDAV username and access-token pairs. Tokens are stored as BCrypt hashes in the database and the plaintext is displayed exactly once at creation time. Revoke any pair at any time.",
+    "create": {
+      "title": "Create a new credential",
+      "usernameLabel": "Username (optional)",
+      "usernamePlaceholder": "Leave blank to auto-generate",
+      "usernameHelp": "Usernames may contain letters, digits, '.', '_' or '-' and must be 3-32 characters long.",
+      "descriptionLabel": "Note (optional)",
+      "descriptionPlaceholder": "e.g. living-room Mac mini",
+      "submit": "Generate"
+    },
+    "created": {
+      "title": "Credential created",
+      "warning": "Copy the access token now — you will not be able to view it again after leaving this page.",
+      "usernameLabel": "Username",
+      "tokenLabel": "Access token",
+      "dismiss": "I've saved it"
+    },
+    "list": {
+      "empty": {
+        "title": "No credentials yet",
+        "body": "Click Generate above to create a username and access token for a new device."
+      },
+      "columns": {
+        "username": "Username",
+        "description": "Note",
+        "createdAt": "Created",
+        "actions": "Actions"
+      },
+      "deleteConfirm": "Revoke credential \"{{username}}\"? This cannot be undone.",
+      "deleteAria": "Revoke {{username}}"
+    },
+    "toast": {
+      "created": "Credential generated",
+      "createFailed": "Failed to generate credential",
+      "deleted": "Credential revoked",
+      "deleteFailed": "Failed to revoke credential",
+      "copied": "Copied to clipboard",
+      "copyFailed": "Copy failed — please copy manually"
+    }
+  }
+}

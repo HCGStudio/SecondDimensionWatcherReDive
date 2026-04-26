@@ -36,10 +36,8 @@ internal sealed class WebDavWebApplicationFactory : WebApplicationFactory<Migrat
         // callback only fires at Build time, so it cannot satisfy those reads.
         // WebApplication.CreateBuilder calls AddEnvironmentVariables() unprefixed,
         // so process env vars set here are visible to builder.Configuration.
-        var hash = BCrypt.Net.BCrypt.HashPassword(TestPassword);
         Environment.SetEnvironmentVariable("ASPNETCORE_ENVIRONMENT", "Testing");
         Environment.SetEnvironmentVariable("JwtSecret", JwtSecret);
-        Environment.SetEnvironmentVariable("Password__Value", hash);
         Environment.SetEnvironmentVariable("ConnectionStrings__sdw",
             "Host=localhost;Database=test;Username=test;Password=test");
         Environment.SetEnvironmentVariable("Torrent__Remote__Url", "http://localhost/");
@@ -77,11 +75,9 @@ internal sealed class WebDavWebApplicationFactory : WebApplicationFactory<Migrat
         {
             // Defensive: also push the same values via in-memory config in case the
             // host reloads configuration after env vars have been read.
-            var hash = BCrypt.Net.BCrypt.HashPassword(TestPassword);
             config.AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["JwtSecret"] = JwtSecret,
-                ["Password:Value"] = hash,
                 ["ConnectionStrings:sdw"] = "Host=localhost;Database=test;Username=test;Password=test",
                 ["Torrent:Remote:Url"] = "http://localhost/",
                 ["FileStore:Local"] = "/tmp/sdw-test",
@@ -124,11 +120,14 @@ internal sealed class WebDavWebApplicationFactory : WebApplicationFactory<Migrat
             services.RemoveAll<IFileStoreProvider>();
             services.RemoveAll<IFileMappingRepository>();
             services.RemoveAll<IFileExplorer>();
+            services.RemoveAll<IWebDavTokenRepository>();
 
             services.AddSingleton(FileStoreMock.Object);
             services.AddSingleton(FileStoreProviderMock.Object);
             services.AddSingleton<IFileMappingRepository>(_ => MappingRepository);
             services.AddSingleton<IFileExplorer>(_ => new FakeFileExplorer(Mappings, FileStoreMock.Object, MappingRepository));
+            services.AddSingleton<IWebDavTokenRepository>(_ =>
+                new FakeWebDavTokenRepository(TestUserName, BCrypt.Net.BCrypt.HashPassword(TestPassword)));
         });
     }
 

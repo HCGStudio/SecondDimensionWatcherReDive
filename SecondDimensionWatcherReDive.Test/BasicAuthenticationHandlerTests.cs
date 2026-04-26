@@ -2,17 +2,19 @@ using System.Text;
 using System.Text.Encodings.Web;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
 using SecondDimensionWatcherReDive.Auth;
+using SecondDimensionWatcherReDive.Framework.DataRepository;
 
 namespace SecondDimensionWatcherReDive.Test;
 
 [TestClass]
 public class BasicAuthenticationHandlerTests
 {
+    private const string ValidUser = "alice";
     private const string ValidPassword = "correct-horse";
     private string _hash = null!;
 
@@ -22,13 +24,18 @@ public class BasicAuthenticationHandlerTests
         _hash = BCrypt.Net.BCrypt.HashPassword(ValidPassword);
     }
 
-    private async Task<(BasicAuthenticationHandler handler, DefaultHttpContext httpContext)> CreateHandlerAsync(
+    private async Task<(BasicAuthenticationHandler handler, DefaultHttpContext httpContext, Mock<IWebDavTokenRepository> repo)> CreateHandlerAsync(
         string? authorization,
-        string? storedHash)
+        WebDavToken? seededToken)
     {
-        var settings = new Dictionary<string, string?>();
-        if (storedHash is not null) settings["Password:Value"] = storedHash;
-        var configuration = new ConfigurationBuilder().AddInMemoryCollection(settings).Build();
+        var repo = new Mock<IWebDavTokenRepository>();
+        repo.Setup(r => r.FindByUsernameAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string username, CancellationToken _) =>
+                seededToken is not null && seededToken.Username == username ? seededToken : null);
+
+        var services = new ServiceCollection();
+        services.AddSingleton(repo.Object);
+        var provider = services.BuildServiceProvider();
 
         var optionsMonitor = new Mock<IOptionsMonitor<AuthenticationSchemeOptions>>();
         optionsMonitor.Setup(m => m.Get(It.IsAny<string>())).Returns(new AuthenticationSchemeOptions());
@@ -36,16 +43,18 @@ public class BasicAuthenticationHandlerTests
         var handler = new BasicAuthenticationHandler(
             optionsMonitor.Object,
             NullLoggerFactory.Instance,
-            UrlEncoder.Default,
-            configuration);
+            UrlEncoder.Default);
 
-        var httpContext = new DefaultHttpContext();
+        var httpContext = new DefaultHttpContext { RequestServices = provider };
         if (authorization is not null) httpContext.Request.Headers["Authorization"] = authorization;
 
         var scheme = new AuthenticationScheme(BasicAuthenticationHandler.SchemeName, null, typeof(BasicAuthenticationHandler));
         await handler.InitializeAsync(scheme, httpContext);
-        return (handler, httpContext);
+        return (handler, httpContext, repo);
     }
+
+    private WebDavToken SeededToken(string username = ValidUser) =>
+        new(Guid.NewGuid(), username, _hash, null, DateTimeOffset.UtcNow);
 
     private static string BasicHeader(string user, string password) =>
         "Basic " + Convert.ToBase64String(Encoding.UTF8.GetBytes($"{user}:{password}"));
@@ -53,17 +62,15 @@ public class BasicAuthenticationHandlerTests
     [TestMethod]
     public async Task NoAuthorizationHeader_ReturnsNoResult()
     {
-        var (handler, _) = await CreateHandlerAsync(authorization: null, _hash);
+        var (handler, _, _) = await CreateHandlerAsync(authorization: null, SeededToken());
         var result = await handler.AuthenticateAsync();
-        Assert.IsFalse(result.Succeeded);
-        Assert.IsFalse(result.Failure is not null, "Expected NoResult, not failure");
         Assert.IsTrue(result.None);
     }
 
     [TestMethod]
     public async Task WrongScheme_ReturnsNoResult()
     {
-        var (handler, _) = await CreateHandlerAsync("Bearer abc", _hash);
+        var (handler, _, _) = await CreateHandlerAsync("Bearer abc", SeededToken());
         var result = await handler.AuthenticateAsync();
         Assert.IsTrue(result.None);
     }
@@ -71,7 +78,7 @@ public class BasicAuthenticationHandlerTests
     [TestMethod]
     public async Task MalformedBase64_Fails()
     {
-        var (handler, _) = await CreateHandlerAsync("Basic !!!not-base64!!!", _hash);
+        var (handler, _, _) = await CreateHandlerAsync("Basic !!!not-base64!!!", SeededToken());
         var result = await handler.AuthenticateAsync();
         Assert.IsFalse(result.Succeeded);
         Assert.IsNotNull(result.Failure);
@@ -81,15 +88,15 @@ public class BasicAuthenticationHandlerTests
     public async Task MissingColonSeparator_Fails()
     {
         var encoded = Convert.ToBase64String(Encoding.UTF8.GetBytes("noseparator"));
-        var (handler, _) = await CreateHandlerAsync($"Basic {encoded}", _hash);
+        var (handler, _, _) = await CreateHandlerAsync($"Basic {encoded}", SeededToken());
         var result = await handler.AuthenticateAsync();
         Assert.IsFalse(result.Succeeded);
     }
 
     [TestMethod]
-    public async Task WrongUsername_Fails()
+    public async Task UnknownUser_Fails()
     {
-        var (handler, _) = await CreateHandlerAsync(BasicHeader("admin", ValidPassword), _hash);
+        var (handler, _, _) = await CreateHandlerAsync(BasicHeader("nobody", ValidPassword), SeededToken());
         var result = await handler.AuthenticateAsync();
         Assert.IsFalse(result.Succeeded);
     }
@@ -97,15 +104,7 @@ public class BasicAuthenticationHandlerTests
     [TestMethod]
     public async Task WrongPassword_Fails()
     {
-        var (handler, _) = await CreateHandlerAsync(BasicHeader("sdwuser", "wrong"), _hash);
-        var result = await handler.AuthenticateAsync();
-        Assert.IsFalse(result.Succeeded);
-    }
-
-    [TestMethod]
-    public async Task UnconfiguredPassword_Fails()
-    {
-        var (handler, _) = await CreateHandlerAsync(BasicHeader("sdwuser", ValidPassword), storedHash: null);
+        var (handler, _, _) = await CreateHandlerAsync(BasicHeader(ValidUser, "wrong"), SeededToken());
         var result = await handler.AuthenticateAsync();
         Assert.IsFalse(result.Succeeded);
     }
@@ -113,16 +112,16 @@ public class BasicAuthenticationHandlerTests
     [TestMethod]
     public async Task ValidCredentials_Succeed()
     {
-        var (handler, _) = await CreateHandlerAsync(BasicHeader("sdwuser", ValidPassword), _hash);
+        var (handler, _, _) = await CreateHandlerAsync(BasicHeader(ValidUser, ValidPassword), SeededToken());
         var result = await handler.AuthenticateAsync();
         Assert.IsTrue(result.Succeeded);
-        Assert.AreEqual("sdwuser", result.Principal!.Identity!.Name);
+        Assert.AreEqual(ValidUser, result.Principal!.Identity!.Name);
     }
 
     [TestMethod]
     public async Task Challenge_SetsBasicWwwAuthenticate()
     {
-        var (handler, httpContext) = await CreateHandlerAsync(authorization: null, _hash);
+        var (handler, httpContext, _) = await CreateHandlerAsync(authorization: null, SeededToken());
         await handler.ChallengeAsync(properties: null);
         Assert.AreEqual(StatusCodes.Status401Unauthorized, httpContext.Response.StatusCode);
         var header = httpContext.Response.Headers.WWWAuthenticate.ToString();
