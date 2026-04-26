@@ -9,6 +9,7 @@ import { DownloadedPage } from "./pages/DownloadedPage";
 import { DownloadingPage } from "./pages/DownloadingPage";
 import { ErrorPage } from "./pages/ErrorPage";
 import { FeedsPage } from "./pages/FeedsPage";
+import { FilesPage } from "./pages/FilesPage";
 import { LoginPage } from "./pages/LoginPage";
 import { MainPage, EpisodeListPage } from "./pages/MainPage";
 import { PlayerPage } from "./pages/PlayerPage";
@@ -39,6 +40,11 @@ const router = createBrowserRouter([
   {
     path: "/downloaded",
     element: <ProtectedRoute><DownloadedPage /></ProtectedRoute>,
+    errorElement: <ErrorPage />,
+  },
+  {
+    path: "/files",
+    element: <ProtectedRoute><FilesPage /></ProtectedRoute>,
     errorElement: <ErrorPage />,
   },
   {

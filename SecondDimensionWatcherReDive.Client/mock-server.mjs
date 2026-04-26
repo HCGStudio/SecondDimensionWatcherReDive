@@ -248,6 +248,75 @@ const FILE_TREE = {
   ],
 };
 
+// Mock VFS tree (mirrors what /api/vfs returns — keyed by absolute virtual path)
+const VFS_NOW = Date.now();
+const vfsDir = (name) => ({ name, isDirectory: true, size: null, lastModifiedUtc: null });
+const vfsFile = (name, sizeMb, ageHours) => ({
+  name,
+  isDirectory: false,
+  size: Math.round(sizeMb * 1024 * 1024),
+  lastModifiedUtc: new Date(VFS_NOW - ageHours * 3600_000).toISOString(),
+});
+const VFS_TREE = {
+  "/": [
+    vfsDir("葬送のフリーレン"),
+    vfsDir("呪術廻戦"),
+    vfsDir("frieren-beyond-journey-end"),
+    vfsDir("unknown"),
+  ],
+  "/葬送のフリーレン": [vfsDir("SubsPlease")],
+  "/葬送のフリーレン/SubsPlease": Array.from({ length: 8 }, (_, i) =>
+    vfsFile(
+      `葬送のフリーレン S01E${String(i + 1).padStart(2, "0")}.mkv`,
+      1280 + i * 12,
+      i * 24,
+    ),
+  ),
+  "/呪術廻戦": [vfsDir("ASW"), vfsDir("Erai-raws")],
+  "/呪術廻戦/ASW": Array.from({ length: 6 }, (_, i) =>
+    vfsFile(
+      `Jujutsu Kaisen S02E${String(i + 1).padStart(2, "0")}.mkv`,
+      980 + i * 8,
+      24 + i * 12,
+    ),
+  ),
+  "/呪術廻戦/Erai-raws": [
+    vfsFile("Jujutsu Kaisen NCOP.mkv", 64, 72),
+    vfsFile("Jujutsu Kaisen NCED.mkv", 58, 72),
+  ],
+  "/frieren-beyond-journey-end": [
+    vfsFile("Trailer.mp4", 32, 240),
+    vfsFile("Cover.jpg", 0.4, 240),
+  ],
+  "/unknown": [
+    vfsFile("[unsorted] random release.mkv", 700, 6),
+  ],
+};
+
+function vfsResolve(rawPath) {
+  // Returns { entry, isDirectory, parent } or null when missing.
+  let p = rawPath || "/";
+  if (!p.startsWith("/")) return null;
+  if (p.includes("/..") || p.split("/").includes(".")) return null;
+  if (p.length > 1) p = p.replace(/\/+$/, "");
+  if (p === "/" || VFS_TREE[p]) {
+    const name = p === "/" ? "" : p.slice(p.lastIndexOf("/") + 1);
+    return {
+      entry: { name, isDirectory: true, size: null, lastModifiedUtc: null },
+      isDirectory: true,
+    };
+  }
+  // Try as a file: parent's children include the leaf name.
+  const lastSlash = p.lastIndexOf("/");
+  const parent = lastSlash === 0 ? "/" : p.slice(0, lastSlash);
+  const leaf = p.slice(lastSlash + 1);
+  const siblings = VFS_TREE[parent];
+  if (!siblings) return null;
+  const match = siblings.find((e) => e.name === leaf && !e.isDirectory);
+  if (!match) return null;
+  return { entry: match, isDirectory: false };
+}
+
 // ---------------------------------------------------------------------------
 // Router
 // ---------------------------------------------------------------------------
@@ -612,6 +681,39 @@ async function route(method, pathname, searchParams, req, res) {
     // Return a small placeholder response for mock playback
     res.writeHead(200, { "Content-Type": "text/plain" });
     return res.end("Mock video playback — this would be a real video file in production.");
+  }
+
+  // --- VFS (mirrors /api/vfs on the .NET backend) ---
+
+  if (method === "GET" && pathname === "/api/vfs/stat") {
+    const resolved = vfsResolve(searchParams.get("path"));
+    if (!resolved) return empty(res, resolved === null ? 404 : 400);
+    return json(res, resolved.entry);
+  }
+
+  if (method === "GET" && pathname === "/api/vfs/list") {
+    const raw = searchParams.get("path") ?? "/";
+    if (!raw.startsWith("/")) return empty(res, 400);
+    const path = raw.length > 1 ? raw.replace(/\/+$/, "") : "/";
+    const children = VFS_TREE[path];
+    if (!children) {
+      // 404 if missing, 400 if it's a known file path
+      const resolved = vfsResolve(path);
+      if (resolved && !resolved.isDirectory) return empty(res, 400);
+      return empty(res, 404);
+    }
+    return json(res, children);
+  }
+
+  if (method === "GET" && pathname === "/api/vfs/read") {
+    const resolved = vfsResolve(searchParams.get("path"));
+    if (!resolved) return empty(res, 404);
+    if (resolved.isDirectory) return empty(res, 404);
+    res.writeHead(200, {
+      "Content-Type": "application/octet-stream",
+      "Content-Disposition": `attachment; filename="${encodeURIComponent(resolved.entry.name)}"`,
+    });
+    return res.end(`Mock VFS read — ${resolved.entry.name}`);
   }
 
   // --- Tasks ---

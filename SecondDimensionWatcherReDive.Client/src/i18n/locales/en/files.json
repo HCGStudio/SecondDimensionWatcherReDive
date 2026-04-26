@@ -6,6 +6,27 @@
     "play": "Play",
     "goUp": "Up one level"
   },
+  "vfs": {
+    "title": "Files",
+    "subtitle": "Browse the virtual directory tree of completed downloads — the same view WebDAV and FUSE clients see.",
+    "breadcrumb": {
+      "root": "Root",
+      "aria": "Directory path"
+    },
+    "actions": {
+      "download": "Download"
+    },
+    "empty": {
+      "title": "This folder is empty",
+      "body": "No files are mapped under this path. They will appear here once a download finishes."
+    },
+    "errors": {
+      "loadFailed": "Could not load this directory. Please try again."
+    },
+    "download": {
+      "failed": "Download failed — please try again"
+    }
+  },
   "webdav": {
     "button": "WebDAV access",
     "title": "WebDAV access",

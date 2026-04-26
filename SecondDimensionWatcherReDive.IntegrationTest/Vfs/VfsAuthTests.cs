@@ -40,13 +40,13 @@ public sealed class VfsAuthTests
     }
 
     [TestMethod]
-    public async Task Jwt_Cannot_Reach_Vfs()
+    public async Task Jwt_Can_Reach_Vfs()
     {
         using var client = _factory.CreateJwtClient();
 
         using var response = await client.GetAsync("/api/vfs/list?path=/");
 
-        Assert.AreEqual(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
     }
 
     [TestMethod]

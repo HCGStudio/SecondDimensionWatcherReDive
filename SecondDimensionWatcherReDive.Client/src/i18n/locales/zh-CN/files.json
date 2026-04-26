@@ -6,6 +6,27 @@
     "play": "播放",
     "goUp": "返回上级"
   },
+  "vfs": {
+    "title": "文件浏览",
+    "subtitle": "浏览已下载文件的虚拟目录树，与 WebDAV、FUSE 客户端看到的结构一致。",
+    "breadcrumb": {
+      "root": "根目录",
+      "aria": "目录路径"
+    },
+    "actions": {
+      "download": "下载"
+    },
+    "empty": {
+      "title": "此目录为空",
+      "body": "暂无映射到这个路径下的文件。完成下载后会自动出现在这里。"
+    },
+    "errors": {
+      "loadFailed": "无法加载该目录，请稍后重试。"
+    },
+    "download": {
+      "failed": "下载失败，请重试"
+    }
+  },
   "webdav": {
     "button": "WebDAV 接入",
     "title": "WebDAV 接入",
