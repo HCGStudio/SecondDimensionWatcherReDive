@@ -430,32 +430,28 @@ configure_system_config() {
     # --- AI config ---
     configure_ai
 
-    if [ -n "${AI_API_KEY:-}" ]; then
-        # Write AI provider
-        sudo sed -i "s|Provider: \"OpenAI\"|Provider: \"${AI_PROVIDER}\"|" "$config"
+    # Write AI provider
+    sudo sed -i "s|Provider: \"OpenAI\"|Provider: \"${AI_PROVIDER}\"|" "$config"
 
-        # Write provider-specific config.  BaseUrl and Model defaults are unique
-        # per subsection so plain substitution targets the right one.  ApiKey
-        # defaults are identical ("") in both subsections, so we scope the
-        # replacement with a sed address range anchored to the section header.
-        if [ "$AI_PROVIDER" = "Anthropic" ]; then
-            sudo sed -i \
-                -e "s|BaseUrl: https://api.anthropic.com|BaseUrl: ${AI_BASE_URL}|" \
-                -e "s|Model: claude-sonnet-4-20250514|Model: ${AI_MODEL}|" \
-                -e '/^  Anthropic:/,/^[A-Z]/s|ApiKey: ""|ApiKey: "'"${AI_API_KEY}"'"|' \
-                "$config"
-        else
-            sudo sed -i \
-                -e "s|BaseUrl: https://api.openai.com/v1|BaseUrl: ${AI_BASE_URL}|" \
-                -e "s|Model: gpt-4o-mini|Model: ${AI_MODEL}|" \
-                -e '/^  OpenAI:/,/^  Anthropic:/s|ApiKey: ""|ApiKey: "'"${AI_API_KEY}"'"|' \
-                "$config"
-        fi
+    # Write provider-specific config.  BaseUrl and Model defaults are unique
+    # per subsection so plain substitution targets the right one.  ApiKey
+    # defaults are identical ("") in both subsections, so we scope the
+    # replacement with a sed address range anchored to the section header.
+    if [ "$AI_PROVIDER" = "Anthropic" ]; then
+        sudo sed -i \
+            -e "s|BaseUrl: https://api.anthropic.com|BaseUrl: ${AI_BASE_URL}|" \
+            -e "s|Model: claude-sonnet-4-20250514|Model: ${AI_MODEL}|" \
+            -e '/^  Anthropic:/,/^[A-Z]/s|ApiKey: ""|ApiKey: "'"${AI_API_KEY}"'"|' \
+            "$config"
+    else
+        sudo sed -i \
+            -e "s|BaseUrl: https://api.openai.com/v1|BaseUrl: ${AI_BASE_URL}|" \
+            -e "s|Model: gpt-4o-mini|Model: ${AI_MODEL}|" \
+            -e '/^  OpenAI:/,/^  Anthropic:/s|ApiKey: ""|ApiKey: "'"${AI_API_KEY}"'"|' \
+            "$config"
     fi
 
-    if [ -n "${TMDB_KEY:-}" ]; then
-        sudo sed -i "s|TmdbApiKey: \"\"|TmdbApiKey: \"${TMDB_KEY}\"|" "$config"
-    fi
+    sudo sed -i "s|TmdbApiKey: \"\"|TmdbApiKey: \"${TMDB_KEY}\"|" "$config"
 
     # --- Valkey config ---
     configure_valkey
@@ -519,38 +515,28 @@ deploy_container() {
     # AI config
     configure_ai
 
-    if [ -n "${AI_API_KEY:-}" ]; then
-        # Build provider-specific env vars for the new AI:* config layout
-        local ai_envs
-        if [ "$AI_PROVIDER" = "Anthropic" ]; then
-            ai_envs="      AI__Provider: \"${AI_PROVIDER}\"\\
+    # Build provider-specific env vars for the new AI:* config layout
+    local ai_envs
+    if [ "$AI_PROVIDER" = "Anthropic" ]; then
+        ai_envs="      AI__Provider: \"${AI_PROVIDER}\"\\
       AI__Anthropic__ApiKey: \"${AI_API_KEY}\"\\
       AI__Anthropic__BaseUrl: \"${AI_BASE_URL}\"\\
       AI__Anthropic__Model: \"${AI_MODEL}\""
-        else
-            ai_envs="      AI__Provider: \"${AI_PROVIDER}\"\\
+    else
+        ai_envs="      AI__Provider: \"${AI_PROVIDER}\"\\
       AI__OpenAI__ApiKey: \"${AI_API_KEY}\"\\
       AI__OpenAI__BaseUrl: \"${AI_BASE_URL}\"\\
       AI__OpenAI__Model: \"${AI_MODEL}\""
-        fi
-
-        if [ -n "${TMDB_KEY:-}" ]; then
-            ai_envs="${ai_envs}\\
-      TmdbApiKey: \"${TMDB_KEY}\""
-        fi
-
-        sed -i.bak \
-            -e "/Torrent__Remote__Url/a\\
-${ai_envs}" \
-            "$deploy_dir/podman-compose.yml"
-        rm -f "$deploy_dir/podman-compose.yml.bak"
-    elif [ -n "${TMDB_KEY:-}" ]; then
-        sed -i.bak \
-            -e "/Torrent__Remote__Url/a\\
-      TmdbApiKey: \"${TMDB_KEY}\"" \
-            "$deploy_dir/podman-compose.yml"
-        rm -f "$deploy_dir/podman-compose.yml.bak"
     fi
+
+    ai_envs="${ai_envs}\\
+      TmdbApiKey: \"${TMDB_KEY}\""
+
+    sed -i.bak \
+        -e "/Torrent__Remote__Url/a\\
+${ai_envs}" \
+        "$deploy_dir/podman-compose.yml"
+    rm -f "$deploy_dir/podman-compose.yml.bak"
 
     echo
     cd "$deploy_dir"
