@@ -1,0 +1,32 @@
+name: sdwfuse
+arch: "${ARCH}"
+platform: linux
+version: "${VERSION}"
+release: "${RELEASE}"
+maintainer: "mahoshojoHCG"
+description: "FUSE client for SecondDimensionWatcher Re:Dive — mounts the SDW virtual filesystem read-only over the /api/vfs REST surface."
+vendor: "SecondDimensionWatcherReDive"
+homepage: "https://github.com/mahoshojoHCG/SecondDimensionWatcherReDive"
+license: "MIT"
+
+# Single shared dependency: the system libfuse3 runtime. The AOT binary
+# bundles the .NET runtime, so no aspnetcore dependency is needed.
+depends:
+  - libfuse3-3
+
+overrides:
+  rpm:
+    depends:
+      - fuse3-libs
+  archlinux:
+    depends:
+      - fuse3
+
+contents:
+  - src: ./publish-fuse/sdwfuse
+    dst: /usr/bin/sdwfuse
+    file_info:
+      mode: 0755
+
+  - src: ./SecondDimensionWatcherReDive.FUSE/README.md
+    dst: /usr/share/doc/sdwfuse/README.md

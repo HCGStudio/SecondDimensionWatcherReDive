@@ -234,8 +234,90 @@ jobs:
           name: packages-portable
           path: dist/*
 
+  build-fuse:
+    # NativeAOT cross-compile is not supported, so each architecture builds on a
+    # native runner. ubuntu-24.04-arm is GA for public repos; private repos pay
+    # for arm minutes — switch to a self-hosted arm runner if that becomes an
+    # issue. The job depends on `test` only (no frontend artifact needed).
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: ubuntu-latest
+            pkg-arch: amd64
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            pkg-arch: aarch64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Install AOT prerequisites
+        # clang + zlib are needed by the AOT linker; libfuse3-dev gives us the
+        # `libfuse3.so` symlink the linker resolves `-lfuse3` against (only the
+        # runtime .so.3 ships in libfuse3-3).
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang zlib1g-dev libfuse3-dev binutils
+
+      - name: Compute version
+        run: |
+          RELEASE_VERSION="${{ github.event.inputs.release_version }}"
+          if [ -n "$RELEASE_VERSION" ]; then
+            VERSION="$RELEASE_VERSION"
+          else
+            BASE_VERSION=$(cat VERSION | tr -d '[:space:]')
+            VERSION="${BASE_VERSION}.${{ github.run_number }}"
+          fi
+          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
+          echo "RELEASE=${{ github.run_number }}" >> "$GITHUB_ENV"
+          echo "ARCH=${{ matrix.pkg-arch }}" >> "$GITHUB_ENV"
+
+      - name: Publish sdwfuse (NativeAOT)
+        run: |
+          dotnet publish SecondDimensionWatcherReDive.FUSE/SecondDimensionWatcherReDive.FUSE.csproj \
+            -c Release \
+            -r linux-${{ matrix.arch }} \
+            -p:StripSymbols=true \
+            /p:Version=${VERSION} \
+            -o publish-fuse
+          ls -lh publish-fuse/sdwfuse
+          file publish-fuse/sdwfuse
+
+      - name: Install nfpm
+        run: |
+          echo 'deb [trusted=yes] https://repo.goreleaser.com/apt/ /' | sudo tee /etc/apt/sources.list.d/goreleaser.list
+          sudo apt-get update
+          sudo apt-get install -y nfpm
+
+      - name: Build distro packages
+        run: |
+          mkdir -p dist
+          nfpm package --config packaging/nfpm-fuse.yaml --packager deb       --target "dist/sdwfuse_${VERSION}_${ARCH}.deb"
+          nfpm package --config packaging/nfpm-fuse.yaml --packager rpm       --target "dist/sdwfuse-${VERSION}.${ARCH}.rpm"
+          nfpm package --config packaging/nfpm-fuse.yaml --packager archlinux --target "dist/sdwfuse-${VERSION}-${ARCH}.pkg.tar.zst"
+
+      - name: Package as tar.gz
+        run: |
+          mkdir -p dist
+          cp SecondDimensionWatcherReDive.FUSE/README.md publish-fuse/README.md
+          tar -czf "dist/sdwfuse_${VERSION}_linux-${{ matrix.arch }}.tar.gz" -C publish-fuse sdwfuse README.md
+
+      - name: Upload sdwfuse packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: packages-fuse-linux-${{ matrix.arch }}
+          path: dist/*
+
   release:
-    needs: [build-linux-packages, build-windows-zip, build-portable]
+    needs: [build-linux-packages, build-windows-zip, build-portable, build-fuse]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
