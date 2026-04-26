@@ -7,7 +7,7 @@ maintainer: "mahoshojoHCG"
 description: "SecondDimensionWatcher Re:Dive - Anime download management system"
 vendor: "SecondDimensionWatcherReDive"
 homepage: "https://github.com/mahoshojoHCG/SecondDimensionWatcherReDive"
-license: "MIT"
+license: "Apache-2.0"
 
 depends:
   - aspnetcore-runtime-10.0
@@ -38,6 +38,12 @@ contents:
     dst: /usr/lib/sdw-redive/migrate-config.sh
     file_info:
       mode: 0755
+
+  - src: ./LICENSE
+    dst: /usr/share/doc/sdw-redive/LICENSE
+
+  - src: ./THIRD_PARTY_NOTICES.md
+    dst: /usr/share/doc/sdw-redive/THIRD_PARTY_NOTICES.md
 
   - dst: /etc/sdw-redive
     type: dir

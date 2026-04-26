@@ -126,6 +126,8 @@ jobs:
         run: |
           cp packaging/appsettings.yml publish/appsettings.yml
           cp packaging/sdw-redive.service publish/sdw-redive.service
+          cp LICENSE publish/LICENSE
+          cp THIRD_PARTY_NOTICES.md publish/THIRD_PARTY_NOTICES.md
           tar -czf "dist/sdw-redive_${VERSION}_linux-${ARCH}.tar.gz" -C publish .
 
       - name: Upload packages
@@ -176,6 +178,8 @@ jobs:
 
       - name: Package as zip
         run: |
+          cp LICENSE publish/LICENSE
+          cp THIRD_PARTY_NOTICES.md publish/THIRD_PARTY_NOTICES.md
           cd publish
           zip -r "../sdw-redive_${VERSION}_win-${{ matrix.arch }}.zip" .
 
@@ -225,6 +229,8 @@ jobs:
       - name: Package as tar.gz
         run: |
           cp packaging/appsettings.yml publish/appsettings.yml
+          cp LICENSE publish/LICENSE
+          cp THIRD_PARTY_NOTICES.md publish/THIRD_PARTY_NOTICES.md
           mkdir -p dist
           tar -czf "dist/sdw-redive_${VERSION}_portable.tar.gz" -C publish .
 
