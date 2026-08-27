@@ -130,6 +130,17 @@ function initAnimations() {
       publishTime,
       isDownloadTracked,
       isDownloadFinished,
+      releaseSizeBytes: (420 + (i % 8) * 115) * 1024 * 1024,
+      automationDisposition:
+        i === 4
+          ? "AutoDownloadQueued"
+          : i === 6
+            ? "PendingConfirmation"
+            : i === 7
+              ? "Notified"
+              : i === 8
+                ? "AutoDownloadFailed"
+                : null,
       season: entry.season,
       episode: entry.episode,
       group: { name: entry.title.match(/\[(.+?)\]/)?.[1] ?? "Fansub" },
@@ -159,6 +170,12 @@ setInterval(() => {
         const anim = animations.get(id);
         if (anim) {
           anim.isDownloadFinished = true;
+          if (
+            anim.automationDisposition === "AutoDownloadQueued" ||
+            anim.automationDisposition === "ManualDownloadQueued"
+          ) {
+            anim.automationDisposition = "DownloadCompleted";
+          }
         }
       }
     }
@@ -212,6 +229,146 @@ let feeds = [
   { id: randomUUID(), url: "https://mikanani.me/RSS/Bangumi?bangumiId=3143", name: "迷宫饭", createdAt: new Date(Date.now() - 86400_000 * 2).toISOString() },
   { id: randomUUID(), url: "https://mikanani.me/RSS/Bangumi?bangumiId=3200", name: "药屋少女的呢喃", createdAt: new Date(Date.now() - 86400_000).toISOString() },
 ];
+
+// Per-feed subscription automation policies and historical releases.
+const POLICY_CREATED_AT = new Date(Date.now() - 86400_000).toISOString();
+const subscriptionPolicies = new Map([
+  [feeds[0].id, {
+    feedId: feeds[0].id,
+    subtitleGroups: ["LoliHouse", "喵萌奶茶屋"],
+    resolutions: ["1080p"],
+    codecs: ["HEVC"],
+    languages: ["简中", "繁中"],
+    minSizeBytes: 300 * 1024 * 1024,
+    maxSizeBytes: 1600 * 1024 * 1024,
+    excludedKeywords: ["合集", "NCOP"],
+    mode: "ManualConfirm",
+    createdAt: POLICY_CREATED_AT,
+    updatedAt: new Date(Date.now() - 3600_000 * 8).toISOString(),
+  }],
+  [feeds[1].id, {
+    feedId: feeds[1].id,
+    subtitleGroups: ["ANi", "SubsPlease"],
+    resolutions: ["1080p"],
+    codecs: [],
+    languages: ["繁中"],
+    minSizeBytes: null,
+    maxSizeBytes: 1400 * 1024 * 1024,
+    excludedKeywords: ["预告"],
+    mode: "AutoDownload",
+    createdAt: POLICY_CREATED_AT,
+    updatedAt: new Date(Date.now() - 3600_000 * 3).toISOString(),
+  }],
+]);
+
+const RELEASE_HISTORY_BY_FEED = new Map([
+  [feeds[0].id, [
+    { id: randomUUID(), title: "[LoliHouse] 葬送的芙莉莲 - 28 [WebRip 1080p HEVC-10bit AAC][简繁内封]", publishedAt: new Date(Date.now() - 3600_000 * 5).toISOString(), sizeBytes: 824 * 1024 * 1024, subtitleGroup: "LoliHouse", resolution: "1080p", codec: "HEVC", languages: ["简中", "繁中"] },
+    { id: randomUUID(), title: "[ANi] 葬送的芙莉莲 - 28 [1080P][繁日双语]", publishedAt: new Date(Date.now() - 3600_000 * 12).toISOString(), sizeBytes: 516 * 1024 * 1024, subtitleGroup: "ANi", resolution: "1080p", codec: "AVC", languages: ["繁中", "日语"] },
+    { id: randomUUID(), title: "[喵萌奶茶屋] 葬送的芙莉莲 01-28 合集 [1080p HEVC][简繁]", publishedAt: new Date(Date.now() - 86400_000).toISOString(), sizeBytes: 18.4 * 1024 * 1024 * 1024, subtitleGroup: "喵萌奶茶屋", resolution: "1080p", codec: "HEVC", languages: ["简中", "繁中"] },
+    { id: randomUUID(), title: "[LoliHouse] 葬送的芙莉莲 - 27 [2160p HEVC][简繁]", publishedAt: new Date(Date.now() - 86400_000 * 2).toISOString(), sizeBytes: 2250 * 1024 * 1024, subtitleGroup: "LoliHouse", resolution: "2160p", codec: "HEVC", languages: ["简中", "繁中"] },
+  ]],
+  [feeds[1].id, [
+    { id: randomUUID(), title: "[ANi] 迷宫饭 - 24 [1080P][繁日双语]", publishedAt: new Date(Date.now() - 3600_000 * 7).toISOString(), sizeBytes: 612 * 1024 * 1024, subtitleGroup: "ANi", resolution: "1080p", codec: "AVC", languages: ["繁中", "日语"] },
+    { id: randomUUID(), title: "[SubsPlease] Dungeon Meshi - 24 (1080p) [English]", publishedAt: new Date(Date.now() - 3600_000 * 18).toISOString(), sizeBytes: 1380 * 1024 * 1024, subtitleGroup: "SubsPlease", resolution: "1080p", codec: "AVC", languages: ["English"] },
+    { id: randomUUID(), title: "[ANi] 迷宫饭 完结纪念预告 [1080P][繁中]", publishedAt: new Date(Date.now() - 86400_000 * 2).toISOString(), sizeBytes: 92 * 1024 * 1024, subtitleGroup: "ANi", resolution: "1080p", codec: "AVC", languages: ["繁中"] },
+  ]],
+  [feeds[2].id, [
+    { id: randomUUID(), title: "[LoliHouse] 药屋少女的呢喃 - 24 [WebRip 1080p HEVC][简繁]", publishedAt: new Date(Date.now() - 3600_000 * 10).toISOString(), sizeBytes: 745 * 1024 * 1024, subtitleGroup: "LoliHouse", resolution: "1080p", codec: "HEVC", languages: ["简中", "繁中"] },
+    { id: randomUUID(), title: "[ANi] 药屋少女的呢喃 - 24 [720P][繁中]", publishedAt: new Date(Date.now() - 86400_000).toISOString(), sizeBytes: 324 * 1024 * 1024, subtitleGroup: "ANi", resolution: "720p", codec: "AVC", languages: ["繁中"] },
+  ]],
+]);
+
+function simulatePolicy(feedId, policy) {
+  const history = RELEASE_HISTORY_BY_FEED.get(feedId) ?? [];
+  const formatBytes = (bytes) => {
+    const units = ["B", "KiB", "MiB", "GiB", "TiB"];
+    let value = bytes;
+    let unit = 0;
+    while (value >= 1024 && unit < units.length - 1) {
+      value /= 1024;
+      unit++;
+    }
+    return `${Number(value.toFixed(2))} ${units[unit]} (${Math.round(bytes)} bytes)`;
+  };
+  const normalizeAllowedValue = (field, value) => {
+    let normalized = value.trim().toUpperCase();
+    if (field === "resolution") {
+      normalized = normalized.replace(/\s/g, "");
+      const aliases = {
+        "4K": "2160P", UHD: "2160P", "2160": "2160P",
+        "1440": "1440P", FHD: "1080P", "1080": "1080P",
+        HD: "720P", "720": "720P", "576": "576P", "480": "480P",
+      };
+      return aliases[normalized] ?? normalized;
+    }
+    if (field === "codec") {
+      normalized = normalized.replace(/[.\-\s]/g, "");
+      const aliases = {
+        H265: "HEVC", X265: "HEVC", H264: "AVC", X264: "AVC",
+      };
+      return aliases[normalized] ?? normalized;
+    }
+    if (field === "languages") {
+      normalized = normalized.replace(/[_\-\s]/g, "");
+      const aliases = {
+        CHS: "ZHHANS", SC: "ZHHANS", GB: "ZHHANS", ZHCN: "ZHHANS",
+        "简体": "ZHHANS", "简中": "ZHHANS", "簡中": "ZHHANS", "简体中文": "ZHHANS",
+        CHT: "ZHHANT", TC: "ZHHANT", BIG5: "ZHHANT", ZHTW: "ZHHANT", ZHHK: "ZHHANT",
+        "繁体": "ZHHANT", "繁體": "ZHHANT", "繁中": "ZHHANT", "繁體中文": "ZHHANT",
+        JPN: "JA", JAP: "JA", "日语": "JA", "日語": "JA", "日本語": "JA", JAPANESE: "JA",
+        ENG: "EN", "英语": "EN", "英語": "EN", ENGLISH: "EN",
+      };
+      return aliases[normalized] ?? normalized;
+    }
+    return normalized;
+  };
+  const checkAllowed = (field, actualValues, expectedValues) => {
+    const actual = actualValues.filter(Boolean);
+    const expected = (expectedValues ?? []).filter(Boolean);
+    if (expected.length === 0) {
+      return { field, passed: true, actual: actual.join(", ") || null, expected: null, message: "anyValueAllowed" };
+    }
+    const normalizedExpected = new Set(
+      expected.map((value) => normalizeAllowedValue(field, value)),
+    );
+    const passed = actual.some((value) =>
+      normalizedExpected.has(normalizeAllowedValue(field, value)),
+    );
+    return { field, passed, actual: actual.join(", ") || null, expected: expected.join(", "), message: passed ? "allowedValueMatched" : "allowedValueMissed" };
+  };
+
+  const entries = history.map((item) => {
+    const explanations = [
+      checkAllowed("subtitleGroup", [item.subtitleGroup], policy.subtitleGroups),
+      checkAllowed("resolution", [item.resolution], policy.resolutions),
+      checkAllowed("codec", [item.codec], policy.codecs),
+      checkAllowed("languages", item.languages, policy.languages),
+    ];
+    const min = typeof policy.minSizeBytes === "number" ? policy.minSizeBytes : null;
+    const max = typeof policy.maxSizeBytes === "number" ? policy.maxSizeBytes : null;
+    const sizePassed = (min == null || item.sizeBytes >= min) && (max == null || item.sizeBytes <= max);
+    explanations.push({
+      field: "size",
+      passed: sizePassed,
+      actual: formatBytes(item.sizeBytes),
+      expected: min == null && max == null ? null : `${min == null ? "0 B" : formatBytes(min)} – ${max == null ? "∞" : formatBytes(max)}`,
+      message: sizePassed ? "withinSizeRange" : "outsideSizeRange",
+    });
+    const excluded = (policy.excludedKeywords ?? []).filter(Boolean);
+    const found = excluded.find((keyword) => item.title.toLowerCase().includes(keyword.toLowerCase()));
+    explanations.push({
+      field: "excludedKeywords",
+      passed: !found,
+      actual: found ?? null,
+      expected: excluded.length > 0 ? excluded.join(", ") : null,
+      message: found ? "excludedKeywordFound" : "noExcludedKeyword",
+    });
+    return { id: item.id, title: item.title, publishedAt: item.publishedAt, sizeBytes: item.sizeBytes, matched: explanations.every((reason) => reason.passed), explanations };
+  });
+
+  return { total: entries.length, matched: entries.filter((entry) => entry.matched).length, entries };
+}
 
 // WebDAV access tokens
 let webDavTokens = [
@@ -450,6 +607,16 @@ async function route(method, pathname, searchParams, req, res) {
       if (anim.isDownloadTracked) return empty(res, 409);
       anim.isDownloadTracked = true;
       anim.isDownloadFinished = false;
+      if (
+        [
+          "Notified",
+          "PendingConfirmation",
+          "AutoDownloadFailed",
+          "DownloadCancelled",
+        ].includes(anim.automationDisposition)
+      ) {
+        anim.automationDisposition = "ManualDownloadQueued";
+      }
       downloadState.set(id, { state: "Downloading", progress: 0, startedAt: Date.now() });
       return empty(res, 200);
     }
@@ -487,6 +654,13 @@ async function route(method, pathname, searchParams, req, res) {
       if (!anim.isDownloadTracked) return empty(res, 409);
       anim.isDownloadTracked = false;
       anim.isDownloadFinished = false;
+      if (
+        anim.automationDisposition === "AutoDownloadQueued" ||
+        anim.automationDisposition === "ManualDownloadQueued" ||
+        anim.automationDisposition === "DownloadCompleted"
+      ) {
+        anim.automationDisposition = "DownloadCancelled";
+      }
       downloadState.delete(id);
       return empty(res, 200);
     }
@@ -632,7 +806,66 @@ async function route(method, pathname, searchParams, req, res) {
     if (method === "DELETE" && m) {
       const before = feeds.length;
       feeds = feeds.filter((f) => f.id !== m[1]);
+      subscriptionPolicies.delete(m[1]);
       return empty(res, feeds.length < before ? 200 : 404);
+    }
+  }
+
+  // --- Subscription automation policies ---
+
+  if (method === "GET" && pathname === "/api/subscription-policies") {
+    return json(res, [...subscriptionPolicies.values()]);
+  }
+
+  // POST /api/subscription-policies/:feedId/simulate
+  {
+    const m = pathname.match(/^\/api\/subscription-policies\/([^/]+)\/simulate$/);
+    if (method === "POST" && m) {
+      const feedId = decodeURIComponent(m[1]);
+      if (!feeds.some((feed) => feed.id === feedId)) return empty(res, 404);
+      return readBody(req).then((body) => json(res, simulatePolicy(feedId, body)));
+    }
+  }
+
+  // GET/PUT/DELETE /api/subscription-policies/:feedId
+  {
+    const m = pathname.match(/^\/api\/subscription-policies\/([^/]+)$/);
+    if (m) {
+      const feedId = decodeURIComponent(m[1]);
+      if (!feeds.some((feed) => feed.id === feedId)) return empty(res, 404);
+
+      if (method === "GET") {
+        const policy = subscriptionPolicies.get(feedId);
+        return policy ? json(res, policy) : empty(res, 404);
+      }
+
+      if (method === "PUT") {
+        return readBody(req).then((body) => {
+          const existing = subscriptionPolicies.get(feedId);
+          const policy = {
+            feedId,
+            subtitleGroups: Array.isArray(body.subtitleGroups) ? body.subtitleGroups : [],
+            resolutions: Array.isArray(body.resolutions) ? body.resolutions : [],
+            codecs: Array.isArray(body.codecs) ? body.codecs : [],
+            languages: Array.isArray(body.languages) ? body.languages : [],
+            minSizeBytes: typeof body.minSizeBytes === "number" ? body.minSizeBytes : null,
+            maxSizeBytes: typeof body.maxSizeBytes === "number" ? body.maxSizeBytes : null,
+            excludedKeywords: Array.isArray(body.excludedKeywords) ? body.excludedKeywords : [],
+            mode: ["NotifyOnly", "ManualConfirm", "AutoDownload"].includes(body.mode) ? body.mode : "ManualConfirm",
+            createdAt: existing?.createdAt ?? new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          };
+          if (policy.minSizeBytes != null && policy.maxSizeBytes != null && policy.minSizeBytes > policy.maxSizeBytes) {
+            return json(res, { error: "Invalid size range" }, 400);
+          }
+          subscriptionPolicies.set(feedId, policy);
+          return json(res, policy);
+        });
+      }
+
+      if (method === "DELETE") {
+        return empty(res, subscriptionPolicies.delete(feedId) ? 204 : 404);
+      }
     }
   }
 

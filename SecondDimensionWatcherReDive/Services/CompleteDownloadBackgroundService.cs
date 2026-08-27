@@ -43,7 +43,12 @@ public partial class CompleteDownloadBackgroundService(
             IsDownloadFinished = true,
             DownloadEndTime = DateTimeOffset.Now,
             FileStore = request.FileStore,
-            StorePath = request.StorePath
+            StorePath = request.StorePath,
+            AutomationDisposition = info.AutomationDisposition is
+                SubscriptionAutomationDisposition.AutoDownloadQueued or
+                SubscriptionAutomationDisposition.ManualDownloadQueued
+                    ? SubscriptionAutomationDisposition.DownloadCompleted
+                    : info.AutomationDisposition
         };
 
         await animationInfoRepository.UpdateAsync(info, cancellationToken);

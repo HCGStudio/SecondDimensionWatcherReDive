@@ -1,5 +1,9 @@
 using System.Text;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Moq;
+using SecondDimensionWatcherReDive.Framework.DataRepository;
+using SecondDimensionWatcherReDive.Framework.Feed;
 using SecondDimensionWatcherReDive.Utils.Feed;
 
 namespace SecondDimensionWatcherReDive.Test;
@@ -103,6 +107,100 @@ public class MikananiFeedServiceTests
         Assert.IsTrue(result.Channel.Item == null || result.Channel.Item.Count == 0);
     }
 
+    [TestMethod]
+    public async Task SubscriptionFeedReader_UsesTorrentContentLengthAndCarriesFeedId()
+    {
+        var feedId = Guid.NewGuid();
+        var messageHandler = new MockHttpMessageHandler(SampleRss);
+        var httpClient = new HttpClient(messageHandler);
+        var httpClientFactory = new Mock<IHttpClientFactory>();
+        httpClientFactory.Setup(factory => factory.CreateClient("Feed")).Returns(httpClient);
+        var reader = new MikananiSubscriptionFeedReader(httpClientFactory.Object);
+
+        var entries = await reader.ReadAsync("https://mikanani.me/rss", feedId, CancellationToken.None);
+
+        Assert.HasCount(2, entries);
+        Assert.IsTrue(entries.All(entry => entry.FeedId == feedId));
+        Assert.AreEqual(1_000_000L, entries[0].ContentLength);
+        Assert.AreEqual(2_000_000L, entries[1].ContentLength);
+        Assert.AreNotEqual(50_000L, entries[0].ContentLength, "enclosure.length is only the .torrent file size");
+    }
+
+    [TestMethod]
+    public async Task SubscriptionFeedReader_SkipsMalformedItems()
+    {
+        const string rss = """
+            <rss version="2.0">
+              <channel>
+                <item><title>Missing torrent and enclosure</title></item>
+                <item>
+                  <title>[Group] Valid [1080p]</title>
+                  <description>Valid</description>
+                  <torrent xmlns="https://mikanani.me/0.1/">
+                    <contentLength>42</contentLength>
+                    <pubDate>2026-01-15T12:00:00</pubDate>
+                  </torrent>
+                  <enclosure url="https://example.com/valid.torrent" />
+                </item>
+              </channel>
+            </rss>
+            """;
+        var httpClient = new HttpClient(new MockHttpMessageHandler(rss));
+        var httpClientFactory = new Mock<IHttpClientFactory>();
+        httpClientFactory.Setup(factory => factory.CreateClient("Feed")).Returns(httpClient);
+        var reader = new MikananiSubscriptionFeedReader(httpClientFactory.Object);
+
+        var entries = await reader.ReadAsync("https://example.com/rss", Guid.NewGuid(), CancellationToken.None);
+
+        Assert.HasCount(1, entries);
+        Assert.AreEqual("https://example.com/valid.torrent", entries[0].DownloadUrl);
+    }
+
+    [TestMethod]
+    public async Task Sync_DeduplicatesUrlsAndKeepsDatabaseFeedIdentity()
+    {
+        const string databaseUrl = "https://example.com/anime.rss";
+        const string configuredOnlyUrl = "https://example.com/static.rss";
+        var newestFeedId = Guid.NewGuid();
+        var repository = new Mock<IFeedRepository>();
+        repository.Setup(item => item.GetAllOrderedAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([
+                new Feed(newestFeedId, databaseUrl, "Newest", DateTimeOffset.UtcNow),
+                new Feed(Guid.NewGuid(), databaseUrl, "Duplicate", DateTimeOffset.UtcNow.AddDays(-1))
+            ]);
+
+        var scopedProvider = new Mock<IServiceProvider>();
+        scopedProvider.Setup(provider => provider.GetService(typeof(IFeedRepository)))
+            .Returns(repository.Object);
+        var scope = new Mock<IServiceScope>();
+        scope.Setup(item => item.ServiceProvider).Returns(scopedProvider.Object);
+        var scopeFactory = new Mock<IServiceScopeFactory>();
+        scopeFactory.Setup(factory => factory.CreateScope()).Returns(scope.Object);
+
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["MikananiFeeds:0"] = databaseUrl,
+                ["MikananiFeeds:1"] = configuredOnlyUrl,
+                ["MikananiFeeds:2"] = configuredOnlyUrl
+            })
+            .Build();
+        var reader = new Mock<ISubscriptionFeedReader>();
+        reader.Setup(item => item.ReadAsync(
+                It.IsAny<string>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([]);
+        var service = new MikananiFeedService(configuration, scopeFactory.Object, reader.Object);
+
+        await service.SyncAsync(CancellationToken.None);
+
+        reader.Verify(item => item.ReadAsync(
+            databaseUrl, newestFeedId, It.IsAny<CancellationToken>()), Times.Once);
+        reader.Verify(item => item.ReadAsync(
+            configuredOnlyUrl, null, It.IsAny<CancellationToken>()), Times.Once);
+        reader.Verify(item => item.ReadAsync(
+            It.IsAny<string>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
+    }
+
     private static MikananiFeedService CreateServiceForDirectParsing(HttpClient httpClient)
     {
         var httpClientFactory = new Mock<IHttpClientFactory>();
@@ -110,7 +208,8 @@ public class MikananiFeedServiceTests
         var configuration = new Mock<Microsoft.Extensions.Configuration.IConfiguration>();
         var scopeFactory = new Mock<Microsoft.Extensions.DependencyInjection.IServiceScopeFactory>();
 
-        return new MikananiFeedService(httpClientFactory.Object, configuration.Object, scopeFactory.Object);
+        ISubscriptionFeedReader feedReader = new MikananiSubscriptionFeedReader(httpClientFactory.Object);
+        return new MikananiFeedService(configuration.Object, scopeFactory.Object, feedReader);
     }
 
     private class MockHttpMessageHandler(string content) : HttpMessageHandler

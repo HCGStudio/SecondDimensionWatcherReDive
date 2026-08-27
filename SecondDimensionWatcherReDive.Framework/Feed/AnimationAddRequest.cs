@@ -6,4 +6,6 @@ public record AnimationAddRequest(
     string Description,
     string DownloadUrl,
     string DownloadType,
-    string AdditionalDownloadInfo);
+    string AdditionalDownloadInfo,
+    Guid? FeedId = null,
+    long? ContentLength = null);

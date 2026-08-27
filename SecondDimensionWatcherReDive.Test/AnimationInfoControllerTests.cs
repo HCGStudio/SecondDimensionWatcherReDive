@@ -60,14 +60,16 @@ public class AnimationInfoControllerTests
         string? storePath = null,
         int? season = null,
         int? episode = null,
-        Animation? animation = null) =>
+        Animation? animation = null,
+        SubscriptionAutomationDisposition? automationDisposition = null) =>
         new(id, "title", "desc", DateTimeOffset.Now,
             downloadUrl, downloadType,
             Array.Empty<byte>(), "hash123",
             isDownloadTracked, default, default,
             isDownloadFinished, fileStore, storePath,
             season, episode, null, animation,
-            isAiProcessed, aiRetryCount);
+            isAiProcessed, aiRetryCount,
+            AutomationDisposition: automationDisposition);
 
     [TestMethod]
     public async Task StartDownload_NotFound_ReturnsNotFound()
@@ -125,6 +127,37 @@ public class AnimationInfoControllerTests
     }
 
     [TestMethod]
+    public async Task StartDownload_PendingConfirmation_MarksManualDownloadQueued()
+    {
+        var id = Guid.NewGuid();
+        var info = CreateTestInfo(
+            id,
+            automationDisposition: SubscriptionAutomationDisposition.PendingConfirmation);
+
+        _repoMock
+            .Setup(r => r.FindByIdAsync(id, CancellationToken.None))
+            .ReturnsAsync(info);
+        _downloadClientMock
+            .Setup(c => c.SubmitDownloadTaskAsync(
+                id,
+                info.DownloadUrl,
+                info.CachedDownloadData,
+                info.AdditionalDownloadInfo,
+                CancellationToken.None))
+            .ReturnsAsync(true);
+
+        var result = await _controller.StartDownload(id, CancellationToken.None);
+
+        Assert.IsInstanceOfType<OkResult>(result);
+        _repoMock.Verify(r => r.UpdateAsync(
+            It.Is<AnimationInfo>(item =>
+                item.Id == id &&
+                item.IsDownloadTracked &&
+                item.AutomationDisposition == SubscriptionAutomationDisposition.ManualDownloadQueued),
+            CancellationToken.None), Times.Once);
+    }
+
+    [TestMethod]
     public async Task CancelDownload_Success_SetsIsDownloadTrackedFalseAndUpdates()
     {
         var id = Guid.NewGuid();
@@ -160,6 +193,34 @@ public class AnimationInfoControllerTests
             It.Is<AnimationInfo>(i => i.Id == id && !i.IsDownloadTracked && !i.IsDownloadFinished),
             CancellationToken.None), Times.Once);
         CollectionAssert.AreEqual(new[] { "state", "mappings" }, persistenceOrder);
+    }
+
+    [TestMethod]
+    public async Task CancelDownload_AutomaticDownload_MarksDispositionCancelled()
+    {
+        var id = Guid.NewGuid();
+        var info = CreateTestInfo(
+            id,
+            isDownloadTracked: true,
+            automationDisposition: SubscriptionAutomationDisposition.AutoDownloadQueued);
+        _repoMock.Setup(r => r.FindByIdAsync(id, CancellationToken.None)).ReturnsAsync(info);
+        _downloadClientMock.Setup(c => c.CancelDownloadTaskAsync(
+                id,
+                info.DownloadUrl,
+                info.CachedDownloadData,
+                info.AdditionalDownloadInfo,
+                false,
+                CancellationToken.None))
+            .ReturnsAsync(new CancelDownloadResult(true, false));
+
+        var result = await _controller.CancelDownload(id, cancellationToken: CancellationToken.None);
+
+        Assert.IsInstanceOfType<OkResult>(result);
+        _repoMock.Verify(r => r.UpdateAsync(
+            It.Is<AnimationInfo>(item =>
+                !item.IsDownloadTracked &&
+                item.AutomationDisposition == SubscriptionAutomationDisposition.DownloadCancelled),
+            CancellationToken.None), Times.Once);
     }
 
     [TestMethod]

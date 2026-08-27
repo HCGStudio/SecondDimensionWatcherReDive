@@ -15,7 +15,11 @@ internal static class Converter
             record.Episode,
             record.Group?.ToExternal(),
             record.Animation?.ToExternal(),
-            record.IsAiProcessed);
+            record.IsAiProcessed,
+            record.SourceFeedId,
+            record.ReleaseSizeBytes,
+            record.AutomationDisposition?.ToString(),
+            record.AutomationExplanationJson);
 
     public static External.Animation ToExternal(this Animation record) =>
         new(record.Name,
@@ -40,6 +44,38 @@ internal static class Converter
 
     public static External.Feed ToExternal(this Feed record) =>
         new(record.Id, record.Url, record.Name, record.CreatedAt);
+
+    public static External.SubscriptionAutomationPolicy ToExternal(
+        this SubscriptionAutomationPolicy record) =>
+        new(record.FeedId,
+            record.SubtitleGroups,
+            record.Resolutions,
+            record.Codecs,
+            record.Languages,
+            record.MinSizeBytes,
+            record.MaxSizeBytes,
+            record.ExcludedKeywords,
+            record.Mode.ToString(),
+            record.CreatedAt,
+            record.UpdatedAt);
+
+    public static External.SubscriptionAutomationSimulationResult ToExternal(
+        this Framework.Feed.SubscriptionAutomationSimulationResult result) =>
+        new(result.Total,
+            result.Matched,
+            result.Entries.Select(entry => new External.SubscriptionAutomationSimulationEntry(
+                entry.Id,
+                entry.Title,
+                entry.PublishedAt,
+                entry.SizeBytes,
+                entry.Matched,
+                entry.Explanations.Select(explanation =>
+                    new External.SubscriptionAutomationExplanation(
+                        explanation.Field,
+                        explanation.Passed,
+                        explanation.Actual,
+                        explanation.Expected,
+                        explanation.Message)).ToList())).ToList());
 
     public static External.WebDavTokenSummary ToExternal(this WebDavToken record) =>
         new(record.Id, record.Username, record.Description, record.CreatedAt);

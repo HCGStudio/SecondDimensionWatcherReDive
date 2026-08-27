@@ -14,7 +14,10 @@ import React from "react";
 import { useTranslation } from "react-i18next";
 import { mutate } from "swr";
 
-import { IAnimationInfo } from "../animation/IAnimationInfo";
+import {
+  IAnimationInfo,
+  SubscriptionAutomationDisposition,
+} from "../animation/IAnimationInfo";
 import { useAnimationDownloadStatus } from "../animation/hooks";
 import {
   cancelDownload,
@@ -24,7 +27,7 @@ import {
   retryInference,
   submitDownload,
 } from "../animation/utils";
-import { formatBytes } from "../utils/formatBytes";
+import { formatBytes, formatFileSize } from "../utils/formatBytes";
 import { FileBrowser } from "./FileBrowser";
 import { useToast } from "./ToastProvider";
 import { Button } from "./ui/Button";
@@ -90,6 +93,32 @@ const DownloadProgress: React.FC<{ id: string }> = ({ id }) => {
   );
 };
 
+const automationDispositionClasses: Record<
+  SubscriptionAutomationDisposition,
+  string
+> = {
+  Notified: "bg-brand/10 text-brand",
+  PendingConfirmation: "bg-warning/10 text-warning",
+  AutoDownloadQueued: "bg-success/10 text-success",
+  AutoDownloadFailed: "bg-error/10 text-error",
+  ManualDownloadQueued: "bg-success/10 text-success",
+  DownloadCompleted: "bg-success/10 text-success",
+  DownloadCancelled: "bg-warm-silver/15 text-muted",
+};
+
+const AutomationDispositionBadge: React.FC<{
+  disposition: SubscriptionAutomationDisposition;
+}> = ({ disposition }) => {
+  const { t } = useTranslation("animation");
+  return (
+    <span
+      className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${automationDispositionClasses[disposition]}`}
+    >
+      {t(`automation.${disposition}`)}
+    </span>
+  );
+};
+
 const ActionButtons: React.FC<{ value: IAnimationInfo }> = ({ value }) => {
   const { t } = useTranslation("animation");
   const { data: status } = useAnimationDownloadStatus(
@@ -110,6 +139,30 @@ const ActionButtons: React.FC<{ value: IAnimationInfo }> = ({ value }) => {
   const retryLabel = value.animation
     ? t("actions.reinfer")
     : t("actions.inferAi");
+  const downloadLabel =
+    value.automationDisposition === "PendingConfirmation"
+      ? t("actions.confirmDownload")
+      : value.automationDisposition === "AutoDownloadFailed" ||
+          value.automationDisposition === "DownloadCancelled"
+        ? t("actions.retryDownload")
+        : t("actions.download");
+
+  const onStartDownload = React.useCallback(async () => {
+    try {
+      await submitDownload(value.id);
+      await mutate(
+        (key) =>
+          typeof key === "string" && key.startsWith("/api/animationinfo"),
+      );
+      addToast({ title: t("toast.downloadQueued"), color: "success" });
+    } catch {
+      addToast({
+        title: t("toast.downloadFailed"),
+        color: "danger",
+        text: t("toast.downloadFailedDesc"),
+      });
+    }
+  }, [value.id, addToast, t]);
 
   const onRetryInference = React.useCallback(async () => {
     setIsRetrying(true);
@@ -169,16 +222,9 @@ const ActionButtons: React.FC<{ value: IAnimationInfo }> = ({ value }) => {
             size="sm"
             variant="outline"
             className="px-2 py-2"
-            title={t("actions.download")}
-            onClick={() =>
-              submitDownload(value.id).catch(() =>
-                addToast({
-                  title: t("toast.downloadFailed"),
-                  color: "danger",
-                  text: t("toast.downloadFailedDesc"),
-                }),
-              )
-            }
+            title={downloadLabel}
+            aria-label={downloadLabel}
+            onClick={onStartDownload}
           >
             <Download size={16} />
           </Button>
@@ -348,6 +394,11 @@ export const AnimationInfo: React.FC<IAnimationInfoProps> = ({ value }) => {
             <h3 className="font-serif text-base font-medium leading-heading text-foreground break-words">
               {value.title}
             </h3>
+            {value.automationDisposition ? (
+              <AutomationDispositionBadge
+                disposition={value.automationDisposition}
+              />
+            ) : null}
           </div>
 
           {/* Row 2: metadata */}
@@ -359,6 +410,12 @@ export const AnimationInfo: React.FC<IAnimationInfoProps> = ({ value }) => {
               </>
             ) : null}
             <span>{new Date(value.publishTime).toLocaleDateString()}</span>
+            {value.releaseSizeBytes != null ? (
+              <>
+                <span>·</span>
+                <span>{formatFileSize(value.releaseSizeBytes)}</span>
+              </>
+            ) : null}
             {value.isDownloadFinished ? (
               <>
                 <span>·</span>

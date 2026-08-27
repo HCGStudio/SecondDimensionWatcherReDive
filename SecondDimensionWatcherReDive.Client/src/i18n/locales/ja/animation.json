@@ -2,6 +2,7 @@
   "sectionTitle": "アニメ",
   "uncategorized": "未分類",
   "episodeCount": "{{count}} 話",
+  "automationAttention": "ポリシー通知 {{count}} 件",
   "back": "戻る",
   "empty": {
     "main": {
@@ -16,8 +17,19 @@
     }
   },
   "finished": "完了",
+  "automation": {
+    "Notified": "一致 · 通知のみ",
+    "PendingConfirmation": "一致 · 確認待ち",
+    "AutoDownloadQueued": "自動ダウンロード待ち",
+    "AutoDownloadFailed": "自動ダウンロード失敗",
+    "ManualDownloadQueued": "確認済み・待機中",
+    "DownloadCompleted": "ポリシーのダウンロード完了",
+    "DownloadCancelled": "ポリシーのダウンロードを中止"
+  },
   "actions": {
     "download": "ダウンロード",
+    "confirmDownload": "ダウンロードを確認",
+    "retryDownload": "ダウンロードを再試行",
     "pause": "一時停止",
     "resume": "再開",
     "browse": "ファイルを開く",
@@ -39,6 +51,7 @@
     "actionFailed": "操作に失敗しました",
     "downloadFailed": "ダウンロードに失敗しました",
     "downloadFailedDesc": "ダウンロードタスクを送信できませんでした",
+    "downloadQueued": "ダウンロードタスクを送信しました",
     "pauseFailed": "一時停止に失敗しました",
     "resumeFailed": "再開に失敗しました",
     "deleteFailed": "削除に失敗しました",

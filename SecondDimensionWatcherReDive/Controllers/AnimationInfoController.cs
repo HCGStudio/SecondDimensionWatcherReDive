@@ -86,7 +86,20 @@ internal class AnimationInfoController(
 
         if (!success) return BadRequest();
 
-        var updated = info with { IsDownloadTracked = true, DownloadStartTime = DateTimeOffset.Now };
+        var updated = info with
+        {
+            IsDownloadTracked = true,
+            DownloadStartTime = DateTimeOffset.Now,
+            AutomationDisposition = info.AutomationDisposition switch
+            {
+                SubscriptionAutomationDisposition.Notified or
+                    SubscriptionAutomationDisposition.PendingConfirmation or
+                    SubscriptionAutomationDisposition.AutoDownloadFailed or
+                    SubscriptionAutomationDisposition.DownloadCancelled =>
+                    SubscriptionAutomationDisposition.ManualDownloadQueued,
+                _ => info.AutomationDisposition
+            }
+        };
         await animationInfoRepository.UpdateAsync(updated, cancellationToken);
         return Ok();
     }
@@ -161,7 +174,17 @@ internal class AnimationInfoController(
         if (!result.IsSuccess)
             return StatusCode(StatusCodes.Status500InternalServerError);
 
-        var updated = info with { IsDownloadTracked = false, IsDownloadFinished = false };
+        var updated = info with
+        {
+            IsDownloadTracked = false,
+            IsDownloadFinished = false,
+            AutomationDisposition = info.AutomationDisposition is
+                SubscriptionAutomationDisposition.AutoDownloadQueued or
+                SubscriptionAutomationDisposition.ManualDownloadQueued or
+                SubscriptionAutomationDisposition.DownloadCompleted
+                    ? SubscriptionAutomationDisposition.DownloadCancelled
+                    : info.AutomationDisposition
+        };
         await animationInfoRepository.UpdateAsync(updated, cancellationToken);
         await fileMappingRepository.RemoveByAnimationInfoAsync(id, cancellationToken);
         return Ok();

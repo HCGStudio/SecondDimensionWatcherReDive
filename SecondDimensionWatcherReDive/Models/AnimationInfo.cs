@@ -1,3 +1,5 @@
+using SecondDimensionWatcherReDive.Framework.DataRepository;
+
 namespace SecondDimensionWatcherReDive.Models;
 
 public class AnimationInfo
@@ -39,4 +41,12 @@ public class AnimationInfo
     public bool IsAiProcessed { get; set; }
 
     public int AiRetryCount { get; set; }
+
+    public Guid? SourceFeedId { get; set; }
+
+    public long? ReleaseSizeBytes { get; set; }
+
+    public SubscriptionAutomationDisposition? AutomationDisposition { get; set; }
+
+    public string? AutomationExplanationJson { get; set; }
 }

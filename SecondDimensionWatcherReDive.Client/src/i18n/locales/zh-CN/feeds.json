@@ -22,5 +22,133 @@
     "addFailed": "添加订阅失败",
     "deleted": "订阅已删除",
     "deleteFailed": "删除订阅失败"
+  },
+  "automation": {
+    "title": "订阅自动化",
+    "intro": "为每部番剧分别设置发布组、画质与语言偏好。新条目命中后，可以仅通知、等待你确认，或直接开始下载。",
+    "configure": "配置策略",
+    "configureAria": "配置 {{name}} 的自动化策略",
+    "columns": {
+      "policy": "自动化策略"
+    },
+    "status": {
+      "notConfigured": "未配置 · 默认不自动处理",
+      "filterCount": "{{count}} 项筛选"
+    },
+    "editor": {
+      "title": "自动化策略"
+    },
+    "mode": {
+      "title": "命中后的动作",
+      "description": "筛选条件只决定哪些条目命中；这里决定命中后系统采取什么动作。",
+      "options": {
+        "NotifyOnly": {
+          "title": "仅通知",
+          "description": "在番剧列表标记为“仅通知”，不创建下载。"
+        },
+        "ManualConfirm": {
+          "title": "人工确认",
+          "description": "在番剧列表标记为“待确认”，由你点击确认下载。"
+        },
+        "AutoDownload": {
+          "title": "自动下载",
+          "description": "命中后立即提交下载，无需再次确认。"
+        }
+      }
+    },
+    "filters": {
+      "title": "筛选条件",
+      "description": "同一字段内任意一个值命中即可；不同字段必须同时满足。留空表示不限。",
+      "removeValue": "移除 {{value}}",
+      "subtitleGroups": {
+        "label": "字幕组 / 发布组",
+        "help": "匹配标题中的发布组名称",
+        "placeholder": "输入名称后按回车"
+      },
+      "resolutions": {
+        "label": "分辨率",
+        "help": "允许一个或多个画质标记",
+        "placeholder": "例如 1080p"
+      },
+      "codecs": {
+        "label": "视频编码",
+        "help": "匹配 HEVC、AVC、AV1 等标记",
+        "placeholder": "例如 HEVC"
+      },
+      "languages": {
+        "label": "字幕语言",
+        "help": "匹配简中、繁中、日语等语言标记",
+        "placeholder": "例如 简中"
+      },
+      "minSize": {
+        "label": "最小大小",
+        "placeholder": "不限"
+      },
+      "maxSize": {
+        "label": "最大大小",
+        "placeholder": "不限"
+      },
+      "sizeHelp": "大小按 RSS 条目提供的文件字节数判断；留空的一侧不设限制。",
+      "sizeRangeError": "最小大小不能大于最大大小。",
+      "excludedKeywords": {
+        "label": "排除词",
+        "help": "标题包含任意排除词时，该条目不会命中",
+        "placeholder": "例如 合集、NCOP、预告"
+      }
+    },
+    "simulation": {
+      "title": "用历史条目模拟",
+      "description": "以当前尚未保存的配置重放近期条目，不会发送通知或创建下载。",
+      "run": "运行模拟",
+      "empty": "运行一次模拟，预览哪些历史条目会命中以及逐项原因。",
+      "summary": "{{matched}} / {{total}} 个历史条目命中",
+      "matchedCount": "命中 {{count}}",
+      "unmatchedCount": "未命中 {{count}}",
+      "matched": "命中",
+      "unmatched": "未命中",
+      "noHistory": "这个订阅还没有可供模拟的历史条目。",
+      "explanationTitle": "命中解释",
+      "actual": "实际：{{value}}",
+      "expected": "要求：{{value}}",
+      "reasons": {
+        "anyValueAllowed": "未设置限制，因此通过",
+        "valueUnavailable": "条目中没有可供判断的值",
+        "allowedValueMatched": "至少一个值符合允许范围",
+        "allowedValueMissed": "没有值符合允许范围",
+        "withinSizeRange": "文件大小在允许范围内",
+        "outsideSizeRange": "文件大小超出允许范围",
+        "noExcludedKeyword": "标题未包含排除词",
+        "excludedKeywordFound": "标题包含排除词"
+      },
+      "fields": {
+        "subtitleGroup": "字幕组",
+        "subtitleGroups": "字幕组",
+        "resolution": "分辨率",
+        "resolutions": "分辨率",
+        "codec": "视频编码",
+        "codecs": "视频编码",
+        "language": "字幕语言",
+        "languages": "字幕语言",
+        "size": "文件大小",
+        "minSizeBytes": "最小大小",
+        "maxSizeBytes": "最大大小",
+        "excludedKeywords": "排除词"
+      }
+    },
+    "actions": {
+      "remove": "移除策略",
+      "unsaved": "尚未为此订阅保存策略",
+      "cancel": "关闭",
+      "save": "保存策略"
+    },
+    "deleteConfirm": "移除后，新条目将不再自动处理。确定移除这条策略吗？",
+    "toast": {
+      "loadFailed": "无法加载自动化策略",
+      "saved": "已保存 {{name}} 的自动化策略",
+      "saveFailed": "自动化策略保存失败",
+      "deleted": "自动化策略已移除",
+      "deleteFailed": "自动化策略移除失败",
+      "simulateFailed": "历史模拟失败，请稍后重试"
+    }
   }
 }

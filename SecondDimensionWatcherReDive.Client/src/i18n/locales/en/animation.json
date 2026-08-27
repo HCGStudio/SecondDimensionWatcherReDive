@@ -3,6 +3,8 @@
   "uncategorized": "Uncategorized",
   "episodeCount_one": "{{count}} episode",
   "episodeCount_other": "{{count}} episodes",
+  "automationAttention_one": "{{count}} automation alert",
+  "automationAttention_other": "{{count}} automation alerts",
   "back": "Back",
   "empty": {
     "main": {
@@ -17,8 +19,19 @@
     }
   },
   "finished": "Finished",
+  "automation": {
+    "Notified": "Matched · notify only",
+    "PendingConfirmation": "Matched · confirmation needed",
+    "AutoDownloadQueued": "Auto-download queued",
+    "AutoDownloadFailed": "Auto-download failed",
+    "ManualDownloadQueued": "Confirmed and queued",
+    "DownloadCompleted": "Policy download completed",
+    "DownloadCancelled": "Policy download cancelled"
+  },
   "actions": {
     "download": "Download",
+    "confirmDownload": "Confirm download",
+    "retryDownload": "Retry download",
     "pause": "Pause",
     "resume": "Resume",
     "browse": "Browse files",
@@ -40,6 +53,7 @@
     "actionFailed": "Action failed",
     "downloadFailed": "Download failed",
     "downloadFailedDesc": "Could not submit the download task",
+    "downloadQueued": "Download task submitted",
     "pauseFailed": "Failed to pause",
     "resumeFailed": "Failed to resume",
     "deleteFailed": "Failed to delete",

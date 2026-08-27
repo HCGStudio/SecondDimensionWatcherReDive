@@ -11,7 +11,11 @@ internal sealed record AnimationInfo(
     int? Episode,
     AnimationGroup? Group,
     Animation? Animation,
-    bool IsAiProcessed);
+    bool IsAiProcessed,
+    Guid? SourceFeedId,
+    long? ReleaseSizeBytes,
+    string? AutomationDisposition,
+    string? AutomationExplanationJson);
 
 internal sealed record Animation(
     string Name,

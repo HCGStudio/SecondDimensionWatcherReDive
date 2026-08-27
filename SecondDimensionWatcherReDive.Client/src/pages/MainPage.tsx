@@ -1,4 +1,4 @@
-import { AlertTriangle, ArrowLeft, Clapperboard, Film } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Bell, Clapperboard, Film } from "lucide-react";
 import React from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useParams } from "react-router";
@@ -17,6 +17,11 @@ const AnimeCard: React.FC<{
 }> = ({ anime, onClick }) => {
   const { t } = useTranslation("animation");
   const posterUrl = tmdbImageUrl(anime.posterPath, "w300");
+  const automationAttentionCount = anime.episodes.filter((episode) =>
+    ["Notified", "PendingConfirmation", "AutoDownloadFailed"].includes(
+      episode.automationDisposition ?? "",
+    ),
+  ).length;
 
   return (
     <button
@@ -46,9 +51,17 @@ const AnimeCard: React.FC<{
             </p>
           ) : null}
         </div>
-        <p className="text-xs text-muted">
-          {t("episodeCount", { count: anime.episodeCount })}
-        </p>
+        <div className="space-y-1 text-xs">
+          <p className="text-muted">
+            {t("episodeCount", { count: anime.episodeCount })}
+          </p>
+          {automationAttentionCount > 0 ? (
+            <p className="inline-flex items-center gap-1 text-warning">
+              <Bell size={12} />
+              {t("automationAttention", { count: automationAttentionCount })}
+            </p>
+          ) : null}
+        </div>
       </div>
     </button>
   );

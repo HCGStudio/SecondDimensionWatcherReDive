@@ -20,4 +20,8 @@ public sealed record AnimationInfo(
     AnimationGroup? Group,
     Animation? Animation,
     bool IsAiProcessed,
-    int AiRetryCount);
+    int AiRetryCount,
+    Guid? SourceFeedId = null,
+    long? ReleaseSizeBytes = null,
+    SubscriptionAutomationDisposition? AutomationDisposition = null,
+    string? AutomationExplanationJson = null);

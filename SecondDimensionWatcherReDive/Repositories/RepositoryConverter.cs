@@ -26,7 +26,11 @@ internal static class RepositoryConverter
             entity.Group?.ToRecord(),
             entity.Animation?.ToRecord(),
             entity.IsAiProcessed,
-            entity.AiRetryCount);
+            entity.AiRetryCount,
+            entity.SourceFeedId,
+            entity.ReleaseSizeBytes,
+            entity.AutomationDisposition,
+            entity.AutomationExplanationJson);
 
     public static DataRepo.Animation ToRecord(this Models.Animation entity) =>
         new(entity.Id,
@@ -70,6 +74,20 @@ internal static class RepositoryConverter
             entity.Description,
             entity.CreatedAt);
 
+    public static DataRepo.SubscriptionAutomationPolicy ToRecord(
+        this Models.SubscriptionAutomationPolicy entity) =>
+        new(entity.FeedId,
+            entity.SubtitleGroups,
+            entity.Resolutions,
+            entity.Codecs,
+            entity.Languages,
+            entity.MinSizeBytes,
+            entity.MaxSizeBytes,
+            entity.ExcludedKeywords,
+            entity.Mode,
+            entity.CreatedAt,
+            entity.UpdatedAt);
+
     public static DataRepo.WebDavToken ToRecord(this Models.WebDavToken entity) =>
         new(entity.Id,
             entity.Username,
@@ -99,7 +117,11 @@ internal static class RepositoryConverter
             Season = record.Season,
             Episode = record.Episode,
             IsAiProcessed = record.IsAiProcessed,
-            AiRetryCount = record.AiRetryCount
+            AiRetryCount = record.AiRetryCount,
+            SourceFeedId = record.SourceFeedId,
+            ReleaseSizeBytes = record.ReleaseSizeBytes,
+            AutomationDisposition = record.AutomationDisposition,
+            AutomationExplanationJson = record.AutomationExplanationJson
         };
 
     public static Models.Animation ToEntity(this DataRepo.Animation record) =>
@@ -169,6 +191,23 @@ internal static class RepositoryConverter
             CreatedAt = record.CreatedAt
         };
 
+    public static Models.SubscriptionAutomationPolicy ToEntity(
+        this DataRepo.SubscriptionAutomationPolicy record) =>
+        new()
+        {
+            FeedId = record.FeedId,
+            SubtitleGroups = record.SubtitleGroups.ToArray(),
+            Resolutions = record.Resolutions.ToArray(),
+            Codecs = record.Codecs.ToArray(),
+            Languages = record.Languages.ToArray(),
+            MinSizeBytes = record.MinSizeBytes,
+            MaxSizeBytes = record.MaxSizeBytes,
+            ExcludedKeywords = record.ExcludedKeywords.ToArray(),
+            Mode = record.Mode,
+            CreatedAt = record.CreatedAt,
+            UpdatedAt = record.UpdatedAt
+        };
+
     public static Models.WebDavToken ToEntity(this DataRepo.WebDavToken record) =>
         new()
         {
@@ -200,6 +239,10 @@ internal static class RepositoryConverter
         entity.Episode = record.Episode;
         entity.IsAiProcessed = record.IsAiProcessed;
         entity.AiRetryCount = record.AiRetryCount;
+        entity.SourceFeedId = record.SourceFeedId;
+        entity.ReleaseSizeBytes = record.ReleaseSizeBytes;
+        entity.AutomationDisposition = record.AutomationDisposition;
+        entity.AutomationExplanationJson = record.AutomationExplanationJson;
     }
 
     public static void ApplyTo(this DataRepo.SeasonBangumi record, Models.SeasonBangumi entity)
@@ -217,5 +260,21 @@ internal static class RepositoryConverter
         entity.MikanSubgroupId = record.MikanSubgroupId;
         entity.Name = record.Name;
         entity.ScrapedAt = record.ScrapedAt;
+    }
+
+    public static void ApplyTo(
+        this DataRepo.SubscriptionAutomationPolicy record,
+        Models.SubscriptionAutomationPolicy entity)
+    {
+        entity.SubtitleGroups = record.SubtitleGroups.ToArray();
+        entity.Resolutions = record.Resolutions.ToArray();
+        entity.Codecs = record.Codecs.ToArray();
+        entity.Languages = record.Languages.ToArray();
+        entity.MinSizeBytes = record.MinSizeBytes;
+        entity.MaxSizeBytes = record.MaxSizeBytes;
+        entity.ExcludedKeywords = record.ExcludedKeywords.ToArray();
+        entity.Mode = record.Mode;
+        entity.CreatedAt = record.CreatedAt;
+        entity.UpdatedAt = record.UpdatedAt;
     }
 }

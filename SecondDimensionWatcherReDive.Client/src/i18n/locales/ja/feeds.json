@@ -22,5 +22,133 @@
     "addFailed": "購読の追加に失敗しました",
     "deleted": "購読を削除しました",
     "deleteFailed": "購読の削除に失敗しました"
+  },
+  "automation": {
+    "title": "購読の自動化",
+    "intro": "作品ごとにリリースグループ、画質、言語の条件を設定します。新着が一致したときは、通知のみ、手動確認、または自動ダウンロードを選べます。",
+    "configure": "設定",
+    "configureAria": "{{name}} の自動化ポリシーを設定",
+    "columns": {
+      "policy": "自動化ポリシー"
+    },
+    "status": {
+      "notConfigured": "未設定 · 自動処理なし",
+      "filterCount": "フィルター {{count}} 件"
+    },
+    "editor": {
+      "title": "自動化ポリシー"
+    },
+    "mode": {
+      "title": "一致後の動作",
+      "description": "フィルターは一致するリリースを決め、この設定は一致後の動作を決めます。",
+      "options": {
+        "NotifyOnly": {
+          "title": "通知のみ",
+          "description": "アニメ一覧に「通知のみ」と表示し、ダウンロードは作成しません。"
+        },
+        "ManualConfirm": {
+          "title": "手動確認",
+          "description": "アニメ一覧に「確認待ち」と表示し、承認後にダウンロードします。"
+        },
+        "AutoDownload": {
+          "title": "自動ダウンロード",
+          "description": "再確認せず、一致後すぐにダウンロードを開始します。"
+        }
+      }
+    },
+    "filters": {
+      "title": "一致条件",
+      "description": "同じ項目内はいずれか一つ、異なる項目はすべて一致する必要があります。空欄は制限なしです。",
+      "removeValue": "{{value}} を削除",
+      "subtitleGroups": {
+        "label": "字幕・リリースグループ",
+        "help": "タイトル内のグループ名に一致させます",
+        "placeholder": "入力して Enter"
+      },
+      "resolutions": {
+        "label": "解像度",
+        "help": "一つ以上の画質表記を許可します",
+        "placeholder": "例：1080p"
+      },
+      "codecs": {
+        "label": "映像コーデック",
+        "help": "HEVC、AVC、AV1 などの表記に一致させます",
+        "placeholder": "例：HEVC"
+      },
+      "languages": {
+        "label": "字幕言語",
+        "help": "簡体字、繁体字、日本語などの表記に一致させます",
+        "placeholder": "例：簡中"
+      },
+      "minSize": {
+        "label": "最小サイズ",
+        "placeholder": "制限なし"
+      },
+      "maxSize": {
+        "label": "最大サイズ",
+        "placeholder": "制限なし"
+      },
+      "sizeHelp": "RSS 項目のバイト数で判定します。空欄にした側には制限を設けません。",
+      "sizeRangeError": "最小サイズを最大サイズより大きくすることはできません。",
+      "excludedKeywords": {
+        "label": "除外キーワード",
+        "help": "タイトルにいずれかのキーワードが含まれる場合は除外します",
+        "placeholder": "例：一括、NCOP、予告"
+      }
+    },
+    "simulation": {
+      "title": "履歴でシミュレーション",
+      "description": "現在の未保存設定で最近の項目を再判定します。通知やダウンロードは作成されません。",
+      "run": "シミュレーション実行",
+      "empty": "シミュレーションを実行すると、一致する履歴と項目ごとの理由を確認できます。",
+      "summary": "履歴 {{total}} 件中 {{matched}} 件が一致",
+      "matchedCount": "一致 {{count}} 件",
+      "unmatchedCount": "不一致 {{count}} 件",
+      "matched": "一致",
+      "unmatched": "不一致",
+      "noHistory": "このフィードにはシミュレーションできる履歴がまだありません。",
+      "explanationTitle": "判定理由",
+      "actual": "実際：{{value}}",
+      "expected": "条件：{{value}}",
+      "reasons": {
+        "anyValueAllowed": "制限がないため通過しました",
+        "valueUnavailable": "判定に必要な値がありません",
+        "allowedValueMatched": "許可された値が一つ以上あります",
+        "allowedValueMissed": "許可された値がありません",
+        "withinSizeRange": "ファイルサイズは許可範囲内です",
+        "outsideSizeRange": "ファイルサイズが許可範囲外です",
+        "noExcludedKeyword": "タイトルに除外キーワードはありません",
+        "excludedKeywordFound": "タイトルに除外キーワードがあります"
+      },
+      "fields": {
+        "subtitleGroup": "リリースグループ",
+        "subtitleGroups": "リリースグループ",
+        "resolution": "解像度",
+        "resolutions": "解像度",
+        "codec": "映像コーデック",
+        "codecs": "映像コーデック",
+        "language": "字幕言語",
+        "languages": "字幕言語",
+        "size": "ファイルサイズ",
+        "minSizeBytes": "最小サイズ",
+        "maxSizeBytes": "最大サイズ",
+        "excludedKeywords": "除外キーワード"
+      }
+    },
+    "actions": {
+      "remove": "ポリシーを削除",
+      "unsaved": "このフィードのポリシーは未保存です",
+      "cancel": "閉じる",
+      "save": "ポリシーを保存"
+    },
+    "deleteConfirm": "新着は自動処理されなくなります。このポリシーを削除しますか？",
+    "toast": {
+      "loadFailed": "自動化ポリシーを読み込めませんでした",
+      "saved": "{{name}} の自動化ポリシーを保存しました",
+      "saveFailed": "自動化ポリシーの保存に失敗しました",
+      "deleted": "自動化ポリシーを削除しました",
+      "deleteFailed": "自動化ポリシーの削除に失敗しました",
+      "simulateFailed": "履歴シミュレーションに失敗しました。もう一度お試しください。"
+    }
   }
 }
