@@ -1,3 +1,5 @@
+using SecondDimensionWatcherReDive.Framework.DataRepository;
+
 namespace SecondDimensionWatcherReDive.Models;
 
 public class AnimationInfo
@@ -39,4 +41,16 @@ public class AnimationInfo
     public bool IsAiProcessed { get; set; }
 
     public int AiRetryCount { get; set; }
+
+    public MetadataReviewStatus MetadataStatus { get; set; }
+
+    public double? MetadataConfidence { get; set; }
+
+    public string? MetadataLastError { get; set; }
+
+    public DateTimeOffset? MetadataReviewedAt { get; set; }
+
+    public long StateVersion { get; set; }
+
+    public Guid? CurrentMetadataReviewOperationId { get; set; }
 }

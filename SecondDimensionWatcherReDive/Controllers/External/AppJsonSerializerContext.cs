@@ -31,4 +31,11 @@ namespace SecondDimensionWatcherReDive.Controllers.External;
 [JsonSerializable(typeof(CreateWebDavTokenResponse))]
 [JsonSerializable(typeof(VfsEntry))]
 [JsonSerializable(typeof(VfsEntry[]))]
+[JsonSerializable(typeof(MetadataReviewQueueResponse))]
+[JsonSerializable(typeof(MetadataReviewPreviewRequest))]
+[JsonSerializable(typeof(MetadataReviewApplyRequest))]
+[JsonSerializable(typeof(MetadataReviewUndoRequest))]
+[JsonSerializable(typeof(MetadataReviewPreviewResponse))]
+[JsonSerializable(typeof(MetadataReviewMutationResponse))]
+[JsonSerializable(typeof(MetadataReviewError))]
 internal partial class AppJsonSerializerContext : JsonSerializerContext;

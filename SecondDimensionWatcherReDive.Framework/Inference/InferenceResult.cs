@@ -8,4 +8,5 @@ public record InferenceResult(
     string? TmdbId,
     string? GroupName,
     int? Season,
-    int? Episode);
+    int? Episode,
+    double? Confidence = null);

@@ -17,6 +17,8 @@ public partial class InferAnimationMetadata(
     : ScheduledTaskBase
 {
     private const int MaxRetryCount = 3;
+    private const double LowConfidenceThreshold = 0.75;
+    private const int MaxErrorLength = 1024;
 
     public override string Id => "InferAnimationMetadata";
     public override TimeSpan Interval => TimeSpan.FromMinutes(30);
@@ -56,58 +58,82 @@ public partial class InferAnimationMetadata(
         IFileMapper fileMapper,
         CancellationToken cancellationToken)
     {
+        var originalItem = item;
+        var expectedStateVersion = item.StateVersion;
         try
         {
             var result = await inferenceEngine.InferAsync(
                 item.Title, item.Description, cancellationToken);
 
-            if (result != null)
+            if (result is null)
+                throw new InvalidOperationException("Inference returned no usable metadata result.");
+
+            item = originalItem with
             {
-                item = item with { Season = result.Season, Episode = result.Episode };
+                Season = result.Season,
+                Episode = result.Episode,
+                MetadataConfidence = result.Confidence
+            };
 
-                // Fetch localized name/description from TMDB
-                if (!string.IsNullOrEmpty(result.TmdbId) && int.TryParse(result.TmdbId, out var tmdbIdInt))
+            // Fetch localized name/description from TMDB
+            if (!string.IsNullOrEmpty(result.TmdbId) && int.TryParse(result.TmdbId, out var tmdbIdInt))
+            {
+                var details = await tmdbTool.GetLocalizedDetailsAsync(tmdbIdInt, cancellationToken);
+
+                if (details != null && !string.IsNullOrEmpty(details.Overview))
+                    item = item with { Description = details.Overview };
+
+                var animation = await animationRepository
+                    .FindByTmdbIdAsync(result.TmdbId, cancellationToken);
+
+                if (animation == null)
                 {
-                    var details = await tmdbTool.GetLocalizedDetailsAsync(tmdbIdInt, cancellationToken);
-
-                    if (details != null && !string.IsNullOrEmpty(details.Overview))
-                        item = item with { Description = details.Overview };
-
-                    var animation = await animationRepository
-                        .FindByTmdbIdAsync(result.TmdbId, cancellationToken);
-
-                    if (animation == null)
-                    {
-                        animation = new Animation(
-                            Guid.NewGuid(),
-                            result.TmdbId,
-                            details?.Name ?? result.TmdbId,
-                            details?.OriginalName ?? "",
-                            details?.PosterPath);
-                        await animationRepository.AddAsync(animation, cancellationToken);
-                    }
-
-                    item = item with { Animation = animation };
+                    animation = new Animation(
+                        Guid.NewGuid(),
+                        result.TmdbId,
+                        details?.Name ?? result.TmdbId,
+                        details?.OriginalName ?? "",
+                        details?.PosterPath);
+                    await animationRepository.AddAsync(animation, cancellationToken);
                 }
 
-                // Resolve or create AnimationGroup
-                if (!string.IsNullOrEmpty(result.GroupName))
-                {
-                    var group = await animationGroupRepository
-                        .FindByNameAsync(result.GroupName, cancellationToken);
-
-                    if (group == null)
-                    {
-                        group = new AnimationGroup(Guid.NewGuid(), result.GroupName);
-                        await animationGroupRepository.AddAsync(group, cancellationToken);
-                    }
-
-                    item = item with { Group = group };
-                }
+                item = item with { Animation = animation };
             }
 
-            item = item with { IsAiProcessed = true };
-            await animationInfoRepository.UpdateAsync(item, cancellationToken);
+            // Resolve or create AnimationGroup
+            if (!string.IsNullOrEmpty(result.GroupName))
+            {
+                var group = await animationGroupRepository
+                    .FindByNameAsync(result.GroupName, cancellationToken);
+
+                if (group == null)
+                {
+                    group = new AnimationGroup(Guid.NewGuid(), result.GroupName);
+                    await animationGroupRepository.AddAsync(group, cancellationToken);
+                }
+
+                item = item with { Group = group };
+            }
+
+            var confidence = result.Confidence ?? 0;
+            item = item with
+            {
+                IsAiProcessed = true,
+                AiRetryCount = 0,
+                MetadataStatus = confidence < LowConfidenceThreshold
+                    ? MetadataReviewStatus.LowConfidence
+                    : MetadataReviewStatus.Identified,
+                MetadataLastError = null,
+                MetadataReviewedAt = null
+            };
+            if (!await animationInfoRepository.TryUpdateAsync(
+                    item,
+                    expectedStateVersion,
+                    cancellationToken))
+            {
+                LogStaleInferenceDiscarded(logger, item.Id);
+                return;
+            }
 
             LogInferenceCompleted(logger, item.Id, item.Title);
 
@@ -132,8 +158,30 @@ public partial class InferAnimationMetadata(
         }
         catch (Exception ex)
         {
-            item = item with { AiRetryCount = item.AiRetryCount + 1 };
-            await animationInfoRepository.UpdateAsync(item, cancellationToken);
+            var retryCount = item.AiRetryCount + 1;
+            var error = string.IsNullOrWhiteSpace(ex.Message)
+                ? ex.GetType().Name
+                : ex.Message;
+            if (error.Length > MaxErrorLength) error = error[..MaxErrorLength];
+            item = originalItem with
+            {
+                IsAiProcessed = false,
+                AiRetryCount = retryCount,
+                MetadataStatus = retryCount >= MaxRetryCount
+                    ? MetadataReviewStatus.Failed
+                    : MetadataReviewStatus.Pending,
+                MetadataConfidence = null,
+                MetadataLastError = error,
+                MetadataReviewedAt = null
+            };
+            if (!await animationInfoRepository.TryUpdateAsync(
+                    item,
+                    expectedStateVersion,
+                    cancellationToken))
+            {
+                LogStaleInferenceDiscarded(logger, item.Id);
+                return;
+            }
 
             LogInferenceFailed(logger, ex, item.Id, item.Title, item.AiRetryCount, MaxRetryCount);
         }
@@ -150,4 +198,8 @@ public partial class InferAnimationMetadata(
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Re-mapping files after inference failed for AnimationInfo {Id}")]
     private static partial void LogRemapFailed(ILogger logger, Exception ex, Guid id);
+
+    [LoggerMessage(Level = LogLevel.Information,
+        Message = "Discarded stale AI inference result for AnimationInfo {Id} because metadata changed concurrently")]
+    private static partial void LogStaleInferenceDiscarded(ILogger logger, Guid id);
 }

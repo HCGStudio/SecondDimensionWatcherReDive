@@ -1,0 +1,123 @@
+{
+  "title": "元数据审核中心",
+  "subtitle": "集中处理待识别、低置信度与识别失败的项目。修改元数据后先核对虚拟路径差异，再以一次原子操作更新文件映射。",
+  "tabs": {
+    "aria": "审核分类",
+    "pending": "待识别",
+    "lowConfidence": "低置信度",
+    "failed": "识别失败"
+  },
+  "fields": {
+    "name": "作品名",
+    "tmdbId": "TMDB ID",
+    "season": "季",
+    "episode": "集",
+    "groupName": "字幕组"
+  },
+  "values": {
+    "notResolved": "尚未识别作品",
+    "unset": "未设置"
+  },
+  "item": {
+    "confidence": "置信度 {{confidence}}",
+    "review": "审核并修改",
+    "seasonEpisode": "S{{season}} · E{{episode}}",
+    "mappedFiles": "{{count}} 个映射文件",
+    "downloaded": "下载已完成",
+    "notDownloaded": "尚未完成下载",
+    "retryCount": "已尝试 {{count}} 次",
+    "revision": "版本 {{revision}}"
+  },
+  "recent": {
+    "title": "最近重映射",
+    "subtitle": "在后续修改发生前，可从这里撤销最近的原子重映射。",
+    "revision": "当前版本 {{revision}}",
+    "undo": "撤销",
+    "undoing": "正在撤销",
+    "unavailable": "不可撤销",
+    "empty": "完成一次审核后，可撤销的重映射会显示在这里。"
+  },
+  "editor": {
+    "title": "审核元数据",
+    "currentMetadata": "当前识别结果",
+    "currentRevision": "版本 {{revision}}",
+    "unsetHint": "留空会清除对应字段。预览生成后，只要修改任一输入，就必须重新预览。",
+    "placeholders": {
+      "tmdbId": "例如 209867",
+      "season": "例如 1",
+      "episode": "例如 12",
+      "groupName": "例如 LoliHouse"
+    },
+    "validation": {
+      "tmdbId": "请输入有效的正整数 TMDB ID。",
+      "seasonRequired": "必须填写 TMDB 季编号。",
+      "nonNegativeInteger": "请输入大于或等于 0 的整数。",
+      "groupNameLength": "字幕组名称不能超过 200 个字符。"
+    },
+    "errors": {
+      "conflict": "项目已在其他位置更新。请关闭面板、刷新列表后重新审核（409）。",
+      "validation": "服务器无法验证这些元数据或路径，请检查输入与警告后重试（422）。",
+      "requestFailed": "请求失败，当前更改尚未应用。请稍后重试。"
+    },
+    "preview": "预览虚拟路径",
+    "previewing": "正在生成预览",
+    "refreshPreview": "重新生成预览",
+    "apply": "确认并原子重映射",
+    "applying": "正在应用"
+  },
+  "preview": {
+    "title": "应用前预览",
+    "revisionAndExpiry": "基于版本 {{revision}} · 预览于 {{expiresAt}} 过期",
+    "ready": "可安全应用",
+    "blocked": "暂不可应用",
+    "resolvedMetadata": "服务器解析后的元数据",
+    "warnings": "需要注意",
+    "pathChanges": "虚拟路径变更（{{count}}）",
+    "noPathChanges": "这个项目没有需要重映射的文件；元数据仍可按预览结果更新。",
+    "noPath": "（无路径）",
+    "collisionAdjusted": "检测到路径冲突，服务器已自动调整目标文件名。",
+    "changeKinds": {
+      "added": "新增",
+      "moved": "移动",
+      "unchanged": "不变",
+      "removed": "移除"
+    },
+    "warningCodes": {
+      "notDownloaded": "下载尚未完成，本次只更新元数据，不会改动现有文件映射。",
+      "unresolvedFiles": "部分文件无法识别，将按未知文件规则生成虚拟路径。"
+    }
+  },
+  "toast": {
+    "applied": "元数据与文件映射已更新",
+    "appliedDetail": "版本 {{revision}}，处理了 {{count}} 条路径变更。",
+    "undone": "重映射已撤销",
+    "undoConflict": "无法撤销：项目已有更新（409）",
+    "undoValidation": "无法撤销：原路径无法恢复（422）",
+    "undoFailed": "撤销失败，请稍后重试"
+  },
+  "queue": {
+    "total": "共 {{count}} 个项目",
+    "loading": "正在读取审核队列…",
+    "page": "第 {{page}} / {{total}} 页",
+    "pending": {
+      "title": "等待人工识别",
+      "emptyTitle": "没有待识别项目",
+      "emptyBody": "当前所有新项目都已完成识别或进入其他审核分类。"
+    },
+    "lowConfidence": {
+      "title": "低置信度结果",
+      "emptyTitle": "没有低置信度项目",
+      "emptyBody": "当前没有需要人工确认的低置信度识别结果。"
+    },
+    "failed": {
+      "title": "识别失败项目",
+      "emptyTitle": "没有识别失败项目",
+      "emptyBody": "当前没有达到重试上限或识别失败的项目。"
+    }
+  },
+  "errors": {
+    "loadFailed": "审核队列加载失败",
+    "loadFailedDetail": "无法读取最新审核状态，请检查服务连接后重试。",
+    "retry": "重新加载"
+  }
+}

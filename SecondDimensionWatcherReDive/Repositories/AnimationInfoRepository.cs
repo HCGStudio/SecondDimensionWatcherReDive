@@ -128,7 +128,9 @@ public class AnimationInfoRepository(Models.ApplicationContext context) : IAnima
     public async Task<IReadOnlyList<AnimationInfo>> GetPendingInferenceAsync(int maxRetryCount, CancellationToken cancellationToken)
     {
         var entities = await context.AnimationInfo
-            .Where(i => !i.IsAiProcessed && i.AiRetryCount < maxRetryCount)
+            .Where(i => !i.IsAiProcessed
+                        && i.AiRetryCount < maxRetryCount
+                        && i.MetadataStatus == MetadataReviewStatus.Pending)
             .OrderBy(i => i.PublishTime)
             .ToListAsync(cancellationToken);
         return entities.Select(e => e.ToRecord()).ToList();
@@ -151,14 +153,53 @@ public class AnimationInfoRepository(Models.ApplicationContext context) : IAnima
     {
         var entity = await context.AnimationInfo.FindAsync([info.Id], cancellationToken)
                      ?? throw new InvalidOperationException($"AnimationInfo {info.Id} not found");
+        var currentStateVersion = entity.StateVersion;
+        if (currentStateVersion != info.StateVersion)
+            throw new DbUpdateConcurrencyException(
+                $"AnimationInfo {info.Id} changed from revision {info.StateVersion} to {currentStateVersion}.");
+
         info.ApplyTo(entity);
 
-        if (info.Animation != null)
-            entity.Animation = await context.Animations.FindAsync([info.Animation.Id], cancellationToken);
-
-        if (info.Group != null)
-            entity.Group = await context.AnimationGroups.FindAsync([info.Group.Id], cancellationToken);
+        entity.Animation = info.Animation is null
+            ? null
+            : await context.Animations.FindAsync([info.Animation.Id], cancellationToken);
+        entity.Group = info.Group is null
+            ? null
+            : await context.AnimationGroups.FindAsync([info.Group.Id], cancellationToken);
+        entity.StateVersion = checked(currentStateVersion + 1);
 
         await context.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task<bool> TryUpdateAsync(
+        AnimationInfo info,
+        long expectedStateVersion,
+        CancellationToken cancellationToken)
+    {
+        var entity = await context.AnimationInfo
+            .FirstOrDefaultAsync(candidate => candidate.Id == info.Id, cancellationToken);
+        if (entity is null || entity.StateVersion != expectedStateVersion)
+            return false;
+
+        info.ApplyTo(entity);
+        entity.Animation = info.Animation is null
+            ? null
+            : await context.Animations.FindAsync([info.Animation.Id], cancellationToken);
+        entity.Group = info.Group is null
+            ? null
+            : await context.AnimationGroups.FindAsync([info.Group.Id], cancellationToken);
+        entity.StateVersion = checked(expectedStateVersion + 1);
+        context.Entry(entity).Property(candidate => candidate.StateVersion).OriginalValue = expectedStateVersion;
+
+        try
+        {
+            await context.SaveChangesAsync(cancellationToken);
+            return true;
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            context.Entry(entity).State = EntityState.Detached;
+            return false;
+        }
     }
 }
