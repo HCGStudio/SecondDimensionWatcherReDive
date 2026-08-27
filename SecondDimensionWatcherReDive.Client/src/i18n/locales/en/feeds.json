@@ -22,5 +22,133 @@
     "addFailed": "Failed to add feed",
     "deleted": "Feed removed",
     "deleteFailed": "Failed to remove feed"
+  },
+  "automation": {
+    "title": "Subscription automation",
+    "intro": "Set release-group, quality, and language preferences for each anime. When a new item matches, notify only, ask for confirmation, or start the download automatically.",
+    "configure": "Configure",
+    "configureAria": "Configure automation for {{name}}",
+    "columns": {
+      "policy": "Automation policy"
+    },
+    "status": {
+      "notConfigured": "Not configured · no automatic action",
+      "filterCount": "{{count}} filter(s)"
+    },
+    "editor": {
+      "title": "Automation policy"
+    },
+    "mode": {
+      "title": "Action after a match",
+      "description": "Filters decide which releases match. This setting decides what happens after a match.",
+      "options": {
+        "NotifyOnly": {
+          "title": "Notify only",
+          "description": "Mark the release as notify-only in the anime list without creating a download."
+        },
+        "ManualConfirm": {
+          "title": "Confirm manually",
+          "description": "Mark the release for confirmation in the anime list until you approve the download."
+        },
+        "AutoDownload": {
+          "title": "Download automatically",
+          "description": "Submit the download immediately without another confirmation."
+        }
+      }
+    },
+    "filters": {
+      "title": "Match filters",
+      "description": "Values within a field use OR; different fields must all pass. Leave a field empty to allow any value.",
+      "removeValue": "Remove {{value}}",
+      "subtitleGroups": {
+        "label": "Subtitle / release groups",
+        "help": "Match release-group names found in the title",
+        "placeholder": "Type a group and press Enter"
+      },
+      "resolutions": {
+        "label": "Resolutions",
+        "help": "Allow one or more quality labels",
+        "placeholder": "For example, 1080p"
+      },
+      "codecs": {
+        "label": "Video codecs",
+        "help": "Match HEVC, AVC, AV1, and similar labels",
+        "placeholder": "For example, HEVC"
+      },
+      "languages": {
+        "label": "Subtitle languages",
+        "help": "Match simplified Chinese, traditional Chinese, Japanese, and other labels",
+        "placeholder": "For example, 简中"
+      },
+      "minSize": {
+        "label": "Minimum size",
+        "placeholder": "No minimum"
+      },
+      "maxSize": {
+        "label": "Maximum size",
+        "placeholder": "No maximum"
+      },
+      "sizeHelp": "Size is evaluated from the byte count in the RSS item. Leave either side blank for no limit.",
+      "sizeRangeError": "Minimum size cannot be greater than maximum size.",
+      "excludedKeywords": {
+        "label": "Excluded keywords",
+        "help": "A release is rejected if its title contains any of these words",
+        "placeholder": "For example, batch, NCOP, trailer"
+      }
+    },
+    "simulation": {
+      "title": "Simulate against history",
+      "description": "Replay recent items with the current unsaved settings. This never sends notifications or creates downloads.",
+      "run": "Run simulation",
+      "empty": "Run a simulation to preview which historical releases match and why.",
+      "summary": "{{matched}} of {{total}} historical releases match",
+      "matchedCount": "{{count}} matched",
+      "unmatchedCount": "{{count}} did not match",
+      "matched": "Matched",
+      "unmatched": "Did not match",
+      "noHistory": "This feed has no historical items to simulate yet.",
+      "explanationTitle": "Match explanation",
+      "actual": "Actual: {{value}}",
+      "expected": "Required: {{value}}",
+      "reasons": {
+        "anyValueAllowed": "No restriction is set, so this passes",
+        "valueUnavailable": "The release does not provide a value to evaluate",
+        "allowedValueMatched": "At least one value is allowed",
+        "allowedValueMissed": "No value is in the allowed set",
+        "withinSizeRange": "The file size is within the allowed range",
+        "outsideSizeRange": "The file size is outside the allowed range",
+        "noExcludedKeyword": "The title contains no excluded keyword",
+        "excludedKeywordFound": "The title contains an excluded keyword"
+      },
+      "fields": {
+        "subtitleGroup": "Release group",
+        "subtitleGroups": "Release group",
+        "resolution": "Resolution",
+        "resolutions": "Resolution",
+        "codec": "Video codec",
+        "codecs": "Video codec",
+        "language": "Subtitle language",
+        "languages": "Subtitle language",
+        "size": "File size",
+        "minSizeBytes": "Minimum size",
+        "maxSizeBytes": "Maximum size",
+        "excludedKeywords": "Excluded keywords"
+      }
+    },
+    "actions": {
+      "remove": "Remove policy",
+      "unsaved": "No policy has been saved for this feed",
+      "cancel": "Close",
+      "save": "Save policy"
+    },
+    "deleteConfirm": "New releases will no longer be handled automatically. Remove this policy?",
+    "toast": {
+      "loadFailed": "Could not load the automation policy",
+      "saved": "Automation policy saved for {{name}}",
+      "saveFailed": "Failed to save the automation policy",
+      "deleted": "Automation policy removed",
+      "deleteFailed": "Failed to remove the automation policy",
+      "simulateFailed": "Historical simulation failed. Please try again."
+    }
   }
 }

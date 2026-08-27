@@ -1,6 +1,15 @@
 import { IAnimation } from "./IAnimation";
 import { IAnimationGroup } from "./IAnimationGroup";
 
+export type SubscriptionAutomationDisposition =
+  | "Notified"
+  | "PendingConfirmation"
+  | "AutoDownloadQueued"
+  | "AutoDownloadFailed"
+  | "ManualDownloadQueued"
+  | "DownloadCompleted"
+  | "DownloadCancelled";
+
 export interface IAnimationInfo {
   id: string;
   title: string;
@@ -13,4 +22,8 @@ export interface IAnimationInfo {
   group?: IAnimationGroup;
   animation?: IAnimation;
   isAiProcessed: boolean;
+  sourceFeedId?: string | null;
+  releaseSizeBytes?: number | null;
+  automationDisposition?: SubscriptionAutomationDisposition | null;
+  automationExplanationJson?: string | null;
 }

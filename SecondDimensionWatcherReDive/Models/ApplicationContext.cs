@@ -22,6 +22,7 @@ public class ApplicationContext : DbContext
     public DbSet<ChatMessage> ChatMessages { get; set; }
     public DbSet<FileMapping> FileMappings { get; set; }
     public DbSet<FileNameRegexRule> FileNameRegexRules { get; set; }
+    public DbSet<SubscriptionAutomationPolicy> SubscriptionAutomationPolicies { get; set; }
     public DbSet<MigrationMarker> MigrationMarkers { get; set; }
     public DbSet<WebDavToken> WebDavTokens { get; set; }
     public DbSet<MetadataReviewOperation> MetadataReviewOperations { get; set; }
@@ -122,6 +123,37 @@ public class ApplicationContext : DbContext
 
         modelBuilder.Entity<FileNameRegexRule>()
             .HasIndex(rule => new { rule.AnimationId, rule.CreatedAt });
+
+        modelBuilder.Entity<AnimationInfo>()
+            .Property(info => info.AutomationDisposition)
+            .HasConversion<string>()
+            .HasMaxLength(32);
+
+        modelBuilder.Entity<AnimationInfo>()
+            .HasOne<Feed>()
+            .WithMany()
+            .HasForeignKey(info => info.SourceFeedId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        modelBuilder.Entity<AnimationInfo>()
+            .HasIndex(info => info.SourceFeedId);
+
+        modelBuilder.Entity<SubscriptionAutomationPolicy>()
+            .HasKey(policy => policy.FeedId);
+
+        modelBuilder.Entity<SubscriptionAutomationPolicy>()
+            .Property(policy => policy.Mode)
+            .HasConversion<string>()
+            .HasMaxLength(32);
+
+        modelBuilder.Entity<SubscriptionAutomationPolicy>()
+            .HasOne(policy => policy.Feed)
+            .WithOne()
+            .HasForeignKey<SubscriptionAutomationPolicy>(policy => policy.FeedId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<SubscriptionAutomationPolicy>()
+            .HasIndex(policy => policy.UpdatedAt);
 
         modelBuilder.Entity<BangumiSubgroup>()
             .HasIndex(s => new { s.SeasonBangumiId, s.MikanSubgroupId })

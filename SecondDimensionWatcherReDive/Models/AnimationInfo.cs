@@ -42,6 +42,14 @@ public class AnimationInfo
 
     public int AiRetryCount { get; set; }
 
+    public Guid? SourceFeedId { get; set; }
+
+    public long? ReleaseSizeBytes { get; set; }
+
+    public SubscriptionAutomationDisposition? AutomationDisposition { get; set; }
+
+    public string? AutomationExplanationJson { get; set; }
+
     public MetadataReviewStatus MetadataStatus { get; set; }
 
     public double? MetadataConfidence { get; set; }

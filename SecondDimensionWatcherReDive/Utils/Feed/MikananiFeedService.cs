@@ -1,8 +1,5 @@
-using System.Collections.Concurrent;
-using System.Runtime.InteropServices;
 using System.Xml.Serialization;
 using SecondDimensionWatcherReDive.Framework.Feed;
-using SecondDimensionWatcherReDive.Framework.FileDownload;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 
 namespace SecondDimensionWatcherReDive.Utils.Feed;
@@ -11,18 +8,11 @@ namespace SecondDimensionWatcherReDive.Utils.Feed;
 ///     Implements IFeedService interface, a service for handling animation feeds from Mikanani.
 /// </summary>
 public class MikananiFeedService(
-    IHttpClientFactory httpClientFactory,
     IConfiguration configuration,
-    IServiceScopeFactory scopeFactory)
+    IServiceScopeFactory scopeFactory,
+    ISubscriptionFeedReader feedReader)
     : IFeedService
 {
-    private readonly ConcurrentBag<AnimationAddRequest> _animations = [];
-    private readonly HttpClient _httpClient = httpClientFactory.CreateClient("Feed");
-
-    private TimeZoneInfo ChinaTimeZone { get; } = RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
-        ? TimeZoneInfo.FindSystemTimeZoneById("China Standard Time")
-        : TimeZoneInfo.FindSystemTimeZoneById("Asia/Shanghai");
-
     public async Task<ICollection<AnimationAddRequest>> SyncAsync(CancellationToken cancellationToken)
     {
         var configUrls = configuration.GetSection("MikananiFeeds").Get<string[]>() ?? [];
@@ -30,49 +20,28 @@ public class MikananiFeedService(
         // Also read feed URLs from DB
         await using var scope = scopeFactory.CreateAsyncScope();
         var feedRepository = scope.ServiceProvider.GetRequiredService<IFeedRepository>();
-        var dbUrls = await feedRepository.GetAllUrlsAsync(cancellationToken);
+        var databaseFeeds = (await feedRepository.GetAllOrderedAsync(cancellationToken))
+            .Where(feed => !string.IsNullOrWhiteSpace(feed.Url))
+            .DistinctBy(feed => feed.Url, StringComparer.Ordinal)
+            .ToArray();
 
-        var feedUrls = configUrls.Concat(dbUrls).Distinct().ToArray();
-        if (feedUrls.Length == 0)
+        var databaseUrls = databaseFeeds
+            .Select(feed => feed.Url)
+            .ToHashSet(StringComparer.Ordinal);
+        var configuredOnlyUrls = configUrls
+            .Where(url => !string.IsNullOrWhiteSpace(url) && !databaseUrls.Contains(url))
+            .Distinct(StringComparer.Ordinal);
+        var sources = databaseFeeds
+            .Select(feed => (feed.Url, FeedId: (Guid?)feed.Id))
+            .Concat(configuredOnlyUrls.Select(url => (Url: url, FeedId: (Guid?)null)))
+            .ToArray();
+
+        if (sources.Length == 0)
             return Array.Empty<AnimationAddRequest>();
-        await Task.WhenAll(feedUrls.Select(url => ProcessFeed(url, cancellationToken)));
 
-        var result = _animations.ToArray();
-        _animations.Clear();
-
-        return result;
-    }
-
-    /// <summary>
-    ///     Asynchronous method to process a feed by sending GET requests and parsing the received XML response.
-    /// </summary>
-    /// <param name="url">The URL of the feed to process.</param>
-    /// <param name="cancellationToken">A CancellationToken to observe while waiting for the task to complete.</param>
-    private async Task ProcessFeed(string url, CancellationToken cancellationToken)
-    {
-        var serializer = new XmlSerializer(typeof(Rss));
-        var response = await _httpClient.GetStreamAsync(url, cancellationToken);
-
-        try
-        {
-            if (serializer.Deserialize(response) is not Rss result)
-                return;
-
-            foreach (var animationAddRequest in result.Channel.Item.Select(i =>
-                         new AnimationAddRequest(
-                             new DateTimeOffset(i.Torrent.PubDate, ChinaTimeZone.BaseUtcOffset),
-                             i.Title,
-                             i.Description,
-                             i.Enclosure.Url,
-                             FileDownloadTypes.TorrentDownload,
-                             string.Empty)))
-                _animations.Add(animationAddRequest);
-        }
-        catch (Exception e)
-        {
-            Console.WriteLine(e);
-            throw;
-        }
+        var batches = await Task.WhenAll(sources.Select(source =>
+            feedReader.ReadAsync(source.Url, source.FeedId, cancellationToken)));
+        return batches.SelectMany(batch => batch).ToArray();
     }
 #nullable disable
     [XmlRoot(ElementName = "guid")]

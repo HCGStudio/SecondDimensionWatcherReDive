@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using SecondDimensionWatcherReDive.Models;
@@ -11,9 +12,11 @@ using SecondDimensionWatcherReDive.Models;
 namespace SecondDimensionWatcherReDive.Migrations
 {
     [DbContext(typeof(ApplicationContext))]
-    partial class ApplicationContextModelSnapshot : ModelSnapshot
+    [Migration("20260827125735_AddSubscriptionAutomation")]
+    partial class AddSubscriptionAutomation
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -45,9 +48,6 @@ namespace SecondDimensionWatcherReDive.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("TmdbId")
-                        .IsUnique();
-
                     b.ToTable("Animations");
                 });
 
@@ -62,9 +62,6 @@ namespace SecondDimensionWatcherReDive.Migrations
                         .HasColumnType("text");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("Name")
-                        .IsUnique();
 
                     b.ToTable("AnimationGroups");
                 });
@@ -95,9 +92,6 @@ namespace SecondDimensionWatcherReDive.Migrations
                     b.Property<byte[]>("CachedDownloadData")
                         .IsRequired()
                         .HasColumnType("bytea");
-
-                    b.Property<Guid?>("CurrentMetadataReviewOperationId")
-                        .HasColumnType("uuid");
 
                     b.Property<string>("Description")
                         .IsRequired()
@@ -135,19 +129,6 @@ namespace SecondDimensionWatcherReDive.Migrations
                     b.Property<bool>("IsDownloadTracked")
                         .HasColumnType("boolean");
 
-                    b.Property<double?>("MetadataConfidence")
-                        .HasColumnType("double precision");
-
-                    b.Property<string>("MetadataLastError")
-                        .HasMaxLength(1024)
-                        .HasColumnType("character varying(1024)");
-
-                    b.Property<DateTimeOffset?>("MetadataReviewedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<int>("MetadataStatus")
-                        .HasColumnType("integer");
-
                     b.Property<DateTimeOffset>("PublishTime")
                         .HasColumnType("timestamp with time zone");
 
@@ -160,10 +141,6 @@ namespace SecondDimensionWatcherReDive.Migrations
                     b.Property<Guid?>("SourceFeedId")
                         .HasColumnType("uuid");
 
-                    b.Property<long>("StateVersion")
-                        .IsConcurrencyToken()
-                        .HasColumnType("bigint");
-
                     b.Property<string>("StorePath")
                         .HasColumnType("text");
 
@@ -175,19 +152,11 @@ namespace SecondDimensionWatcherReDive.Migrations
 
                     b.HasIndex("AnimationId");
 
-                    b.HasIndex("CurrentMetadataReviewOperationId")
-                        .IsUnique();
-
                     b.HasIndex("GroupId");
 
                     b.HasIndex("SourceFeedId");
 
-                    b.HasIndex("MetadataStatus", "PublishTime");
-
-                    b.ToTable("AnimationInfo", t =>
-                        {
-                            t.HasCheckConstraint("CK_AnimationInfo_MetadataConfidence_Range", "\"MetadataConfidence\" IS NULL OR (\"MetadataConfidence\" >= 0 AND \"MetadataConfidence\" <= 1)");
-                        });
+                    b.ToTable("AnimationInfo");
                 });
 
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.BangumiSubgroup", b =>
@@ -355,156 +324,6 @@ namespace SecondDimensionWatcherReDive.Migrations
                         .IsUnique();
 
                     b.ToTable("FileNameRegexRules");
-                });
-
-            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.MetadataReviewMappingSnapshot", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("FileStore")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<int>("Kind")
-                        .HasColumnType("integer");
-
-                    b.Property<Guid>("OperationId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("PhysicalPath")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("VirtualPath")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("OperationId", "Kind", "VirtualPath")
-                        .IsUnique();
-
-                    b.ToTable("MetadataReviewMappingSnapshots");
-                });
-
-            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.MetadataReviewOperation", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("AnimationInfoId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset?>("AppliedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<long?>("AppliedVersion")
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("BaseFileStore")
-                        .HasColumnType("text");
-
-                    b.Property<bool>("BaseIsDownloadFinished")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("BaseStorePath")
-                        .HasColumnType("text");
-
-                    b.Property<long>("BaseVersion")
-                        .HasColumnType("bigint");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTimeOffset>("ExpiresAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<int?>("PreviousAiRetryCount")
-                        .HasColumnType("integer");
-
-                    b.Property<Guid?>("PreviousAnimationId")
-                        .HasColumnType("uuid");
-
-                    b.Property<double?>("PreviousConfidence")
-                        .HasColumnType("double precision");
-
-                    b.Property<Guid?>("PreviousCurrentOperationId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("PreviousDescription")
-                        .HasColumnType("text");
-
-                    b.Property<int?>("PreviousEpisode")
-                        .HasColumnType("integer");
-
-                    b.Property<Guid?>("PreviousGroupId")
-                        .HasColumnType("uuid");
-
-                    b.Property<bool?>("PreviousIsAiProcessed")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("PreviousLastError")
-                        .HasColumnType("text");
-
-                    b.Property<int?>("PreviousMetadataStatus")
-                        .HasColumnType("integer");
-
-                    b.Property<DateTimeOffset?>("PreviousReviewedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<int?>("PreviousSeason")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("ProposedAnimationName")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("ProposedAnimationOriginalName")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("ProposedAnimationPosterPath")
-                        .HasColumnType("text");
-
-                    b.Property<string>("ProposedAnimationTmdbId")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("ProposedDescription")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<int?>("ProposedEpisode")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("ProposedGroupName")
-                        .HasColumnType("text");
-
-                    b.Property<int?>("ProposedSeason")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("State")
-                        .HasColumnType("integer");
-
-                    b.Property<DateTimeOffset?>("UndoneAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("AnimationInfoId", "AppliedVersion")
-                        .IsUnique();
-
-                    b.HasIndex("AnimationInfoId", "State");
-
-                    b.HasIndex("State", "ExpiresAt");
-
-                    b.ToTable("MetadataReviewOperations", t =>
-                        {
-                            t.HasCheckConstraint("CK_MetadataReviewOperations_Expiry", "\"ExpiresAt\" > \"CreatedAt\"");
-                        });
                 });
 
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.MigrationMarker", b =>
@@ -689,36 +508,9 @@ namespace SecondDimensionWatcherReDive.Migrations
                     b.Navigation("Feed");
                 });
 
-            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.MetadataReviewMappingSnapshot", b =>
-                {
-                    b.HasOne("SecondDimensionWatcherReDive.Models.MetadataReviewOperation", "Operation")
-                        .WithMany("MappingSnapshots")
-                        .HasForeignKey("OperationId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Operation");
-                });
-
-            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.MetadataReviewOperation", b =>
-                {
-                    b.HasOne("SecondDimensionWatcherReDive.Models.AnimationInfo", "AnimationInfo")
-                        .WithMany()
-                        .HasForeignKey("AnimationInfoId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("AnimationInfo");
-                });
-
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.ChatConversation", b =>
                 {
                     b.Navigation("Messages");
-                });
-
-            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.MetadataReviewOperation", b =>
-                {
-                    b.Navigation("MappingSnapshots");
                 });
 
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.SeasonBangumi", b =>

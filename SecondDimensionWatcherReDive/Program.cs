@@ -197,6 +197,10 @@ builder.Services.AddScoped<IFileExplorer, FileExplorer>();
 builder.Services.AddScoped<IFileMapper, FileMapper>();
 
 //Add feed
+builder.Services.AddSingleton<ISubscriptionFeedReader, MikananiSubscriptionFeedReader>();
+builder.Services.AddSingleton<ISubscriptionReleaseMetadataExtractor, SubscriptionReleaseMetadataExtractor>();
+builder.Services.AddSingleton<ISubscriptionAutomationMatcher, SubscriptionAutomationMatcher>();
+builder.Services.AddScoped<ISubscriptionAutomationSimulationService, SubscriptionAutomationSimulationService>();
 builder.Services.AddTransient<IFeedService, MikananiFeedService>();
 
 //Add repositories
@@ -204,6 +208,7 @@ builder.Services.AddScoped<IAnimationInfoRepository, AnimationInfoRepository>();
 builder.Services.AddScoped<IAnimationRepository, AnimationRepository>();
 builder.Services.AddScoped<IAnimationGroupRepository, AnimationGroupRepository>();
 builder.Services.AddScoped<IFeedRepository, FeedRepository>();
+builder.Services.AddScoped<ISubscriptionAutomationPolicyRepository, SubscriptionAutomationPolicyRepository>();
 builder.Services.AddScoped<ISeasonBangumiRepository, SeasonBangumiRepository>();
 builder.Services.AddScoped<IBangumiSubgroupRepository, BangumiSubgroupRepository>();
 builder.Services.AddScoped<IChatRepository, ChatRepository>();

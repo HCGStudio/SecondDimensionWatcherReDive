@@ -1,25 +1,45 @@
-import { AlertTriangle, Plus, Trash2 } from "lucide-react";
 import React from "react";
 import { useTranslation } from "react-i18next";
 
-import { useFeeds } from "../feed/hooks";
-import { addFeed, removeFeed } from "../feed/utils";
-import { IFeed } from "../feed/IFeed";
-import { SeasonDiscovery } from "../season/SeasonDiscovery";
+import { AlertTriangle, Plus, SlidersHorizontal, Trash2 } from "lucide-react";
+
+import {
+  SubscriptionPolicyModeBadge,
+  SubscriptionPolicySheet,
+} from "../components/SubscriptionPolicySheet";
 import { useToast } from "../components/ToastProvider";
 import { Button } from "../components/ui/Button";
 import { EmptyPrompt } from "../components/ui/EmptyPrompt";
 import { FormRow } from "../components/ui/FormRow";
 import { Input } from "../components/ui/Input";
+import { Spinner } from "../components/ui/Spinner";
 import { Table, type TableColumn } from "../components/ui/Table";
+import { IFeed } from "../feed/IFeed";
+import { useFeeds } from "../feed/hooks";
+import { addFeed, removeFeed } from "../feed/utils";
+import { SeasonDiscovery } from "../season/SeasonDiscovery";
+import { useSubscriptionPolicies } from "../subscriptionPolicy/hooks";
+import { ISubscriptionPolicy } from "../subscriptionPolicy/types";
 import { PageTemplate } from "./PageTemplate";
 
 export const FeedsPage: React.FC = () => {
   const { t } = useTranslation(["feeds", "errors"]);
   const { data: feeds, error, mutate } = useFeeds();
+  const {
+    data: policies,
+    error: policiesError,
+    mutate: mutatePolicies,
+  } = useSubscriptionPolicies();
   const { addToast } = useToast();
   const [url, setUrl] = React.useState("");
   const [name, setName] = React.useState("");
+  const [selectedFeed, setSelectedFeed] = React.useState<IFeed | null>(null);
+
+  const policiesByFeed = React.useMemo(() => {
+    const map = new Map<string, ISubscriptionPolicy>();
+    policies?.forEach((policy) => map.set(policy.feedId, policy));
+    return map;
+  }, [policies]);
 
   const onAdd = React.useCallback(async () => {
     if (!url.trim()) return;
@@ -39,12 +59,13 @@ export const FeedsPage: React.FC = () => {
       try {
         await removeFeed(id);
         await mutate();
+        await mutatePolicies();
         addToast({ title: t("feeds:toast.deleted"), color: "success" });
       } catch {
         addToast({ title: t("feeds:toast.deleteFailed"), color: "danger" });
       }
     },
-    [mutate, addToast, t],
+    [mutate, mutatePolicies, addToast, t],
   );
 
   const columns: TableColumn<IFeed>[] = [
@@ -64,19 +85,61 @@ export const FeedsPage: React.FC = () => {
       render: (value: string) => new Date(value).toLocaleString(),
     },
     {
+      name: t("feeds:automation.columns.policy"),
+      render: (_value: unknown, item: IFeed) => {
+        if (!policies && !policiesError) {
+          return <Spinner size={14} />;
+        }
+        const policy = policiesByFeed.get(item.id);
+        if (!policy) {
+          return (
+            <span className="text-xs text-subtle">
+              {t("feeds:automation.status.notConfigured")}
+            </span>
+          );
+        }
+
+        const filterCount = countActiveFilters(policy);
+        return (
+          <div className="flex flex-wrap items-center gap-2">
+            <SubscriptionPolicyModeBadge mode={policy.mode} />
+            <span className="text-xs text-subtle">
+              {t("feeds:automation.status.filterCount", {
+                count: filterCount,
+              })}
+            </span>
+          </div>
+        );
+      },
+      width: "210px",
+    },
+    {
       name: t("feeds:columns.actions"),
       render: (_value: any, item: IFeed) => (
-        <Button
-          variant="icon"
-          color="danger"
-          size="sm"
-          aria-label={t("feeds:columns.delete")}
-          onClick={() => onRemove(item.id)}
-        >
-          <Trash2 size={16} />
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="outline"
+            size="sm"
+            aria-label={t("feeds:automation.configureAria", {
+              name: item.name || item.url,
+            })}
+            onClick={() => setSelectedFeed(item)}
+          >
+            <SlidersHorizontal size={15} />
+            {t("feeds:automation.configure")}
+          </Button>
+          <Button
+            variant="icon"
+            color="danger"
+            size="sm"
+            aria-label={t("feeds:columns.delete")}
+            onClick={() => onRemove(item.id)}
+          >
+            <Trash2 size={16} />
+          </Button>
+        </div>
       ),
-      width: "60px",
+      width: "190px",
     },
   ];
 
@@ -110,6 +173,19 @@ export const FeedsPage: React.FC = () => {
         </FormRow>
       </div>
       <div className="mt-8">
+        <div className="mb-4 flex items-start gap-3">
+          <div className="mt-0.5 rounded-md bg-brand/10 p-2 text-brand">
+            <SlidersHorizontal size={18} />
+          </div>
+          <div>
+            <h2 className="font-serif text-xl font-medium text-foreground">
+              {t("feeds:automation.title")}
+            </h2>
+            <p className="mt-1 max-w-3xl text-sm leading-body text-muted">
+              {t("feeds:automation.intro")}
+            </p>
+          </div>
+        </div>
         {error ? (
           <EmptyPrompt
             icon={<AlertTriangle size={48} />}
@@ -125,6 +201,26 @@ export const FeedsPage: React.FC = () => {
           />
         ) : null}
       </div>
+      <SubscriptionPolicySheet
+        feed={selectedFeed}
+        initialPolicy={
+          selectedFeed ? policiesByFeed.get(selectedFeed.id) : undefined
+        }
+        onOpenChange={(open) => {
+          if (!open) setSelectedFeed(null);
+        }}
+        onPolicyChanged={() => mutatePolicies()}
+      />
     </PageTemplate>
   );
 };
+
+const countActiveFilters = (policy: ISubscriptionPolicy) =>
+  [
+    policy.subtitleGroups.length > 0,
+    policy.resolutions.length > 0,
+    policy.codecs.length > 0,
+    policy.languages.length > 0,
+    policy.excludedKeywords.length > 0,
+    policy.minSizeBytes != null || policy.maxSizeBytes != null,
+  ].filter(Boolean).length;

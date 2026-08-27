@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Text.Json;
 using BencodeNET.Objects;
 using BencodeNET.Parsing;
 using SecondDimensionWatcherReDive.Exceptions;
@@ -16,10 +17,12 @@ public partial class SyncFeed(
     IServiceProvider serviceProvider,
     ILogger<SyncFeed> logger,
     IHttpClientFactory httpClientFactory,
-    IServiceScopeFactory scopeFactory)
+    IServiceScopeFactory scopeFactory,
+    ISubscriptionAutomationMatcher automationMatcher)
     : ScheduledTaskBase
 {
     private readonly HttpClient _httpClient = httpClientFactory.CreateClient("Feed");
+    private static readonly JsonSerializerOptions ExplanationJsonOptions = new(JsonSerializerDefaults.Web);
 
     public override string Id => "SyncFeed";
     public override TimeSpan Interval => TimeSpan.FromMinutes(10);
@@ -61,41 +64,113 @@ public partial class SyncFeed(
         {
             try
             {
+                SubscriptionAutomationPolicy? policy = null;
+                SubscriptionAutomationEvaluation? evaluation = null;
+                if (request.FeedId is { } feedId)
+                {
+                    var policyRepository = scope.ServiceProvider
+                        .GetRequiredService<ISubscriptionAutomationPolicyRepository>();
+                    policy = await policyRepository.FindByFeedIdAsync(feedId, cancellationToken);
+                    if (policy is not null)
+                    {
+                        evaluation = automationMatcher.Evaluate(policy, request);
+                        if (!evaluation.Matched)
+                            return;
+                    }
+                }
+
                 var torrentData = request.DownloadType switch
                 {
                     FileDownloadTypes.TorrentDownload => await DownloadTorrentData(request, cancellationToken),
-                    _ => new TorrentData(Array.Empty<byte>(), string.Empty)
+                    _ => new TorrentData(Array.Empty<byte>(), request.AdditionalDownloadInfo)
                 };
 
-                await animationInfoRepository.AddAsync(
-                    new AnimationInfo(
-                        Guid.NewGuid(),
-                        request.Title,
-                        request.Description,
-                        request.PublishTime,
-                        request.DownloadUrl,
-                        request.DownloadType,
-                        torrentData.CachedDownloadData,
-                        torrentData.Hash,
-                        IsDownloadTracked: false,
-                        DownloadStartTime: default,
-                        DownloadEndTime: default,
-                        IsDownloadFinished: false,
-                        FileStore: null,
-                        StorePath: null,
-                        Season: null,
-                        Episode: null,
-                        Group: null,
-                        Animation: null,
-                        IsAiProcessed: false,
-                        AiRetryCount: 0),
-                    cancellationToken);
+                var info = new AnimationInfo(
+                    Guid.NewGuid(),
+                    request.Title,
+                    request.Description,
+                    request.PublishTime,
+                    request.DownloadUrl,
+                    request.DownloadType,
+                    torrentData.CachedDownloadData,
+                    torrentData.Hash,
+                    IsDownloadTracked: false,
+                    DownloadStartTime: default,
+                    DownloadEndTime: default,
+                    IsDownloadFinished: false,
+                    FileStore: null,
+                    StorePath: null,
+                    Season: null,
+                    Episode: null,
+                    Group: null,
+                    Animation: null,
+                    IsAiProcessed: false,
+                    AiRetryCount: 0,
+                    SourceFeedId: request.FeedId,
+                    ReleaseSizeBytes: evaluation?.Metadata.SizeBytes ?? request.ContentLength,
+                    AutomationDisposition: policy?.Mode switch
+                    {
+                        SubscriptionAutomationMode.NotifyOnly => SubscriptionAutomationDisposition.Notified,
+                        SubscriptionAutomationMode.ManualConfirm =>
+                            SubscriptionAutomationDisposition.PendingConfirmation,
+                        SubscriptionAutomationMode.AutoDownload =>
+                            SubscriptionAutomationDisposition.AutoDownloadFailed,
+                        _ => null
+                    },
+                    AutomationExplanationJson: evaluation is null
+                        ? null
+                        : JsonSerializer.Serialize(evaluation.Explanations, ExplanationJsonOptions));
+                await animationInfoRepository.AddAsync(info, cancellationToken);
+
+                if (policy?.Mode == SubscriptionAutomationMode.AutoDownload)
+                    await QueueAutomaticDownloadAsync(
+                        info,
+                        animationInfoRepository,
+                        scope.ServiceProvider.GetRequiredService<IFileDownloadClientProvider>(),
+                        cancellationToken);
             }
             catch (InvalidTorrentDataException e)
             {
                 LogSyncFeedWarning(logger, e.Message);
             }
         }
+    }
+
+    private async Task QueueAutomaticDownloadAsync(
+        AnimationInfo info,
+        IAnimationInfoRepository animationInfoRepository,
+        IFileDownloadClientProvider downloadClientProvider,
+        CancellationToken cancellationToken)
+    {
+        bool success;
+        try
+        {
+            var downloadClient = downloadClientProvider.GetRequiredClient(info.DownloadType);
+            success = await downloadClient.SubmitDownloadTaskAsync(
+                info.Id,
+                info.DownloadUrl,
+                info.CachedDownloadData,
+                info.AdditionalDownloadInfo,
+                cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            LogAutomaticDownloadWarning(logger, info.Title, exception.Message);
+            return;
+        }
+        var updated = info with
+        {
+            IsDownloadTracked = success,
+            DownloadStartTime = success ? DateTimeOffset.UtcNow : default,
+            AutomationDisposition = success
+                ? SubscriptionAutomationDisposition.AutoDownloadQueued
+                : SubscriptionAutomationDisposition.AutoDownloadFailed
+        };
+        await animationInfoRepository.UpdateAsync(updated, cancellationToken);
     }
 
     private async Task ProcessFeed(IFeedService feedService, CancellationToken cancellationToken)
@@ -106,4 +181,9 @@ public partial class SyncFeed(
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "{Message}")]
     private static partial void LogSyncFeedWarning(ILogger logger, string message);
+
+    [LoggerMessage(
+        Level = LogLevel.Warning,
+        Message = "Automatic download for feed item '{Title}' failed: {Message}")]
+    private static partial void LogAutomaticDownloadWarning(ILogger logger, string title, string message);
 }
