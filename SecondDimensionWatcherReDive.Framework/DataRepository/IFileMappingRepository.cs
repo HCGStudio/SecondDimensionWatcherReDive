@@ -6,9 +6,14 @@ public interface IFileMappingRepository
 
     Task<bool> ReplaceForAnimationInfoAsync(
         Guid animationInfoId,
+        long expectedStateVersion,
         string expectedFileStore,
         string expectedStorePath,
         IReadOnlyList<FileMapping> mappings,
+        CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<FileMapping>> GetForAnimationInfoAsync(
+        Guid animationInfoId,
         CancellationToken cancellationToken);
 
     Task<FileMapping?> FindByVirtualPathAsync(string virtualPath, CancellationToken cancellationToken);

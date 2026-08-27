@@ -7,6 +7,7 @@ import { useGroupedAnimations } from "../animation/hooks";
 import { IAnimationWithEpisodes } from "../animation/IAnimationGrouped";
 import { tmdbImageUrl } from "../animation/tmdbImage";
 import { AnimationInfo } from "../components/AnimationInfo";
+import { EpisodeCount, EpisodeList } from "../components/EpisodeList";
 import { EmptyPrompt } from "../components/ui/EmptyPrompt";
 import { Spinner } from "../components/ui/Spinner";
 import { PageTemplate } from "./PageTemplate";
@@ -53,7 +54,7 @@ const AnimeCard: React.FC<{
         </div>
         <div className="space-y-1 text-xs">
           <p className="text-muted">
-            {t("episodeCount", { count: anime.episodeCount })}
+            <EpisodeCount episodes={anime.episodes} />
           </p>
           {automationAttentionCount > 0 ? (
             <p className="inline-flex items-center gap-1 text-warning">
@@ -140,16 +141,12 @@ export const EpisodeListPage: React.FC = () => {
             </p>
           ) : null}
           <p className="mt-2 text-sm text-muted">
-            {t("animation:episodeCount", { count: anime.episodeCount })}
+            <EpisodeCount episodes={anime.episodes} />
           </p>
         </div>
       </div>
 
-      <div>
-        {anime.episodes.map((ep) => (
-          <AnimationInfo value={ep} key={ep.id} />
-        ))}
-      </div>
+      <EpisodeList key={anime.tmdbId} episodes={anime.episodes} />
     </PageTemplate>
   );
 };

@@ -23,4 +23,9 @@ public interface IAnimationInfoRepository
     Task AddAsync(AnimationInfo info, CancellationToken cancellationToken);
 
     Task UpdateAsync(AnimationInfo info, CancellationToken cancellationToken);
+
+    Task<bool> TryUpdateAsync(
+        AnimationInfo info,
+        long expectedStateVersion,
+        CancellationToken cancellationToken);
 }

@@ -32,7 +32,11 @@ export const useDownloadedAnimations = (skip: number, take: number) =>
     { refreshInterval: 5000 },
   );
 
-export const useAnimationDownloadStatus = (id: string) =>
-  useSWR<IFileDownloadStatus>(`/api/animationinfo/status/${id}`, fetcher, {
-    refreshInterval: 1000,
-  });
+export const useAnimationDownloadStatus = (id?: string | null) =>
+  useSWR<IFileDownloadStatus>(
+    id ? `/api/animationinfo/status/${id}` : null,
+    fetcher,
+    {
+      refreshInterval: 1000,
+    },
+  );

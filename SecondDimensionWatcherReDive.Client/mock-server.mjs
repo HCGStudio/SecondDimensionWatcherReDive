@@ -1,9 +1,8 @@
 // Mock API server for frontend development/testing.
 // Run with: yarn mock (or: node mock-server.mjs)
 // Then run: yarn start — the Parcel proxy forwards /api/* to this server.
-
+import { randomBytes, randomUUID } from "node:crypto";
 import { createServer } from "node:http";
-import { randomUUID, randomBytes } from "node:crypto";
 
 const PORT = parseInt(process.env.MOCK_PORT ?? "5097", 10);
 
@@ -60,31 +59,264 @@ function hasAuth(req) {
 let registered = false;
 
 const ANIME_TITLES = [
-  { title: "[Mikanani] 葬送的芙莉莲 / Sousou no Frieren - 28 (1080p)", desc: "勇者一行的魔法使芙莉莲的旅途故事", season: 1, episode: 28, animeName: "葬送的芙莉莲", originalName: "Sousou no Frieren", tmdbId: "209867", posterPath: "/dqZENchTd7lp5zht7BdlqM7RBhD.jpg" },
-  { title: "[SubsPlease] 迷宫饭 / Dungeon Meshi - 24 (1080p)", desc: "在地下城中烹饪魔物的冒险者们", season: 1, episode: 24, animeName: "迷宫饭", originalName: "Dungeon Meshi", tmdbId: "220150", posterPath: "/b8dFp1MKnfJCMQvMfnYnBjPuqEu.jpg" },
-  { title: "[Mikanani] 药屋少女的呢喃 / Kusuriya no Hitorigoto - 24 (1080p)", desc: "后宫药师猫猫的推理日常", season: 1, episode: 24, animeName: "药屋少女的呢喃", originalName: "Kusuriya no Hitorigoto", tmdbId: "229598", posterPath: "/hBsMO2fGMRYCFIApI2nkYCApzAb.jpg" },
-  { title: "[ANi] 我心里危险的东西 第二季 - 13 (1080p)", desc: "市川与山田的青春恋爱物语", season: 2, episode: 13, animeName: "我心里危险的东西", originalName: "Boku no Kokoro no Yabai Yatsu", tmdbId: "203737", posterPath: "/qCHIPLBSfUMWS01qnJGnPXlSKGZ.jpg" },
-  { title: "[Mikanani] 物语系列 Off & Monster Season - 12 (1080p)", desc: "阿良良木历的怪异故事继续", season: 1, episode: 12, animeName: "物语系列", originalName: "Monogatari Series", tmdbId: "46195", posterPath: "/oO0eeCAXsQQcq0DjOEJXNKlrBR2.jpg" },
-  { title: "[SubsPlease] 鬼灭之刃 柱训练篇 - 08 (1080p)", desc: "炭治郎与柱们的训练篇章", season: 4, episode: 8, animeName: "鬼灭之刃", originalName: "Kimetsu no Yaiba", tmdbId: "85937", posterPath: "/wrC2TWAOPQMD4bpGjdwH7MjjPT3.jpg" },
-  { title: "[Mikanani] 无职转生 第三季 - 12 (1080p)", desc: "鲁迪乌斯的异世界冒险续篇", season: 3, episode: 12, animeName: "无职转生", originalName: "Mushoku Tensei", tmdbId: "97986", posterPath: "/dBxxtfhC4vYISbxCDMRSpDDiO6B.jpg" },
-  { title: "[ANi] 败犬女主太多了 - 12 (1080p)", desc: "温水和是被选中的那个男人", season: 1, episode: 12, animeName: "败犬女主太多了", originalName: "Make Heroine ga Oosugiru!", tmdbId: "253485", posterPath: "/wZVcuBejljRQJcR3lG6OofJDbeQ.jpg" },
-  { title: "[SubsPlease] 夏日重现 / Summer Time Rendering - 25 (1080p)", desc: "小岛上的时间循环悬疑故事", season: 1, episode: 25, animeName: "夏日重现", originalName: "Summer Time Rendering", tmdbId: "125392", posterPath: "/aURJQ3AyBi1MCPaV1oGNysv5piI.jpg" },
-  { title: "[Mikanani] 孤独摇滚 / Bocchi the Rock! - 12 (1080p)", desc: "社恐少女后藤一里的乐队之路", season: 1, episode: 12, animeName: "孤独摇滚", originalName: "Bocchi the Rock!", tmdbId: "203354", posterPath: "/yPCxMlsEJFsOlDiXUkLlAqL1gp0.jpg" },
-  { title: "[ANi] 间谍过家家 第三季 - 12 (1080p)", desc: "黄昏一家的间谍喜剧日常", season: 3, episode: 12, animeName: "间谍过家家", originalName: "SPY×FAMILY", tmdbId: "110248", posterPath: "/3bWEMlYABPXCNYBZhcjyxLKoRBL.jpg" },
-  { title: "[SubsPlease] 青之箱 / Blue Box - 24 (1080p)", desc: "大喜与千夏的恋爱与羽毛球", season: 1, episode: 24, animeName: "青之箱", originalName: "Ao no Hako", tmdbId: "262596", posterPath: "/j1zidhOBnPpB4axbCSIDQTWoNKN.jpg" },
-  { title: "[Mikanani] Re:从零开始的异世界生活 第三季 - 16 (1080p)", desc: "昴在异世界的又一次轮回", season: 3, episode: 16, animeName: "Re:从零开始的异世界生活", originalName: "Re:Zero", tmdbId: "65006", posterPath: "/4Dub8EWkEJiVkQduXyRuuspbAEh.jpg" },
-  { title: "[ANi] 魔法少女毁灭者 - 12 (1080p)", desc: "以暴力手段对抗魔法少女", season: 1, episode: 12 },
-  { title: "[SubsPlease] 怪兽8号 / Kaiju No. 8 - 12 (1080p)", desc: "日比野卡夫卡的怪兽之力", season: 1, episode: 12, animeName: "怪兽8号", originalName: "Kaiju No. 8", tmdbId: "237091", posterPath: "/9K5DISM3MpCpIYI6VwVoaQOxKlV.jpg" },
-  { title: "[Mikanani] 天国大魔境 / Tengoku Daimakyou - 13 (1080p)", desc: "废墟日本的末日生存之旅", season: 1, episode: 13, animeName: "天国大魔境", originalName: "Tengoku Daimakyou", tmdbId: "198225", posterPath: "/rHzZqeAunqRZnRDnjkKvMN9VXaA.jpg" },
-  { title: "[ANi] 摇曳露营 第三季 - 12 (1080p)", desc: "志摩凛与各务原抚子的户外露营日常", season: 3, episode: 12, animeName: "摇曳露营", originalName: "Yuru Camp", tmdbId: "73042", posterPath: "/kLBltKJYY9kReQIaGwZRmC3rJxo.jpg" },
-  { title: "[SubsPlease] 排球少年 垃圾场决战 (1080p)", desc: "音驹 vs 乌野的巅峰之战", season: 4, episode: null, animeName: "排球少年", originalName: "Haikyuu!!", tmdbId: "60863", posterPath: "/4bHCJxrpNaGNiCJwSzdAlGhkidb.jpg" },
-  { title: "[Mikanani] 地错 第五季 - 12 (1080p)", desc: "贝尔在地下城寻求邂逅", season: 5, episode: 12, animeName: "在地下城寻求邂逅是否搞错了什么", originalName: "DanMachi", tmdbId: "62745", posterPath: "/7HtvMBN0Z8dsnvKDh72iAfyD9XF.jpg" },
-  { title: "[ANi] 樱子小姐的脚下埋着尸体 - 12 (1080p)", desc: "九条樱子的骸骨推理", season: 1, episode: 12 },
-  { title: "[SubsPlease] 异世界自杀小队 - 10 (1080p)", desc: "DC反派们的异世界冒险", season: 1, episode: 10 },
-  { title: "[Mikanani] 葬送的芙莉莲 / Sousou no Frieren - 27 (1080p)", desc: "勇者一行的魔法使芙莉莲的旅途故事", season: 1, episode: 27, animeName: "葬送的芙莉莲", originalName: "Sousou no Frieren", tmdbId: "209867", posterPath: "/dqZENchTd7lp5zht7BdlqM7RBhD.jpg" },
-  { title: "[Mikanani] 葬送的芙莉莲 / Sousou no Frieren - 26 (1080p)", desc: "勇者一行的魔法使芙莉莲的旅途故事", season: 1, episode: 26, animeName: "葬送的芙莉莲", originalName: "Sousou no Frieren", tmdbId: "209867", posterPath: "/dqZENchTd7lp5zht7BdlqM7RBhD.jpg" },
-  { title: "[SubsPlease] 鬼灭之刃 柱训练篇 - 07 (1080p)", desc: "炭治郎与柱们的训练篇章", season: 4, episode: 7, animeName: "鬼灭之刃", originalName: "Kimetsu no Yaiba", tmdbId: "85937", posterPath: "/wrC2TWAOPQMD4bpGjdwH7MjjPT3.jpg" },
-  { title: "[ANi] 间谍过家家 第三季 - 11 (1080p)", desc: "黄昏一家的间谍喜剧日常", season: 3, episode: 11, animeName: "间谍过家家", originalName: "SPY×FAMILY", tmdbId: "110248", posterPath: "/3bWEMlYABPXCNYBZhcjyxLKoRBL.jpg" },
+  {
+    title: "[Mikanani] 葬送的芙莉莲 / Sousou no Frieren - 28 (1080p)",
+    desc: "勇者一行的魔法使芙莉莲的旅途故事",
+    season: 1,
+    episode: 28,
+    animeName: "葬送的芙莉莲",
+    originalName: "Sousou no Frieren",
+    tmdbId: "209867",
+    posterPath: "/dqZENchTd7lp5zht7BdlqM7RBhD.jpg",
+  },
+  {
+    title: "[SubsPlease] 迷宫饭 / Dungeon Meshi - 24 (1080p)",
+    desc: "在地下城中烹饪魔物的冒险者们",
+    season: 1,
+    episode: 24,
+    animeName: "迷宫饭",
+    originalName: "Dungeon Meshi",
+    tmdbId: "220150",
+    posterPath: "/b8dFp1MKnfJCMQvMfnYnBjPuqEu.jpg",
+  },
+  {
+    title: "[Mikanani] 药屋少女的呢喃 / Kusuriya no Hitorigoto - 24 (1080p)",
+    desc: "后宫药师猫猫的推理日常",
+    season: 1,
+    episode: 24,
+    animeName: "药屋少女的呢喃",
+    originalName: "Kusuriya no Hitorigoto",
+    tmdbId: "229598",
+    posterPath: "/hBsMO2fGMRYCFIApI2nkYCApzAb.jpg",
+  },
+  {
+    title: "[ANi] 我心里危险的东西 第二季 - 13 (1080p)",
+    desc: "市川与山田的青春恋爱物语",
+    season: 2,
+    episode: 13,
+    animeName: "我心里危险的东西",
+    originalName: "Boku no Kokoro no Yabai Yatsu",
+    tmdbId: "203737",
+    posterPath: "/qCHIPLBSfUMWS01qnJGnPXlSKGZ.jpg",
+  },
+  {
+    title: "[Mikanani] 物语系列 Off & Monster Season - 12 (1080p)",
+    desc: "阿良良木历的怪异故事继续",
+    season: 1,
+    episode: 12,
+    animeName: "物语系列",
+    originalName: "Monogatari Series",
+    tmdbId: "46195",
+    posterPath: "/oO0eeCAXsQQcq0DjOEJXNKlrBR2.jpg",
+  },
+  {
+    title: "[SubsPlease] 鬼灭之刃 柱训练篇 - 08 (1080p)",
+    desc: "炭治郎与柱们的训练篇章",
+    season: 4,
+    episode: 8,
+    animeName: "鬼灭之刃",
+    originalName: "Kimetsu no Yaiba",
+    tmdbId: "85937",
+    posterPath: "/wrC2TWAOPQMD4bpGjdwH7MjjPT3.jpg",
+  },
+  {
+    title: "[Mikanani] 无职转生 第三季 - 12 (1080p)",
+    desc: "鲁迪乌斯的异世界冒险续篇",
+    season: 3,
+    episode: 12,
+    animeName: "无职转生",
+    originalName: "Mushoku Tensei",
+    tmdbId: "97986",
+    posterPath: "/dBxxtfhC4vYISbxCDMRSpDDiO6B.jpg",
+  },
+  {
+    title: "[ANi] 败犬女主太多了 - 12 (1080p)",
+    desc: "温水和是被选中的那个男人",
+    season: 1,
+    episode: 12,
+    animeName: "败犬女主太多了",
+    originalName: "Make Heroine ga Oosugiru!",
+    tmdbId: "253485",
+    posterPath: "/wZVcuBejljRQJcR3lG6OofJDbeQ.jpg",
+  },
+  {
+    title: "[SubsPlease] 夏日重现 / Summer Time Rendering - 25 (1080p)",
+    desc: "小岛上的时间循环悬疑故事",
+    season: 1,
+    episode: 25,
+    animeName: "夏日重现",
+    originalName: "Summer Time Rendering",
+    tmdbId: "125392",
+    posterPath: "/aURJQ3AyBi1MCPaV1oGNysv5piI.jpg",
+  },
+  {
+    title: "[Mikanani] 孤独摇滚 / Bocchi the Rock! - 12 (1080p)",
+    desc: "社恐少女后藤一里的乐队之路",
+    season: 1,
+    episode: 12,
+    animeName: "孤独摇滚",
+    originalName: "Bocchi the Rock!",
+    tmdbId: "203354",
+    posterPath: "/yPCxMlsEJFsOlDiXUkLlAqL1gp0.jpg",
+  },
+  {
+    title: "[ANi] 间谍过家家 第三季 - 12 (1080p)",
+    desc: "黄昏一家的间谍喜剧日常",
+    season: 3,
+    episode: 12,
+    animeName: "间谍过家家",
+    originalName: "SPY×FAMILY",
+    tmdbId: "110248",
+    posterPath: "/3bWEMlYABPXCNYBZhcjyxLKoRBL.jpg",
+  },
+  {
+    title: "[SubsPlease] 青之箱 / Blue Box - 24 (1080p)",
+    desc: "大喜与千夏的恋爱与羽毛球",
+    season: 1,
+    episode: 24,
+    animeName: "青之箱",
+    originalName: "Ao no Hako",
+    tmdbId: "262596",
+    posterPath: "/j1zidhOBnPpB4axbCSIDQTWoNKN.jpg",
+  },
+  {
+    title: "[Mikanani] Re:从零开始的异世界生活 第三季 - 16 (1080p)",
+    desc: "昴在异世界的又一次轮回",
+    season: 3,
+    episode: 16,
+    animeName: "Re:从零开始的异世界生活",
+    originalName: "Re:Zero",
+    tmdbId: "65006",
+    posterPath: "/4Dub8EWkEJiVkQduXyRuuspbAEh.jpg",
+  },
+  {
+    title: "[ANi] 魔法少女毁灭者 - 12 (1080p)",
+    desc: "以暴力手段对抗魔法少女",
+    season: 1,
+    episode: 12,
+  },
+  {
+    title: "[SubsPlease] 怪兽8号 / Kaiju No. 8 - 12 (1080p)",
+    desc: "日比野卡夫卡的怪兽之力",
+    season: 1,
+    episode: 12,
+    animeName: "怪兽8号",
+    originalName: "Kaiju No. 8",
+    tmdbId: "237091",
+    posterPath: "/9K5DISM3MpCpIYI6VwVoaQOxKlV.jpg",
+  },
+  {
+    title: "[Mikanani] 天国大魔境 / Tengoku Daimakyou - 13 (1080p)",
+    desc: "废墟日本的末日生存之旅",
+    season: 1,
+    episode: 13,
+    animeName: "天国大魔境",
+    originalName: "Tengoku Daimakyou",
+    tmdbId: "198225",
+    posterPath: "/rHzZqeAunqRZnRDnjkKvMN9VXaA.jpg",
+  },
+  {
+    title: "[ANi] 摇曳露营 第三季 - 12 (1080p)",
+    desc: "志摩凛与各务原抚子的户外露营日常",
+    season: 3,
+    episode: 12,
+    animeName: "摇曳露营",
+    originalName: "Yuru Camp",
+    tmdbId: "73042",
+    posterPath: "/kLBltKJYY9kReQIaGwZRmC3rJxo.jpg",
+  },
+  {
+    title: "[SubsPlease] 排球少年 垃圾场决战 (1080p)",
+    desc: "音驹 vs 乌野的巅峰之战",
+    season: 4,
+    episode: null,
+    animeName: "排球少年",
+    originalName: "Haikyuu!!",
+    tmdbId: "60863",
+    posterPath: "/4bHCJxrpNaGNiCJwSzdAlGhkidb.jpg",
+  },
+  {
+    title: "[Mikanani] 地错 第五季 - 12 (1080p)",
+    desc: "贝尔在地下城寻求邂逅",
+    season: 5,
+    episode: 12,
+    animeName: "在地下城寻求邂逅是否搞错了什么",
+    originalName: "DanMachi",
+    tmdbId: "62745",
+    posterPath: "/7HtvMBN0Z8dsnvKDh72iAfyD9XF.jpg",
+  },
+  {
+    title: "[ANi] 樱子小姐的脚下埋着尸体 - 12 (1080p)",
+    desc: "九条樱子的骸骨推理",
+    season: 1,
+    episode: 12,
+  },
+  {
+    title: "[SubsPlease] 异世界自杀小队 - 10 (1080p)",
+    desc: "DC反派们的异世界冒险",
+    season: 1,
+    episode: 10,
+  },
+  {
+    title: "[Mikanani] 葬送的芙莉莲 / Sousou no Frieren - 27 (1080p)",
+    desc: "勇者一行的魔法使芙莉莲的旅途故事",
+    season: 1,
+    episode: 27,
+    animeName: "葬送的芙莉莲",
+    originalName: "Sousou no Frieren",
+    tmdbId: "209867",
+    posterPath: "/dqZENchTd7lp5zht7BdlqM7RBhD.jpg",
+  },
+  {
+    title: "[Mikanani] 葬送的芙莉莲 / Sousou no Frieren - 26 (1080p)",
+    desc: "勇者一行的魔法使芙莉莲的旅途故事",
+    season: 1,
+    episode: 26,
+    animeName: "葬送的芙莉莲",
+    originalName: "Sousou no Frieren",
+    tmdbId: "209867",
+    posterPath: "/dqZENchTd7lp5zht7BdlqM7RBhD.jpg",
+  },
+  {
+    title: "[SubsPlease] 鬼灭之刃 柱训练篇 - 07 (1080p)",
+    desc: "炭治郎与柱们的训练篇章",
+    season: 4,
+    episode: 7,
+    animeName: "鬼灭之刃",
+    originalName: "Kimetsu no Yaiba",
+    tmdbId: "85937",
+    posterPath: "/wrC2TWAOPQMD4bpGjdwH7MjjPT3.jpg",
+  },
+  {
+    title: "[ANi] 间谍过家家 第三季 - 11 (1080p)",
+    desc: "黄昏一家的间谍喜剧日常",
+    season: 3,
+    episode: 11,
+    animeName: "间谍过家家",
+    originalName: "SPY×FAMILY",
+    tmdbId: "110248",
+    posterPath: "/3bWEMlYABPXCNYBZhcjyxLKoRBL.jpg",
+  },
+  {
+    title: "[LoliHouse] 葬送的芙莉莲 / Sousou no Frieren - 28 (1080p)",
+    desc: "勇者一行的魔法使芙莉莲的旅途故事",
+    season: 1,
+    episode: 28,
+    animeName: "葬送的芙莉莲",
+    originalName: "Sousou no Frieren",
+    tmdbId: "209867",
+    posterPath: "/dqZENchTd7lp5zht7BdlqM7RBhD.jpg",
+  },
+  {
+    title: "[ANi] 葬送的芙莉莲 / Sousou no Frieren - 28 (1080p)",
+    desc: "勇者一行的魔法使芙莉莲的旅途故事",
+    season: 1,
+    episode: 28,
+    animeName: "葬送的芙莉莲",
+    originalName: "Sousou no Frieren",
+    tmdbId: "209867",
+    posterPath: "/dqZENchTd7lp5zht7BdlqM7RBhD.jpg",
+  },
 ];
 
 /** @type {Map<string, object>} */
@@ -159,6 +391,193 @@ function initAnimations() {
 
 initAnimations();
 
+// Metadata review queue. Preview objects are short-lived and bind an edited
+// metadata snapshot to the item's current revision, just like the real API.
+const metadataReviewItems = new Map();
+const metadataReviewPreviews = new Map();
+const metadataReviewOperations = [];
+const metadataCatalog = new Map(
+  ANIME_TITLES.filter((entry) => entry.tmdbId).map((entry) => [
+    entry.tmdbId,
+    {
+      tmdbId: entry.tmdbId,
+      name: entry.animeName,
+      originalName: entry.originalName ?? null,
+      posterPath: entry.posterPath ?? null,
+    },
+  ]),
+);
+
+function mockMappedFiles(animation, index) {
+  if (!animation.isDownloadFinished) return [];
+  const name = animation.animation?.name ?? "unknown";
+  const groupName = animation.group?.name ?? "Unknown";
+  const season = String(animation.season ?? 1).padStart(2, "0");
+  const episode = String(animation.episode ?? 1).padStart(2, "0");
+  const base = `${name} S${season}E${episode}`;
+  const root = `/${name}/${groupName}`;
+  const files = [
+    {
+      fileName: `${base}.mkv`,
+      currentVirtualPath: `${root}/${base}.mkv`,
+    },
+  ];
+  if (index === 0 || index === 2) {
+    files.push({
+      fileName: `${base}.zh.srt`,
+      currentVirtualPath: `${root}/${base}.zh.srt`,
+    });
+  }
+  if (index === 17) {
+    files.push(
+      {
+        fileName: `${base}-02.mkv`,
+        currentVirtualPath: `${root}/${base}-02.mkv`,
+      },
+      {
+        fileName: `${base}-03.mkv`,
+        currentVirtualPath: `${root}/${base}-03.mkv`,
+      },
+    );
+  }
+  return files;
+}
+
+function initMetadataReviewItems() {
+  const queueSeeds = [
+    { index: 0, status: "lowConfidence", confidence: 0.42 },
+    { index: 1, status: "lowConfidence", confidence: 0.56 },
+    { index: 2, status: "pending", confidence: null },
+    { index: 3, status: "lowConfidence", confidence: 0.48 },
+    { index: 4, status: "pending", confidence: null },
+    { index: 5, status: "failed", confidence: null },
+    { index: 6, status: "lowConfidence", confidence: 0.61 },
+    { index: 7, status: "pending", confidence: null },
+    { index: 13, status: "failed", confidence: null },
+    { index: 17, status: "failed", confidence: null },
+    { index: 19, status: "failed", confidence: null },
+    { index: 20, status: "pending", confidence: null },
+  ];
+  const values = [...animations.values()];
+
+  for (const seed of queueSeeds) {
+    const animation = values[seed.index];
+    if (!animation) continue;
+    const forceUnresolved =
+      seed.status === "pending" ||
+      (seed.status === "failed" && animation.animation == null);
+    const files = mockMappedFiles(animation, seed.index);
+    metadataReviewItems.set(animation.id, {
+      id: animation.id,
+      title: animation.title,
+      description: animation.description ?? null,
+      publishTime: animation.publishTime,
+      reviewStatus: seed.status,
+      confidence: seed.confidence,
+      failureReason:
+        seed.status === "failed"
+          ? seed.index === 17
+            ? "AI response did not contain a usable episode number."
+            : "Metadata inference failed after the configured retry limit."
+          : null,
+      aiRetryCount:
+        seed.status === "failed" ? 3 : seed.status === "pending" ? 0 : 1,
+      metadata: {
+        tmdbId: forceUnresolved ? null : (animation.animation?.tmdbId ?? null),
+        name: forceUnresolved ? null : (animation.animation?.name ?? null),
+        originalName: forceUnresolved
+          ? null
+          : (animation.animation?.originalName ?? null),
+        posterPath: forceUnresolved
+          ? null
+          : (animation.animation?.posterPath ?? null),
+        season: forceUnresolved ? null : (animation.season ?? null),
+        episode: forceUnresolved ? null : (animation.episode ?? null),
+        groupName: animation.group?.name ?? null,
+      },
+      isDownloadFinished: animation.isDownloadFinished,
+      mappedFileCount: files.length,
+      revision: 1,
+      currentOperationId: null,
+      files,
+    });
+  }
+}
+
+initMetadataReviewItems();
+
+function publicMetadataReviewItem(item) {
+  const { files: _files, ...publicItem } = item;
+  return publicItem;
+}
+
+function publicMetadataReviewOperation(operation) {
+  return {
+    operationId: operation.operationId,
+    itemId: operation.itemId,
+    title: operation.title,
+    appliedAt: operation.appliedAt,
+    revision: operation.revision,
+    canUndo: operation.canUndo,
+  };
+}
+
+function sanitizePathSegment(value) {
+  return (
+    String(value)
+      .replace(/[\\/:*?"<>|]/g, "_")
+      .trim() || "Unknown"
+  );
+}
+
+function extensionForMockFile(fileName) {
+  const subtitle = fileName.match(/(\.[a-z]{2,3})?\.(srt|ass|vtt)$/i);
+  if (subtitle) return `${subtitle[1] ?? ""}.${subtitle[2]}`;
+  const dot = fileName.lastIndexOf(".");
+  return dot >= 0 ? fileName.slice(dot) : "";
+}
+
+function buildMetadataPathChanges(item, metadata) {
+  if (item.files.length === 0) return [];
+  if (!metadata.name || metadata.season == null) {
+    return item.files.map((file) => ({
+      fileName: file.fileName,
+      currentVirtualPath: file.currentVirtualPath,
+      proposedVirtualPath: null,
+      changeKind: "removed",
+      collisionAdjusted: false,
+    }));
+  }
+
+  const name = sanitizePathSegment(metadata.name);
+  const group = sanitizePathSegment(metadata.groupName ?? "Unknown");
+  const season = String(metadata.season).padStart(2, "0");
+  const episode =
+    metadata.episode == null ? null : String(metadata.episode).padStart(2, "0");
+
+  return item.files.map((file, index) => {
+    const episodeSuffix = episode == null ? "" : `E${episode}`;
+    const extension = extensionForMockFile(file.fileName);
+    const sequenceSuffix =
+      item.files.length > 2 && index > 0
+        ? `-${String(index + 1).padStart(2, "0")}`
+        : "";
+    const baseName = `${name} S${season}${episodeSuffix}${sequenceSuffix}`;
+    const collisionAdjusted =
+      index === 0 && metadata.groupName?.toLowerCase() === "collision";
+    const adjustedBase = collisionAdjusted ? `${baseName} (2)` : baseName;
+    const proposedVirtualPath = `/${name}/${group}/${adjustedBase}${extension}`;
+    return {
+      fileName: file.fileName,
+      currentVirtualPath: file.currentVirtualPath,
+      proposedVirtualPath,
+      changeKind:
+        file.currentVirtualPath === proposedVirtualPath ? "unchanged" : "moved",
+      collisionAdjusted,
+    };
+  });
+}
+
 // Advance download progress every second
 setInterval(() => {
   for (const [id, ds] of downloadState) {
@@ -185,20 +604,45 @@ setInterval(() => {
 // Mock season bangumi data
 const SEASON_BANGUMIS = [
   { mikanId: 3899, title: "尖帽子的魔法工房", dayOfWeek: 1, imageUrl: null },
-  { mikanId: 3904, title: "自称恶役大小姐的婚约者观察记录。", dayOfWeek: 1, imageUrl: null },
-  { mikanId: 3850, title: "吹响吧！上低音号 第三季", dayOfWeek: 2, imageUrl: null },
+  {
+    mikanId: 3904,
+    title: "自称恶役大小姐的婚约者观察记录。",
+    dayOfWeek: 1,
+    imageUrl: null,
+  },
+  {
+    mikanId: 3850,
+    title: "吹响吧！上低音号 第三季",
+    dayOfWeek: 2,
+    imageUrl: null,
+  },
   { mikanId: 3880, title: "怪异与少女与神隐", dayOfWeek: 2, imageUrl: null },
   { mikanId: 3870, title: "暗杀贵族 第二季", dayOfWeek: 3, imageUrl: null },
-  { mikanId: 3815, title: "转生贵族的异世界冒险录 第二季", dayOfWeek: 3, imageUrl: null },
+  {
+    mikanId: 3815,
+    title: "转生贵族的异世界冒险录 第二季",
+    dayOfWeek: 3,
+    imageUrl: null,
+  },
   { mikanId: 3910, title: "无名记忆 第二季", dayOfWeek: 4, imageUrl: null },
   { mikanId: 3920, title: "我的幸福婚约 第三季", dayOfWeek: 4, imageUrl: null },
-  { mikanId: 3860, title: "关于我转生变成史莱姆这档事 第四季", dayOfWeek: 5, imageUrl: null },
+  {
+    mikanId: 3860,
+    title: "关于我转生变成史莱姆这档事 第四季",
+    dayOfWeek: 5,
+    imageUrl: null,
+  },
   { mikanId: 3890, title: "迷宫饭 第二季", dayOfWeek: 5, imageUrl: null },
   { mikanId: 3841, title: "鬼灭之刃 无限城篇", dayOfWeek: 6, imageUrl: null },
   { mikanId: 3900, title: "恋上换装娃娃 第三季", dayOfWeek: 6, imageUrl: null },
   { mikanId: 227, title: "名侦探柯南", dayOfWeek: 0, imageUrl: null },
   { mikanId: 228, title: "航海王", dayOfWeek: 0, imageUrl: null },
-  { mikanId: 3950, title: "剧场版 紫罗兰永恒花园", dayOfWeek: 7, imageUrl: null },
+  {
+    mikanId: 3950,
+    title: "剧场版 紫罗兰永恒花园",
+    dayOfWeek: 7,
+    imageUrl: null,
+  },
 ].map((b) => ({
   ...b,
   id: randomUUID(),
@@ -225,9 +669,24 @@ const MOCK_SUBGROUPS = {
 
 // Feeds
 let feeds = [
-  { id: randomUUID(), url: "https://mikanani.me/RSS/Bangumi?bangumiId=3141", name: "葬送的芙莉莲", createdAt: new Date(Date.now() - 86400_000 * 3).toISOString() },
-  { id: randomUUID(), url: "https://mikanani.me/RSS/Bangumi?bangumiId=3143", name: "迷宫饭", createdAt: new Date(Date.now() - 86400_000 * 2).toISOString() },
-  { id: randomUUID(), url: "https://mikanani.me/RSS/Bangumi?bangumiId=3200", name: "药屋少女的呢喃", createdAt: new Date(Date.now() - 86400_000).toISOString() },
+  {
+    id: randomUUID(),
+    url: "https://mikanani.me/RSS/Bangumi?bangumiId=3141",
+    name: "葬送的芙莉莲",
+    createdAt: new Date(Date.now() - 86400_000 * 3).toISOString(),
+  },
+  {
+    id: randomUUID(),
+    url: "https://mikanani.me/RSS/Bangumi?bangumiId=3143",
+    name: "迷宫饭",
+    createdAt: new Date(Date.now() - 86400_000 * 2).toISOString(),
+  },
+  {
+    id: randomUUID(),
+    url: "https://mikanani.me/RSS/Bangumi?bangumiId=3200",
+    name: "药屋少女的呢喃",
+    createdAt: new Date(Date.now() - 86400_000).toISOString(),
+  },
 ];
 
 // Per-feed subscription automation policies and historical releases.
@@ -407,7 +866,12 @@ const FILE_TREE = {
 
 // Mock VFS tree (mirrors what /api/vfs returns — keyed by absolute virtual path)
 const VFS_NOW = Date.now();
-const vfsDir = (name) => ({ name, isDirectory: true, size: null, lastModifiedUtc: null });
+const vfsDir = (name) => ({
+  name,
+  isDirectory: true,
+  size: null,
+  lastModifiedUtc: null,
+});
 const vfsFile = (name, sizeMb, ageHours) => ({
   name,
   isDirectory: false,
@@ -445,9 +909,7 @@ const VFS_TREE = {
     vfsFile("Trailer.mp4", 32, 240),
     vfsFile("Cover.jpg", 0.4, 240),
   ],
-  "/unknown": [
-    vfsFile("[unsorted] random release.mkv", 700, 6),
-  ],
+  "/unknown": [vfsFile("[unsorted] random release.mkv", 700, 6)],
 };
 
 function vfsResolve(rawPath) {
@@ -479,7 +941,9 @@ function vfsResolve(rawPath) {
 // ---------------------------------------------------------------------------
 
 async function route(method, pathname, searchParams, req, res) {
-  console.log(`${method} ${pathname}${searchParams.toString() ? "?" + searchParams : ""}`);
+  console.log(
+    `${method} ${pathname}${searchParams.toString() ? "?" + searchParams : ""}`,
+  );
 
   // --- CORS preflight ---
   if (method === "OPTIONS") {
@@ -494,16 +958,29 @@ async function route(method, pathname, searchParams, req, res) {
 
   if (method === "POST" && pathname === "/api/auth/register") {
     registered = true;
-    return json(res, { token: fakeToken(), refreshToken: fakeToken(), success: true });
+    return json(res, {
+      token: fakeToken(),
+      refreshToken: fakeToken(),
+      success: true,
+    });
   }
 
   if (method === "POST" && pathname === "/api/auth/login") {
-    if (!registered) return json(res, { token: "", refreshToken: "", success: false });
-    return json(res, { token: fakeToken(), refreshToken: fakeToken(), success: true });
+    if (!registered)
+      return json(res, { token: "", refreshToken: "", success: false });
+    return json(res, {
+      token: fakeToken(),
+      refreshToken: fakeToken(),
+      success: true,
+    });
   }
 
   if (method === "POST" && pathname === "/api/auth/refresh") {
-    return json(res, { token: fakeToken(), refreshToken: fakeToken(), success: true });
+    return json(res, {
+      token: fakeToken(),
+      refreshToken: fakeToken(),
+      success: true,
+    });
   }
 
   if (method === "GET" && pathname === "/api/auth/verify") {
@@ -516,13 +993,284 @@ async function route(method, pathname, searchParams, req, res) {
     return empty(res, 401);
   }
 
+  // --- Metadata review ---
+
+  if (method === "GET" && pathname === "/api/metadata-review") {
+    const status = searchParams.get("status") ?? "pending";
+    if (!["pending", "lowConfidence", "failed"].includes(status)) {
+      return json(res, { error: "Unsupported review status." }, 422);
+    }
+    const skip = Math.max(
+      0,
+      parseInt(searchParams.get("skip") ?? "0", 10) || 0,
+    );
+    const take = Math.min(
+      100,
+      Math.max(1, parseInt(searchParams.get("take") ?? "20", 10) || 20),
+    );
+    const all = [...metadataReviewItems.values()];
+    const filtered = all
+      .filter((item) => item.reviewStatus === status)
+      .sort((a, b) => new Date(b.publishTime) - new Date(a.publishTime));
+    const counts = {
+      pending: all.filter((item) => item.reviewStatus === "pending").length,
+      lowConfidence: all.filter((item) => item.reviewStatus === "lowConfidence")
+        .length,
+      failed: all.filter((item) => item.reviewStatus === "failed").length,
+    };
+    const recentOperations = metadataReviewOperations
+      .slice(0, 10)
+      .map(publicMetadataReviewOperation);
+
+    return json(res, {
+      data: filtered.slice(skip, skip + take).map(publicMetadataReviewItem),
+      totalItems: filtered.length,
+      counts,
+      recentOperations,
+    });
+  }
+
+  // POST /api/metadata-review/:id/preview
+  {
+    const match = pathname.match(/^\/api\/metadata-review\/([^/]+)\/preview$/);
+    if (method === "POST" && match) {
+      const item = metadataReviewItems.get(match[1]);
+      if (!item) return empty(res, 404);
+      const body = await readBody(req);
+      if (body.expectedRevision !== item.revision) {
+        return json(res, { error: "Revision conflict." }, 409);
+      }
+
+      const edited = body.metadata;
+      const validTmdbId =
+        edited &&
+        typeof edited.tmdbId === "string" &&
+        /^\d+$/.test(edited.tmdbId) &&
+        Number(edited.tmdbId) > 0 &&
+        Number(edited.tmdbId) <= 2_147_483_647;
+      const validIndex = (value) =>
+        value === null || (Number.isSafeInteger(value) && value >= 0);
+      const validGroup =
+        edited &&
+        (edited.groupName === null ||
+          (typeof edited.groupName === "string" &&
+            edited.groupName.length <= 200));
+      if (
+        !edited ||
+        !validTmdbId ||
+        edited.season == null ||
+        !validIndex(edited.season) ||
+        !validIndex(edited.episode) ||
+        !validGroup
+      ) {
+        return json(res, { error: "Invalid metadata fields." }, 422);
+      }
+
+      const warnings = [];
+      const catalogEntry = edited.tmdbId
+        ? metadataCatalog.get(edited.tmdbId)
+        : null;
+      let identity;
+      if (catalogEntry) {
+        identity = catalogEntry;
+      } else {
+        identity = {
+          tmdbId: edited.tmdbId,
+          name: `TMDB ${edited.tmdbId}`,
+          originalName: null,
+          posterPath: null,
+        };
+        warnings.push(
+          "The mock catalog does not contain this TMDB ID; a placeholder title will be used.",
+        );
+      }
+
+      const resolvedMetadata = {
+        ...identity,
+        season: edited.season,
+        episode: edited.episode,
+        groupName: edited.groupName?.trim() || null,
+      };
+      if (resolvedMetadata.episode == null) {
+        warnings.push(
+          "No episode was set; downloaded files will use a season-level filename.",
+        );
+      }
+      if (!item.isDownloadFinished) {
+        warnings.push("notDownloaded");
+      }
+
+      const pathChanges = buildMetadataPathChanges(item, resolvedMetadata);
+      const preview = {
+        previewId: randomUUID(),
+        itemId: item.id,
+        baseRevision: item.revision,
+        resolvedMetadata,
+        pathChanges,
+        warnings,
+        canApply: true,
+        expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
+      };
+      metadataReviewPreviews.set(preview.previewId, preview);
+      return json(res, {
+        previewId: preview.previewId,
+        baseRevision: preview.baseRevision,
+        resolvedMetadata: preview.resolvedMetadata,
+        pathChanges: preview.pathChanges,
+        warnings: preview.warnings,
+        canApply: preview.canApply,
+        expiresAt: preview.expiresAt,
+      });
+    }
+  }
+
+  // POST /api/metadata-review/:id/apply
+  {
+    const match = pathname.match(/^\/api\/metadata-review\/([^/]+)\/apply$/);
+    if (method === "POST" && match) {
+      const item = metadataReviewItems.get(match[1]);
+      if (!item) return empty(res, 404);
+      const body = await readBody(req);
+      const preview = metadataReviewPreviews.get(body.previewId);
+      if (!preview || preview.itemId !== item.id) {
+        return json(res, { error: "Unknown preview." }, 422);
+      }
+      if (
+        Date.parse(preview.expiresAt) <= Date.now() ||
+        preview.baseRevision !== item.revision
+      ) {
+        metadataReviewPreviews.delete(preview.previewId);
+        return json(res, { error: "Preview is stale." }, 409);
+      }
+      if (!preview.canApply) {
+        return json(res, { error: "Preview cannot be applied." }, 422);
+      }
+
+      if (item.currentOperationId) {
+        const current = metadataReviewOperations.find(
+          (operation) => operation.operationId === item.currentOperationId,
+        );
+        if (current) current.canUndo = false;
+      }
+
+      const previous = {
+        metadata: structuredClone(item.metadata),
+        reviewStatus: item.reviewStatus,
+        confidence: item.confidence,
+        failureReason: item.failureReason,
+        files: structuredClone(item.files),
+        mappedFileCount: item.mappedFileCount,
+        currentOperationId: item.currentOperationId,
+      };
+      const operationId = randomUUID();
+      const appliedAt = new Date().toISOString();
+
+      item.metadata = structuredClone(preview.resolvedMetadata);
+      item.reviewStatus = "reviewed";
+      item.confidence = 1;
+      item.failureReason = null;
+      item.revision += 1;
+      item.currentOperationId = operationId;
+      item.files = preview.pathChanges
+        .filter((change) => change.proposedVirtualPath != null)
+        .map((change) => ({
+          fileName: change.fileName,
+          currentVirtualPath: change.proposedVirtualPath,
+        }));
+      item.mappedFileCount = item.files.length;
+
+      const operation = {
+        operationId,
+        itemId: item.id,
+        title: item.title,
+        appliedAt,
+        revision: item.revision,
+        canUndo: true,
+        previous,
+        pathChanges: structuredClone(preview.pathChanges),
+      };
+      metadataReviewOperations.unshift(operation);
+      metadataReviewPreviews.delete(preview.previewId);
+
+      return json(res, {
+        operationId,
+        revision: item.revision,
+        pathChanges: preview.pathChanges,
+        appliedAt,
+        canUndo: true,
+      });
+    }
+  }
+
+  // POST /api/metadata-review/remaps/:operationId/undo
+  {
+    const match = pathname.match(
+      /^\/api\/metadata-review\/remaps\/([^/]+)\/undo$/,
+    );
+    if (method === "POST" && match) {
+      const operation = metadataReviewOperations.find(
+        (candidate) => candidate.operationId === match[1],
+      );
+      if (!operation) return empty(res, 404);
+      if (!operation.canUndo) {
+        return json(res, { error: "Operation is no longer undoable." }, 422);
+      }
+      const item = metadataReviewItems.get(operation.itemId);
+      if (!item) return empty(res, 404);
+      const body = await readBody(req);
+      if (
+        body.expectedRevision !== item.revision ||
+        item.currentOperationId !== operation.operationId
+      ) {
+        return json(res, { error: "Revision conflict." }, 409);
+      }
+
+      const reverseKind = {
+        added: "removed",
+        removed: "added",
+        moved: "moved",
+        unchanged: "unchanged",
+      };
+      const pathChanges = operation.pathChanges.map((change) => ({
+        fileName: change.fileName,
+        currentVirtualPath: change.proposedVirtualPath,
+        proposedVirtualPath: change.currentVirtualPath,
+        changeKind: reverseKind[change.changeKind],
+        collisionAdjusted: false,
+      }));
+
+      item.metadata = structuredClone(operation.previous.metadata);
+      item.reviewStatus = operation.previous.reviewStatus;
+      item.confidence = operation.previous.confidence;
+      item.failureReason = operation.previous.failureReason;
+      item.files = structuredClone(operation.previous.files);
+      item.mappedFileCount = operation.previous.mappedFileCount;
+      item.revision += 1;
+      item.currentOperationId = operation.previous.currentOperationId;
+      operation.canUndo = false;
+      operation.revision = item.revision;
+      const appliedAt = new Date().toISOString();
+
+      return json(res, {
+        operationId: operation.operationId,
+        revision: item.revision,
+        pathChanges,
+        appliedAt,
+        canUndo: false,
+      });
+    }
+  }
+
   // --- Animation Info ---
 
   if (method === "GET" && pathname === "/api/animationinfo") {
     const skip = parseInt(searchParams.get("skip") ?? "0", 10);
     const take = parseInt(searchParams.get("take") ?? "10", 10);
     const all = [...animations.values()];
-    return json(res, { data: all.slice(skip, skip + take), totalItems: all.length });
+    return json(res, {
+      data: all.slice(skip, skip + take),
+      totalItems: all.length,
+    });
   }
 
   if (method === "GET" && pathname === "/api/animationinfo/grouped") {
@@ -548,13 +1296,22 @@ async function route(method, pathname, searchParams, req, res) {
     }
     const animationsList = [...grouped.values()]
       .map((g) => {
-        g.episodes.sort((a, b) => (a.season ?? 0) - (b.season ?? 0) || (a.episode ?? 0) - (b.episode ?? 0));
+        g.episodes.sort(
+          (a, b) =>
+            new Date(b.publishTime).getTime() -
+              new Date(a.publishTime).getTime() ||
+            b.id.localeCompare(a.id),
+        );
         g.episodeCount = g.episodes.length;
         return g;
       })
       .sort((a, b) => {
-        const aMax = Math.max(...a.episodes.map((e) => new Date(e.publishTime).getTime()));
-        const bMax = Math.max(...b.episodes.map((e) => new Date(e.publishTime).getTime()));
+        const aMax = Math.max(
+          ...a.episodes.map((e) => new Date(e.publishTime).getTime()),
+        );
+        const bMax = Math.max(
+          ...b.episodes.map((e) => new Date(e.publishTime).getTime()),
+        );
         return bMax - aMax;
       });
     return json(res, { animations: animationsList, uncategorized });
@@ -566,14 +1323,20 @@ async function route(method, pathname, searchParams, req, res) {
     const list = [...animations.values()].filter(
       (a) => a.isDownloadTracked && !a.isDownloadFinished,
     );
-    return json(res, { data: list.slice(skip, skip + take), totalItems: list.length });
+    return json(res, {
+      data: list.slice(skip, skip + take),
+      totalItems: list.length,
+    });
   }
 
   if (method === "GET" && pathname === "/api/animationinfo/downloaded") {
     const skip = parseInt(searchParams.get("skip") ?? "0", 10);
     const take = parseInt(searchParams.get("take") ?? "10", 10);
     const list = [...animations.values()].filter((a) => a.isDownloadFinished);
-    return json(res, { data: list.slice(skip, skip + take), totalItems: list.length });
+    return json(res, {
+      data: list.slice(skip, skip + take),
+      totalItems: list.length,
+    });
   }
 
   // GET /api/animationinfo/status/:id
@@ -583,10 +1346,12 @@ async function route(method, pathname, searchParams, req, res) {
       const id = m[1];
       const ds = downloadState.get(id);
       if (!ds) return empty(res, 404);
-      const speed = ds.state === "Downloading" ? 2_500_000 + Math.random() * 5_000_000 : 0;
-      const remaining = ds.state === "Downloading" && ds.progress > 0
-        ? ((1 - ds.progress) / 0.02) // ~seconds left
-        : 0;
+      const speed =
+        ds.state === "Downloading" ? 2_500_000 + Math.random() * 5_000_000 : 0;
+      const remaining =
+        ds.state === "Downloading" && ds.progress > 0
+          ? (1 - ds.progress) / 0.02 // ~seconds left
+          : 0;
       return json(res, {
         itemId: id,
         progress: ds.progress,
@@ -617,7 +1382,11 @@ async function route(method, pathname, searchParams, req, res) {
       ) {
         anim.automationDisposition = "ManualDownloadQueued";
       }
-      downloadState.set(id, { state: "Downloading", progress: 0, startedAt: Date.now() });
+      downloadState.set(id, {
+        state: "Downloading",
+        progress: 0,
+        startedAt: Date.now(),
+      });
       return empty(res, 200);
     }
   }
@@ -706,7 +1475,7 @@ async function route(method, pathname, searchParams, req, res) {
   if (method === "GET" && pathname === "/api/season") {
     const year = searchParams.get("year");
     const season = searchParams.get("season");
-    const seasonLabels = { "春": "春季", "夏": "夏季", "秋": "秋季", "冬": "冬季" };
+    const seasonLabels = { 春: "春季", 夏: "夏季", 秋: "秋季", 冬: "冬季" };
 
     if (year && season) {
       // Return fewer mock entries for non-current seasons
@@ -724,12 +1493,19 @@ async function route(method, pathname, searchParams, req, res) {
       });
     }
 
-    const lastScrapedAt = SEASON_BANGUMIS.length > 0 ? SEASON_BANGUMIS[0].scrapedAt : null;
-    return json(res, { year: null, season: null, lastScrapedAt, bangumis: SEASON_BANGUMIS });
+    const lastScrapedAt =
+      SEASON_BANGUMIS.length > 0 ? SEASON_BANGUMIS[0].scrapedAt : null;
+    return json(res, {
+      year: null,
+      season: null,
+      lastScrapedAt,
+      bangumis: SEASON_BANGUMIS,
+    });
   }
 
   if (method === "POST" && pathname === "/api/season/refresh") {
-    const lastScrapedAt = SEASON_BANGUMIS.length > 0 ? SEASON_BANGUMIS[0].scrapedAt : null;
+    const lastScrapedAt =
+      SEASON_BANGUMIS.length > 0 ? SEASON_BANGUMIS[0].scrapedAt : null;
     return json(res, { lastScrapedAt, bangumis: SEASON_BANGUMIS });
   }
 
@@ -738,10 +1514,12 @@ async function route(method, pathname, searchParams, req, res) {
     const m = pathname.match(/^\/api\/season\/(\d+)\/subgroups$/);
     if (method === "GET" && m) {
       const mikanId = parseInt(m[1], 10);
-      const subgroups = (MOCK_SUBGROUPS[mikanId] ?? [
-        { mikanSubgroupId: 370, name: "LoliHouse" },
-        { mikanSubgroupId: 202, name: "ANi" },
-      ]).map((sg) => ({
+      const subgroups = (
+        MOCK_SUBGROUPS[mikanId] ?? [
+          { mikanSubgroupId: 370, name: "LoliHouse" },
+          { mikanSubgroupId: 202, name: "ANi" },
+        ]
+      ).map((sg) => ({
         ...sg,
         rssUrl: `https://mikanani.me/RSS/Bangumi?bangumiId=${mikanId}&subgroupid=${sg.mikanSubgroupId}`,
       }));
@@ -935,7 +1713,9 @@ async function route(method, pathname, searchParams, req, res) {
   if (method === "GET" && pathname === "/api/file/play") {
     // Return a small placeholder response for mock playback
     res.writeHead(200, { "Content-Type": "text/plain" });
-    return res.end("Mock video playback — this would be a real video file in production.");
+    return res.end(
+      "Mock video playback — this would be a real video file in production.",
+    );
   }
 
   // --- VFS (mirrors /api/vfs on the .NET backend) ---
@@ -974,9 +1754,27 @@ async function route(method, pathname, searchParams, req, res) {
   // --- Tasks ---
 
   const MOCK_TASKS = [
-    { id: "SyncFeed", interval: "00:10:00", isEnabled: true, lastRunAt: new Date(Date.now() - 300_000).toISOString(), isRunning: false },
-    { id: "InferAnimationMetadata", interval: "00:30:00", isEnabled: true, lastRunAt: new Date(Date.now() - 600_000).toISOString(), isRunning: false },
-    { id: "ScrapeSeasonBangumi", interval: "7.00:00:00", isEnabled: true, lastRunAt: new Date(Date.now() - 86400_000).toISOString(), isRunning: false },
+    {
+      id: "SyncFeed",
+      interval: "00:10:00",
+      isEnabled: true,
+      lastRunAt: new Date(Date.now() - 300_000).toISOString(),
+      isRunning: false,
+    },
+    {
+      id: "InferAnimationMetadata",
+      interval: "00:30:00",
+      isEnabled: true,
+      lastRunAt: new Date(Date.now() - 600_000).toISOString(),
+      isRunning: false,
+    },
+    {
+      id: "ScrapeSeasonBangumi",
+      interval: "7.00:00:00",
+      isEnabled: true,
+      lastRunAt: new Date(Date.now() - 86400_000).toISOString(),
+      isRunning: false,
+    },
   ];
 
   if (method === "GET" && pathname === "/api/tasks") {
@@ -988,7 +1786,9 @@ async function route(method, pathname, searchParams, req, res) {
     const m = pathname.match(/^\/api\/tasks\/(.+)\/run$/);
     if (method === "POST" && m) {
       const id = decodeURIComponent(m[1]);
-      const task = MOCK_TASKS.find((t) => t.id.toLowerCase() === id.toLowerCase());
+      const task = MOCK_TASKS.find(
+        (t) => t.id.toLowerCase() === id.toLowerCase(),
+      );
       if (!task) return json(res, { message: `Task '${id}' not found` }, 404);
       task.lastRunAt = new Date().toISOString();
       console.log(`  Mock: task '${id}' executed`);
@@ -997,8 +1797,10 @@ async function route(method, pathname, searchParams, req, res) {
   }
 
   // --- Chat ---
-  const chatConversations = globalThis._chatConversations ?? (globalThis._chatConversations = []);
-  const chatMessages = globalThis._chatMessages ?? (globalThis._chatMessages = new Map());
+  const chatConversations =
+    globalThis._chatConversations ?? (globalThis._chatConversations = []);
+  const chatMessages =
+    globalThis._chatMessages ?? (globalThis._chatMessages = new Map());
 
   // GET /api/chat/status
   if (method === "GET" && pathname === "/api/chat/status") {
@@ -1015,7 +1817,12 @@ async function route(method, pathname, searchParams, req, res) {
 
   // GET /api/chat/conversations
   if (method === "GET" && pathname === "/api/chat/conversations") {
-    return json(res, chatConversations.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt)));
+    return json(
+      res,
+      chatConversations.sort(
+        (a, b) => new Date(b.updatedAt) - new Date(a.updatedAt),
+      ),
+    );
   }
 
   // POST /api/chat/conversations
@@ -1092,7 +1899,10 @@ async function route(method, pathname, searchParams, req, res) {
 
       // Auto-title
       if (!conv.title) {
-        conv.title = body.content.length > 30 ? body.content.slice(0, 30) + "..." : body.content;
+        conv.title =
+          body.content.length > 30
+            ? body.content.slice(0, 30) + "..."
+            : body.content;
       }
       conv.updatedAt = new Date().toISOString();
 
@@ -1120,11 +1930,13 @@ async function route(method, pathname, searchParams, req, res) {
         "```\n";
 
       const toolArgs = JSON.stringify({ query: body.content });
-      const toolResult = JSON.stringify({ results: [
-        { id: 1, name: "进击的巨人 最终季 完结篇", tmdb_id: 94605 },
-        { id: 2, name: "葬送的芙莉莲", tmdb_id: 209867 },
-        { id: 3, name: "药屋少女的呢喃", tmdb_id: 225239 },
-      ]});
+      const toolResult = JSON.stringify({
+        results: [
+          { id: 1, name: "进击的巨人 最终季 完结篇", tmdb_id: 94605 },
+          { id: 2, name: "葬送的芙莉莲", tmdb_id: 209867 },
+          { id: 3, name: "药屋少女的呢喃", tmdb_id: 225239 },
+        ],
+      });
 
       const steps = [];
 
@@ -1150,7 +1962,10 @@ async function route(method, pathname, searchParams, req, res) {
       for (let i = 0; i < argChars.length; i += 5) {
         steps.push({
           event: "tool_call_delta",
-          data: { id: toolCallId, arguments_delta: argChars.slice(i, i + 5).join("") },
+          data: {
+            id: toolCallId,
+            arguments_delta: argChars.slice(i, i + 5).join(""),
+          },
           delay: 30,
         });
       }
@@ -1158,7 +1973,11 @@ async function route(method, pathname, searchParams, req, res) {
       // Tool result (after a brief pause)
       steps.push({
         event: "tool_result",
-        data: { tool_call_id: toolCallId, name: "search_tmdb", result: toolResult },
+        data: {
+          tool_call_id: toolCallId,
+          name: "search_tmdb",
+          result: toolResult,
+        },
         delay: 300,
       });
 
@@ -1176,7 +1995,9 @@ async function route(method, pathname, searchParams, req, res) {
       let stepIdx = 0;
       function sendNextStep() {
         if (stepIdx >= steps.length) {
-          res.write(`event: finished\ndata: ${JSON.stringify({ stop_reason: "end_turn" })}\n\n`);
+          res.write(
+            `event: finished\ndata: ${JSON.stringify({ stop_reason: "end_turn" })}\n\n`,
+          );
 
           // Save assistant message with tool calls
           const fullText = preToolText + postToolText;
@@ -1184,7 +2005,9 @@ async function route(method, pathname, searchParams, req, res) {
             id: randomUUID(),
             role: "assistant",
             content: fullText,
-            toolCallsJson: JSON.stringify([{ id: toolCallId, name: "search_tmdb", arguments: toolArgs }]),
+            toolCallsJson: JSON.stringify([
+              { id: toolCallId, name: "search_tmdb", arguments: toolArgs },
+            ]),
             toolCallId: null,
             toolName: null,
             order: msgs.length,
@@ -1207,7 +2030,9 @@ async function route(method, pathname, searchParams, req, res) {
         }
 
         const step = steps[stepIdx++];
-        res.write(`event: ${step.event}\ndata: ${JSON.stringify(step.data)}\n\n`);
+        res.write(
+          `event: ${step.event}\ndata: ${JSON.stringify(step.data)}\n\n`,
+        );
         setTimeout(sendNextStep, step.delay);
       }
 
@@ -1226,7 +2051,13 @@ async function route(method, pathname, searchParams, req, res) {
 
 const server = createServer((req, res) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);
-  const result = route(req.method, url.pathname.toLowerCase(), url.searchParams, req, res);
+  const result = route(
+    req.method,
+    url.pathname.toLowerCase(),
+    url.searchParams,
+    req,
+    res,
+  );
   // Handle async routes (readBody returns a Promise)
   if (result instanceof Promise) {
     result.catch((err) => {
@@ -1238,8 +2069,12 @@ const server = createServer((req, res) => {
 
 server.listen(PORT, () => {
   console.log(`Mock API server running on http://localhost:${PORT}`);
-  console.log(`  ${animations.size} anime entries (3 finished, 2 downloading, 1 paused, rest untracked)`);
+  console.log(
+    `  ${animations.size} anime entries (3 finished, 2 downloading, 1 paused, rest untracked)`,
+  );
   console.log(`  ${feeds.length} RSS feeds`);
   console.log(`  Auth: any password works (register first on first visit)`);
-  console.log(`\nRun "yarn start" in another terminal to start the frontend dev server.`);
+  console.log(
+    `\nRun "yarn start" in another terminal to start the frontend dev server.`,
+  );
 });

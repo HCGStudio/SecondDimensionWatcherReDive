@@ -49,7 +49,8 @@ public sealed partial class InferenceEngine(
         Output contract — violating this is a fatal error:
         • Exactly one JSON object, nothing else.
         • No ```json fences. No "Here is…" preamble. No explanation after the JSON.
-        • Schema: {"tmdb_id":"str|null","group_name":"str|null","season":int|null,"episode":int|null}
+        • Schema: {"tmdb_id":"str|null","group_name":"str|null","season":int|null,"episode":int|null,"confidence":number}
+        • confidence MUST be between 0 and 1. Use a lower value when the TMDB match, season normalization, episode, or group is uncertain. Use 1 only when every value is strongly supported by the feed and TMDB results.
         """;
 
     private const string FileNameSystemPrompt = """
@@ -98,10 +99,14 @@ public sealed partial class InferenceEngine(
                 LogInferenceNoResult(logger, title);
             return result;
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             LogInferenceFailed(logger, ex, title);
-            return null;
+            throw;
         }
         finally
         {
@@ -269,11 +274,19 @@ public sealed partial class InferenceEngine(
 
         if (json == null) return null;
 
+        var confidence = json["confidence"]?.GetValue<double?>();
+        if (confidence is not null
+            && (double.IsNaN(confidence.Value)
+                || double.IsInfinity(confidence.Value)
+                || confidence is < 0 or > 1))
+            confidence = null;
+
         return new InferenceResult(
             TmdbId: json["tmdb_id"]?.GetValue<string>(),
             GroupName: json["group_name"]?.GetValue<string>(),
             Season: json["season"]?.GetValue<int?>(),
-            Episode: json["episode"]?.GetValue<int?>());
+            Episode: json["episode"]?.GetValue<int?>(),
+            Confidence: confidence);
     }
 
     private static IReadOnlyList<FileNameInferenceResult> ParseFileNameInferenceResults(

@@ -22,6 +22,7 @@ internal sealed class FakeFileMappingRepository : IFileMappingRepository
 
     public Task<bool> ReplaceForAnimationInfoAsync(
         Guid animationInfoId,
+        long expectedStateVersion,
         string expectedFileStore,
         string expectedStorePath,
         IReadOnlyList<FileMapping> mappings,
@@ -31,6 +32,12 @@ internal sealed class FakeFileMappingRepository : IFileMappingRepository
         _mappings.AddRange(mappings);
         return Task.FromResult(true);
     }
+
+    public Task<IReadOnlyList<FileMapping>> GetForAnimationInfoAsync(
+        Guid animationInfoId,
+        CancellationToken cancellationToken)
+        => Task.FromResult<IReadOnlyList<FileMapping>>(
+            Snapshot().Where(mapping => mapping.AnimationInfoId == animationInfoId).ToList());
 
     public Task<FileMapping?> FindByVirtualPathAsync(string virtualPath, CancellationToken cancellationToken)
         => Task.FromResult(Snapshot().FirstOrDefault(m => m.VirtualPath == virtualPath));

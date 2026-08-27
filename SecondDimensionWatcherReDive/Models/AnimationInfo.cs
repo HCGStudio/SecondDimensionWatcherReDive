@@ -49,4 +49,16 @@ public class AnimationInfo
     public SubscriptionAutomationDisposition? AutomationDisposition { get; set; }
 
     public string? AutomationExplanationJson { get; set; }
+
+    public MetadataReviewStatus MetadataStatus { get; set; }
+
+    public double? MetadataConfidence { get; set; }
+
+    public string? MetadataLastError { get; set; }
+
+    public DateTimeOffset? MetadataReviewedAt { get; set; }
+
+    public long StateVersion { get; set; }
+
+    public Guid? CurrentMetadataReviewOperationId { get; set; }
 }

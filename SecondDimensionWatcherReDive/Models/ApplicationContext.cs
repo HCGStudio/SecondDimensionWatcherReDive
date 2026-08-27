@@ -25,9 +25,70 @@ public class ApplicationContext : DbContext
     public DbSet<SubscriptionAutomationPolicy> SubscriptionAutomationPolicies { get; set; }
     public DbSet<MigrationMarker> MigrationMarkers { get; set; }
     public DbSet<WebDavToken> WebDavTokens { get; set; }
+    public DbSet<MetadataReviewOperation> MetadataReviewOperations { get; set; }
+    public DbSet<MetadataReviewMappingSnapshot> MetadataReviewMappingSnapshots { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<Animation>()
+            .HasIndex(animation => animation.TmdbId)
+            .IsUnique();
+
+        modelBuilder.Entity<AnimationGroup>()
+            .HasIndex(group => group.Name)
+            .IsUnique();
+
+        modelBuilder.Entity<AnimationInfo>()
+            .Property(info => info.StateVersion)
+            .IsConcurrencyToken();
+
+        modelBuilder.Entity<AnimationInfo>()
+            .Property(info => info.MetadataLastError)
+            .HasMaxLength(1024);
+
+        modelBuilder.Entity<AnimationInfo>()
+            .ToTable(table => table.HasCheckConstraint(
+                "CK_AnimationInfo_MetadataConfidence_Range",
+                "\"MetadataConfidence\" IS NULL OR (\"MetadataConfidence\" >= 0 AND \"MetadataConfidence\" <= 1)"));
+
+        modelBuilder.Entity<AnimationInfo>()
+            .HasIndex(info => new { info.MetadataStatus, info.PublishTime });
+
+        modelBuilder.Entity<AnimationInfo>()
+            .HasIndex(info => info.CurrentMetadataReviewOperationId)
+            .IsUnique();
+
+        modelBuilder.Entity<MetadataReviewOperation>()
+            .HasOne(operation => operation.AnimationInfo)
+            .WithMany()
+            .HasForeignKey(operation => operation.AnimationInfoId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<MetadataReviewOperation>()
+            .HasIndex(operation => new { operation.AnimationInfoId, operation.State });
+
+        modelBuilder.Entity<MetadataReviewOperation>()
+            .HasIndex(operation => new { operation.State, operation.ExpiresAt });
+
+        modelBuilder.Entity<MetadataReviewOperation>()
+            .HasIndex(operation => new { operation.AnimationInfoId, operation.AppliedVersion })
+            .IsUnique();
+
+        modelBuilder.Entity<MetadataReviewOperation>()
+            .ToTable(table => table.HasCheckConstraint(
+                "CK_MetadataReviewOperations_Expiry",
+                "\"ExpiresAt\" > \"CreatedAt\""));
+
+        modelBuilder.Entity<MetadataReviewMappingSnapshot>()
+            .HasOne(snapshot => snapshot.Operation)
+            .WithMany(operation => operation.MappingSnapshots)
+            .HasForeignKey(snapshot => snapshot.OperationId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<MetadataReviewMappingSnapshot>()
+            .HasIndex(snapshot => new { snapshot.OperationId, snapshot.Kind, snapshot.VirtualPath })
+            .IsUnique();
+
         modelBuilder.Entity<MigrationMarker>()
             .HasKey(m => m.Key);
 

@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using SecondDimensionWatcherReDive.Models;
@@ -11,9 +12,11 @@ using SecondDimensionWatcherReDive.Models;
 namespace SecondDimensionWatcherReDive.Migrations
 {
     [DbContext(typeof(ApplicationContext))]
-    partial class ApplicationContextModelSnapshot : ModelSnapshot
+    [Migration("20260827130549_AddMetadataReviewCenter")]
+    partial class AddMetadataReviewCenter
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -85,13 +88,6 @@ namespace SecondDimensionWatcherReDive.Migrations
                     b.Property<Guid?>("AnimationId")
                         .HasColumnType("uuid");
 
-                    b.Property<string>("AutomationDisposition")
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
-
-                    b.Property<string>("AutomationExplanationJson")
-                        .HasColumnType("text");
-
                     b.Property<byte[]>("CachedDownloadData")
                         .IsRequired()
                         .HasColumnType("bytea");
@@ -151,14 +147,8 @@ namespace SecondDimensionWatcherReDive.Migrations
                     b.Property<DateTimeOffset>("PublishTime")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<long?>("ReleaseSizeBytes")
-                        .HasColumnType("bigint");
-
                     b.Property<int?>("Season")
                         .HasColumnType("integer");
-
-                    b.Property<Guid?>("SourceFeedId")
-                        .HasColumnType("uuid");
 
                     b.Property<long>("StateVersion")
                         .IsConcurrencyToken()
@@ -179,8 +169,6 @@ namespace SecondDimensionWatcherReDive.Migrations
                         .IsUnique();
 
                     b.HasIndex("GroupId");
-
-                    b.HasIndex("SourceFeedId");
 
                     b.HasIndex("MetadataStatus", "PublishTime");
 
@@ -550,55 +538,6 @@ namespace SecondDimensionWatcherReDive.Migrations
                     b.ToTable("SeasonBangumis");
                 });
 
-            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.SubscriptionAutomationPolicy", b =>
-                {
-                    b.Property<Guid>("FeedId")
-                        .HasColumnType("uuid");
-
-                    b.PrimitiveCollection<string[]>("Codecs")
-                        .IsRequired()
-                        .HasColumnType("text[]");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.PrimitiveCollection<string[]>("ExcludedKeywords")
-                        .IsRequired()
-                        .HasColumnType("text[]");
-
-                    b.PrimitiveCollection<string[]>("Languages")
-                        .IsRequired()
-                        .HasColumnType("text[]");
-
-                    b.Property<long?>("MaxSizeBytes")
-                        .HasColumnType("bigint");
-
-                    b.Property<long?>("MinSizeBytes")
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("Mode")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
-
-                    b.PrimitiveCollection<string[]>("Resolutions")
-                        .IsRequired()
-                        .HasColumnType("text[]");
-
-                    b.PrimitiveCollection<string[]>("SubtitleGroups")
-                        .IsRequired()
-                        .HasColumnType("text[]");
-
-                    b.Property<DateTimeOffset>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("FeedId");
-
-                    b.HasIndex("UpdatedAt");
-
-                    b.ToTable("SubscriptionAutomationPolicies");
-                });
-
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.WebDavToken", b =>
                 {
                     b.Property<Guid>("Id")
@@ -637,11 +576,6 @@ namespace SecondDimensionWatcherReDive.Migrations
                         .WithMany()
                         .HasForeignKey("GroupId");
 
-                    b.HasOne("SecondDimensionWatcherReDive.Models.Feed", null)
-                        .WithMany()
-                        .HasForeignKey("SourceFeedId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
                     b.Navigation("Animation");
 
                     b.Navigation("Group");
@@ -676,17 +610,6 @@ namespace SecondDimensionWatcherReDive.Migrations
                         .HasForeignKey("AnimationId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
-                });
-
-            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.SubscriptionAutomationPolicy", b =>
-                {
-                    b.HasOne("SecondDimensionWatcherReDive.Models.Feed", "Feed")
-                        .WithOne()
-                        .HasForeignKey("SecondDimensionWatcherReDive.Models.SubscriptionAutomationPolicy", "FeedId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Feed");
                 });
 
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.MetadataReviewMappingSnapshot", b =>

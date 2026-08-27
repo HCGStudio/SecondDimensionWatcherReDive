@@ -1,0 +1,123 @@
+{
+  "title": "メタデータ確認センター",
+  "subtitle": "未識別・低信頼度・識別失敗の項目をまとめて処理します。仮想パスの差分を確認してから、メタデータとファイルマッピングを原子的に更新します。",
+  "tabs": {
+    "aria": "確認カテゴリー",
+    "pending": "未識別",
+    "lowConfidence": "低信頼度",
+    "failed": "識別失敗"
+  },
+  "fields": {
+    "name": "作品名",
+    "tmdbId": "TMDB ID",
+    "season": "シーズン",
+    "episode": "話数",
+    "groupName": "字幕グループ"
+  },
+  "values": {
+    "notResolved": "作品未識別",
+    "unset": "未設定"
+  },
+  "item": {
+    "confidence": "信頼度 {{confidence}}",
+    "review": "確認・編集",
+    "seasonEpisode": "S{{season}} · E{{episode}}",
+    "mappedFiles": "マッピング済み {{count}} ファイル",
+    "downloaded": "ダウンロード完了",
+    "notDownloaded": "ダウンロード未完了",
+    "retryCount": "試行 {{count}} 回",
+    "revision": "リビジョン {{revision}}"
+  },
+  "recent": {
+    "title": "最近の再マッピング",
+    "subtitle": "後続の変更が行われていない原子的な再マッピングを元に戻せます。",
+    "revision": "現在のリビジョン {{revision}}",
+    "undo": "元に戻す",
+    "undoing": "元に戻しています",
+    "unavailable": "取り消し不可",
+    "empty": "確認を完了すると、取り消し可能な再マッピングがここに表示されます。"
+  },
+  "editor": {
+    "title": "メタデータを確認",
+    "currentMetadata": "現在の識別結果",
+    "currentRevision": "リビジョン {{revision}}",
+    "unsetHint": "空欄にすると該当フィールドを消去します。プレビュー後に入力を変更すると、そのプレビューは無効になります。",
+    "placeholders": {
+      "tmdbId": "例：209867",
+      "season": "例：1",
+      "episode": "例：12",
+      "groupName": "例：LoliHouse"
+    },
+    "validation": {
+      "tmdbId": "有効な正の整数の TMDB ID を入力してください。",
+      "seasonRequired": "TMDB シーズン番号は必須です。",
+      "nonNegativeInteger": "0 以上の整数を入力してください。",
+      "groupNameLength": "字幕グループ名は 200 文字以内で入力してください。"
+    },
+    "errors": {
+      "conflict": "この項目は別の場所で更新されました。パネルを閉じて一覧を更新し、再度確認してください（409）。",
+      "validation": "サーバーでメタデータまたはパスを検証できませんでした。入力と警告を確認してください（422）。",
+      "requestFailed": "リクエストに失敗し、変更は適用されませんでした。もう一度お試しください。"
+    },
+    "preview": "仮想パスをプレビュー",
+    "previewing": "プレビューを生成中",
+    "refreshPreview": "プレビューを再生成",
+    "apply": "原子的な再マッピングを確定",
+    "applying": "適用中"
+  },
+  "preview": {
+    "title": "適用前プレビュー",
+    "revisionAndExpiry": "リビジョン {{revision}} 基準 · {{expiresAt}} に期限切れ",
+    "ready": "適用できます",
+    "blocked": "適用できません",
+    "resolvedMetadata": "サーバーで解決したメタデータ",
+    "warnings": "注意事項",
+    "pathChanges": "仮想パスの変更（{{count}}）",
+    "noPathChanges": "再マッピング対象のファイルはありません。このプレビューからメタデータだけを更新できます。",
+    "noPath": "（パスなし）",
+    "collisionAdjusted": "パスの競合を検出したため、保存先ファイル名を調整しました。",
+    "changeKinds": {
+      "added": "追加",
+      "moved": "移動",
+      "unchanged": "変更なし",
+      "removed": "削除"
+    },
+    "warningCodes": {
+      "notDownloaded": "ダウンロードが未完了のため、メタデータだけを更新し、既存のファイルマッピングは変更しません。",
+      "unresolvedFiles": "一部のファイルを識別できなかったため、不明ファイル用の仮想パス規則を使用します。"
+    }
+  },
+  "toast": {
+    "applied": "メタデータとファイルマッピングを更新しました",
+    "appliedDetail": "リビジョン {{revision}}、{{count}} 件のパス変更を処理しました。",
+    "undone": "再マッピングを元に戻しました",
+    "undoConflict": "元に戻せません：この項目には新しい更新があります（409）",
+    "undoValidation": "元に戻せません：以前のパスを復元できません（422）",
+    "undoFailed": "元に戻せませんでした。もう一度お試しください。"
+  },
+  "queue": {
+    "total": "{{count}} 件",
+    "loading": "確認キューを読み込み中…",
+    "page": "{{page}} / {{total}} ページ",
+    "pending": {
+      "title": "識別待ち",
+      "emptyTitle": "未識別の項目はありません",
+      "emptyBody": "すべての新しい項目が識別済み、または別の確認カテゴリーに移動しました。"
+    },
+    "lowConfidence": {
+      "title": "低信頼度の結果",
+      "emptyTitle": "低信頼度の項目はありません",
+      "emptyBody": "手動確認が必要な低信頼度の識別結果はありません。"
+    },
+    "failed": {
+      "title": "識別失敗の項目",
+      "emptyTitle": "識別失敗の項目はありません",
+      "emptyBody": "識別失敗または再試行上限に達した項目はありません。"
+    }
+  },
+  "errors": {
+    "loadFailed": "確認キューを読み込めませんでした",
+    "loadFailedDetail": "最新の確認状態を取得できません。サービスへの接続を確認して再試行してください。",
+    "retry": "再読み込み"
+  }
+}

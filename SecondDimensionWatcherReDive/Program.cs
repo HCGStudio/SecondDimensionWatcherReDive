@@ -29,6 +29,7 @@ using SecondDimensionWatcherReDive.MigrationTasks;
 using SecondDimensionWatcherReDive.Utils.Feed;
 using SecondDimensionWatcherReDive.Utils.FileDownload;
 using SecondDimensionWatcherReDive.Utils.FileStore;
+using SecondDimensionWatcherReDive.Utils.MetadataReview;
 using SecondDimensionWatcherReDive.Utils.Scraper;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -213,11 +214,14 @@ builder.Services.AddScoped<IBangumiSubgroupRepository, BangumiSubgroupRepository
 builder.Services.AddScoped<IChatRepository, ChatRepository>();
 builder.Services.AddScoped<IFileMappingRepository, FileMappingRepository>();
 builder.Services.AddScoped<IFileNameRegexRuleRepository, FileNameRegexRuleRepository>();
+builder.Services.AddScoped<IMetadataReviewRepository, MetadataReviewRepository>();
 builder.Services.AddScoped<IMigrationMarkerRepository, MigrationMarkerRepository>();
 builder.Services.AddScoped<IWebDavTokenRepository, WebDavTokenRepository>();
 builder.Services.AddSingleton<ISeasonScraper, MikananiSeasonScraper>();
+builder.Services.AddScoped<IMetadataReviewService, MetadataReviewService>();
 
 //Add AI Inference
+builder.Services.AddTmdbMetadata(builder.Configuration);
 var aiProvider = builder.Configuration["AI:Provider"]
     is { Length: > 0 } p
     ? p

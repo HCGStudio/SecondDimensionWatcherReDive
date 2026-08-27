@@ -3,7 +3,28 @@
   "uncategorized": "未分類",
   "episodeCount": "{{count}} 話",
   "automationAttention": "ポリシー通知 {{count}} 件",
+  "episodeSummary": "{{episodeCount}} 話・{{releaseCount}} バージョン",
   "back": "戻る",
+  "episodeList": {
+    "controlsLabel": "エピソードの絞り込みと並べ替え",
+    "episodeFilter": "話数",
+    "allEpisodes": "すべての話数",
+    "unknownEpisode": "話数未識別",
+    "groupFilter": "字幕グループ",
+    "allGroups": "すべての字幕グループ",
+    "unknownGroup": "不明な字幕グループ",
+    "sortLabel": "並べ替え",
+    "sortNewest": "新しい公開順",
+    "sortOldest": "古い公開順",
+    "sortEpisodeAscending": "話数の昇順",
+    "sortEpisodeDescending": "話数の降順",
+    "resultCount": "{{total}} 件中 {{visible}} 件を表示",
+    "clearFilters": "絞り込みを解除",
+    "noMatches": {
+      "title": "一致するエピソードがありません",
+      "body": "別の話数または字幕グループを選択してください"
+    }
+  },
   "empty": {
     "main": {
       "title": "アニメがありません",

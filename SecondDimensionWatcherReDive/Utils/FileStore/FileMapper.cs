@@ -9,7 +9,15 @@ public interface IFileMapper
     Task MapDownloadAsync(Guid animationInfoId, CancellationToken cancellationToken);
 
     Task<bool> ReidentifyFilesWithAiAsync(Guid animationInfoId, CancellationToken cancellationToken);
+
+    Task<FileMappingPreview?> PreviewDownloadAsync(
+        AnimationInfo proposedInfo,
+        CancellationToken cancellationToken);
 }
+
+public sealed record FileMappingPreview(
+    IReadOnlyList<FileMapping> Mappings,
+    IReadOnlyList<string> Warnings);
 
 internal sealed class AiFileNameInferenceUnavailableException()
     : InvalidOperationException("AI filename inference is not configured.")
@@ -51,6 +59,29 @@ public partial class FileMapper(
         return MapDownloadCoreAsync(animationInfoId, true, cancellationToken);
     }
 
+    public async Task<FileMappingPreview?> PreviewDownloadAsync(
+        AnimationInfo proposedInfo,
+        CancellationToken cancellationToken)
+    {
+        var warnings = new List<string>();
+        var mappings = await PlanDownloadAsync(
+            proposedInfo,
+            forceAi: false,
+            allowAi: false,
+            warnings,
+            cancellationToken);
+        if (mappings is null) return null;
+
+        if (mappings.Any(mapping => mapping.VirtualPath.StartsWith(
+                UnknownRoot + "/",
+                StringComparison.Ordinal)))
+            warnings.Add("unresolvedFiles");
+
+        return new FileMappingPreview(
+            mappings,
+            warnings.Distinct(StringComparer.Ordinal).ToList());
+    }
+
     private async Task<bool> MapDownloadCoreAsync(
         Guid animationInfoId,
         bool forceAi,
@@ -63,32 +94,18 @@ public partial class FileMapper(
             return false;
         }
 
-        if (info.FileStore is null || info.StorePath is null)
-        {
-            LogNoStorePath(logger, animationInfoId);
-            return false;
-        }
-
-        var store = fileStoreProvider.GetClient(info.FileStore);
-        if (store is null)
-        {
-            LogNoFileStore(logger, info.FileStore);
-            return false;
-        }
-
-        var files = await EnumerateFilesAsync(store, info.StorePath, cancellationToken);
-        if (files.Count == 0)
-        {
-            LogNoFiles(logger, info.StorePath);
-            return false;
-        }
-
-        var mappings = await BuildMappingsAsync(info, files, forceAi, cancellationToken);
+        var mappings = await PlanDownloadAsync(
+            info,
+            forceAi,
+            allowAi: true,
+            warnings: null,
+            cancellationToken);
+        if (mappings is null) return false;
         if (mappings.Count == 0) return false;
 
         // A manual AI-only retry is all-or-nothing. Partial results must not replace a
         // previously complete mapping and move the unresolved episodes to /unknown.
-        if (forceAi && !AllVideoFilesIdentified(files, mappings))
+        if (forceAi && !AllVideoFilesIdentified(mappings))
         {
             LogForcedInferenceNoResult(logger, animationInfoId);
             return false;
@@ -99,8 +116,9 @@ public partial class FileMapper(
         // collide with the unique VirtualPath index.
         var replaced = await fileMappingRepository.ReplaceForAnimationInfoAsync(
             info.Id,
-            info.FileStore,
-            info.StorePath,
+            info.StateVersion,
+            info.FileStore!,
+            info.StorePath!,
             mappings,
             cancellationToken);
         if (!replaced)
@@ -112,21 +130,53 @@ public partial class FileMapper(
         return true;
     }
 
+    private async Task<List<FileMapping>?> PlanDownloadAsync(
+        AnimationInfo info,
+        bool forceAi,
+        bool allowAi,
+        List<string>? warnings,
+        CancellationToken cancellationToken)
+    {
+        if (info.FileStore is null || info.StorePath is null)
+        {
+            LogNoStorePath(logger, info.Id);
+            return null;
+        }
+
+        var store = fileStoreProvider.GetClient(info.FileStore);
+        if (store is null)
+        {
+            LogNoFileStore(logger, info.FileStore);
+            return null;
+        }
+
+        var files = await EnumerateFilesAsync(store, info.StorePath, cancellationToken);
+        if (files.Count == 0)
+        {
+            LogNoFiles(logger, info.StorePath);
+            return null;
+        }
+
+        return await BuildMappingsAsync(
+            info,
+            files,
+            forceAi,
+            allowAi,
+            warnings,
+            cancellationToken);
+    }
+
     private static bool AllVideoFilesIdentified(
-        IReadOnlyList<DiscoveredFile> files,
         IReadOnlyList<FileMapping> mappings)
     {
-        var videos = files
-            .Where(file => VideoExtensions.Contains(Path.GetExtension(file.FileName)))
+        var videos = mappings
+            .Where(mapping => VideoExtensions.Contains(Path.GetExtension(mapping.PhysicalPath)))
             .ToList();
         if (videos.Count == 0) return false;
 
         foreach (var video in videos)
         {
-            var mapping = mappings.FirstOrDefault(candidate =>
-                candidate.PhysicalPath == video.PhysicalPath);
-            if (mapping is null
-                || mapping.VirtualPath.StartsWith(UnknownRoot + "/", StringComparison.Ordinal))
+            if (video.VirtualPath.StartsWith(UnknownRoot + "/", StringComparison.Ordinal))
                 return false;
         }
 
@@ -140,7 +190,9 @@ public partial class FileMapper(
     {
         var result = new List<DiscoveredFile>();
         await WalkAsync(store, rootPath, "", result, cancellationToken);
-        return result;
+        return result
+            .OrderBy(file => file.RelativePath, StringComparer.Ordinal)
+            .ToList();
 
         static async Task WalkAsync(
             IFileStore store, string path, string relativeBase,
@@ -164,6 +216,8 @@ public partial class FileMapper(
         AnimationInfo info,
         List<DiscoveredFile> files,
         bool forceAi,
+        bool allowAi,
+        List<string>? warnings,
         CancellationToken cancellationToken)
     {
         var mappings = new List<FileMapping>();
@@ -186,7 +240,7 @@ public partial class FileMapper(
                 var virtualPath = $"{UnknownRoot}/{file.RelativePath}";
                 AddMapping(mappings, reservedPaths, info, file, virtualPath, cancellationToken);
             }
-            return await ResolveCollisionsAsync(mappings, cancellationToken);
+            return await ResolveCollisionsAsync(mappings, warnings, cancellationToken);
         }
 
         var videos = files.Where(f => VideoExtensions.Contains(Path.GetExtension(f.FileName))).ToList();
@@ -202,7 +256,7 @@ public partial class FileMapper(
                 foreach (var file in files)
                     AddMapping(mappings, reservedPaths, info, file,
                         $"{UnknownRoot}/{file.RelativePath}", cancellationToken);
-                return await ResolveCollisionsAsync(mappings, cancellationToken);
+                return await ResolveCollisionsAsync(mappings, warnings, cancellationToken);
             }
 
             var mainVideo = videos.Count == 1
@@ -234,12 +288,17 @@ public partial class FileMapper(
                 AddMapping(mappings, reservedPaths, info, file,
                     $"{UnknownRoot}/{file.RelativePath}", cancellationToken);
 
-            return await ResolveCollisionsAsync(mappings, cancellationToken);
+            return await ResolveCollisionsAsync(mappings, warnings, cancellationToken);
         }
 
         // Case 3: known multi-episode — resolve the whole video batch. Stored rules
         // run first during normal mapping; only unresolved files are sent to AI.
-        var inferredFiles = await InferVideoFilesAsync(info, videos, forceAi, cancellationToken);
+        var inferredFiles = await InferVideoFilesAsync(
+            info,
+            videos,
+            forceAi,
+            allowAi,
+            cancellationToken);
         var matchedSubs = new HashSet<DiscoveredFile>();
         foreach (var video in videos)
         {
@@ -273,13 +332,14 @@ public partial class FileMapper(
             AddMapping(mappings, reservedPaths, info, file,
                 $"{UnknownRoot}/{file.RelativePath}", cancellationToken);
 
-        return await ResolveCollisionsAsync(mappings, cancellationToken);
+        return await ResolveCollisionsAsync(mappings, warnings, cancellationToken);
     }
 
     private async Task<Dictionary<string, FileNameInferenceResult>> InferVideoFilesAsync(
         AnimationInfo info,
         IReadOnlyList<DiscoveredFile> videos,
         bool forceAi,
+        bool allowAi,
         CancellationToken cancellationToken)
     {
         var inputs = videos
@@ -294,7 +354,7 @@ public partial class FileMapper(
             .Where(input => !results.ContainsKey(input.FilePath))
             .ToList();
 
-        if (unresolved.Count > 0 && inferenceEngine is not null)
+        if (allowAi && unresolved.Count > 0 && inferenceEngine is not null)
         {
             var aiResults = await inferenceEngine.InferFileNamesAsync(
                 new FileNameInferenceRequest(
@@ -393,7 +453,9 @@ public partial class FileMapper(
     }
 
     private async Task<List<FileMapping>> ResolveCollisionsAsync(
-        List<FileMapping> mappings, CancellationToken cancellationToken)
+        List<FileMapping> mappings,
+        List<string>? warnings,
+        CancellationToken cancellationToken)
     {
         var result = new List<FileMapping>(mappings.Count);
         var taken = new HashSet<string>(StringComparer.Ordinal);
@@ -405,6 +467,8 @@ public partial class FileMapper(
                        mapping.AnimationInfoId,
                        cancellationToken))
                 path = NextSuffixed(path);
+            if (!string.Equals(path, mapping.VirtualPath, StringComparison.Ordinal))
+                warnings?.Add("collisionAdjusted");
             taken.Add(path);
             result.Add(mapping with { VirtualPath = path });
         }

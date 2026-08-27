@@ -24,4 +24,10 @@ public sealed record AnimationInfo(
     Guid? SourceFeedId = null,
     long? ReleaseSizeBytes = null,
     SubscriptionAutomationDisposition? AutomationDisposition = null,
-    string? AutomationExplanationJson = null);
+    string? AutomationExplanationJson = null,
+    MetadataReviewStatus MetadataStatus = MetadataReviewStatus.Pending,
+    double? MetadataConfidence = null,
+    string? MetadataLastError = null,
+    DateTimeOffset? MetadataReviewedAt = null,
+    long StateVersion = 0,
+    Guid? CurrentMetadataReviewOperationId = null);

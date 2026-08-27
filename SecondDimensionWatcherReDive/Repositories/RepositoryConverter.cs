@@ -30,7 +30,13 @@ internal static class RepositoryConverter
             entity.SourceFeedId,
             entity.ReleaseSizeBytes,
             entity.AutomationDisposition,
-            entity.AutomationExplanationJson);
+            entity.AutomationExplanationJson,
+            entity.MetadataStatus,
+            entity.MetadataConfidence,
+            entity.MetadataLastError,
+            entity.MetadataReviewedAt,
+            entity.StateVersion,
+            entity.CurrentMetadataReviewOperationId);
 
     public static DataRepo.Animation ToRecord(this Models.Animation entity) =>
         new(entity.Id,
@@ -121,7 +127,13 @@ internal static class RepositoryConverter
             SourceFeedId = record.SourceFeedId,
             ReleaseSizeBytes = record.ReleaseSizeBytes,
             AutomationDisposition = record.AutomationDisposition,
-            AutomationExplanationJson = record.AutomationExplanationJson
+            AutomationExplanationJson = record.AutomationExplanationJson,
+            MetadataStatus = record.MetadataStatus,
+            MetadataConfidence = record.MetadataConfidence,
+            MetadataLastError = record.MetadataLastError,
+            MetadataReviewedAt = record.MetadataReviewedAt,
+            StateVersion = record.StateVersion,
+            CurrentMetadataReviewOperationId = record.CurrentMetadataReviewOperationId
         };
 
     public static Models.Animation ToEntity(this DataRepo.Animation record) =>
@@ -243,6 +255,12 @@ internal static class RepositoryConverter
         entity.ReleaseSizeBytes = record.ReleaseSizeBytes;
         entity.AutomationDisposition = record.AutomationDisposition;
         entity.AutomationExplanationJson = record.AutomationExplanationJson;
+        entity.MetadataStatus = record.MetadataStatus;
+        entity.MetadataConfidence = record.MetadataConfidence;
+        entity.MetadataLastError = record.MetadataLastError;
+        entity.MetadataReviewedAt = record.MetadataReviewedAt;
+        entity.StateVersion = record.StateVersion;
+        entity.CurrentMetadataReviewOperationId = record.CurrentMetadataReviewOperationId;
     }
 
     public static void ApplyTo(this DataRepo.SeasonBangumi record, Models.SeasonBangumi entity)

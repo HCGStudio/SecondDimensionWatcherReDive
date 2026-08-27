@@ -1,8 +1,13 @@
+import React from "react";
+import { useTranslation } from "react-i18next";
+import { useLocation, useNavigate } from "react-router";
+
 import {
   Check,
   Clapperboard,
   Cog,
   Download,
+  FileSearch,
   FolderOpen,
   Home,
   LayoutGrid,
@@ -12,15 +17,12 @@ import {
   Settings,
   User,
 } from "lucide-react";
-import React from "react";
-import { useTranslation } from "react-i18next";
-import { useNavigate, useLocation } from "react-router";
 
 import { useLoginStatus } from "../auth/hooks";
 import i18n, {
+  type SupportedLanguage,
   languageLabels,
   supportedLanguages,
-  type SupportedLanguage,
 } from "../i18n";
 import { cn } from "../lib/cn";
 import {
@@ -39,11 +41,20 @@ interface NavItem {
 
 const useNavItems = (): NavItem[] => [
   { icon: <Home size={16} />, labelKey: "nav.home", path: "/" },
-  { icon: <Download size={16} />, labelKey: "nav.downloading", path: "/downloading" },
+  {
+    icon: <Download size={16} />,
+    labelKey: "nav.downloading",
+    path: "/downloading",
+  },
   { icon: <List size={16} />, labelKey: "nav.downloaded", path: "/downloaded" },
   { icon: <FolderOpen size={16} />, labelKey: "nav.files", path: "/files" },
   { icon: <LayoutGrid size={16} />, labelKey: "nav.feeds", path: "/feeds" },
   { icon: <Settings size={16} />, labelKey: "nav.tasks", path: "/tasks" },
+  {
+    icon: <FileSearch size={16} />,
+    labelKey: "nav.metadataReview",
+    path: "/metadata-review",
+  },
   { icon: <MessageSquare size={16} />, labelKey: "nav.chat", path: "/chat" },
   { icon: <Cog size={16} />, labelKey: "nav.settings", path: "/settings" },
 ];
@@ -89,13 +100,17 @@ const MobileNavMenu: React.FC = () => {
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          className="lg:hidden inline-flex items-center justify-center rounded-md p-1.5 text-muted hover:text-foreground hover:bg-canvas transition-colors"
+          className="xl:hidden inline-flex items-center justify-center rounded-md p-1.5 text-muted hover:text-foreground hover:bg-canvas transition-colors"
           aria-label={t("nav.menu")}
         >
           <Menu size={18} />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" sideOffset={8} className="min-w-[12rem]">
+      <DropdownMenuContent
+        align="start"
+        sideOffset={8}
+        className="min-w-[12rem]"
+      >
         {items.map((item) => {
           const isActive = isPathActive(location.pathname, item.path);
           return (
@@ -188,7 +203,7 @@ export const AppHeader: React.FC = () => {
   return (
     <header className="sticky top-0 z-30 border-b border-border bg-surface/95 backdrop-blur">
       <nav className="flex h-14 items-center justify-between gap-2 px-4 sm:px-6">
-        <div className="flex min-w-0 items-center gap-2 lg:gap-6">
+        <div className="flex min-w-0 items-center gap-2 xl:gap-4">
           <MobileNavMenu />
           <a
             className="flex min-w-0 items-center gap-2 font-serif text-lg font-medium text-foreground cursor-pointer"
@@ -197,7 +212,7 @@ export const AppHeader: React.FC = () => {
             <Clapperboard size={20} className="shrink-0" />
             <span className="truncate">{t("appName")}</span>
           </a>
-          <div className="hidden lg:flex items-center gap-1">
+          <div className="hidden xl:flex items-center gap-0.5">
             {items.map((item) => (
               <NavLink
                 key={item.path}
