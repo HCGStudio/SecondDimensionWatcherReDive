@@ -1,5 +1,5 @@
 # Stage 1: Build frontend
-FROM node:22 AS frontend-build
+FROM node:24 AS frontend-build
 WORKDIR /app
 RUN corepack enable
 COPY SecondDimensionWatcherReDive.Client/ .

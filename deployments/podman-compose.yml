@@ -25,7 +25,7 @@ services:
     restart: unless-stopped
 
   valkey:
-    image: docker.io/valkey/valkey:8-alpine
+    image: docker.io/valkey/valkey:9-alpine
     volumes:
       - valkeydata:/data
     restart: unless-stopped
