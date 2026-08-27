@@ -1,0 +1,123 @@
+{
+  "title": "Metadata review center",
+  "subtitle": "Resolve pending, low-confidence, and failed identifications in one place. Review the virtual-path diff before metadata and file mappings are updated atomically.",
+  "tabs": {
+    "aria": "Review categories",
+    "pending": "Pending",
+    "lowConfidence": "Low confidence",
+    "failed": "Failed"
+  },
+  "fields": {
+    "name": "Title",
+    "tmdbId": "TMDB ID",
+    "season": "Season",
+    "episode": "Episode",
+    "groupName": "Release group"
+  },
+  "values": {
+    "notResolved": "Title not identified",
+    "unset": "Not set"
+  },
+  "item": {
+    "confidence": "{{confidence}} confidence",
+    "review": "Review and edit",
+    "seasonEpisode": "S{{season}} · E{{episode}}",
+    "mappedFiles": "{{count}} mapped files",
+    "downloaded": "Download complete",
+    "notDownloaded": "Download incomplete",
+    "retryCount": "{{count}} attempts",
+    "revision": "Revision {{revision}}"
+  },
+  "recent": {
+    "title": "Recent remaps",
+    "subtitle": "Undo a recent atomic remap here, provided no later edit has replaced it.",
+    "revision": "Current revision {{revision}}",
+    "undo": "Undo",
+    "undoing": "Undoing",
+    "unavailable": "Unavailable",
+    "empty": "Undoable remaps will appear here after you complete a review."
+  },
+  "editor": {
+    "title": "Review metadata",
+    "currentMetadata": "Current identification",
+    "currentRevision": "Revision {{revision}}",
+    "unsetHint": "Leave a field blank to clear it. Changing any input after previewing invalidates that preview.",
+    "placeholders": {
+      "tmdbId": "For example, 209867",
+      "season": "For example, 1",
+      "episode": "For example, 12",
+      "groupName": "For example, LoliHouse"
+    },
+    "validation": {
+      "tmdbId": "Enter a valid positive-integer TMDB ID.",
+      "seasonRequired": "A TMDB season is required.",
+      "nonNegativeInteger": "Enter a whole number greater than or equal to 0.",
+      "groupNameLength": "Release group must be 200 characters or fewer."
+    },
+    "errors": {
+      "conflict": "This item changed elsewhere. Close the panel, refresh the list, and review it again (409).",
+      "validation": "The server could not validate this metadata or its paths. Check the input and warnings, then retry (422).",
+      "requestFailed": "The request failed and no changes were applied. Please try again."
+    },
+    "preview": "Preview virtual paths",
+    "previewing": "Generating preview",
+    "refreshPreview": "Regenerate preview",
+    "apply": "Confirm atomic remap",
+    "applying": "Applying"
+  },
+  "preview": {
+    "title": "Pre-apply preview",
+    "revisionAndExpiry": "Based on revision {{revision}} · expires at {{expiresAt}}",
+    "ready": "Ready to apply",
+    "blocked": "Cannot apply",
+    "resolvedMetadata": "Server-resolved metadata",
+    "warnings": "Attention required",
+    "pathChanges": "Virtual-path changes ({{count}})",
+    "noPathChanges": "This item has no files to remap; its metadata can still be updated from this preview.",
+    "noPath": "(no path)",
+    "collisionAdjusted": "A path collision was detected, so the server adjusted the destination filename.",
+    "changeKinds": {
+      "added": "Added",
+      "moved": "Moved",
+      "unchanged": "Unchanged",
+      "removed": "Removed"
+    },
+    "warningCodes": {
+      "notDownloaded": "The download is incomplete, so only metadata will change and existing file mappings will be preserved.",
+      "unresolvedFiles": "Some files could not be identified and will use the unknown-file virtual-path rule."
+    }
+  },
+  "toast": {
+    "applied": "Metadata and file mappings updated",
+    "appliedDetail": "Revision {{revision}} with {{count}} path changes.",
+    "undone": "Remap undone",
+    "undoConflict": "Cannot undo: this item has a newer update (409)",
+    "undoValidation": "Cannot undo: the former paths cannot be restored (422)",
+    "undoFailed": "Undo failed. Please try again."
+  },
+  "queue": {
+    "total": "{{count}} items",
+    "loading": "Loading the review queue…",
+    "page": "Page {{page}} of {{total}}",
+    "pending": {
+      "title": "Awaiting identification",
+      "emptyTitle": "No pending items",
+      "emptyBody": "Every new item is identified or has moved to another review category."
+    },
+    "lowConfidence": {
+      "title": "Low-confidence results",
+      "emptyTitle": "No low-confidence items",
+      "emptyBody": "There are no low-confidence identifications awaiting confirmation."
+    },
+    "failed": {
+      "title": "Failed identifications",
+      "emptyTitle": "No failed items",
+      "emptyBody": "There are no failed identifications or items at their retry limit."
+    }
+  },
+  "errors": {
+    "loadFailed": "Could not load the review queue",
+    "loadFailedDetail": "The latest review state is unavailable. Check the service connection and retry.",
+    "retry": "Reload"
+  }
+}

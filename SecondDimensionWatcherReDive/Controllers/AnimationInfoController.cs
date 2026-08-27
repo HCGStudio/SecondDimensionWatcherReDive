@@ -175,7 +175,15 @@ internal class AnimationInfoController(
         if (info is null)
             return NotFound();
 
-        var updated = info with { IsAiProcessed = false, AiRetryCount = 0 };
+        var updated = info with
+        {
+            IsAiProcessed = false,
+            AiRetryCount = 0,
+            MetadataStatus = MetadataReviewStatus.Pending,
+            MetadataConfidence = null,
+            MetadataLastError = null,
+            MetadataReviewedAt = null
+        };
         await animationInfoRepository.UpdateAsync(updated, cancellationToken);
         return Ok();
     }

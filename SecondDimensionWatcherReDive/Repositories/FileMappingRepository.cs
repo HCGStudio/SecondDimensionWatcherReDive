@@ -10,17 +10,54 @@ public class FileMappingRepository(
     public async Task AddRangeAsync(IReadOnlyList<FileMapping> mappings, CancellationToken cancellationToken)
     {
         if (mappings.Count == 0) return;
-        await context.FileMappings.AddRangeAsync(mappings.Select(m => m.ToEntity()), cancellationToken);
-        await context.SaveChangesAsync(cancellationToken);
+
+        var animationInfoIds = mappings
+            .Select(mapping => mapping.AnimationInfoId)
+            .Distinct()
+            .ToArray();
+        var strategy = context.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async () =>
+        {
+            await using var writeContext = new Models.ApplicationContext(contextOptions);
+            await using var transaction = await writeContext.Database
+                .BeginTransactionAsync(cancellationToken);
+
+            await MappingTransactionLock.AcquireAsync(writeContext, cancellationToken);
+            var animationInfos = await MappingTransactionLock.LockAnimationInfosAsync(
+                writeContext,
+                animationInfoIds,
+                cancellationToken);
+            if (animationInfos.Count != animationInfoIds.Length)
+                throw new InvalidOperationException("Cannot add mappings for a missing AnimationInfo.");
+
+            await writeContext.FileMappings.AddRangeAsync(
+                mappings.Select(mapping => mapping.ToEntity()),
+                cancellationToken);
+            foreach (var animationInfo in animationInfos.Values)
+                animationInfo.StateVersion = checked(animationInfo.StateVersion + 1);
+
+            await writeContext.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        });
     }
 
     public async Task<bool> ReplaceForAnimationInfoAsync(
         Guid animationInfoId,
+        long expectedStateVersion,
         string expectedFileStore,
         string expectedStorePath,
         IReadOnlyList<FileMapping> mappings,
         CancellationToken cancellationToken)
     {
+        if (mappings.Any(mapping => mapping.AnimationInfoId != animationInfoId))
+            throw new ArgumentException(
+                "Every replacement mapping must belong to the requested AnimationInfo.",
+                nameof(mappings));
+
+        var proposedPaths = mappings.Select(mapping => mapping.VirtualPath).ToArray();
+        if (proposedPaths.Distinct(StringComparer.Ordinal).Count() != proposedPaths.Length)
+            return false;
+
         var strategy = context.Database.CreateExecutionStrategy();
         return await strategy.ExecuteAsync(async () =>
         {
@@ -30,26 +67,23 @@ public class FileMappingRepository(
             await using var transaction = await replaceContext.Database
                 .BeginTransactionAsync(cancellationToken);
 
-            // Serialize all replacements for one download across app instances. The lock is
-            // held until commit; the following READ COMMITTED delete sees the latest mapping set.
-            await replaceContext.Database.ExecuteSqlInterpolatedAsync(
-                $"""SELECT 1 FROM "AnimationInfo" WHERE "Id" = {animationInfoId} FOR UPDATE""",
+            await MappingTransactionLock.AcquireAsync(replaceContext, cancellationToken);
+            var current = await MappingTransactionLock.LockAnimationInfoAsync(
+                replaceContext,
+                animationInfoId,
                 cancellationToken);
-
-            var current = await replaceContext.AnimationInfo
-                .AsNoTracking()
-                .Where(info => info.Id == animationInfoId)
-                .Select(info => new
-                {
-                    info.IsDownloadFinished,
-                    info.FileStore,
-                    info.StorePath
-                })
-                .SingleOrDefaultAsync(cancellationToken);
             if (current is null
+                || current.StateVersion != expectedStateVersion
                 || !current.IsDownloadFinished
                 || current.FileStore != expectedFileStore
                 || current.StorePath != expectedStorePath)
+                return false;
+
+            if (proposedPaths.Length > 0
+                && await replaceContext.FileMappings.AnyAsync(
+                    mapping => mapping.AnimationInfoId != animationInfoId
+                               && proposedPaths.Contains(mapping.VirtualPath),
+                    cancellationToken))
                 return false;
 
             await replaceContext.FileMappings
@@ -59,10 +93,23 @@ public class FileMappingRepository(
                 await replaceContext.FileMappings.AddRangeAsync(
                     mappings.Select(mapping => mapping.ToEntity()),
                     cancellationToken);
+            current.StateVersion = checked(current.StateVersion + 1);
             await replaceContext.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             return true;
         });
+    }
+
+    public async Task<IReadOnlyList<FileMapping>> GetForAnimationInfoAsync(
+        Guid animationInfoId,
+        CancellationToken cancellationToken)
+    {
+        var entities = await context.FileMappings
+            .AsNoTracking()
+            .Where(mapping => mapping.AnimationInfoId == animationInfoId)
+            .OrderBy(mapping => mapping.VirtualPath)
+            .ToListAsync(cancellationToken);
+        return entities.Select(entity => entity.ToRecord()).ToList();
     }
 
     public async Task<FileMapping?> FindByVirtualPathAsync(string virtualPath, CancellationToken cancellationToken)
@@ -129,8 +176,28 @@ public class FileMappingRepository(
 
     public async Task RemoveByAnimationInfoAsync(Guid animationInfoId, CancellationToken cancellationToken)
     {
-        await context.FileMappings
-            .Where(m => m.AnimationInfoId == animationInfoId)
-            .ExecuteDeleteAsync(cancellationToken);
+        var strategy = context.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async () =>
+        {
+            await using var removeContext = new Models.ApplicationContext(contextOptions);
+            await using var transaction = await removeContext.Database
+                .BeginTransactionAsync(cancellationToken);
+
+            await MappingTransactionLock.AcquireAsync(removeContext, cancellationToken);
+            var animationInfo = await MappingTransactionLock.LockAnimationInfoAsync(
+                removeContext,
+                animationInfoId,
+                cancellationToken);
+            await removeContext.FileMappings
+                .Where(mapping => mapping.AnimationInfoId == animationInfoId)
+                .ExecuteDeleteAsync(cancellationToken);
+            if (animationInfo is not null)
+            {
+                animationInfo.StateVersion = checked(animationInfo.StateVersion + 1);
+                await removeContext.SaveChangesAsync(cancellationToken);
+            }
+
+            await transaction.CommitAsync(cancellationToken);
+        });
     }
 }

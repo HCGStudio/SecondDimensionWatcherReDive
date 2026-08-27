@@ -30,6 +30,12 @@ public class InferAnimationMetadataTests
         _mockAnimationGroupRepo = new Mock<IAnimationGroupRepository>();
         _mockInferenceEngine = new Mock<IInferenceEngine>();
         _mockFileMapper = new Mock<IFileMapper>();
+        _mockAnimationInfoRepo
+            .Setup(repository => repository.TryUpdateAsync(
+                It.IsAny<AnimationInfo>(),
+                It.IsAny<long>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
 
         var mockScopeFactory = new Mock<IServiceScopeFactory>();
 
@@ -53,12 +59,15 @@ public class InferAnimationMetadataTests
         Guid id,
         string title = "Test Title",
         string description = "Test Description",
-        int aiRetryCount = 0) =>
+        int aiRetryCount = 0,
+        bool isDownloadFinished = false,
+        long stateVersion = 11) =>
         new(id, title, description, DateTimeOffset.Now,
             "", "", Array.Empty<byte>(), "",
-            false, default, default, false,
+            false, default, default, isDownloadFinished,
             null, null, null, null, null, null,
-            false, aiRetryCount);
+            false, aiRetryCount,
+            StateVersion: stateVersion);
 
     private Task InvokeProcessItem(AnimationInfo item, CancellationToken cancellationToken)
     {
@@ -75,7 +84,7 @@ public class InferAnimationMetadataTests
     }
 
     [TestMethod]
-    public async Task ProcessItem_InferenceReturnsNull_MarksProcessed()
+    public async Task ProcessItem_InferenceReturnsNull_LeavesPendingAndIncrementsRetry()
     {
         var item = CreateTestInfo(Guid.NewGuid());
 
@@ -86,9 +95,18 @@ public class InferAnimationMetadataTests
         await InvokeProcessItem(item, CancellationToken.None);
 
         _mockAnimationInfoRepo.Verify(
-            r => r.UpdateAsync(
-                It.Is<AnimationInfo>(i => i.IsAiProcessed),
+            r => r.TryUpdateAsync(
+                It.Is<AnimationInfo>(i =>
+                    !i.IsAiProcessed &&
+                    i.AiRetryCount == 1 &&
+                    i.MetadataStatus == MetadataReviewStatus.Pending &&
+                    i.MetadataConfidence == null &&
+                    i.MetadataLastError != null),
+                item.StateVersion,
                 It.IsAny<CancellationToken>()), Times.Once);
+        _mockAnimationInfoRepo.Verify(
+            r => r.UpdateAsync(It.IsAny<AnimationInfo>(), It.IsAny<CancellationToken>()),
+            Times.Never);
         _mockAnimationRepo.Verify(
             r => r.AddAsync(It.IsAny<Animation>(), It.IsAny<CancellationToken>()), Times.Never);
         _mockAnimationGroupRepo.Verify(
@@ -96,13 +114,13 @@ public class InferAnimationMetadataTests
     }
 
     [TestMethod]
-    public async Task ProcessItem_WithResult_CreatesAnimationAndGroup()
+    public async Task ProcessItem_WithHighConfidenceResult_CreatesAnimationAndGroupAndMarksIdentified()
     {
         var item = CreateTestInfo(Guid.NewGuid(),
             title: "[SubGroup] Anime Title - 01 [1080p]",
             description: "Episode description");
 
-        var result = new InferenceResult("12345", "SubGroup", 1, 1);
+        var result = new InferenceResult("12345", "SubGroup", 1, 1, 0.91);
 
         _mockInferenceEngine
             .Setup(e => e.InferAsync(item.Title, item.Description, It.IsAny<CancellationToken>()))
@@ -121,13 +139,17 @@ public class InferAnimationMetadataTests
         await InvokeProcessItem(item, CancellationToken.None);
 
         _mockAnimationInfoRepo.Verify(
-            r => r.UpdateAsync(
+            r => r.TryUpdateAsync(
                 It.Is<AnimationInfo>(i =>
                     i.IsAiProcessed &&
+                    i.MetadataStatus == MetadataReviewStatus.Identified &&
+                    i.MetadataConfidence == 0.91 &&
+                    i.MetadataLastError == null &&
                     i.Season == 1 &&
                     i.Episode == 1 &&
                     i.Animation != null && i.Animation.TmdbId == "12345" &&
                     i.Group != null && i.Group.Name == "SubGroup"),
+                item.StateVersion,
                 It.IsAny<CancellationToken>()), Times.Once);
 
         _mockAnimationRepo.Verify(
@@ -144,11 +166,33 @@ public class InferAnimationMetadataTests
     }
 
     [TestMethod]
-    public async Task ProcessItem_ExceptionIncrementsRetryCount()
+    public async Task ProcessItem_WithLowConfidenceResult_MarksLowConfidence()
+    {
+        var item = CreateTestInfo(Guid.NewGuid());
+        _mockInferenceEngine
+            .Setup(e => e.InferAsync(item.Title, item.Description, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new InferenceResult(null, null, 2, 4, 0.42));
+
+        await InvokeProcessItem(item, CancellationToken.None);
+
+        _mockAnimationInfoRepo.Verify(repository => repository.TryUpdateAsync(
+            It.Is<AnimationInfo>(updated =>
+                updated.IsAiProcessed &&
+                updated.MetadataStatus == MetadataReviewStatus.LowConfidence &&
+                updated.MetadataConfidence == 0.42 &&
+                updated.Season == 2 &&
+                updated.Episode == 4),
+            item.StateVersion,
+            CancellationToken.None), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task ProcessItem_ThirdFailure_MarksFailed()
     {
         var item = CreateTestInfo(Guid.NewGuid(),
             title: "Failing Title",
-            description: "Failing Description");
+            description: "Failing Description",
+            aiRetryCount: 2);
 
         _mockInferenceEngine
             .Setup(e => e.InferAsync(item.Title, item.Description, It.IsAny<CancellationToken>()))
@@ -157,8 +201,45 @@ public class InferAnimationMetadataTests
         await InvokeProcessItem(item, CancellationToken.None);
 
         _mockAnimationInfoRepo.Verify(
-            r => r.UpdateAsync(
-                It.Is<AnimationInfo>(i => i.AiRetryCount == 1 && !i.IsAiProcessed),
+            r => r.TryUpdateAsync(
+                It.Is<AnimationInfo>(i =>
+                    i.AiRetryCount == 3 &&
+                    !i.IsAiProcessed &&
+                    i.MetadataStatus == MetadataReviewStatus.Failed &&
+                    i.MetadataLastError == "AI service unavailable"),
+                item.StateVersion,
                 It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task ProcessItem_StaleSuccessfulInference_DoesNotRemapDownloadedFiles()
+    {
+        var item = CreateTestInfo(
+            Guid.NewGuid(),
+            isDownloadFinished: true,
+            stateVersion: 42);
+        _mockInferenceEngine
+            .Setup(engine => engine.InferAsync(
+                item.Title,
+                item.Description,
+                CancellationToken.None))
+            .ReturnsAsync(new InferenceResult(null, null, 1, 1, 0.95));
+        _mockAnimationInfoRepo
+            .Setup(repository => repository.TryUpdateAsync(
+                It.IsAny<AnimationInfo>(),
+                item.StateVersion,
+                CancellationToken.None))
+            .ReturnsAsync(false);
+
+        await InvokeProcessItem(item, CancellationToken.None);
+
+        _mockAnimationInfoRepo.Verify(repository => repository.TryUpdateAsync(
+            It.Is<AnimationInfo>(updated =>
+                updated.MetadataStatus == MetadataReviewStatus.Identified),
+            item.StateVersion,
+            CancellationToken.None), Times.Once);
+        _mockFileMapper.Verify(mapper => mapper.MapDownloadAsync(
+            It.IsAny<Guid>(),
+            It.IsAny<CancellationToken>()), Times.Never);
     }
 }

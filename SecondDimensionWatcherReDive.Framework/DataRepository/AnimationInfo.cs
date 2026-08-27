@@ -20,4 +20,10 @@ public sealed record AnimationInfo(
     AnimationGroup? Group,
     Animation? Animation,
     bool IsAiProcessed,
-    int AiRetryCount);
+    int AiRetryCount,
+    MetadataReviewStatus MetadataStatus = MetadataReviewStatus.Pending,
+    double? MetadataConfidence = null,
+    string? MetadataLastError = null,
+    DateTimeOffset? MetadataReviewedAt = null,
+    long StateVersion = 0,
+    Guid? CurrentMetadataReviewOperationId = null);

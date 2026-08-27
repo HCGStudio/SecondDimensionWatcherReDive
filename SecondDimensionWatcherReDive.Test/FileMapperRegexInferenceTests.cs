@@ -10,6 +10,8 @@ namespace SecondDimensionWatcherReDive.Test;
 [TestClass]
 public class FileMapperRegexInferenceTests
 {
+    private const long ExpectedStateVersion = 7;
+
     private static readonly string[] VideoFileNames =
     [
         "Anime - 01.mkv",
@@ -41,6 +43,7 @@ public class FileMapperRegexInferenceTests
             It.IsAny<CancellationToken>()), Times.Never);
         fixture.FileMappingRepository.Verify(repository => repository.ReplaceForAnimationInfoAsync(
             fixture.AnimationInfoId,
+            ExpectedStateVersion,
             "test-store",
             "/downloads/anime",
             It.Is<IReadOnlyList<FileMapping>>(mappings =>
@@ -78,6 +81,7 @@ public class FileMapperRegexInferenceTests
 
         fixture.FileMappingRepository.Verify(repository => repository.ReplaceForAnimationInfoAsync(
             fixture.AnimationInfoId,
+            ExpectedStateVersion,
             "test-store",
             "/downloads/anime",
             It.Is<IReadOnlyList<FileMapping>>(mappings =>
@@ -257,6 +261,7 @@ public class FileMapperRegexInferenceTests
             CancellationToken.None), Times.Once);
         fixture.FileMappingRepository.Verify(repository => repository.ReplaceForAnimationInfoAsync(
             It.IsAny<Guid>(),
+            It.IsAny<long>(),
             It.IsAny<string>(),
             It.IsAny<string>(),
             It.IsAny<IReadOnlyList<FileMapping>>(),
@@ -283,6 +288,7 @@ public class FileMapperRegexInferenceTests
         Assert.IsFalse(result);
         fixture.FileMappingRepository.Verify(repository => repository.ReplaceForAnimationInfoAsync(
             It.IsAny<Guid>(),
+            It.IsAny<long>(),
             It.IsAny<string>(),
             It.IsAny<string>(),
             It.IsAny<IReadOnlyList<FileMapping>>(),
@@ -320,6 +326,7 @@ public class FileMapperRegexInferenceTests
         Assert.IsTrue(result);
         fixture.FileMappingRepository.Verify(repository => repository.ReplaceForAnimationInfoAsync(
             fixture.AnimationInfoId,
+            ExpectedStateVersion,
             "test-store",
             "/downloads/anime",
             It.Is<IReadOnlyList<FileMapping>>(mappings =>
@@ -344,6 +351,7 @@ public class FileMapperRegexInferenceTests
         fixture.FileMappingRepository
             .Setup(repository => repository.ReplaceForAnimationInfoAsync(
                 fixture.AnimationInfoId,
+                ExpectedStateVersion,
                 "test-store",
                 "/downloads/anime",
                 It.IsAny<IReadOnlyList<FileMapping>>(),
@@ -355,6 +363,37 @@ public class FileMapperRegexInferenceTests
             CancellationToken.None);
 
         Assert.IsFalse(result);
+    }
+
+    [TestMethod]
+    public async Task PreviewDownloadAsync_RegexMiss_DoesNotCallAiOrReplaceMappings()
+    {
+        var fixture = CreateFixture();
+        fixture.RuleRepository
+            .Setup(repository => repository.GetForAnimationAsync(
+                fixture.AnimationId,
+                CancellationToken.None))
+            .ReturnsAsync(Array.Empty<FileNameRegexRule>());
+
+        var preview = await fixture.Mapper.PreviewDownloadAsync(
+            fixture.Info,
+            CancellationToken.None);
+
+        Assert.IsNotNull(preview);
+        Assert.AreEqual(2, preview.Mappings.Count);
+        Assert.IsTrue(preview.Mappings.All(mapping =>
+            mapping.VirtualPath.StartsWith("/unknown/", StringComparison.Ordinal)));
+        CollectionAssert.Contains(preview.Warnings.ToList(), "unresolvedFiles");
+        fixture.InferenceEngine.Verify(engine => engine.InferFileNamesAsync(
+            It.IsAny<FileNameInferenceRequest>(),
+            It.IsAny<CancellationToken>()), Times.Never);
+        fixture.FileMappingRepository.Verify(repository => repository.ReplaceForAnimationInfoAsync(
+            It.IsAny<Guid>(),
+            It.IsAny<long>(),
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<IReadOnlyList<FileMapping>>(),
+            It.IsAny<CancellationToken>()), Times.Never);
     }
 
     private static Fixture CreateFixture()
@@ -383,7 +422,8 @@ public class FileMapperRegexInferenceTests
             group,
             animation,
             true,
-            0);
+            0,
+            StateVersion: ExpectedStateVersion);
 
         var animationInfoRepository = new Mock<IAnimationInfoRepository>();
         animationInfoRepository
@@ -401,6 +441,7 @@ public class FileMapperRegexInferenceTests
         fileMappingRepository
             .Setup(repository => repository.ReplaceForAnimationInfoAsync(
                 It.IsAny<Guid>(),
+                It.IsAny<long>(),
                 It.IsAny<string>(),
                 It.IsAny<string>(),
                 It.IsAny<IReadOnlyList<FileMapping>>(),
@@ -430,6 +471,7 @@ public class FileMapperRegexInferenceTests
         return new Fixture(
             animationInfoId,
             animationId,
+            info,
             mapper,
             fileMappingRepository,
             ruleRepository,
@@ -439,6 +481,7 @@ public class FileMapperRegexInferenceTests
     private sealed record Fixture(
         Guid AnimationInfoId,
         Guid AnimationId,
+        AnimationInfo Info,
         FileMapper Mapper,
         Mock<IFileMappingRepository> FileMappingRepository,
         Mock<IFileNameRegexRuleRepository> RuleRepository,

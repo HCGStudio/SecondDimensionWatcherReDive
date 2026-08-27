@@ -26,7 +26,13 @@ internal static class RepositoryConverter
             entity.Group?.ToRecord(),
             entity.Animation?.ToRecord(),
             entity.IsAiProcessed,
-            entity.AiRetryCount);
+            entity.AiRetryCount,
+            entity.MetadataStatus,
+            entity.MetadataConfidence,
+            entity.MetadataLastError,
+            entity.MetadataReviewedAt,
+            entity.StateVersion,
+            entity.CurrentMetadataReviewOperationId);
 
     public static DataRepo.Animation ToRecord(this Models.Animation entity) =>
         new(entity.Id,
@@ -99,7 +105,13 @@ internal static class RepositoryConverter
             Season = record.Season,
             Episode = record.Episode,
             IsAiProcessed = record.IsAiProcessed,
-            AiRetryCount = record.AiRetryCount
+            AiRetryCount = record.AiRetryCount,
+            MetadataStatus = record.MetadataStatus,
+            MetadataConfidence = record.MetadataConfidence,
+            MetadataLastError = record.MetadataLastError,
+            MetadataReviewedAt = record.MetadataReviewedAt,
+            StateVersion = record.StateVersion,
+            CurrentMetadataReviewOperationId = record.CurrentMetadataReviewOperationId
         };
 
     public static Models.Animation ToEntity(this DataRepo.Animation record) =>
@@ -200,6 +212,12 @@ internal static class RepositoryConverter
         entity.Episode = record.Episode;
         entity.IsAiProcessed = record.IsAiProcessed;
         entity.AiRetryCount = record.AiRetryCount;
+        entity.MetadataStatus = record.MetadataStatus;
+        entity.MetadataConfidence = record.MetadataConfidence;
+        entity.MetadataLastError = record.MetadataLastError;
+        entity.MetadataReviewedAt = record.MetadataReviewedAt;
+        entity.StateVersion = record.StateVersion;
+        entity.CurrentMetadataReviewOperationId = record.CurrentMetadataReviewOperationId;
     }
 
     public static void ApplyTo(this DataRepo.SeasonBangumi record, Models.SeasonBangumi entity)
