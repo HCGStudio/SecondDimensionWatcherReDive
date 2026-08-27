@@ -46,6 +46,7 @@ import {
 
 export interface IAnimationInfoProps {
   value: IAnimationInfo;
+  showTimeOfDay?: boolean;
 }
 
 function formatEpisodeTag(
@@ -93,7 +94,7 @@ const DownloadProgress: React.FC<{ id: string }> = ({ id }) => {
 const ActionButtons: React.FC<{ value: IAnimationInfo }> = ({ value }) => {
   const { t } = useTranslation("animation");
   const { data: status } = useAnimationDownloadStatus(
-    value.isDownloadTracked && !value.isDownloadFinished ? value.id : "",
+    value.isDownloadTracked && !value.isDownloadFinished ? value.id : null,
   );
   const { addToast } = useToast();
   const [isSheetOpen, setIsSheetOpen] = React.useState(false);
@@ -328,11 +329,21 @@ const ActionButtons: React.FC<{ value: IAnimationInfo }> = ({ value }) => {
   );
 };
 
-export const AnimationInfo: React.FC<IAnimationInfoProps> = ({ value }) => {
-  const { t } = useTranslation("animation");
+export const AnimationInfo: React.FC<IAnimationInfoProps> = ({
+  value,
+  showTimeOfDay = false,
+}) => {
+  const { t, i18n } = useTranslation("animation");
   const tag = formatEpisodeTag(value.season, value.episode);
   const isDownloading =
     value.isDownloadTracked && !value.isDownloadFinished;
+  const publishTime = new Date(value.publishTime);
+  const formattedPublishTime = showTimeOfDay
+    ? publishTime.toLocaleString(i18n.resolvedLanguage, {
+        dateStyle: "medium",
+        timeStyle: "short",
+      })
+    : publishTime.toLocaleDateString(i18n.resolvedLanguage);
 
   return (
     <div className="border-t border-border py-4 first:border-t-0">
@@ -358,7 +369,7 @@ export const AnimationInfo: React.FC<IAnimationInfoProps> = ({ value }) => {
                 <span>·</span>
               </>
             ) : null}
-            <span>{new Date(value.publishTime).toLocaleDateString()}</span>
+            <span>{formattedPublishTime}</span>
             {value.isDownloadFinished ? (
               <>
                 <span>·</span>

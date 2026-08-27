@@ -39,8 +39,8 @@ public class AnimationInfoRepository(Models.ApplicationContext context) : IAnima
             {
                 var animation = g.First().Animation!;
                 var episodes = g
-                    .OrderBy(i => i.Season)
-                    .ThenBy(i => i.Episode)
+                    .OrderByDescending(i => i.PublishTime)
+                    .ThenByDescending(i => i.Id)
                     .Select(i => i.ToRecord())
                     .ToList();
                 return new AnimationWithEpisodesResult(

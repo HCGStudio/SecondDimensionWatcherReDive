@@ -297,6 +297,26 @@ const ANIME_TITLES = [
     tmdbId: "110248",
     posterPath: "/3bWEMlYABPXCNYBZhcjyxLKoRBL.jpg",
   },
+  {
+    title: "[LoliHouse] 葬送的芙莉莲 / Sousou no Frieren - 28 (1080p)",
+    desc: "勇者一行的魔法使芙莉莲的旅途故事",
+    season: 1,
+    episode: 28,
+    animeName: "葬送的芙莉莲",
+    originalName: "Sousou no Frieren",
+    tmdbId: "209867",
+    posterPath: "/dqZENchTd7lp5zht7BdlqM7RBhD.jpg",
+  },
+  {
+    title: "[ANi] 葬送的芙莉莲 / Sousou no Frieren - 28 (1080p)",
+    desc: "勇者一行的魔法使芙莉莲的旅途故事",
+    season: 1,
+    episode: 28,
+    animeName: "葬送的芙莉莲",
+    originalName: "Sousou no Frieren",
+    tmdbId: "209867",
+    posterPath: "/dqZENchTd7lp5zht7BdlqM7RBhD.jpg",
+  },
 ];
 
 /** @type {Map<string, object>} */
@@ -1121,8 +1141,9 @@ async function route(method, pathname, searchParams, req, res) {
       .map((g) => {
         g.episodes.sort(
           (a, b) =>
-            (a.season ?? 0) - (b.season ?? 0) ||
-            (a.episode ?? 0) - (b.episode ?? 0),
+            new Date(b.publishTime).getTime() -
+              new Date(a.publishTime).getTime() ||
+            b.id.localeCompare(a.id),
         );
         g.episodeCount = g.episodes.length;
         return g;

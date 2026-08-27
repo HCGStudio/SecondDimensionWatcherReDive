@@ -3,7 +3,29 @@
   "uncategorized": "Uncategorized",
   "episodeCount_one": "{{count}} episode",
   "episodeCount_other": "{{count}} episodes",
+  "episodeSummary_one": "{{episodeCount}} episode · {{releaseCount}} releases",
+  "episodeSummary_other": "{{episodeCount}} episodes · {{releaseCount}} releases",
   "back": "Back",
+  "episodeList": {
+    "controlsLabel": "Episode filters and sorting",
+    "episodeFilter": "Episode",
+    "allEpisodes": "All episodes",
+    "unknownEpisode": "Unidentified episode",
+    "groupFilter": "Subtitle group",
+    "allGroups": "All subtitle groups",
+    "unknownGroup": "Unknown subtitle group",
+    "sortLabel": "Sort by",
+    "sortNewest": "Newest release",
+    "sortOldest": "Oldest release",
+    "sortEpisodeAscending": "Episode ascending",
+    "sortEpisodeDescending": "Episode descending",
+    "resultCount": "Showing {{visible}} of {{total}} releases",
+    "clearFilters": "Clear filters",
+    "noMatches": {
+      "title": "No matching episodes",
+      "body": "Try another episode or subtitle group"
+    }
+  },
   "empty": {
     "main": {
       "title": "No anime yet",

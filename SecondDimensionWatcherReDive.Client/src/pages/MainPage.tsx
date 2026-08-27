@@ -7,6 +7,7 @@ import { useGroupedAnimations } from "../animation/hooks";
 import { IAnimationWithEpisodes } from "../animation/IAnimationGrouped";
 import { tmdbImageUrl } from "../animation/tmdbImage";
 import { AnimationInfo } from "../components/AnimationInfo";
+import { EpisodeCount, EpisodeList } from "../components/EpisodeList";
 import { EmptyPrompt } from "../components/ui/EmptyPrompt";
 import { Spinner } from "../components/ui/Spinner";
 import { PageTemplate } from "./PageTemplate";
@@ -15,7 +16,6 @@ const AnimeCard: React.FC<{
   anime: IAnimationWithEpisodes;
   onClick: () => void;
 }> = ({ anime, onClick }) => {
-  const { t } = useTranslation("animation");
   const posterUrl = tmdbImageUrl(anime.posterPath, "w300");
 
   return (
@@ -47,7 +47,7 @@ const AnimeCard: React.FC<{
           ) : null}
         </div>
         <p className="text-xs text-muted">
-          {t("episodeCount", { count: anime.episodeCount })}
+          <EpisodeCount episodes={anime.episodes} />
         </p>
       </div>
     </button>
@@ -127,16 +127,12 @@ export const EpisodeListPage: React.FC = () => {
             </p>
           ) : null}
           <p className="mt-2 text-sm text-muted">
-            {t("animation:episodeCount", { count: anime.episodeCount })}
+            <EpisodeCount episodes={anime.episodes} />
           </p>
         </div>
       </div>
 
-      <div>
-        {anime.episodes.map((ep) => (
-          <AnimationInfo value={ep} key={ep.id} />
-        ))}
-      </div>
+      <EpisodeList key={anime.tmdbId} episodes={anime.episodes} />
     </PageTemplate>
   );
 };
