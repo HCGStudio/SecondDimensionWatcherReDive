@@ -90,7 +90,7 @@ top of:
   https://github.com/dotnet/dotnet-docker
 - `mcr.microsoft.com/dotnet/aspnet:10.0` (runtime stage) — MIT licensed,
   https://github.com/dotnet/dotnet-docker
-- `node:22` (frontend build stage) — MIT licensed,
+- `node:24` (frontend build stage) — MIT licensed,
   https://github.com/nodejs/docker-node
 
 These images themselves bundle further OS-vendor packages (Debian/Alpine

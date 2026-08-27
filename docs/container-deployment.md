@@ -13,7 +13,7 @@
 | **sdw-redive** | `ghcr.io/hcgstudio/sdw-redive` | 主应用（前端 + 后端一体） |
 | **qbittorrent** | `lscr.io/linuxserver/qbittorrent` | 下载客户端 |
 | **db** | `postgres:16-alpine` | PostgreSQL 数据库 |
-| **valkey** | `valkey/valkey:8-alpine` | 分布式缓存（Redis 兼容） |
+| **valkey** | `valkey/valkey:9-alpine` | 分布式缓存（Redis 兼容） |
 
 存储卷：
 - `downloads` — sdw-redive 和 qbittorrent **共享**，用于下载文件的读写

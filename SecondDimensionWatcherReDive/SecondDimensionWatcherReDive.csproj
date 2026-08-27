@@ -12,26 +12,26 @@
 
     <ItemGroup>
         <PackageReference Include="AspSpaService" Version="1.0.6" />
-        <PackageReference Include="BCrypt.Net-Next" Version="4.1.0" />
+        <PackageReference Include="BCrypt.Net-Next" Version="4.2.0" />
         <PackageReference Include="BencodeNET" Version="5.0.0" />
-        <PackageReference Include="HtmlAgilityPack" Version="1.12.4" />
+        <PackageReference Include="HtmlAgilityPack" Version="1.13.0" />
 
-        <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.5" />
-        <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.5" />
-        <PackageReference Include="Microsoft.AspNetCore.SpaProxy" Version="10.0.5" />
-        <PackageReference Include="Microsoft.AspNetCore.SpaServices.Extensions" Version="10.0.5" />
-        <PackageReference Include="Microsoft.ClearScript.Complete" Version="7.5.0" />
-        <PackageReference Include="Microsoft.ClearScript.Core" Version="7.5.0" />
-        <PackageReference Include="Microsoft.ClearScript.V8" Version="7.5.0" />
-        <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.5">
+        <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.11" />
+        <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.11" />
+        <PackageReference Include="Microsoft.AspNetCore.SpaProxy" Version="10.0.11" />
+        <PackageReference Include="Microsoft.AspNetCore.SpaServices.Extensions" Version="10.0.11" />
+        <PackageReference Include="Microsoft.ClearScript.Complete" Version="7.5.1" />
+        <PackageReference Include="Microsoft.ClearScript.Core" Version="7.5.1" />
+        <PackageReference Include="Microsoft.ClearScript.V8" Version="7.5.1" />
+        <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.11">
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
             <PrivateAssets>all</PrivateAssets>
         </PackageReference>
-        <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.1" />
-        <PackageReference Include="Microsoft.Extensions.Hosting.Systemd" Version="10.0.5" />
+        <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
+        <PackageReference Include="Microsoft.Extensions.Hosting.Systemd" Version="10.0.11" />
         <PackageReference Include="NetEscapades.Configuration.Yaml" Version="3.1.0" />
-        <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="10.0.5" />
-        <PackageReference Include="Swashbuckle.AspNetCore" Version="10.1.7" />
+        <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="10.0.11" />
+        <PackageReference Include="Swashbuckle.AspNetCore" Version="10.2.3" />
     </ItemGroup>
 
     <ItemGroup>
