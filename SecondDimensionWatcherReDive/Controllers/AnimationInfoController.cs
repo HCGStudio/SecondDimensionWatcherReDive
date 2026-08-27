@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Caching.Distributed;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Framework.FileDownload;
+using SecondDimensionWatcherReDive.Utils.FileStore;
 
 namespace SecondDimensionWatcherReDive.Controllers;
 
@@ -15,7 +16,8 @@ internal class AnimationInfoController(
     IAnimationInfoRepository animationInfoRepository,
     IFileMappingRepository fileMappingRepository,
     IDistributedCache distributedCache,
-    IFileDownloadClientProvider fileDownloadClientProvider)
+    IFileDownloadClientProvider fileDownloadClientProvider,
+    IFileMapper fileMapper)
     : ControllerBase
 {
     [HttpGet]
@@ -159,9 +161,9 @@ internal class AnimationInfoController(
         if (!result.IsSuccess)
             return StatusCode(StatusCodes.Status500InternalServerError);
 
-        await fileMappingRepository.RemoveByAnimationInfoAsync(id, cancellationToken);
         var updated = info with { IsDownloadTracked = false, IsDownloadFinished = false };
         await animationInfoRepository.UpdateAsync(updated, cancellationToken);
+        await fileMappingRepository.RemoveByAnimationInfoAsync(id, cancellationToken);
         return Ok();
     }
 
@@ -176,5 +178,34 @@ internal class AnimationInfoController(
         var updated = info with { IsAiProcessed = false, AiRetryCount = 0 };
         await animationInfoRepository.UpdateAsync(updated, cancellationToken);
         return Ok();
+    }
+
+    [HttpPost("{id:guid}/reidentify-files/ai")]
+    public async Task<IActionResult> ReidentifyFilesWithAi(
+        [FromRoute] Guid id,
+        CancellationToken cancellationToken)
+    {
+        var info = await animationInfoRepository.FindByIdWithAnimationAsync(id, cancellationToken);
+        if (info is null) return NotFound();
+
+        // Filename inference is only meaningful for a downloaded, known multi-episode release.
+        if (!info.IsDownloadFinished
+            || info.FileStore is null
+            || info.StorePath is null
+            || info.Animation is null
+            || info.Season is null
+            || info.Episode is not null)
+            return Conflict();
+
+        try
+        {
+            return await fileMapper.ReidentifyFilesWithAiAsync(id, cancellationToken)
+                ? Ok()
+                : UnprocessableEntity();
+        }
+        catch (AiFileNameInferenceUnavailableException)
+        {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable);
+        }
     }
 }

@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -14,6 +15,7 @@ public sealed partial class InferenceEngine(
     IAIEngine aiEngine,
     IServiceProvider serviceProvider,
     IOptions<InferenceOptions> options,
+    FileNameInferenceContext fileNameInferenceContext,
     ILogger<InferenceEngine> logger) : IInferenceEngine
 {
     private const string SystemPrompt = """
@@ -48,6 +50,21 @@ public sealed partial class InferenceEngine(
         • Exactly one JSON object, nothing else.
         • No ```json fences. No "Here is…" preamble. No explanation after the JSON.
         • Schema: {"tmdb_id":"str|null","group_name":"str|null","season":int|null,"episode":int|null}
+        """;
+
+    private const string FileNameSystemPrompt = """
+        You are a JSON-only anime filename inference API. You receive every video file in one downloaded release plus a list of target file paths that still need AI inference. Infer the season and episode for the target files. Use the full file list to understand and validate the release format.
+
+        When regex tools are available, inspect the whole batch and call save_filename_regex_rule whenever a reusable filename pattern can directly extract the final episode numbers. The pattern must use .NET regex syntax, must contain a named capture group (?<episode>...), and may contain (?<season>...). Make it specific to the observed release format. The tool validates the rule against the whole batch, rejects conflicts with results already resolved by older rules, saves it, and returns the exact current files it matched and the extracted values. Use those returned matches in your final answer. Do not invent matches. Do not save a rule when the captured number needs arithmetic, an offset, or TMDB season normalization; infer those files directly instead.
+
+        Use the TMDB tools when the release uses absolute episode numbering, merged cours, or an ambiguous season layout. Normalize the final season and episode using TMDB's actual season episode counts, just as you would for feed metadata.
+
+        Output contract:
+        • Exactly one raw JSON object and nothing else.
+        • Schema: {"files":[{"file_path":"exact input file_path","season":int|null,"episode":int|null}]}
+        • Include every target file exactly once. Preserve file_path byte-for-byte.
+        • Use null episode only when the episode truly cannot be inferred.
+        • No markdown fences, explanations, or extra keys outside the object.
         """;
 
     private const int MaxToolRounds = 8;
@@ -85,6 +102,42 @@ public sealed partial class InferenceEngine(
         {
             LogInferenceFailed(logger, ex, title);
             return null;
+        }
+        finally
+        {
+            RateLimitSemaphore.Release();
+        }
+    }
+
+    public async Task<IReadOnlyList<FileNameInferenceResult>> InferFileNamesAsync(
+        FileNameInferenceRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (request.Files.Count == 0) return [];
+
+        LogStartingFileNameInference(logger, request.Files.Count, request.Context);
+
+        await RateLimitSemaphore.WaitAsync(cancellationToken);
+        try
+        {
+            var elapsed = DateTime.UtcNow - _lastCallTime;
+            var minInterval = TimeSpan.FromMilliseconds(options.Value.RateLimitDelayMs);
+            if (elapsed < minInterval)
+            {
+                var delay = minInterval - elapsed;
+                LogRateLimiting(logger, (int)delay.TotalMilliseconds);
+                await Task.Delay(delay, cancellationToken);
+            }
+
+            var result = await InferFileNamesCoreAsync(request, cancellationToken);
+            _lastCallTime = DateTime.UtcNow;
+            LogFileNameInferenceSucceeded(logger, result.Count, request.Files.Count);
+            return result;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            LogFileNameInferenceFailed(logger, ex, request.Context);
+            return [];
         }
         finally
         {
@@ -131,6 +184,57 @@ public sealed partial class InferenceEngine(
         return ParseInferenceResult(fullText.Length > 0 ? fullText.ToString() : null);
     }
 
+    private async Task<IReadOnlyList<FileNameInferenceResult>> InferFileNamesCoreAsync(
+        FileNameInferenceRequest request,
+        CancellationToken cancellationToken)
+    {
+        var filesJson = JsonSerializer.Serialize(request.Files, ToolJsonOptions.Options);
+        var targets = request.TargetFilePaths ?? request.Files.Select(file => file.FilePath).ToList();
+        var targetsJson = JsonSerializer.Serialize(targets, ToolJsonOptions.Options);
+        var messages = new List<IMessage>
+        {
+            new SystemMessage(FileNameSystemPrompt),
+            new UserMessage(
+                $"Release context: {request.Context}\nAll files: {filesJson}\nTarget file paths: {targetsJson}")
+        };
+
+        var toolBuilder = new ToolExecutorBuilder(serviceProvider)
+            .AddTool<SearchTmdbTool>()
+            .AddTool<GetTmdbSeasonsTool>()
+            .AddTool<GetTmdbSeasonEpisodesTool>();
+        if (request.AllowRegexRuleCreation)
+            toolBuilder.AddTool<SaveFileNameRegexRuleTool>();
+
+        var toolExecutor = toolBuilder.Build();
+        using var inferenceScope = request.AllowRegexRuleCreation
+            ? fileNameInferenceContext.Push(request)
+            : null;
+
+        var chatOptions = new ChatOptions
+        {
+            ToolExecutor = toolExecutor,
+            MaxToolRounds = MaxToolRounds
+        };
+
+        var fullText = new StringBuilder();
+        await foreach (var update in aiEngine.ChatAsync(messages, chatOptions, cancellationToken))
+        {
+            switch (update)
+            {
+                case ToolResultUpdate:
+                    fullText.Clear();
+                    break;
+                case TextDelta td:
+                    fullText.Append(td.Text);
+                    break;
+            }
+        }
+
+        return ParseFileNameInferenceResults(
+            fullText.Length > 0 ? fullText.ToString() : null,
+            request.Files);
+    }
+
     private static InferenceResult? ParseInferenceResult(string? content)
     {
         if (string.IsNullOrWhiteSpace(content)) return null;
@@ -172,6 +276,51 @@ public sealed partial class InferenceEngine(
             Episode: json["episode"]?.GetValue<int?>());
     }
 
+    private static IReadOnlyList<FileNameInferenceResult> ParseFileNameInferenceResults(
+        string? content,
+        IReadOnlyList<FileNameInferenceInput> inputs)
+    {
+        if (string.IsNullOrWhiteSpace(content)) return [];
+
+        var jsonStr = content.Trim();
+        if (jsonStr.StartsWith("```", StringComparison.Ordinal))
+        {
+            var firstNewline = jsonStr.IndexOf('\n');
+            if (firstNewline >= 0) jsonStr = jsonStr[(firstNewline + 1)..];
+            if (jsonStr.EndsWith("```", StringComparison.Ordinal)) jsonStr = jsonStr[..^3];
+            jsonStr = jsonStr.Trim();
+        }
+
+        var json = TryParseJson(jsonStr);
+        if (json is null) return [];
+
+        var files = json["files"]?.AsArray();
+        if (files is null) return [];
+
+        var validPaths = inputs.Select(input => input.FilePath).ToHashSet(StringComparer.Ordinal);
+        var results = new Dictionary<string, FileNameInferenceResult>(StringComparer.Ordinal);
+        foreach (var node in files)
+        {
+            try
+            {
+                var filePath = node?["file_path"]?.GetValue<string>();
+                var episode = node?["episode"]?.GetValue<int?>();
+                var season = node?["season"]?.GetValue<int?>();
+                if (filePath is null || episode is null || episode < 0 || !validPaths.Contains(filePath))
+                    continue;
+                if (season < 0) continue;
+
+                results[filePath] = new FileNameInferenceResult(filePath, season, episode.Value);
+            }
+            catch (InvalidOperationException)
+            {
+                // Ignore malformed entries while retaining valid results from the same response.
+            }
+        }
+
+        return results.Values.ToList();
+    }
+
     private static JsonNode? TryParseJson(string str)
     {
         try
@@ -200,4 +349,15 @@ public sealed partial class InferenceEngine(
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Inference failed for title: {Title}")]
     private static partial void LogInferenceFailed(ILogger logger, Exception ex, string title);
+
+    [LoggerMessage(Level = LogLevel.Information,
+        Message = "Starting filename inference for {FileCount} files in release: {Context}")]
+    private static partial void LogStartingFileNameInference(ILogger logger, int fileCount, string context);
+
+    [LoggerMessage(Level = LogLevel.Information,
+        Message = "Filename inference resolved {ResolvedCount} of {FileCount} files")]
+    private static partial void LogFileNameInferenceSucceeded(ILogger logger, int resolvedCount, int fileCount);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Filename inference failed for release: {Context}")]
+    private static partial void LogFileNameInferenceFailed(ILogger logger, Exception ex, string context);
 }

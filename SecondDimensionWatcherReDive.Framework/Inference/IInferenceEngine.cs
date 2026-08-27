@@ -14,4 +14,13 @@ public interface IInferenceEngine
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Structured inference result, or null if inference fails entirely.</returns>
     Task<InferenceResult?> InferAsync(string title, string description, CancellationToken cancellationToken);
+
+    /// <summary>
+    ///     Uses AI to infer season and episode numbers for a batch of files. Regex-library lookup is
+    ///     performed by the caller; <see cref="FileNameInferenceRequest.AllowRegexRuleCreation"/> controls whether the AI
+    ///     may save and test a new reusable rule during this call.
+    /// </summary>
+    Task<IReadOnlyList<FileNameInferenceResult>> InferFileNamesAsync(
+        FileNameInferenceRequest request,
+        CancellationToken cancellationToken);
 }

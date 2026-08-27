@@ -20,6 +20,18 @@ internal sealed class FakeFileMappingRepository : IFileMappingRepository
     public Task AddRangeAsync(IReadOnlyList<FileMapping> mappings, CancellationToken cancellationToken)
         => throw new NotSupportedException();
 
+    public Task<bool> ReplaceForAnimationInfoAsync(
+        Guid animationInfoId,
+        string expectedFileStore,
+        string expectedStorePath,
+        IReadOnlyList<FileMapping> mappings,
+        CancellationToken cancellationToken)
+    {
+        _mappings.RemoveAll(mapping => mapping.AnimationInfoId == animationInfoId);
+        _mappings.AddRange(mappings);
+        return Task.FromResult(true);
+    }
+
     public Task<FileMapping?> FindByVirtualPathAsync(string virtualPath, CancellationToken cancellationToken)
         => Task.FromResult(Snapshot().FirstOrDefault(m => m.VirtualPath == virtualPath));
 

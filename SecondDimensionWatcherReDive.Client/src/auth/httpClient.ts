@@ -74,6 +74,10 @@ export default async function fetcher<JSON = any>(
       throw new Error("Unauthorized");
     }
 
+    if (!retryRes.ok) {
+      throw new Error(`${retryRes.status}`);
+    }
+
     return await parseJsonSafe<JSON>(retryRes);
   }
 

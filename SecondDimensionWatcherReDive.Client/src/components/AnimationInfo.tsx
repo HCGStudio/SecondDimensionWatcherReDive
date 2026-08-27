@@ -12,12 +12,14 @@ import {
 import dayjs from "dayjs";
 import React from "react";
 import { useTranslation } from "react-i18next";
+import { mutate } from "swr";
 
 import { IAnimationInfo } from "../animation/IAnimationInfo";
 import { useAnimationDownloadStatus } from "../animation/hooks";
 import {
   cancelDownload,
   pauseDownload,
+  reidentifyFilesWithAi,
   resumeDownload,
   retryInference,
   submitDownload,
@@ -96,8 +98,15 @@ const ActionButtons: React.FC<{ value: IAnimationInfo }> = ({ value }) => {
   const { addToast } = useToast();
   const [isSheetOpen, setIsSheetOpen] = React.useState(false);
   const [isRetrying, setIsRetrying] = React.useState(false);
+  const [isReidentifyingFiles, setIsReidentifyingFiles] =
+    React.useState(false);
 
   const showRetryItem = value.isAiProcessed;
+  const showAiReidentifyItem =
+    value.isDownloadFinished &&
+    value.animation != null &&
+    value.season != null &&
+    value.episode == null;
   const retryLabel = value.animation
     ? t("actions.reinfer")
     : t("actions.inferAi");
@@ -114,6 +123,29 @@ const ActionButtons: React.FC<{ value: IAnimationInfo }> = ({ value }) => {
     }
   }, [value.id, addToast, t]);
 
+  const onReidentifyFilesWithAi = React.useCallback(async () => {
+    if (!window.confirm(t("confirm.forceAiReidentifyFiles"))) return;
+
+    setIsReidentifyingFiles(true);
+    try {
+      await reidentifyFilesWithAi(value.id);
+      await mutate(
+        (key) =>
+          typeof key === "string" &&
+          (key.startsWith("/api/file/list?") ||
+            key.startsWith("/api/vfs/list?")),
+      );
+      addToast({ title: t("toast.filesReidentified"), color: "success" });
+    } catch {
+      addToast({
+        title: t("toast.fileReidentifyFailed"),
+        color: "danger",
+      });
+    } finally {
+      setIsReidentifyingFiles(false);
+    }
+  }, [value.id, addToast, t]);
+
   const onDelete = React.useCallback(() => {
     if (window.confirm(t("confirm.deleteFile"))) {
       cancelDownload(value.id, true).catch(() =>
@@ -124,6 +156,7 @@ const ActionButtons: React.FC<{ value: IAnimationInfo }> = ({ value }) => {
 
   const hasOverflowItems =
     showRetryItem ||
+    showAiReidentifyItem ||
     (value.isDownloadTracked && !value.isDownloadFinished && status) ||
     (value.isDownloadTracked && value.isDownloadFinished);
 
@@ -192,6 +225,7 @@ const ActionButtons: React.FC<{ value: IAnimationInfo }> = ({ value }) => {
             variant="outline"
             className="px-2 py-2"
             title={t("actions.browse")}
+            disabled={isReidentifyingFiles}
             onClick={() => setIsSheetOpen(true)}
           >
             <FolderOpen size={16} />
@@ -214,7 +248,7 @@ const ActionButtons: React.FC<{ value: IAnimationInfo }> = ({ value }) => {
             <DropdownMenuContent align="end">
               {showRetryItem ? (
                 <DropdownMenuItem
-                  disabled={isRetrying}
+                  disabled={isRetrying || isReidentifyingFiles}
                   onSelect={onRetryInference}
                 >
                   <RefreshCw
@@ -225,7 +259,24 @@ const ActionButtons: React.FC<{ value: IAnimationInfo }> = ({ value }) => {
                 </DropdownMenuItem>
               ) : null}
 
-              {showRetryItem &&
+              {showAiReidentifyItem ? (
+                <DropdownMenuItem
+                  disabled={isReidentifyingFiles || isRetrying}
+                  onSelect={onReidentifyFilesWithAi}
+                >
+                  <RefreshCw
+                    size={14}
+                    className={
+                      isReidentifyingFiles ? "animate-spin" : ""
+                    }
+                  />
+                  {isReidentifyingFiles
+                    ? t("actions.reidentifyingFiles")
+                    : t("actions.forceAiReidentifyFiles")}
+                </DropdownMenuItem>
+              ) : null}
+
+              {(showRetryItem || showAiReidentifyItem) &&
               ((value.isDownloadTracked && !value.isDownloadFinished) ||
                 (value.isDownloadTracked && value.isDownloadFinished)) ? (
                 <DropdownMenuSeparator />
@@ -234,6 +285,7 @@ const ActionButtons: React.FC<{ value: IAnimationInfo }> = ({ value }) => {
               {value.isDownloadTracked && !value.isDownloadFinished && status ? (
                 <DropdownMenuItem
                   color="danger"
+                  disabled={isReidentifyingFiles}
                   onSelect={() => {
                     if (window.confirm(t("confirm.cancelAndDelete"))) {
                       cancelDownload(value.id, true).catch(() =>
@@ -248,7 +300,11 @@ const ActionButtons: React.FC<{ value: IAnimationInfo }> = ({ value }) => {
               ) : null}
 
               {value.isDownloadTracked && value.isDownloadFinished ? (
-                <DropdownMenuItem color="danger" onSelect={onDelete}>
+                <DropdownMenuItem
+                  color="danger"
+                  disabled={isReidentifyingFiles}
+                  onSelect={onDelete}
+                >
                   <Trash2 size={14} />
                   {t("actions.delete")}
                 </DropdownMenuItem>

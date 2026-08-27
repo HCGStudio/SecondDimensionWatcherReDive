@@ -29,6 +29,8 @@ public static class InferenceServiceExtensions
         services.AddSingleton<SearchTmdbTool>();
         services.AddSingleton<GetTmdbSeasonsTool>();
         services.AddSingleton<GetTmdbSeasonEpisodesTool>();
+        services.AddScoped<FileNameInferenceContext>();
+        services.AddScoped<SaveFileNameRegexRuleTool>();
 
         // Register the inference engine (single implementation, provider-agnostic)
         services.AddScoped<IInferenceEngine, InferenceEngine>();

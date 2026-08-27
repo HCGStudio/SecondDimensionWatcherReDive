@@ -24,13 +24,16 @@
     "browse": "Browse files",
     "more": "More actions",
     "delete": "Delete",
-    "reinfer": "Re-infer",
-    "inferAi": "Infer with AI",
-    "requesting": "Requesting..."
+    "reinfer": "Re-infer metadata",
+    "inferAi": "Infer metadata with AI",
+    "requesting": "Requesting...",
+    "forceAiReidentifyFiles": "Force AI filename re-identification",
+    "reidentifyingFiles": "Re-identifying with AI..."
   },
   "confirm": {
     "deleteFile": "Delete the downloaded files?",
-    "cancelAndDelete": "Cancel the download and delete the files?"
+    "cancelAndDelete": "Cancel the download and delete the files?",
+    "forceAiReidentifyFiles": "This will ignore regex rules, use AI to re-identify filenames, and replace the current virtual file mappings. Continue?"
   },
   "toast": {
     "queued": "Queued for inference",
@@ -39,6 +42,8 @@
     "downloadFailedDesc": "Could not submit the download task",
     "pauseFailed": "Failed to pause",
     "resumeFailed": "Failed to resume",
-    "deleteFailed": "Failed to delete"
+    "deleteFailed": "Failed to delete",
+    "filesReidentified": "Filenames re-identified with AI",
+    "fileReidentifyFailed": "Failed to re-identify filenames with AI"
   }
 }

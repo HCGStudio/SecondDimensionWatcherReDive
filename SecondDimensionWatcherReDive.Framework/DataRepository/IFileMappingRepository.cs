@@ -4,6 +4,13 @@ public interface IFileMappingRepository
 {
     Task AddRangeAsync(IReadOnlyList<FileMapping> mappings, CancellationToken cancellationToken);
 
+    Task<bool> ReplaceForAnimationInfoAsync(
+        Guid animationInfoId,
+        string expectedFileStore,
+        string expectedStorePath,
+        IReadOnlyList<FileMapping> mappings,
+        CancellationToken cancellationToken);
+
     Task<FileMapping?> FindByVirtualPathAsync(string virtualPath, CancellationToken cancellationToken);
 
     Task<IReadOnlyList<FileMapping>> GetByVirtualPathPrefixAsync(string virtualPathPrefix, CancellationToken cancellationToken);

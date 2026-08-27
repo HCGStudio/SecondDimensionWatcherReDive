@@ -23,13 +23,16 @@
     "browse": "ファイルを開く",
     "more": "その他の操作",
     "delete": "削除",
-    "reinfer": "再推論",
-    "inferAi": "AI で推論",
-    "requesting": "リクエスト中..."
+    "reinfer": "メタデータを再推論",
+    "inferAi": "AI でメタデータを推論",
+    "requesting": "リクエスト中...",
+    "forceAiReidentifyFiles": "AI でファイル名を強制再識別",
+    "reidentifyingFiles": "AI で再識別中..."
   },
   "confirm": {
     "deleteFile": "ダウンロード済みのファイルを削除しますか？",
-    "cancelAndDelete": "ダウンロードを中止してファイルを削除しますか？"
+    "cancelAndDelete": "ダウンロードを中止してファイルを削除しますか？",
+    "forceAiReidentifyFiles": "正規表現ルールを無視して AI でファイル名を再識別し、現在の仮想ファイルマッピングを置き換えます。続行しますか？"
   },
   "toast": {
     "queued": "推論キューに追加しました",
@@ -38,6 +41,8 @@
     "downloadFailedDesc": "ダウンロードタスクを送信できませんでした",
     "pauseFailed": "一時停止に失敗しました",
     "resumeFailed": "再開に失敗しました",
-    "deleteFailed": "削除に失敗しました"
+    "deleteFailed": "削除に失敗しました",
+    "filesReidentified": "AI でファイル名を再識別しました",
+    "fileReidentifyFailed": "AI によるファイル名の再識別に失敗しました"
   }
 }

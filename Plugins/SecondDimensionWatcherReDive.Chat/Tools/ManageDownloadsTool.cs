@@ -11,6 +11,7 @@ namespace SecondDimensionWatcherReDive.Chat.Tools;
     "Control download tasks. Start, pause, resume, or cancel downloads for a specified animation.")]
 internal sealed partial class ManageDownloadsTool(
     IAnimationInfoRepository animationInfoRepository,
+    IFileMappingRepository fileMappingRepository,
     IFileDownloadClientProvider fileDownloadClientProvider) : ITool
 {
     private async Task<IToolResult> ExecuteCoreAsync(
@@ -86,6 +87,7 @@ internal sealed partial class ManageDownloadsTool(
                 IsDownloadFinished = false
             };
             await animationInfoRepository.UpdateAsync(updated, cancellationToken);
+            await fileMappingRepository.RemoveByAnimationInfoAsync(info.Id, cancellationToken);
         }
 
         return new ToolSuccessResult<bool>(result.IsSuccess);

@@ -13,6 +13,10 @@
     </ItemGroup>
 
     <ItemGroup>
+        <InternalsVisibleTo Include="SecondDimensionWatcherReDive.Test" />
+    </ItemGroup>
+
+    <ItemGroup>
         <ProjectReference Include="..\..\SecondDimensionWatcherReDive.Framework\SecondDimensionWatcherReDive.Framework.csproj" />
         <ProjectReference Include="..\SecondDimensionWatcherReDive.AI\SecondDimensionWatcherReDive.AI.csproj" />
         <ProjectReference Include="..\..\Share\SecondDimensionWatcherReDive.Analyzers\SecondDimensionWatcherReDive.Analyzers.csproj"

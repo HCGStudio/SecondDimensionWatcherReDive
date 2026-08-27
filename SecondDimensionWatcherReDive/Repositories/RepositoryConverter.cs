@@ -63,6 +63,13 @@ internal static class RepositoryConverter
             entity.PhysicalPath,
             entity.FileStore);
 
+    public static DataRepo.FileNameRegexRule ToRecord(this Models.FileNameRegexRule entity) =>
+        new(entity.Id,
+            entity.AnimationId,
+            entity.Pattern,
+            entity.Description,
+            entity.CreatedAt);
+
     public static DataRepo.WebDavToken ToRecord(this Models.WebDavToken entity) =>
         new(entity.Id,
             entity.Username,
@@ -150,6 +157,16 @@ internal static class RepositoryConverter
             VirtualPath = record.VirtualPath,
             PhysicalPath = record.PhysicalPath,
             FileStore = record.FileStore
+        };
+
+    public static Models.FileNameRegexRule ToEntity(this DataRepo.FileNameRegexRule record) =>
+        new()
+        {
+            Id = record.Id,
+            AnimationId = record.AnimationId,
+            Pattern = record.Pattern,
+            Description = record.Description,
+            CreatedAt = record.CreatedAt
         };
 
     public static Models.WebDavToken ToEntity(this DataRepo.WebDavToken record) =>

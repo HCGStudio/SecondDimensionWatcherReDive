@@ -100,8 +100,8 @@ function initAnimations() {
     let isDownloadTracked = false;
     let isDownloadFinished = false;
 
-    if (i < 3) {
-      // First 3: finished
+    if (i < 3 || i === 17) {
+      // First 3 plus one multi-episode item: finished
       isDownloadTracked = true;
       isDownloadFinished = true;
     } else if (i < 5) {
@@ -501,6 +501,28 @@ async function route(method, pathname, searchParams, req, res) {
       if (!anim) return empty(res, 404);
       anim.isAiProcessed = false;
       console.log(`  Mock: retry inference for '${anim.title}'`);
+      return empty(res, 200);
+    }
+  }
+
+  // POST /api/animationinfo/:id/reidentify-files/ai
+  {
+    const m = pathname.match(
+      /^\/api\/animationinfo\/(.+)\/reidentify-files\/ai$/,
+    );
+    if (method === "POST" && m) {
+      const id = m[1];
+      const anim = animations.get(id);
+      if (!anim) return empty(res, 404);
+      if (
+        !anim.isDownloadFinished ||
+        anim.animation == null ||
+        anim.season == null ||
+        anim.episode != null
+      ) {
+        return empty(res, 409);
+      }
+      console.log(`  Mock: AI filename re-identification for '${anim.title}'`);
       return empty(res, 200);
     }
   }

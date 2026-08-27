@@ -1,4 +1,5 @@
 ﻿using Microsoft.EntityFrameworkCore;
+using SecondDimensionWatcherReDive.Framework.Inference;
 
 namespace SecondDimensionWatcherReDive.Models;
 
@@ -20,6 +21,7 @@ public class ApplicationContext : DbContext
     public DbSet<ChatConversation> ChatConversations { get; set; }
     public DbSet<ChatMessage> ChatMessages { get; set; }
     public DbSet<FileMapping> FileMappings { get; set; }
+    public DbSet<FileNameRegexRule> FileNameRegexRules { get; set; }
     public DbSet<MigrationMarker> MigrationMarkers { get; set; }
     public DbSet<WebDavToken> WebDavTokens { get; set; }
 
@@ -42,6 +44,23 @@ public class ApplicationContext : DbContext
 
         modelBuilder.Entity<FileMapping>()
             .HasIndex(m => m.AnimationInfoId);
+
+        modelBuilder.Entity<FileNameRegexRule>()
+            .HasIndex(rule => new { rule.AnimationId, rule.Pattern })
+            .IsUnique();
+
+        modelBuilder.Entity<FileNameRegexRule>()
+            .Property(rule => rule.Pattern)
+            .HasMaxLength(FileNameRegexMatcher.MaxPatternLength);
+
+        modelBuilder.Entity<FileNameRegexRule>()
+            .HasOne<Animation>()
+            .WithMany()
+            .HasForeignKey(rule => rule.AnimationId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<FileNameRegexRule>()
+            .HasIndex(rule => new { rule.AnimationId, rule.CreatedAt });
 
         modelBuilder.Entity<BangumiSubgroup>()
             .HasIndex(s => new { s.SeasonBangumiId, s.MikanSubgroupId })

@@ -24,3 +24,10 @@ export const retryInference = async (id: string) => {
     method: "POST",
   });
 };
+
+export const reidentifyFilesWithAi = async (id: string) => {
+  return await fetcher(
+    `/api/animationinfo/${id}/reidentify-files/ai`,
+    { method: "POST" },
+  );
+};
