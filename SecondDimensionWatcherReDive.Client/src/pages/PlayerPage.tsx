@@ -1,4 +1,10 @@
 import Artplayer from "artplayer";
+import artplayerProxyMediabunny from "artplayer-proxy-mediabunny";
+import {
+  CaptionsFileFormat,
+  CaptionsRenderer,
+  parseResponse,
+} from "media-captions";
 import React from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useParams, useSearchParams } from "react-router";
@@ -27,11 +33,29 @@ import {
 } from "../playback/api";
 import { usePlaybackContext } from "../playback/hooks";
 import {
+  MkvSubtitleDownloadProgress,
+  extractMkvSubtitles,
+} from "../playback/mkv/subtitles";
+import {
+  MkvPlaybackProbe,
+  canCopyVideoCodecToMp4,
+  isAbortError,
+  isMkvPath,
+  probeMkvPlayback,
+} from "../playback/mkv/support";
+import {
+  MkvTranscodeStage,
+  transcodeMkvForBrowser,
+} from "../playback/mkv/transcoder";
+import {
   ExternalSubtitle,
   PlaybackPreferences,
   PlaybackTarget,
 } from "../playback/types";
 import { PageTemplate } from "./PageTemplate";
+
+import "media-captions/styles/captions.css";
+import "media-captions/styles/regions.css";
 
 const BRAND_TERRACOTTA = "#c96442";
 const PROGRESS_SYNC_INTERVAL_SECONDS = 10;
@@ -39,6 +63,16 @@ const OFF_TRACK = "__off__";
 
 interface ResolvedSubtitle extends ExternalSubtitle {
   url: string;
+  source: "external" | "embedded";
+}
+
+type PlaybackMode = "native" | "mkvProxy" | "transcoded";
+type MkvPreparationStage =
+  "probing" | "extractingSubtitles" | MkvTranscodeStage;
+
+interface MkvPreparationStatus {
+  stage: MkvPreparationStage;
+  progress?: number;
 }
 
 interface BrowserAudioTrack {
@@ -84,10 +118,23 @@ const preferenceAudioOptions: AudioTrackOption[] = [
 const normalizeLanguage = (value: string | null | undefined): string | null => {
   if (!value) return null;
   const normalized = value.trim().toLowerCase().replace("_", "-");
-  if (normalized.startsWith("zh")) return "zh";
+  if (
+    normalized.startsWith("zh") ||
+    normalized === "chi" ||
+    normalized === "zho"
+  ) {
+    return "zh";
+  }
   if (normalized.startsWith("ja") || normalized === "jpn") return "ja";
   if (normalized.startsWith("en") || normalized === "eng") return "en";
   return normalized.split("-")[0] || null;
+};
+
+const normalizeCaptionFormat = (format: string): CaptionsFileFormat => {
+  const normalized = format.trim().toLowerCase();
+  if (normalized === "ass" || normalized === "ssa") return normalized;
+  if (normalized === "srt" || normalized === "subrip") return "srt";
+  return "vtt";
 };
 
 const selectPreferredSubtitle = (
@@ -191,7 +238,19 @@ export const PlayerPage: React.FC = () => {
     playbackContext?.media.path.split("/").pop() ??
     file?.split("/").pop() ??
     t("unknownFile");
+  const [externalPlaybackUrl, setExternalPlaybackUrl] = React.useState<
+    string | null
+  >(null);
   const [playbackUrl, setPlaybackUrl] = React.useState<string | null>(null);
+  const [playbackMode, setPlaybackMode] =
+    React.useState<PlaybackMode>("native");
+  const [mkvProbe, setMkvProbe] = React.useState<MkvPlaybackProbe | null>(null);
+  const [mkvStatus, setMkvStatus] = React.useState<MkvPreparationStatus | null>(
+    null,
+  );
+  const [skippedSubtitleCount, setSkippedSubtitleCount] = React.useState(0);
+  const [subtitleDiscoveryComplete, setSubtitleDiscoveryComplete] =
+    React.useState(false);
   const [linkLoading, setLinkLoading] = React.useState(false);
   const [linkError, setLinkError] = React.useState<string | null>(null);
   const [subtitles, setSubtitles] = React.useState<ResolvedSubtitle[]>([]);
@@ -203,6 +262,7 @@ export const PlayerPage: React.FC = () => {
 
   const playerContainerRef = React.useRef<HTMLDivElement>(null);
   const artRef = React.useRef<Artplayer | null>(null);
+  const captionsRendererRef = React.useRef<CaptionsRenderer | null>(null);
   const contextRef = React.useRef(playbackContext);
   const preferencesRef = React.useRef(playbackContext?.preferences);
   const lastSyncedTimeRef = React.useRef(-1);
@@ -236,7 +296,13 @@ export const PlayerPage: React.FC = () => {
   }, [playbackContext]);
 
   React.useEffect(() => {
+    setExternalPlaybackUrl(null);
     setPlaybackUrl(null);
+    setPlaybackMode("native");
+    setMkvProbe(null);
+    setMkvStatus(null);
+    setSkippedSubtitleCount(0);
+    setSubtitleDiscoveryComplete(false);
     setSubtitles([]);
     setSelectedSubtitle(OFF_TRACK);
     setAudioTracks([]);
@@ -251,34 +317,152 @@ export const PlayerPage: React.FC = () => {
   React.useEffect(() => {
     if (!animationId || !playbackContext) return;
     let cancelled = false;
+    let releasePreparedMedia: (() => void) | null = null;
+    const controller = new AbortController();
     setLinkLoading(true);
+    setLinkError(null);
+    setMkvStatus(null);
+    setSubtitleDiscoveryComplete(false);
 
-    Promise.all([
-      generatePlaybackLink(animationId, playbackContext.media.path),
-      Promise.all(
-        playbackContext.subtitles.map(async (subtitle) => ({
-          ...subtitle,
-          url: (await generatePlaybackLink(animationId, subtitle.path)).url,
-        })),
-      ),
-    ])
-      .then(([videoLink, subtitleLinks]) => {
+    const preparePlayback = async () => {
+      let generatedLinks = false;
+      try {
+        const [videoLink, subtitleLinks] = await Promise.all([
+          generatePlaybackLink(animationId, playbackContext.media.path),
+          Promise.all(
+            playbackContext.subtitles.map(async (subtitle) => ({
+              ...subtitle,
+              source: "external" as const,
+              url: (await generatePlaybackLink(animationId, subtitle.path)).url,
+            })),
+          ),
+        ]);
         if (cancelled) return;
-        setPlaybackUrl(videoLink.url);
+
+        generatedLinks = true;
+        setExternalPlaybackUrl(videoLink.url);
         setSubtitles(subtitleLinks);
-      })
-      .catch(() => {
+
+        if (!isMkvPath(playbackContext.media.path)) {
+          setPlaybackMode("native");
+          setPlaybackUrl(videoLink.url);
+          setSubtitleDiscoveryComplete(true);
+          return;
+        }
+
+        setMkvStatus({ stage: "probing" });
+        let probe: MkvPlaybackProbe | null = null;
+        try {
+          probe = await probeMkvPlayback(videoLink.url, controller.signal);
+        } catch (error) {
+          if (isAbortError(error)) throw error;
+          // A server/probe incompatibility should still get a chance to use
+          // the full-file software fallback.
+        }
         if (cancelled) return;
-        const message = i18n.t("player:generateLinkFailed");
+        setMkvProbe(probe);
+
+        if (probe?.videoDecodable && probe.audioDecodable) {
+          setPlaybackMode("mkvProxy");
+          setPlaybackUrl(videoLink.url);
+          setLinkLoading(false);
+          setMkvStatus({ stage: "extractingSubtitles", progress: 0 });
+
+          try {
+            const extracted = await extractMkvSubtitles(videoLink.url, {
+              signal: controller.signal,
+              onProgress: (progress: MkvSubtitleDownloadProgress) => {
+                if (!cancelled) {
+                  setMkvStatus({
+                    stage: "extractingSubtitles",
+                    progress: progress.fraction ?? undefined,
+                  });
+                }
+              },
+            });
+            if (cancelled) {
+              extracted.cleanup();
+              return;
+            }
+            releasePreparedMedia = extracted.cleanup;
+            setSkippedSubtitleCount(extracted.skippedTrackCount);
+            const embeddedSubtitles: ResolvedSubtitle[] = extracted.tracks.map(
+              (track) => ({
+                path: `__mkv_subtitle_${track.trackNumber}`,
+                virtualPath: `mkv://subtitle/${track.trackNumber}`,
+                language: track.language,
+                label: track.label,
+                format: track.format,
+                source: "embedded",
+                url: track.url,
+              }),
+            );
+            setSubtitles([...subtitleLinks, ...embeddedSubtitles]);
+          } catch (error) {
+            if (!isAbortError(error) && !cancelled) {
+              addToast({
+                title: i18n.t("player:mkv.subtitleExtractionFailed"),
+                color: "warning",
+              });
+            }
+          } finally {
+            if (!cancelled) {
+              setMkvStatus(null);
+              setSubtitleDiscoveryComplete(true);
+            }
+          }
+          return;
+        }
+
+        const transcoded = await transcodeMkvForBrowser(
+          videoLink.url,
+          controller.signal,
+          (update) => {
+            if (!cancelled) setMkvStatus(update);
+          },
+          {
+            copyVideo:
+              probe?.videoDecodable === true &&
+              canCopyVideoCodecToMp4(probe.videoCodec),
+          },
+        );
+        if (cancelled) {
+          transcoded.release();
+          return;
+        }
+        releasePreparedMedia = transcoded.release;
+        setSkippedSubtitleCount(transcoded.skippedSubtitleCount);
+        setPlaybackMode("transcoded");
+        setPlaybackUrl(transcoded.url);
+        setSubtitles([
+          ...subtitleLinks,
+          ...transcoded.subtitles.map((subtitle) => ({
+            ...subtitle,
+            source: "embedded" as const,
+          })),
+        ]);
+        setSubtitleDiscoveryComplete(true);
+        setMkvStatus(null);
+      } catch (error) {
+        if (cancelled || isAbortError(error)) return;
+        const message = i18n.t(
+          generatedLinks
+            ? "player:mkv.playbackPreparationFailed"
+            : "player:generateLinkFailed",
+        );
         setLinkError(message);
         addToast({ title: message, color: "danger" });
-      })
-      .finally(() => {
+      } finally {
         if (!cancelled) setLinkLoading(false);
-      });
+      }
+    };
+
+    void preparePlayback();
 
     return () => {
       cancelled = true;
+      controller.abort();
+      releasePreparedMedia?.();
     };
   }, [
     animationId,
@@ -291,7 +475,32 @@ export const PlayerPage: React.FC = () => {
   React.useEffect(() => {
     if (
       !playbackContext ||
-      subtitles.length === 0 ||
+      subtitleDiscoveryComplete ||
+      subtitleSelectionInitializedRef.current
+    ) {
+      return;
+    }
+    const externalSubtitles = subtitles.filter(
+      (subtitle) => subtitle.source === "external",
+    );
+    const selected = selectPreferredSubtitle(
+      externalSubtitles,
+      playbackContext.preferences,
+      i18n.resolvedLanguage ?? i18n.language,
+    );
+    if (selected) setSelectedSubtitle(selected.path);
+  }, [
+    i18n.language,
+    i18n.resolvedLanguage,
+    playbackContext,
+    subtitleDiscoveryComplete,
+    subtitles,
+  ]);
+
+  React.useEffect(() => {
+    if (
+      !playbackContext ||
+      !subtitleDiscoveryComplete ||
       subtitleSelectionInitializedRef.current
     ) {
       return;
@@ -303,7 +512,13 @@ export const PlayerPage: React.FC = () => {
     );
     setSelectedSubtitle(selected?.path ?? OFF_TRACK);
     subtitleSelectionInitializedRef.current = true;
-  }, [i18n.language, i18n.resolvedLanguage, playbackContext, subtitles]);
+  }, [
+    i18n.language,
+    i18n.resolvedLanguage,
+    playbackContext,
+    subtitleDiscoveryComplete,
+    subtitles,
+  ]);
 
   const flushProgressQueue = React.useCallback(async () => {
     if (progressSaveRunningRef.current) return;
@@ -401,11 +616,19 @@ export const PlayerPage: React.FC = () => {
     const art = new Artplayer({
       container: playerContainerRef.current,
       url: playbackUrl,
+      proxy:
+        playbackMode === "mkvProxy"
+          ? artplayerProxyMediabunny({
+              preflightRange: true,
+              dropLateFrames: true,
+              loadTimeout: 30_000,
+            })
+          : undefined,
       lang: artplayerLang,
       autoplay: shouldAutoplay,
       fullscreen: true,
       fullscreenWeb: true,
-      pip: true,
+      pip: playbackMode !== "mkvProxy",
       playbackRate: true,
       aspectRatio: true,
       screenshot: true,
@@ -426,6 +649,17 @@ export const PlayerPage: React.FC = () => {
     });
 
     artRef.current = art;
+    let captionsRenderer: CaptionsRenderer | null = null;
+    let captionsOverlay: HTMLDivElement | null = null;
+    if (playbackMode === "mkvProxy") {
+      captionsOverlay = document.createElement("div");
+      captionsOverlay.className = "sdw-captions-overlay";
+      // media-captions defaults to z-index 1, below Artplayer's canvas (10).
+      captionsOverlay.style.zIndex = "20";
+      art.template.$player.appendChild(captionsOverlay);
+      captionsRenderer = new CaptionsRenderer(captionsOverlay);
+      captionsRendererRef.current = captionsRenderer;
+    }
 
     const onLoadedMetadata = () => {
       const context = contextRef.current;
@@ -483,9 +717,15 @@ export const PlayerPage: React.FC = () => {
       }
     };
 
-    const onTimeUpdate = () => persistCurrentProgressRef.current(false);
+    const onTimeUpdate = () => {
+      if (captionsRenderer) captionsRenderer.currentTime = art.currentTime;
+      persistCurrentProgressRef.current(false);
+    };
     const onPause = () => persistCurrentProgressRef.current(true);
-    const onSeeked = () => persistCurrentProgressRef.current(true);
+    const onSeeked = () => {
+      if (captionsRenderer) captionsRenderer.currentTime = art.currentTime;
+      persistCurrentProgressRef.current(true);
+    };
     const onEnded = () => {
       persistCurrentProgressRef.current(true);
       const context = contextRef.current;
@@ -512,11 +752,17 @@ export const PlayerPage: React.FC = () => {
       persistCurrentProgressRef.current(true, true);
       document.removeEventListener("visibilitychange", onVisibilityChange);
       window.removeEventListener("beforeunload", onBeforeUnload);
+      captionsRenderer?.destroy();
+      captionsOverlay?.remove();
+      if (captionsRendererRef.current === captionsRenderer) {
+        captionsRendererRef.current = null;
+      }
       art.destroy(false);
       if (artRef.current === art) artRef.current = null;
     };
   }, [
     playbackUrl,
+    playbackMode,
     playbackContext?.media.virtualPath,
     i18n,
     navigate,
@@ -528,10 +774,44 @@ export const PlayerPage: React.FC = () => {
     if (!art) return;
     if (selectedSubtitle === OFF_TRACK) {
       art.subtitle.show = false;
+      captionsRendererRef.current?.reset();
       return;
     }
     const subtitle = subtitles.find((item) => item.path === selectedSubtitle);
     if (!subtitle) return;
+
+    if (playbackMode === "mkvProxy") {
+      art.subtitle.show = false;
+      const renderer = captionsRendererRef.current;
+      if (!renderer) return;
+      renderer.reset();
+      const controller = new AbortController();
+      void parseResponse(fetch(subtitle.url, { signal: controller.signal }), {
+        type: normalizeCaptionFormat(subtitle.format),
+        encoding: "utf-8",
+      })
+        .then((track) => {
+          if (
+            controller.signal.aborted ||
+            captionsRendererRef.current !== renderer
+          ) {
+            return;
+          }
+          renderer.changeTrack(track);
+          renderer.currentTime = art.currentTime;
+        })
+        .catch((error: unknown) => {
+          if (!isAbortError(error)) {
+            addToast({
+              title: t("tracks.subtitleLoadFailed"),
+              color: "warning",
+            });
+          }
+        });
+      return () => controller.abort();
+    }
+
+    captionsRendererRef.current?.reset();
     void art.subtitle
       .switch(subtitle.url, {
         name: subtitle.label,
@@ -547,7 +827,7 @@ export const PlayerPage: React.FC = () => {
       .catch(() => {
         addToast({ title: t("tracks.subtitleLoadFailed"), color: "warning" });
       });
-  }, [addToast, selectedSubtitle, subtitles, t]);
+  }, [addToast, playbackMode, selectedSubtitle, subtitles, t]);
 
   const flushPreferenceQueue = React.useCallback(async () => {
     if (preferenceSaveRunningRef.current) return;
@@ -602,6 +882,7 @@ export const PlayerPage: React.FC = () => {
 
   const onSubtitleChange = React.useCallback(
     (path: string) => {
+      subtitleSelectionInitializedRef.current = true;
       setSelectedSubtitle(path);
       const subtitle = subtitles.find((item) => item.path === path);
       void updatePreferences({
@@ -683,6 +964,11 @@ export const PlayerPage: React.FC = () => {
         : linkError;
   const loading = contextLoading || linkLoading || (!error && !playbackUrl);
   const preferences = playbackContext?.preferences;
+  const mkvProgressPercent =
+    mkvStatus?.progress == null
+      ? null
+      : Math.round(Math.min(1, Math.max(0, mkvStatus.progress)) * 100);
+  const mkvStatusLabel = mkvStatus ? t(`mkv.stages.${mkvStatus.stage}`) : null;
 
   return (
     <PageTemplate>
@@ -692,8 +978,29 @@ export const PlayerPage: React.FC = () => {
       </Button>
 
       {loading ? (
-        <div className="flex justify-center py-16">
+        <div className="flex flex-col items-center justify-center gap-3 py-16">
           <Spinner size={32} />
+          {mkvStatusLabel ? (
+            <div className="w-full max-w-sm text-center">
+              <p className="text-sm text-muted">
+                {mkvStatusLabel}
+                {mkvProgressPercent == null ? "" : ` · ${mkvProgressPercent}%`}
+              </p>
+              {mkvProgressPercent == null ? null : (
+                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-border-light">
+                  <div
+                    className="h-full rounded-full bg-brand transition-[width]"
+                    style={{ width: `${mkvProgressPercent}%` }}
+                  />
+                </div>
+              )}
+              {mkvStatus?.stage === "probing" ? null : (
+                <p className="mt-2 text-xs text-subtle">
+                  {t("mkv.transcodeNotice")}
+                </p>
+              )}
+            </div>
+          ) : null}
         </div>
       ) : error ? (
         <EmptyPrompt
@@ -721,9 +1028,25 @@ export const PlayerPage: React.FC = () => {
                       {t("watched.label")}
                     </span>
                   ) : null}
+                  {playbackMode !== "native" ? (
+                    <span className="inline-flex items-center rounded-full bg-brand/10 px-2 py-0.5 text-[11px] font-medium text-brand">
+                      {t(
+                        playbackMode === "mkvProxy"
+                          ? "mkv.mode.demuxed"
+                          : "mkv.mode.transcoded",
+                      )}
+                    </span>
+                  ) : null}
                 </div>
                 <p className="mt-0.5 text-xs text-muted">
-                  {t("useExternalHint")}
+                  {mkvStatusLabel
+                    ? `${mkvStatusLabel}${mkvProgressPercent == null ? "" : ` · ${mkvProgressPercent}%`}`
+                    : playbackMode === "mkvProxy" && mkvProbe
+                      ? t("mkv.codecSummary", {
+                          video: mkvProbe.videoCodec,
+                          audio: mkvProbe.audioCodec ?? t("mkv.noAudio"),
+                        })
+                      : t("useExternalHint")}
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
@@ -755,7 +1078,9 @@ export const PlayerPage: React.FC = () => {
                     <ChevronRight size={15} />
                   </Button>
                 ) : null}
-                <ExternalPlayerButtons playbackUrl={playbackUrl} />
+                {externalPlaybackUrl ? (
+                  <ExternalPlayerButtons playbackUrl={externalPlaybackUrl} />
+                ) : null}
               </div>
             </div>
           </section>
@@ -793,9 +1118,18 @@ export const PlayerPage: React.FC = () => {
                 </select>
                 <p className="mt-1 text-xs text-subtle">
                   {subtitles.length > 0
-                    ? t("tracks.externalMatched", { count: subtitles.length })
-                    : t("tracks.noExternal")}
+                    ? t("tracks.available", { count: subtitles.length })
+                    : subtitleDiscoveryComplete
+                      ? t("tracks.none")
+                      : t("mkv.stages.extractingSubtitles")}
                 </p>
+                {skippedSubtitleCount > 0 ? (
+                  <p className="mt-1 text-xs text-warning">
+                    {t("mkv.bitmapSubtitlesSkipped", {
+                      count: skippedSubtitleCount,
+                    })}
+                  </p>
+                ) : null}
               </label>
 
               <label className="block">

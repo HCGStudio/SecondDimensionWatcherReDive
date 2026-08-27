@@ -1,0 +1,47 @@
+diff --git a/dist/esm/worker.js b/dist/esm/worker.js
+index cca2a6116bab5349cfa35bc1dba0b6e696af91ee..84c1e701e92810b722a186a941db0a56a615407f 100644
+--- a/dist/esm/worker.js
++++ b/dist/esm/worker.js
+@@ -6,21 +6,29 @@ import { ERROR_UNKNOWN_MESSAGE_TYPE, ERROR_NOT_LOADED, ERROR_IMPORT_FAILURE, } f
+ let ffmpeg;
+ const load = async ({ coreURL: _coreURL, wasmURL: _wasmURL, workerURL: _workerURL, }) => {
+     const first = !ffmpeg;
++    if (!_coreURL)
++        _coreURL = CORE_URL;
++    // Parcel emits the core as a self-registering module without native ESM
++    // exports. Expose the registered entry explicitly before importing it in
++    // this module worker; this also avoids forbidden importScripts() calls.
++    const response = await fetch(_coreURL);
++    if (!response.ok) {
++        throw ERROR_IMPORT_FAILURE;
++    }
++    const bundledCore = await response.text();
++    const exposedCore = bundledCore.replace(/([$_A-Za-z][\w$]*)\("([$_A-Za-z0-9]+)"\);(\s*(?:\}\)\(\);?)?\s*)$/, 'self.createFFmpegCore=$1("$2").default;$3');
++    if (exposedCore === bundledCore) {
++        throw ERROR_IMPORT_FAILURE;
++    }
++    const coreBlobURL = URL.createObjectURL(new Blob([exposedCore], { type: 'text/javascript' }));
+     try {
+-        if (!_coreURL)
+-            _coreURL = CORE_URL;
+-        // when web worker type is `classic`.
+-        importScripts(_coreURL);
++        await import(/* @vite-ignore */ coreBlobURL);
+     }
+-    catch {
+-        if (!_coreURL || _coreURL === CORE_URL)
+-            _coreURL = CORE_URL.replace('/umd/', '/esm/');
+-        // when web worker type is `module`.
+-        self.createFFmpegCore = (await import(
+-        /* @vite-ignore */ _coreURL)).default;
+-        if (!self.createFFmpegCore) {
+-            throw ERROR_IMPORT_FAILURE;
+-        }
++    finally {
++        URL.revokeObjectURL(coreBlobURL);
++    }
++    if (!self.createFFmpegCore) {
++        throw ERROR_IMPORT_FAILURE;
+     }
+     const coreURL = _coreURL;
+     const wasmURL = _wasmURL ? _wasmURL : _coreURL.replace(/.js$/g, ".wasm");

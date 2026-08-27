@@ -163,7 +163,7 @@ builder.Services.AddHttpClient("Feed", client =>
 });
 
 var contentTypeProvider = new FileExtensionContentTypeProvider();
-contentTypeProvider.Mappings.Add(".mkv", "video/webm");
+contentTypeProvider.Mappings.Add(".mkv", "video/x-matroska");
 builder.Services.AddSingleton<IContentTypeProvider>(contentTypeProvider);
 
 //Add channels

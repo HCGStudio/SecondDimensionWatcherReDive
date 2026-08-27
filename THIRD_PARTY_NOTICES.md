@@ -3,8 +3,8 @@
 This project is licensed under the **Apache License 2.0** (see [`LICENSE`](LICENSE)).
 It bundles, redistributes, or links against the third-party software listed
 below. This file exists to satisfy the notice / attribution requirements those
-licenses impose on downstream distributors. None of the components below are
-modified by this project; we use them as published.
+licenses impose on downstream distributors. Components are used as published
+except for the `@ffmpeg/ffmpeg` Parcel compatibility patch noted below.
 
 If you ship our binaries or container images, you are also distributing some of
 these components — please carry this notice along.
@@ -67,6 +67,12 @@ time. All are MIT-licensed unless noted.
 | tailwindcss + @tailwindcss/postcss + @tailwindcss/typography | MIT | https://github.com/tailwindlabs/tailwindcss |
 | postcss | MIT | https://github.com/postcss/postcss |
 | artplayer | MIT | https://github.com/zhw2590582/ArtPlayer |
+| artplayer-proxy-mediabunny | MIT | https://github.com/zhw2590582/ArtPlayer |
+| mediabunny | **MPL-2.0** | https://github.com/Vanilagy/mediabunny |
+| media-captions | MIT | https://github.com/vidstack/media-captions |
+| matroska-subtitles | MIT | https://github.com/mathiasvr/matroska-subtitles |
+| @ffmpeg/ffmpeg | MIT | https://github.com/ffmpegwasm/ffmpeg.wasm |
+| @ffmpeg/core | **GPL-2.0-or-later** | https://github.com/ffmpegwasm/ffmpeg.wasm |
 | clsx | MIT | https://github.com/lukeed/clsx |
 | dayjs | MIT | https://github.com/iamkun/dayjs |
 | i18next + react-i18next + i18next-browser-languagedetector | MIT | https://github.com/i18next/i18next |
@@ -78,6 +84,21 @@ time. All are MIT-licensed unless noted.
 Build-only / development dependencies (Parcel, Prettier, TypeScript, etc.)
 are listed in `SecondDimensionWatcherReDive.Client/package.json` —
 they are not embedded in shipping artifacts and are not enumerated here.
+
+### Browser MKV support
+
+`mediabunny` is distributed under MPL-2.0; modifications to MPL-covered files
+must remain available under that license. This project does not modify its
+sources.
+
+The unsupported-codec fallback ships the `@ffmpeg/core` WebAssembly binary,
+which is GPL-2.0-or-later. Distributors enabling or shipping the web client must
+comply with the GPL's source and license requirements for that component. Its
+corresponding source is the upstream `ffmpeg.wasm` project linked above.
+
+The MIT-licensed `@ffmpeg/ffmpeg` wrapper is patched locally so its worker uses
+the ESM core loader accepted by Parcel. The complete patch is distributed in
+`SecondDimensionWatcherReDive.Client/.yarn/patches/`.
 
 ---
 

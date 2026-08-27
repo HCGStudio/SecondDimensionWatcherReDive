@@ -35,6 +35,8 @@
     "subtitle": "字幕トラック",
     "audio": "音声トラック",
     "off": "オフ",
+    "available": "外部・内蔵字幕を合わせて {{count}} 件利用できます",
+    "none": "利用できる字幕はありません",
     "externalMatched": "一致する外部字幕 {{count}} 件を自動で関連付けました",
     "noExternal": "一致する外部字幕はありません",
     "subtitleLoadFailed": "この字幕を読み込めませんでした",
@@ -47,6 +49,28 @@
       "zh": "中国語",
       "en": "英語"
     }
+  },
+  "mkv": {
+    "mode": {
+      "demuxed": "ブラウザーで MKV 分離",
+      "transcoded": "ブラウザーで変換済み"
+    },
+    "stages": {
+      "probing": "MKV の映像・音声トラックを確認しています",
+      "extractingSubtitles": "内蔵字幕を抽出して変換しています",
+      "loadingTranscoder": "ブラウザー変換エンジンを読み込んでいます",
+      "downloading": "ブラウザー変換用に MKV をダウンロードしています",
+      "readingTracks": "MKV のトラック情報を読み取っています",
+      "convertingSubtitles": "内蔵字幕を WebVTT に変換しています",
+      "transcodingVideo": "未対応の映像・音声コーデックを変換しています",
+      "finalizing": "再生可能な動画を準備しています"
+    },
+    "playbackPreparationFailed": "この MKV をブラウザーで分離または変換できませんでした",
+    "subtitleExtractionFailed": "MKV は再生できますが、内蔵字幕を抽出できませんでした",
+    "transcodeNotice": "ブラウザーでのソフトウェア変換はファイル全体をダウンロードするため、時間がかかる場合があります。このページを開いたままにしてください。",
+    "codecSummary": "MKV を自動分離しました · 映像 {{video}} · 音声 {{audio}}",
+    "noAudio": "なし",
+    "bitmapSubtitlesSkipped": "ブラウザーで変換できない字幕トラック {{count}} 件をスキップしました"
   },
   "next": {
     "play": "次のエピソード",

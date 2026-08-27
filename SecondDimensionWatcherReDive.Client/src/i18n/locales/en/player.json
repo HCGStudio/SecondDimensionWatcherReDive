@@ -35,6 +35,9 @@
     "subtitle": "Subtitle track",
     "audio": "Audio track",
     "off": "Off",
+    "available_one": "{{count}} subtitle track available (sidecar or embedded)",
+    "available_other": "{{count}} subtitle tracks available (sidecar and embedded)",
+    "none": "No usable subtitle tracks were found",
     "externalMatched_one": "{{count}} matching sidecar subtitle was linked automatically",
     "externalMatched_other": "{{count}} matching sidecar subtitles were linked automatically",
     "noExternal": "No matching sidecar subtitles",
@@ -49,6 +52,29 @@
       "zh": "Chinese",
       "en": "English"
     }
+  },
+  "mkv": {
+    "mode": {
+      "demuxed": "Browser MKV demux",
+      "transcoded": "Browser transcoded"
+    },
+    "stages": {
+      "probing": "Inspecting MKV audio and video tracks",
+      "extractingSubtitles": "Extracting and converting embedded subtitles",
+      "loadingTranscoder": "Loading the browser transcoder",
+      "downloading": "Downloading the MKV for browser conversion",
+      "readingTracks": "Reading MKV track information",
+      "convertingSubtitles": "Converting embedded subtitles to WebVTT",
+      "transcodingVideo": "Converting unsupported audio or video codecs",
+      "finalizing": "Preparing the playable video"
+    },
+    "playbackPreparationFailed": "This MKV could not be demuxed or converted in the browser",
+    "subtitleExtractionFailed": "The MKV can play, but its embedded subtitles could not be extracted",
+    "transcodeNotice": "Browser software conversion downloads the complete file and can take a while. Keep this page open.",
+    "codecSummary": "MKV demuxed automatically · video {{video}} · audio {{audio}}",
+    "noAudio": "none",
+    "bitmapSubtitlesSkipped_one": "Skipped {{count}} subtitle track that the browser could not convert",
+    "bitmapSubtitlesSkipped_other": "Skipped {{count}} subtitle tracks that the browser could not convert"
   },
   "next": {
     "play": "Next episode",

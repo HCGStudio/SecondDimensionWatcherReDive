@@ -35,6 +35,8 @@
     "subtitle": "字幕轨道",
     "audio": "音频轨道",
     "off": "关闭",
+    "available": "共 {{count}} 条可用字幕（外挂与内封）",
+    "none": "未找到可用字幕",
     "externalMatched": "已自动关联 {{count}} 个匹配的外挂字幕",
     "noExternal": "未找到匹配的外挂字幕",
     "subtitleLoadFailed": "无法加载此字幕",
@@ -47,6 +49,28 @@
       "zh": "中文",
       "en": "英语"
     }
+  },
+  "mkv": {
+    "mode": {
+      "demuxed": "MKV 前端拆包",
+      "transcoded": "浏览器已转码"
+    },
+    "stages": {
+      "probing": "正在检查 MKV 音视频轨道",
+      "extractingSubtitles": "正在拆出并转换内封字幕",
+      "loadingTranscoder": "正在加载浏览器转码器",
+      "downloading": "正在下载 MKV 以供前端转换",
+      "readingTracks": "正在读取 MKV 轨道信息",
+      "convertingSubtitles": "正在把内封字幕转换为 WebVTT",
+      "transcodingVideo": "正在转换浏览器不支持的音视频编码",
+      "finalizing": "正在生成可播放的视频"
+    },
+    "playbackPreparationFailed": "无法在浏览器中拆包或转换此 MKV",
+    "subtitleExtractionFailed": "MKV 可以播放，但内封字幕拆出失败",
+    "transcodeNotice": "前端软件转码需要完整下载文件，首次处理可能较慢，请保持此页面打开。",
+    "codecSummary": "MKV 已自动拆包 · 视频 {{video}} · 音频 {{audio}}",
+    "noAudio": "无",
+    "bitmapSubtitlesSkipped": "已跳过 {{count}} 条浏览器无法转换的字幕轨道"
   },
   "next": {
     "play": "下一集",

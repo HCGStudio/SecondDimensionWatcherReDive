@@ -107,7 +107,7 @@ public sealed class WebDavClientLibraryTests
         Assert.AreEqual("/webdav/anime-a/file1.mkv", resource.Uri);
         Assert.IsFalse(resource.IsCollection);
         Assert.AreEqual(FileBytes.LongLength, resource.ContentLength);
-        Assert.AreEqual("video/webm", resource.ContentType);
+        Assert.AreEqual("video/x-matroska", resource.ContentType);
     }
 
     [TestMethod]
