@@ -2,6 +2,7 @@ using System.Text.RegularExpressions;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Inference.AI.Tools;
 using SecondDimensionWatcherReDive.Utils.FileStore;
+using SecondDimensionWatcherReDive.Utils.Incidents;
 
 namespace SecondDimensionWatcherReDive.Utils.MetadataReview;
 
@@ -87,7 +88,8 @@ public sealed partial class MetadataReviewService(
     IFileMappingRepository fileMappingRepository,
     IMetadataReviewRepository metadataReviewRepository,
     IFileMapper fileMapper,
-    TmdbTool tmdbTool) : IMetadataReviewService
+    TmdbTool tmdbTool,
+    IIncidentReporter? incidentReporter = null) : IMetadataReviewService
 {
     private static readonly TimeSpan PreviewLifetime = TimeSpan.FromMinutes(15);
     private const int MaxGroupNameLength = 200;
@@ -219,7 +221,13 @@ public sealed partial class MetadataReviewService(
             previewId,
             animationInfoId,
             cancellationToken);
-        return ToChangeResult(result, applying: true);
+        var change = ToChangeResult(result, applying: true);
+        if (incidentReporter is not null)
+            await incidentReporter.ResolveAsync(
+                IncidentType.FileMappingFailure,
+                animationInfoId.ToString(),
+                cancellationToken);
+        return change;
     }
 
     public async Task<MetadataReviewChangeResult> UndoAsync(

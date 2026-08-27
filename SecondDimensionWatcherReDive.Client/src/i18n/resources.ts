@@ -5,6 +5,7 @@ import enCommon from "./locales/en/common.json";
 import enErrors from "./locales/en/errors.json";
 import enFeeds from "./locales/en/feeds.json";
 import enFiles from "./locales/en/files.json";
+import enIncidents from "./locales/en/incidents.json";
 import enMetadataReview from "./locales/en/metadataReview.json";
 import enPlayer from "./locales/en/player.json";
 import enSeason from "./locales/en/season.json";
@@ -17,6 +18,7 @@ import jaCommon from "./locales/ja/common.json";
 import jaErrors from "./locales/ja/errors.json";
 import jaFeeds from "./locales/ja/feeds.json";
 import jaFiles from "./locales/ja/files.json";
+import jaIncidents from "./locales/ja/incidents.json";
 import jaMetadataReview from "./locales/ja/metadataReview.json";
 import jaPlayer from "./locales/ja/player.json";
 import jaSeason from "./locales/ja/season.json";
@@ -29,6 +31,7 @@ import zhCnCommon from "./locales/zh-CN/common.json";
 import zhCnErrors from "./locales/zh-CN/errors.json";
 import zhCnFeeds from "./locales/zh-CN/feeds.json";
 import zhCnFiles from "./locales/zh-CN/files.json";
+import zhCnIncidents from "./locales/zh-CN/incidents.json";
 import zhCnMetadataReview from "./locales/zh-CN/metadataReview.json";
 import zhCnPlayer from "./locales/zh-CN/player.json";
 import zhCnSeason from "./locales/zh-CN/season.json";
@@ -45,6 +48,7 @@ export const resources = {
     metadataReview: zhCnMetadataReview,
     chat: zhCnChat,
     feeds: zhCnFeeds,
+    incidents: zhCnIncidents,
     season: zhCnSeason,
     settings: zhCnSettings,
     tasks: zhCnTasks,
@@ -59,6 +63,7 @@ export const resources = {
     metadataReview: enMetadataReview,
     chat: enChat,
     feeds: enFeeds,
+    incidents: enIncidents,
     season: enSeason,
     settings: enSettings,
     tasks: enTasks,
@@ -73,6 +78,7 @@ export const resources = {
     metadataReview: jaMetadataReview,
     chat: jaChat,
     feeds: jaFeeds,
+    incidents: jaIncidents,
     season: jaSeason,
     settings: jaSettings,
     tasks: jaTasks,

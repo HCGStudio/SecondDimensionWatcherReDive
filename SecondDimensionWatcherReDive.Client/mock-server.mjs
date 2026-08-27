@@ -332,7 +332,7 @@ function initAnimations() {
     let isDownloadTracked = false;
     let isDownloadFinished = false;
 
-    if (i < 3 || i === 17) {
+    if (i < 3 || i === 17 || i === 21) {
       // First 3 plus one multi-episode item: finished
       isDownloadTracked = true;
       isDownloadFinished = true;
@@ -846,11 +846,19 @@ const FILE_TREE = {
     { fileName: "Season 2", isDirectory: true, relative: "Season 2" },
     { fileName: "Specials", isDirectory: true, relative: "Specials" },
   ],
-  "Season 1": Array.from({ length: 12 }, (_, i) => ({
-    fileName: `EP${String(i + 1).padStart(2, "0")}.mp4`,
-    isDirectory: false,
-    relative: null,
-  })),
+  "Season 1": [
+    ...Array.from({ length: 12 }, (_, i) => ({
+      fileName: `EP${String(i + 1).padStart(2, "0")}.mp4`,
+      isDirectory: false,
+      relative: null,
+    })),
+    {
+      fileName: "EP01.zh-Hans.srt",
+      isDirectory: false,
+      relative: null,
+    },
+    { fileName: "EP01.en.srt", isDirectory: false, relative: null },
+  ],
   "Season 2": Array.from({ length: 12 }, (_, i) => ({
     fileName: `EP${String(i + 1).padStart(2, "0")}.mp4`,
     isDirectory: false,
@@ -863,6 +871,222 @@ const FILE_TREE = {
     { fileName: "NCED.mp4", isDirectory: false, relative: null },
   ],
 };
+
+// Playback state is user-scoped in the real API. The mock server has one user,
+// so a composite animation/path key is sufficient for cross-page persistence.
+const playbackProgress = new Map();
+let playbackPreferences = {
+  subtitleLanguage: "zh",
+  subtitleTrackLabel: null,
+  audioLanguage: "ja",
+  audioTrackLabel: null,
+  autoPlayNext: true,
+  updatedAt: new Date().toISOString(),
+};
+
+function playbackKey(animationInfoId, path) {
+  return `${animationInfoId}:${path}`;
+}
+
+function playablePaths() {
+  const paths = [];
+  for (const [directory, entries] of Object.entries(FILE_TREE)) {
+    for (const entry of entries) {
+      if (
+        !entry.isDirectory &&
+        /\.(mkv|mp4|webm|avi|flv|wmv|mov|m4v|ts|m2ts)$/i.test(entry.fileName)
+      ) {
+        paths.push(directory ? `${directory}/${entry.fileName}` : entry.fileName);
+      }
+    }
+  }
+  return paths;
+}
+
+function playbackVirtualPath(animation, path) {
+  const name = sanitizePathSegment(animation.animation?.name ?? "unknown");
+  const group = sanitizePathSegment(animation.group?.name ?? "Unknown");
+  return animation.animation && animation.season != null
+    ? `/${name}/${group}/${path}`
+    : `/unknown/${path}`;
+}
+
+function playbackMedia(animation, path) {
+  return {
+    animationInfoId: animation.id,
+    path,
+    virtualPath: playbackVirtualPath(animation, path),
+    title: animation.title,
+    animationName: animation.animation?.name ?? null,
+    posterPath: animation.animation?.posterPath ?? null,
+    season: animation.season ?? null,
+    episode: animation.episode ?? null,
+  };
+}
+
+function playbackState(animation, path, stored) {
+  return {
+    animationInfoId: animation.id,
+    path,
+    virtualPath: playbackVirtualPath(animation, path),
+    positionSeconds: stored?.positionSeconds ?? 0,
+    durationSeconds: stored?.durationSeconds ?? 0,
+    isWatched: stored?.isWatched ?? false,
+    updatedAt: stored?.updatedAt ?? null,
+    watchedAt: stored?.watchedAt ?? null,
+  };
+}
+
+function findNextPlaybackMedia(animation) {
+  if (!animation.animation?.tmdbId || animation.episode == null) return null;
+  const next = [...animations.values()]
+    .filter(
+      (candidate) =>
+        candidate.isDownloadFinished &&
+        candidate.animation?.tmdbId === animation.animation.tmdbId &&
+        candidate.season === animation.season &&
+        candidate.episode != null &&
+        candidate.episode > animation.episode,
+    )
+    .sort((a, b) => a.episode - b.episode)[0];
+  return next ? playbackMedia(next, "Season 1/EP01.mp4") : null;
+}
+
+function associatedSubtitles(animation, videoPath) {
+  const slash = videoPath.lastIndexOf("/");
+  const directory = slash >= 0 ? videoPath.slice(0, slash) : "";
+  const videoName = slash >= 0 ? videoPath.slice(slash + 1) : videoPath;
+  const stem = videoName.replace(/\.[^.]+$/, "");
+  const entries = FILE_TREE[directory] ?? [];
+  return entries
+    .filter(
+      (entry) =>
+        !entry.isDirectory &&
+        /\.(srt|ass|ssa|vtt|sub)$/i.test(entry.fileName) &&
+        entry.fileName.toLowerCase().startsWith(stem.toLowerCase()),
+    )
+    .map((entry) => {
+      const path = directory ? `${directory}/${entry.fileName}` : entry.fileName;
+      const language = entry.fileName.includes("zh-Hans")
+        ? "zh-Hans"
+        : entry.fileName.includes(".en.")
+          ? "en"
+          : null;
+      return {
+        path,
+        virtualPath: playbackVirtualPath(animation, path),
+        language,
+        label: entry.fileName,
+        format: entry.fileName.split(".").pop().toLowerCase(),
+      };
+    });
+}
+
+const finishedForPlayback = [...animations.values()].filter(
+  (animation) => animation.isDownloadFinished,
+);
+if (finishedForPlayback[0]) {
+  const animation = finishedForPlayback[0];
+  const path = "Season 1/EP01.mp4";
+  playbackProgress.set(playbackKey(animation.id, path), {
+    positionSeconds: 812,
+    durationSeconds: 1440,
+    isWatched: false,
+    updatedAt: new Date(Date.now() - 18 * 60_000).toISOString(),
+    watchedAt: null,
+  });
+}
+const previousEpisode = finishedForPlayback.find(
+  (animation) => animation.animation?.tmdbId === "209867" && animation.episode === 27,
+);
+if (previousEpisode) {
+  const path = "Season 1/EP01.mp4";
+  playbackProgress.set(playbackKey(previousEpisode.id, path), {
+    positionSeconds: 420,
+    durationSeconds: 1440,
+    isWatched: false,
+    updatedAt: new Date(Date.now() - 3 * 3600_000).toISOString(),
+    watchedAt: null,
+  });
+}
+
+let mockIncidents = [
+  {
+    id: randomUUID(),
+    type: "feedFailure",
+    severity: "error",
+    title: "Mikan RSS returned HTTP 503",
+    detail: "The feed could not be refreshed during the last three sync attempts.",
+    sourceId: feeds[0]?.id ?? null,
+    detectedAt: new Date(Date.now() - 42 * 60_000).toISOString(),
+    updatedAt: new Date(Date.now() - 12 * 60_000).toISOString(),
+    retryCount: 2,
+    lastRetryAt: new Date(Date.now() - 12 * 60_000).toISOString(),
+    lastRetryError: "Upstream returned 503 Service Unavailable",
+    resolvedAt: null,
+    canRetry: true,
+  },
+  {
+    id: randomUUID(),
+    type: "downloadStalled",
+    severity: "warning",
+    title: "Download has not progressed for 20 minutes",
+    detail: "No peers are currently available. Retry will reannounce the torrent.",
+    sourceId: finishedForPlayback[1]?.id ?? null,
+    detectedAt: new Date(Date.now() - 25 * 60_000).toISOString(),
+    updatedAt: new Date(Date.now() - 5 * 60_000).toISOString(),
+    retryCount: 0,
+    lastRetryAt: null,
+    lastRetryError: null,
+    resolvedAt: null,
+    canRetry: true,
+  },
+  {
+    id: randomUUID(),
+    type: "aiFailure",
+    severity: "error",
+    title: "Metadata inference retry limit reached",
+    detail: "The model did not return a valid TMDB ID after three attempts.",
+    sourceId: [...animations.values()][13]?.id ?? null,
+    detectedAt: new Date(Date.now() - 6 * 3600_000).toISOString(),
+    updatedAt: new Date(Date.now() - 6 * 3600_000).toISOString(),
+    retryCount: 0,
+    lastRetryAt: null,
+    lastRetryError: null,
+    resolvedAt: null,
+    canRetry: true,
+  },
+  {
+    id: randomUUID(),
+    type: "fileMappingFailure",
+    severity: "error",
+    title: "Downloaded files could not be mapped",
+    detail: "The download completed, but no playable video mapping was produced.",
+    sourceId: finishedForPlayback[2]?.id ?? null,
+    detectedAt: new Date(Date.now() - 2 * 3600_000).toISOString(),
+    updatedAt: new Date(Date.now() - 2 * 3600_000).toISOString(),
+    retryCount: 1,
+    lastRetryAt: new Date(Date.now() - 90 * 60_000).toISOString(),
+    lastRetryError: "File store temporarily unavailable",
+    resolvedAt: null,
+    canRetry: true,
+  },
+  {
+    id: randomUUID(),
+    type: "diskSpaceLow",
+    severity: "critical",
+    title: "Download volume is almost full",
+    detail: "Only 3.8 GB remain on the configured file store.",
+    sourceId: "local",
+    detectedAt: new Date(Date.now() - 75 * 60_000).toISOString(),
+    updatedAt: new Date(Date.now() - 15 * 60_000).toISOString(),
+    retryCount: 0,
+    lastRetryAt: null,
+    lastRetryError: null,
+    resolvedAt: null,
+    canRetry: true,
+  },
+];
 
 // Mock VFS tree (mirrors what /api/vfs returns — keyed by absolute virtual path)
 const VFS_NOW = Date.now();
@@ -991,6 +1215,217 @@ async function route(method, pathname, searchParams, req, res) {
   // --- All remaining endpoints require auth ---
   if (!hasAuth(req) && !pathname.startsWith("/api/auth/")) {
     return empty(res, 401);
+  }
+
+  // --- Playback continuity ---
+
+  if (method === "GET" && pathname === "/api/playback/continue") {
+    const limit = Math.min(
+      100,
+      Math.max(1, parseInt(searchParams.get("limit") ?? "20", 10) || 20),
+    );
+    const items = [];
+    for (const [key, stored] of playbackProgress) {
+      if (stored.isWatched || stored.positionSeconds <= 0) continue;
+      const separator = key.indexOf(":");
+      const animationInfoId = key.slice(0, separator);
+      const path = key.slice(separator + 1);
+      const animation = animations.get(animationInfoId);
+      if (!animation || !animation.isDownloadFinished) continue;
+      items.push({
+        media: playbackMedia(animation, path),
+        state: playbackState(animation, path, stored),
+      });
+    }
+    items.sort(
+      (a, b) =>
+        new Date(b.state.updatedAt).getTime() -
+        new Date(a.state.updatedAt).getTime(),
+    );
+    return json(res, items.slice(0, limit));
+  }
+
+  if (method === "GET" && pathname === "/api/playback/states") {
+    const animation = animations.get(searchParams.get("animationInfoId"));
+    if (!animation) return empty(res, 404);
+    return json(
+      res,
+      playablePaths().map((path) =>
+        playbackState(
+          animation,
+          path,
+          playbackProgress.get(playbackKey(animation.id, path)),
+        ),
+      ),
+    );
+  }
+
+  if (method === "GET" && pathname === "/api/playback/context") {
+    const animation = animations.get(searchParams.get("animationInfoId"));
+    const path = searchParams.get("path");
+    if (!animation || !animation.isDownloadFinished || !playablePaths().includes(path)) {
+      return empty(res, 404);
+    }
+    return json(res, {
+      media: playbackMedia(animation, path),
+      state: playbackProgress.has(playbackKey(animation.id, path))
+        ? playbackState(
+            animation,
+            path,
+            playbackProgress.get(playbackKey(animation.id, path)),
+          )
+        : null,
+      preferences: playbackPreferences,
+      subtitles: associatedSubtitles(animation, path),
+      next: findNextPlaybackMedia(animation),
+    });
+  }
+
+  if (method === "PUT" && pathname === "/api/playback/progress") {
+    const body = await readBody(req);
+    const animation = animations.get(body.animationInfoId);
+    if (!animation || !playablePaths().includes(body.path)) return empty(res, 404);
+    const positionSeconds = Math.max(0, Number(body.positionSeconds) || 0);
+    const durationSeconds = Math.max(0, Number(body.durationSeconds) || 0);
+    const key = playbackKey(animation.id, body.path);
+    const previous = playbackProgress.get(key);
+    const isWatched =
+      previous?.isWatched ||
+      (durationSeconds > 0 && positionSeconds / durationSeconds >= 0.9);
+    const updatedAt = new Date().toISOString();
+    const stored = {
+      positionSeconds: Math.min(positionSeconds, durationSeconds || positionSeconds),
+      durationSeconds,
+      isWatched,
+      updatedAt,
+      watchedAt: isWatched ? (previous?.watchedAt ?? updatedAt) : null,
+    };
+    playbackProgress.set(key, stored);
+    return json(res, playbackState(animation, body.path, stored));
+  }
+
+  if (method === "PUT" && pathname === "/api/playback/watched") {
+    const body = await readBody(req);
+    const animation = animations.get(body.animationInfoId);
+    if (!animation || !playablePaths().includes(body.path)) return empty(res, 404);
+    const key = playbackKey(animation.id, body.path);
+    const previous = playbackProgress.get(key) ?? {
+      positionSeconds: 0,
+      durationSeconds: 0,
+    };
+    const updatedAt = new Date().toISOString();
+    const stored = {
+      ...previous,
+      isWatched: !!body.isWatched,
+      updatedAt,
+      watchedAt: body.isWatched ? updatedAt : null,
+    };
+    playbackProgress.set(key, stored);
+    return json(res, playbackState(animation, body.path, stored));
+  }
+
+  if (method === "GET" && pathname === "/api/playback/preferences") {
+    return json(res, playbackPreferences);
+  }
+
+  if (method === "PUT" && pathname === "/api/playback/preferences") {
+    const body = await readBody(req);
+    playbackPreferences = {
+      subtitleLanguage: body.subtitleLanguage ?? null,
+      subtitleTrackLabel: body.subtitleTrackLabel ?? null,
+      audioLanguage: body.audioLanguage ?? null,
+      audioTrackLabel: body.audioTrackLabel ?? null,
+      autoPlayNext: body.autoPlayNext !== false,
+      updatedAt: new Date().toISOString(),
+    };
+    return json(res, playbackPreferences);
+  }
+
+  // --- Incident inbox ---
+
+  if (method === "GET" && pathname === "/api/incidents") {
+    const type = searchParams.get("type");
+    const includeResolved = searchParams.get("includeResolved") === "true";
+    const skip = Math.max(0, parseInt(searchParams.get("skip") ?? "0", 10) || 0);
+    const take = Math.min(
+      200,
+      Math.max(1, parseInt(searchParams.get("take") ?? "50", 10) || 50),
+    );
+    const openItems = mockIncidents.filter((incident) => !incident.resolvedAt);
+    const countsByType = Object.fromEntries(
+      [
+        "feedFailure",
+        "downloadStalled",
+        "aiFailure",
+        "fileMappingFailure",
+        "diskSpaceLow",
+      ].map((incidentType) => [
+        incidentType,
+        openItems.filter((incident) => incident.type === incidentType).length,
+      ]),
+    );
+    const filtered = mockIncidents
+      .filter((incident) => !type || incident.type === type)
+      .filter((incident) => includeResolved || !incident.resolvedAt)
+      .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+    return json(res, {
+      items: filtered.slice(skip, skip + take),
+      totalCount: filtered.length,
+      openCount: openItems.length,
+      countsByType,
+    });
+  }
+
+  if (method === "POST" && pathname === "/api/incidents/retry-all") {
+    const results = [];
+    for (const incident of mockIncidents.filter((item) => !item.resolvedAt)) {
+      incident.retryCount += 1;
+      incident.lastRetryAt = new Date().toISOString();
+      incident.updatedAt = incident.lastRetryAt;
+      const success = incident.type !== "diskSpaceLow";
+      if (success) {
+        incident.resolvedAt = incident.lastRetryAt;
+        incident.lastRetryError = null;
+        incident.canRetry = false;
+      } else {
+        incident.lastRetryError = "Free space is still below the configured threshold";
+      }
+      results.push({
+        incidentId: incident.id,
+        success,
+        error: success ? null : incident.lastRetryError,
+      });
+    }
+    return json(res, {
+      attempted: results.length,
+      succeeded: results.filter((result) => result.success).length,
+      failed: results.filter((result) => !result.success).length,
+      results,
+    });
+  }
+
+  {
+    const match = pathname.match(/^\/api\/incidents\/([^/]+)\/retry$/);
+    if (method === "POST" && match) {
+      const incident = mockIncidents.find((item) => item.id === match[1]);
+      if (!incident) return empty(res, 404);
+      if (incident.resolvedAt) return json(res, { error: "Already resolved" }, 409);
+      incident.retryCount += 1;
+      incident.lastRetryAt = new Date().toISOString();
+      incident.updatedAt = incident.lastRetryAt;
+      if (incident.type === "diskSpaceLow") {
+        incident.lastRetryError = "Free space is still below the configured threshold";
+        return json(
+          res,
+          { incidentId: incident.id, success: false, error: incident.lastRetryError },
+          422,
+        );
+      }
+      incident.resolvedAt = incident.lastRetryAt;
+      incident.lastRetryError = null;
+      incident.canRetry = false;
+      return json(res, incident);
+    }
   }
 
   // --- Metadata review ---
@@ -2069,8 +2504,15 @@ const server = createServer((req, res) => {
 
 server.listen(PORT, () => {
   console.log(`Mock API server running on http://localhost:${PORT}`);
+  const finishedCount = [...animations.values()].filter(
+    (animation) => animation.isDownloadFinished,
+  ).length;
+  const downloadingCount = [...animations.values()].filter(
+    (animation) =>
+      animation.isDownloadTracked && !animation.isDownloadFinished,
+  ).length;
   console.log(
-    `  ${animations.size} anime entries (3 finished, 2 downloading, 1 paused, rest untracked)`,
+    `  ${animations.size} anime entries (${finishedCount} finished, ${downloadingCount} active downloads, rest untracked)`,
   );
   console.log(`  ${feeds.length} RSS feeds`);
   console.log(`  Auth: any password works (register first on first visit)`);

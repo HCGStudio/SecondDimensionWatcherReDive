@@ -106,6 +106,12 @@ namespace SecondDimensionWatcherReDive.Migrations
                     b.Property<DateTimeOffset>("DownloadEndTime")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<Guid?>("DownloadAttemptId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("DownloadCancellationId")
+                        .HasColumnType("uuid");
+
                     b.Property<DateTimeOffset>("DownloadStartTime")
                         .HasColumnType("timestamp with time zone");
 
@@ -357,6 +363,67 @@ namespace SecondDimensionWatcherReDive.Migrations
                     b.ToTable("FileNameRegexRules");
                 });
 
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.Incident", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Detail")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<DateTimeOffset>("DetectedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Fingerprint")
+                        .IsRequired()
+                        .HasMaxLength(96)
+                        .HasColumnType("character varying(96)");
+
+                    b.Property<DateTimeOffset?>("LastRetryAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastRetryError")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<DateTimeOffset?>("ResolvedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("RetryCount")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Severity")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("SourceId")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<int>("Type")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Fingerprint")
+                        .IsUnique();
+
+                    b.HasIndex("ResolvedAt", "Type", "UpdatedAt");
+
+                    b.ToTable("Incidents");
+                });
+
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.MetadataReviewMappingSnapshot", b =>
                 {
                     b.Property<Guid>("Id")
@@ -518,6 +585,88 @@ namespace SecondDimensionWatcherReDive.Migrations
                     b.HasKey("Key");
 
                     b.ToTable("MigrationMarkers");
+                });
+
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.PlaybackPreference", b =>
+                {
+                    b.Property<Guid>("UserId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AudioLanguage")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("AudioTrackLabel")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<bool>("AutoPlayNext")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("SubtitleLanguage")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("SubtitleTrackLabel")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("UserId");
+
+                    b.ToTable("PlaybackPreferences");
+                });
+
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.PlaybackProgress", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AnimationInfoId")
+                        .HasColumnType("uuid");
+
+                    b.Property<double>("DurationSeconds")
+                        .HasColumnType("double precision");
+
+                    b.Property<bool>("IsWatched")
+                        .HasColumnType("boolean");
+
+                    b.Property<double>("PositionSeconds")
+                        .HasColumnType("double precision");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("VirtualPath")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<DateTimeOffset?>("WatchedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AnimationInfoId");
+
+                    b.HasIndex("UserId", "AnimationInfoId", "VirtualPath")
+                        .IsUnique();
+
+                    b.HasIndex("UserId", "IsWatched", "UpdatedAt");
+
+                    b.ToTable("PlaybackProgresses", t =>
+                        {
+                            t.HasCheckConstraint("CK_PlaybackProgresses_Duration_NonNegative", "\"DurationSeconds\" >= 0");
+
+                            t.HasCheckConstraint("CK_PlaybackProgresses_Position_NonNegative", "\"PositionSeconds\" >= 0");
+                        });
                 });
 
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.SeasonBangumi", b =>
@@ -701,6 +850,17 @@ namespace SecondDimensionWatcherReDive.Migrations
                 });
 
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.MetadataReviewOperation", b =>
+                {
+                    b.HasOne("SecondDimensionWatcherReDive.Models.AnimationInfo", "AnimationInfo")
+                        .WithMany()
+                        .HasForeignKey("AnimationInfoId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("AnimationInfo");
+                });
+
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.PlaybackProgress", b =>
                 {
                     b.HasOne("SecondDimensionWatcherReDive.Models.AnimationInfo", "AnimationInfo")
                         .WithMany()

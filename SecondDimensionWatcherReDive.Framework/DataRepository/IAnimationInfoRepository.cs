@@ -18,11 +18,43 @@ public interface IAnimationInfoRepository
 
     Task<IReadOnlyList<AnimationInfo>> GetPendingInferenceAsync(int maxRetryCount, CancellationToken cancellationToken);
 
+    Task<IReadOnlyList<AnimationInfo>> GetFailedInferenceAsync(CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<AnimationInfo>> GetDownloadedWithoutFileMappingsAsync(
+        CancellationToken cancellationToken);
+
     Task<AnimationInfo?> FindByTitleAsync(string title, CancellationToken cancellationToken);
 
     Task AddAsync(AnimationInfo info, CancellationToken cancellationToken);
 
     Task UpdateAsync(AnimationInfo info, CancellationToken cancellationToken);
+
+    Task<bool> TryStartDownloadAsync(
+        Guid id,
+        Guid downloadAttemptId,
+        DateTimeOffset startedAt,
+        SubscriptionAutomationDisposition? queuedDisposition,
+        CancellationToken cancellationToken);
+
+    Task<bool> TryBeginCancelDownloadAsync(
+        Guid id,
+        Guid? downloadAttemptId,
+        Guid cancellationAttemptId,
+        CancellationToken cancellationToken);
+
+    Task<AnimationInfo?> TryCompleteDownloadAsync(
+        Guid id,
+        Guid? downloadAttemptId,
+        string fileStore,
+        string storePath,
+        DateTimeOffset completedAt,
+        CancellationToken cancellationToken);
+
+    Task<AnimationInfo?> TryCancelDownloadAsync(
+        Guid id,
+        Guid? downloadAttemptId,
+        SubscriptionAutomationDisposition? terminalDisposition,
+        CancellationToken cancellationToken);
 
     Task<bool> TryUpdateAsync(
         AnimationInfo info,

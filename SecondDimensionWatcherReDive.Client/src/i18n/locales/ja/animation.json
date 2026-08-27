@@ -54,6 +54,8 @@
     "pause": "一時停止",
     "resume": "再開",
     "browse": "ファイルを開く",
+    "markAllWatched": "このリリースの全動画を視聴済みにする",
+    "markAllUnwatched": "このリリースの全動画を未視聴に戻す",
     "more": "その他の操作",
     "delete": "削除",
     "reinfer": "メタデータを再推論",
@@ -77,6 +79,14 @@
     "resumeFailed": "再開に失敗しました",
     "deleteFailed": "削除に失敗しました",
     "filesReidentified": "AI でファイル名を再識別しました",
-    "fileReidentifyFailed": "AI によるファイル名の再識別に失敗しました"
+    "fileReidentifyFailed": "AI によるファイル名の再識別に失敗しました",
+    "markedWatched": "このリリースを視聴済みにしました",
+    "markedUnwatched": "このリリースを未視聴に戻しました",
+    "watchStateFailed": "視聴状態を更新できませんでした"
+  },
+  "watchStatus": {
+    "watched": "視聴済み",
+    "progress": "{{watched}}/{{total}} 視聴済み",
+    "summary": "{{total}} 本中 {{watched}} 本を視聴済み"
   }
 }

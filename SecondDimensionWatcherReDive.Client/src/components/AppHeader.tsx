@@ -10,6 +10,7 @@ import {
   FileSearch,
   FolderOpen,
   Home,
+  Inbox,
   LayoutGrid,
   List,
   Menu,
@@ -24,6 +25,7 @@ import i18n, {
   languageLabels,
   supportedLanguages,
 } from "../i18n";
+import { useIncidents } from "../incidents/hooks";
 import { cn } from "../lib/cn";
 import {
   DropdownMenu,
@@ -37,18 +39,29 @@ interface NavItem {
   icon: React.ReactNode;
   labelKey: string;
   path: string;
+  badge?: number;
 }
 
-const useNavItems = (): NavItem[] => [
+const createNavItems = (incidentCount?: number): NavItem[] => [
   { icon: <Home size={16} />, labelKey: "nav.home", path: "/" },
   {
     icon: <Download size={16} />,
     labelKey: "nav.downloading",
     path: "/downloading",
   },
-  { icon: <List size={16} />, labelKey: "nav.downloaded", path: "/downloaded" },
+  {
+    icon: <List size={16} />,
+    labelKey: "nav.downloaded",
+    path: "/downloaded",
+  },
   { icon: <FolderOpen size={16} />, labelKey: "nav.files", path: "/files" },
   { icon: <LayoutGrid size={16} />, labelKey: "nav.feeds", path: "/feeds" },
+  {
+    icon: <Inbox size={16} />,
+    labelKey: "nav.incidents",
+    path: "/incidents",
+    badge: incidentCount,
+  },
   { icon: <Settings size={16} />, labelKey: "nav.tasks", path: "/tasks" },
   {
     icon: <FileSearch size={16} />,
@@ -66,9 +79,10 @@ interface NavLinkProps {
   icon: React.ReactNode;
   label: string;
   path: string;
+  badge?: number;
 }
 
-const NavLink: React.FC<NavLinkProps> = ({ icon, label, path }) => {
+const NavLink: React.FC<NavLinkProps> = ({ icon, label, path, badge }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const isActive = isPathActive(location.pathname, path);
@@ -85,15 +99,19 @@ const NavLink: React.FC<NavLinkProps> = ({ icon, label, path }) => {
     >
       {icon}
       {label}
+      {badge != null && badge > 0 ? (
+        <span className="min-w-4 rounded-full bg-error px-1 text-center text-[10px] leading-4 text-surface">
+          {badge > 99 ? "99+" : badge}
+        </span>
+      ) : null}
     </button>
   );
 };
 
-const MobileNavMenu: React.FC = () => {
+const MobileNavMenu: React.FC<{ items: NavItem[] }> = ({ items }) => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
-  const items = useNavItems();
 
   return (
     <DropdownMenu>
@@ -131,6 +149,11 @@ const MobileNavMenu: React.FC = () => {
                 {item.icon}
               </span>
               {t(item.labelKey)}
+              {item.badge != null && item.badge > 0 ? (
+                <span className="ml-auto min-w-5 rounded-full bg-error px-1.5 text-center text-[10px] leading-5 text-surface">
+                  {item.badge > 99 ? "99+" : item.badge}
+                </span>
+              ) : null}
             </DropdownMenuItem>
           );
         })}
@@ -197,14 +220,15 @@ const UserMenu: React.FC = () => {
 export const AppHeader: React.FC = () => {
   const { t } = useTranslation();
   const { data: status } = useLoginStatus();
+  const { data: incidents } = useIncidents({ take: 1 });
   const navigate = useNavigate();
-  const items = useNavItems();
+  const items = createNavItems(incidents?.openCount);
 
   return (
     <header className="sticky top-0 z-30 border-b border-border bg-surface/95 backdrop-blur">
       <nav className="flex h-14 items-center justify-between gap-2 px-4 sm:px-6">
         <div className="flex min-w-0 items-center gap-2 xl:gap-4">
-          <MobileNavMenu />
+          <MobileNavMenu items={items} />
           <a
             className="flex min-w-0 items-center gap-2 font-serif text-lg font-medium text-foreground cursor-pointer"
             onClick={() => navigate("/")}
@@ -219,6 +243,7 @@ export const AppHeader: React.FC = () => {
                 icon={item.icon}
                 label={t(item.labelKey)}
                 path={item.path}
+                badge={item.badge}
               />
             ))}
           </div>

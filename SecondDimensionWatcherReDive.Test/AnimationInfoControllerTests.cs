@@ -61,13 +61,14 @@ public class AnimationInfoControllerTests
         int? season = null,
         int? episode = null,
         Animation? animation = null,
+        AnimationGroup? group = null,
         SubscriptionAutomationDisposition? automationDisposition = null) =>
         new(id, "title", "desc", DateTimeOffset.Now,
             downloadUrl, downloadType,
             Array.Empty<byte>(), "hash123",
             isDownloadTracked, default, default,
             isDownloadFinished, fileStore, storePath,
-            season, episode, null, animation,
+            season, episode, group, animation,
             isAiProcessed, aiRetryCount,
             AutomationDisposition: automationDisposition);
 
@@ -108,6 +109,14 @@ public class AnimationInfoControllerTests
         _repoMock
             .Setup(r => r.FindByIdAsync(id, CancellationToken.None))
             .ReturnsAsync(info);
+        _repoMock
+            .Setup(r => r.TryStartDownloadAsync(
+                id,
+                It.IsAny<Guid>(),
+                It.IsAny<DateTimeOffset>(),
+                null,
+                CancellationToken.None))
+            .ReturnsAsync(true);
 
         _downloadClientMock
             .Setup(c => c.SubmitDownloadTaskAsync(
@@ -121,8 +130,11 @@ public class AnimationInfoControllerTests
         var result = await _controller.StartDownload(id, CancellationToken.None);
 
         Assert.IsInstanceOfType<OkResult>(result);
-        _repoMock.Verify(r => r.UpdateAsync(
-            It.Is<AnimationInfo>(i => i.Id == id && i.IsDownloadTracked),
+        _repoMock.Verify(r => r.TryStartDownloadAsync(
+            id,
+            It.Is<Guid>(attempt => attempt != Guid.Empty),
+            It.IsAny<DateTimeOffset>(),
+            null,
             CancellationToken.None), Times.Once);
     }
 
@@ -137,6 +149,14 @@ public class AnimationInfoControllerTests
         _repoMock
             .Setup(r => r.FindByIdAsync(id, CancellationToken.None))
             .ReturnsAsync(info);
+        _repoMock
+            .Setup(r => r.TryStartDownloadAsync(
+                id,
+                It.IsAny<Guid>(),
+                It.IsAny<DateTimeOffset>(),
+                null,
+                CancellationToken.None))
+            .ReturnsAsync(true);
         _downloadClientMock
             .Setup(c => c.SubmitDownloadTaskAsync(
                 id,
@@ -149,12 +169,127 @@ public class AnimationInfoControllerTests
         var result = await _controller.StartDownload(id, CancellationToken.None);
 
         Assert.IsInstanceOfType<OkResult>(result);
-        _repoMock.Verify(r => r.UpdateAsync(
-            It.Is<AnimationInfo>(item =>
-                item.Id == id &&
-                item.IsDownloadTracked &&
-                item.AutomationDisposition == SubscriptionAutomationDisposition.ManualDownloadQueued),
+        _repoMock.Verify(r => r.TryStartDownloadAsync(
+            id,
+            It.IsAny<Guid>(),
+            It.IsAny<DateTimeOffset>(),
+            null,
             CancellationToken.None), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task StartDownload_ClientRejects_ReleasesReservedAttempt()
+    {
+        var id = Guid.NewGuid();
+        var info = CreateTestInfo(id);
+        Guid? reservedAttempt = null;
+        _repoMock.Setup(repository => repository.FindByIdAsync(id, CancellationToken.None))
+            .ReturnsAsync(info);
+        _repoMock.Setup(repository => repository.TryStartDownloadAsync(
+                id,
+                It.IsAny<Guid>(),
+                It.IsAny<DateTimeOffset>(),
+                null,
+                CancellationToken.None))
+            .Callback<Guid, Guid, DateTimeOffset, SubscriptionAutomationDisposition?, CancellationToken>(
+                (_, attempt, _, _, _) => reservedAttempt = attempt)
+            .ReturnsAsync(true);
+        _downloadClientMock.Setup(client => client.SubmitDownloadTaskAsync(
+                id,
+                info.DownloadUrl,
+                info.CachedDownloadData,
+                info.AdditionalDownloadInfo,
+                CancellationToken.None))
+            .ReturnsAsync(false);
+        _repoMock.Setup(repository => repository.TryCancelDownloadAsync(
+                id,
+                It.IsAny<Guid?>(),
+                null,
+                It.Is<CancellationToken>(token =>
+                    token.CanBeCanceled && !token.IsCancellationRequested)))
+            .ReturnsAsync(info with { IsDownloadTracked = false });
+
+        var result = await _controller.StartDownload(id, CancellationToken.None);
+
+        Assert.IsInstanceOfType<BadRequestResult>(result);
+        Assert.IsNotNull(reservedAttempt);
+        _repoMock.Verify(repository => repository.TryCancelDownloadAsync(
+            id,
+            reservedAttempt,
+            null,
+            It.Is<CancellationToken>(token =>
+                token.CanBeCanceled && !token.IsCancellationRequested)), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task StartDownload_ReservationCancellation_UsesIndependentCleanupToken()
+    {
+        var id = Guid.NewGuid();
+        var info = CreateTestInfo(id);
+        _repoMock.Setup(repository => repository.FindByIdAsync(id, CancellationToken.None))
+            .ReturnsAsync(info);
+        _repoMock.Setup(repository => repository.TryStartDownloadAsync(
+                id,
+                It.IsAny<Guid>(),
+                It.IsAny<DateTimeOffset>(),
+                null,
+                CancellationToken.None))
+            .ThrowsAsync(new OperationCanceledException());
+        _repoMock.Setup(repository => repository.TryCancelDownloadAsync(
+                id,
+                It.IsAny<Guid?>(),
+                null,
+                It.Is<CancellationToken>(token =>
+                    token.CanBeCanceled && !token.IsCancellationRequested)))
+            .ReturnsAsync(info with { IsDownloadTracked = false });
+
+        await Assert.ThrowsExactlyAsync<OperationCanceledException>(() =>
+            _controller.StartDownload(id, CancellationToken.None));
+
+        _repoMock.Verify(repository => repository.TryCancelDownloadAsync(
+            id,
+            It.IsAny<Guid?>(),
+            null,
+            It.Is<CancellationToken>(token =>
+                token.CanBeCanceled && !token.IsCancellationRequested)), Times.Once);
+        _downloadClientMock.Verify(client => client.SubmitDownloadTaskAsync(
+            It.IsAny<Guid>(),
+            It.IsAny<string>(),
+            It.IsAny<byte[]>(),
+            It.IsAny<string>(),
+            It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task StartDownload_IdentifiedItem_PreservesAnimationAndGroup()
+    {
+        var id = Guid.NewGuid();
+        var animation = new Animation(Guid.NewGuid(), "1234", "A Show", "Original", null);
+        var group = new AnimationGroup(Guid.NewGuid(), "Sub Group");
+        var info = CreateTestInfo(id, animation: animation, group: group);
+        _repoMock.Setup(repository => repository.FindByIdAsync(id, CancellationToken.None))
+            .ReturnsAsync(info);
+        _repoMock.Setup(repository => repository.TryStartDownloadAsync(
+                id,
+                It.IsAny<Guid>(),
+                It.IsAny<DateTimeOffset>(),
+                null,
+                CancellationToken.None))
+            .ReturnsAsync(true);
+        _downloadClientMock.Setup(client => client.SubmitDownloadTaskAsync(
+                id,
+                info.DownloadUrl,
+                info.CachedDownloadData,
+                info.AdditionalDownloadInfo,
+                CancellationToken.None))
+            .ReturnsAsync(true);
+
+        var result = await _controller.StartDownload(id, CancellationToken.None);
+
+        Assert.IsInstanceOfType<OkResult>(result);
+        _repoMock.Verify(repository => repository.UpdateAsync(
+            It.IsAny<AnimationInfo>(),
+            It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [TestMethod]
@@ -162,7 +297,7 @@ public class AnimationInfoControllerTests
     {
         var id = Guid.NewGuid();
         var info = CreateTestInfo(id, isDownloadTracked: true);
-        var persistenceOrder = new List<string>();
+        Guid? cancellationAttemptId = null;
 
         _repoMock
             .Setup(r => r.FindByIdAsync(id, CancellationToken.None))
@@ -178,21 +313,34 @@ public class AnimationInfoControllerTests
                 CancellationToken.None))
             .ReturnsAsync(new CancelDownloadResult(true, false));
         _repoMock
-            .Setup(r => r.UpdateAsync(It.IsAny<AnimationInfo>(), CancellationToken.None))
-            .Callback(() => persistenceOrder.Add("state"))
-            .Returns(Task.CompletedTask);
+            .Setup(r => r.TryBeginCancelDownloadAsync(
+                id,
+                info.DownloadAttemptId,
+                It.IsAny<Guid>(),
+                It.Is<CancellationToken>(token =>
+                    token.CanBeCanceled && !token.IsCancellationRequested)))
+            .Callback<Guid, Guid?, Guid, CancellationToken>(
+                (_, _, cancellationId, _) => cancellationAttemptId = cancellationId)
+            .ReturnsAsync(true);
         _fileMappingRepoMock
-            .Setup(r => r.RemoveByAnimationInfoAsync(id, CancellationToken.None))
-            .Callback(() => persistenceOrder.Add("mappings"))
-            .Returns(Task.CompletedTask);
+            .Setup(r => r.TryFinalizeDownloadCancellationAsync(
+                id,
+                info.DownloadAttemptId,
+                It.IsAny<Guid>(),
+                It.Is<CancellationToken>(token =>
+                    token.CanBeCanceled && !token.IsCancellationRequested)))
+            .ReturnsAsync(true);
 
         var result = await _controller.CancelDownload(id, cancellationToken: CancellationToken.None);
 
         Assert.IsInstanceOfType<OkResult>(result);
-        _repoMock.Verify(r => r.UpdateAsync(
-            It.Is<AnimationInfo>(i => i.Id == id && !i.IsDownloadTracked && !i.IsDownloadFinished),
-            CancellationToken.None), Times.Once);
-        CollectionAssert.AreEqual(new[] { "state", "mappings" }, persistenceOrder);
+        Assert.IsNotNull(cancellationAttemptId);
+        _fileMappingRepoMock.Verify(r => r.TryFinalizeDownloadCancellationAsync(
+            id,
+            info.DownloadAttemptId,
+            cancellationAttemptId.Value,
+            It.Is<CancellationToken>(token =>
+                token.CanBeCanceled && !token.IsCancellationRequested)), Times.Once);
     }
 
     [TestMethod]
@@ -212,15 +360,75 @@ public class AnimationInfoControllerTests
                 false,
                 CancellationToken.None))
             .ReturnsAsync(new CancelDownloadResult(true, false));
+        _repoMock.Setup(r => r.TryBeginCancelDownloadAsync(
+                id,
+                info.DownloadAttemptId,
+                It.IsAny<Guid>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+        _fileMappingRepoMock.Setup(r => r.TryFinalizeDownloadCancellationAsync(
+                id,
+                info.DownloadAttemptId,
+                It.IsAny<Guid>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
 
         var result = await _controller.CancelDownload(id, cancellationToken: CancellationToken.None);
 
         Assert.IsInstanceOfType<OkResult>(result);
-        _repoMock.Verify(r => r.UpdateAsync(
-            It.Is<AnimationInfo>(item =>
-                !item.IsDownloadTracked &&
-                item.AutomationDisposition == SubscriptionAutomationDisposition.DownloadCancelled),
-            CancellationToken.None), Times.Once);
+        _fileMappingRepoMock.Verify(r => r.TryFinalizeDownloadCancellationAsync(
+            id,
+            info.DownloadAttemptId,
+            It.IsAny<Guid>(),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task CancelDownload_PendingCancellation_ReusesIdAndFinalizes()
+    {
+        var id = Guid.NewGuid();
+        var cancellationAttemptId = Guid.NewGuid();
+        var info = CreateTestInfo(id, isDownloadTracked: true) with
+        {
+            DownloadAttemptId = Guid.NewGuid(),
+            DownloadCancellationId = cancellationAttemptId
+        };
+        _repoMock.Setup(repository => repository.FindByIdAsync(id, CancellationToken.None))
+            .ReturnsAsync(info);
+        _repoMock.Setup(repository => repository.TryBeginCancelDownloadAsync(
+                id,
+                info.DownloadAttemptId,
+                cancellationAttemptId,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+        _downloadClientMock.Setup(client => client.CancelDownloadTaskAsync(
+                id,
+                info.DownloadUrl,
+                info.CachedDownloadData,
+                info.AdditionalDownloadInfo,
+                false,
+                CancellationToken.None))
+            .ReturnsAsync(new CancelDownloadResult(true, false));
+        _fileMappingRepoMock.Setup(repository => repository.TryFinalizeDownloadCancellationAsync(
+                id,
+                info.DownloadAttemptId,
+                cancellationAttemptId,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var result = await _controller.CancelDownload(id, cancellationToken: CancellationToken.None);
+
+        Assert.IsInstanceOfType<OkResult>(result);
+        _repoMock.Verify(repository => repository.TryBeginCancelDownloadAsync(
+            id,
+            info.DownloadAttemptId,
+            cancellationAttemptId,
+            It.IsAny<CancellationToken>()), Times.Once);
+        _fileMappingRepoMock.Verify(repository => repository.TryFinalizeDownloadCancellationAsync(
+            id,
+            info.DownloadAttemptId,
+            cancellationAttemptId,
+            It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [TestMethod]

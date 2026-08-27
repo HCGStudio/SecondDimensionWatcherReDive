@@ -1,0 +1,51 @@
+{
+  "title": "Issue inbox",
+  "subtitle": "Feed, download, AI, file mapping, and storage problems are collected here for recovery.",
+  "types": {
+    "feedFailure": "Feed unavailable",
+    "downloadStalled": "Download stalled",
+    "aiFailure": "AI failed",
+    "fileMappingFailure": "File mapping failed",
+    "diskSpaceLow": "Low disk space"
+  },
+  "severity": {
+    "warning": "Warning",
+    "error": "Error",
+    "critical": "Critical"
+  },
+  "status": {
+    "open": "Open",
+    "resolved": "Resolved"
+  },
+  "filters": {
+    "all": "All open",
+    "includeResolved": "Include resolved"
+  },
+  "actions": {
+    "retry": "Retry",
+    "retrying": "Retrying…",
+    "retryAll": "Retry all",
+    "retryingAll": "Retrying all…"
+  },
+  "retryHistory_one": "Retried once · last {{time}}",
+  "retryHistory_other": "Retried {{count}} times · last {{time}}",
+  "pagination": {
+    "label": "Issue pages",
+    "previous": "Previous",
+    "next": "Next",
+    "summary": "{{start}}–{{end}} of {{total}}"
+  },
+  "empty": {
+    "title": "Inbox zero",
+    "body": "No issues match the current filters"
+  },
+  "errors": {
+    "loadFailed": "Could not load the issue inbox"
+  },
+  "toast": {
+    "retrySucceeded": "Retry completed",
+    "retryFailed": "Retry failed",
+    "retryAllFinished": "Bulk retry finished: {{succeeded}} succeeded, {{failed}} failed",
+    "retryAllFailed": "Could not start bulk retry"
+  }
+}

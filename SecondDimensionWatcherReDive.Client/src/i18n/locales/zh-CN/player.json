@@ -1,9 +1,57 @@
 {
   "missingId": "缺少动画 ID",
+  "missingFile": "请先选择一个视频文件再打开播放器",
+  "contextFailed": "视频已不可用，或无法加载播放信息",
   "generateLinkFailed": "生成播放链接失败",
   "playFailed": "播放失败",
   "unknownFile": "未知文件",
+  "unknownAnime": "未知动画",
   "back": "返回",
-  "useExternalHint": "如果视频无法播放，请尝试使用本地播放器",
-  "openInExternal": "在本地播放器中打开："
+  "useExternalHint": "播放进度会跨设备同步；若网页无法播放，可尝试本地播放器。",
+  "openInExternal": "使用本地播放器打开：",
+  "continue": {
+    "title": "继续观看",
+    "subtitle": "在任意设备上从上次离开的地方继续",
+    "resume": "继续"
+  },
+  "progress": {
+    "resumed": "已从 {{time}} 继续播放",
+    "saveFailed": "播放进度同步失败"
+  },
+  "watched": {
+    "label": "已看",
+    "markWatched": "标记为已看",
+    "markUnwatched": "标记为未看",
+    "marked": "已标记为已看",
+    "unmarked": "已标记为未看",
+    "failed": "更新观看状态失败"
+  },
+  "preferences": {
+    "title": "播放偏好",
+    "crossDevice": "字幕、音轨和自动下一集偏好会跨设备同步",
+    "saveFailed": "保存播放偏好失败"
+  },
+  "tracks": {
+    "subtitle": "字幕轨道",
+    "audio": "音频轨道",
+    "off": "关闭",
+    "externalMatched": "已自动关联 {{count}} 个匹配的外挂字幕",
+    "noExternal": "未找到匹配的外挂字幕",
+    "subtitleLoadFailed": "无法加载此字幕",
+    "audioDetected": "检测到 {{count}} 条可切换音轨",
+    "audioPreferenceOnly": "浏览器支持切换音轨时，将自动应用偏好语言",
+    "unknownAudio": "音轨",
+    "audioLanguages": {
+      "auto": "自动选择",
+      "ja": "日语",
+      "zh": "中文",
+      "en": "英语"
+    }
+  },
+  "next": {
+    "play": "下一集",
+    "autoPlay": "自动播放下一集",
+    "autoPlayHint": "本集播放结束后，打开并播放下一集已下载内容",
+    "autoplayBlocked": "下一集已就绪，请点击播放开始"
+  }
 }

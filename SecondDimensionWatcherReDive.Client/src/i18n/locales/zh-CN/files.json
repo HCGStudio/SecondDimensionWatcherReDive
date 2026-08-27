@@ -4,6 +4,9 @@
     "filename": "文件名",
     "actions": "操作",
     "play": "播放",
+    "markWatched": "标记为已看",
+    "markUnwatched": "标记为未看",
+    "watchStateFailed": "更新观看状态失败",
     "goUp": "返回上级"
   },
   "vfs": {

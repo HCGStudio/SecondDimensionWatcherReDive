@@ -20,6 +20,10 @@ public class AnimationInfo
 
     public bool IsDownloadTracked { get; set; }
 
+    public Guid? DownloadAttemptId { get; set; }
+
+    public Guid? DownloadCancellationId { get; set; }
+
     public DateTimeOffset DownloadStartTime { get; set; }
 
     public DateTimeOffset DownloadEndTime { get; set; }

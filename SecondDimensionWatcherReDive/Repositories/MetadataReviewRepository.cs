@@ -356,6 +356,12 @@ public class MetadataReviewRepository(
                         FileStore = snapshot.FileStore
                     })
                     .ToList();
+                await PlaybackProgressMappingMigrator.MigrateAsync(
+                    applyContext,
+                    animationInfo.Id,
+                    existingMappings,
+                    replacementMappings,
+                    cancellationToken);
                 await applyContext.FileMappings
                     .Where(mapping => mapping.AnimationInfoId == animationInfo.Id)
                     .ExecuteDeleteAsync(cancellationToken);
@@ -565,6 +571,12 @@ public class MetadataReviewRepository(
                         FileStore = snapshot.FileStore
                     })
                     .ToList();
+                await PlaybackProgressMappingMigrator.MigrateAsync(
+                    undoContext,
+                    animationInfo.Id,
+                    currentMappings,
+                    restoredMappings,
+                    cancellationToken);
                 await undoContext.FileMappings
                     .Where(mapping => mapping.AnimationInfoId == animationInfo.Id)
                     .ExecuteDeleteAsync(cancellationToken);

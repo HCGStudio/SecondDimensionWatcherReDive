@@ -44,15 +44,50 @@ internal sealed partial class ManageDownloadsTool(
         if (info.IsDownloadTracked)
             return new ToolFailureResult("Download already tracked");
 
-        await client.SubmitDownloadTaskAsync(info.Id, info.DownloadUrl, info.CachedDownloadData,
-            info.AdditionalDownloadInfo, cancellationToken);
-
-        var updated = info with
+        var downloadAttemptId = Guid.NewGuid();
+        var submissionAttempted = false;
+        try
         {
-            IsDownloadTracked = true,
-            DownloadStartTime = DateTimeOffset.Now
-        };
-        await animationInfoRepository.UpdateAsync(updated, cancellationToken);
+            if (!await animationInfoRepository.TryStartDownloadAsync(
+                    info.Id,
+                    downloadAttemptId,
+                    DateTimeOffset.Now,
+                    queuedDisposition: null,
+                    cancellationToken))
+                return new ToolFailureResult("Download already tracked");
+
+            submissionAttempted = true;
+            if (!await client.SubmitDownloadTaskAsync(
+                    info.Id,
+                    info.DownloadUrl,
+                    info.CachedDownloadData,
+                    info.AdditionalDownloadInfo,
+                    cancellationToken))
+            {
+                await CompensateFailedStartAsync(
+                    info,
+                    client,
+                    downloadAttemptId,
+                    remoteMayHaveAccepted: false);
+                return new ToolFailureResult("Download client rejected the task");
+            }
+        }
+        catch
+        {
+            try
+            {
+                await CompensateFailedStartAsync(
+                    info,
+                    client,
+                    downloadAttemptId,
+                    submissionAttempted);
+            }
+            catch
+            {
+                // Preserve the initiating exception.
+            }
+            throw;
+        }
 
         return new ToolSuccessResult<string>("Download started");
     }
@@ -76,22 +111,102 @@ internal sealed partial class ManageDownloadsTool(
     private async Task<IToolResult> CancelDownloadAsync(
         AnimationInfo info, IFileDownloadClient client, bool removeFile, CancellationToken cancellationToken)
     {
-        var result = await client.CancelDownloadTaskAsync(info.Id, info.DownloadUrl,
-            info.CachedDownloadData, info.AdditionalDownloadInfo, removeFile, cancellationToken);
-
-        if (result.IsSuccess)
+        var cancellationAttemptId = info.DownloadCancellationId ?? Guid.NewGuid();
+        cancellationToken.ThrowIfCancellationRequested();
+        using (var beginCancellation = CreateDownloadSagaTokenSource())
         {
-            var updated = info with
-            {
-                IsDownloadTracked = false,
-                IsDownloadFinished = false
-            };
-            await animationInfoRepository.UpdateAsync(updated, cancellationToken);
-            await fileMappingRepository.RemoveByAnimationInfoAsync(info.Id, cancellationToken);
+            if (!await animationInfoRepository.TryBeginCancelDownloadAsync(
+                    info.Id,
+                    info.DownloadAttemptId,
+                    cancellationAttemptId,
+                    beginCancellation.Token))
+                return new ToolFailureResult("Download state changed before cancellation");
         }
 
-        return new ToolSuccessResult<bool>(result.IsSuccess);
+        var result = await client.CancelDownloadTaskAsync(
+            info.Id,
+            info.DownloadUrl,
+            info.CachedDownloadData,
+            info.AdditionalDownloadInfo,
+            removeFile,
+            cancellationToken);
+
+        if (!result.IsSuccess)
+        {
+            return new ToolSuccessResult<bool>(false);
+        }
+
+        using var finalizeCancellation = CreateDownloadSagaTokenSource();
+        var cancelled = await fileMappingRepository.TryFinalizeDownloadCancellationAsync(
+            info.Id,
+            info.DownloadAttemptId,
+            cancellationAttemptId,
+            finalizeCancellation.Token);
+        if (!cancelled)
+            return new ToolFailureResult("Download state changed during cancellation");
+        return new ToolSuccessResult<bool>(true);
     }
+
+    private async Task CompensateFailedStartAsync(
+        AnimationInfo info,
+        IFileDownloadClient client,
+        Guid downloadAttemptId,
+        bool remoteMayHaveAccepted)
+    {
+        using var cleanup = CreateDownloadSagaTokenSource();
+        if (remoteMayHaveAccepted)
+        {
+            try
+            {
+                var remoteCancellation = await client.CancelDownloadTaskAsync(
+                    info.Id,
+                    info.DownloadUrl,
+                    info.CachedDownloadData,
+                    info.AdditionalDownloadInfo,
+                    removeFile: false,
+                    cleanup.Token);
+                if (!remoteCancellation.IsSuccess)
+                {
+                    await QueryDownloadProgressSafelyAsync(client, info, cleanup.Token);
+                    return;
+                }
+            }
+            catch
+            {
+                await QueryDownloadProgressSafelyAsync(client, info, cleanup.Token);
+                return;
+            }
+        }
+
+        await animationInfoRepository.TryCancelDownloadAsync(
+            info.Id,
+            downloadAttemptId,
+            terminalDisposition: null,
+            cleanup.Token);
+    }
+
+    private static async Task QueryDownloadProgressSafelyAsync(
+        IFileDownloadClient client,
+        AnimationInfo info,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await client.SubmitQueryDownloadProgressAsync(
+                info.Id,
+                info.DownloadUrl,
+                info.CachedDownloadData,
+                info.AdditionalDownloadInfo,
+                cancellationToken);
+        }
+        catch
+        {
+            // Startup recovery can rediscover the persisted attempt.
+        }
+    }
+
+    private static CancellationTokenSource CreateDownloadSagaTokenSource() =>
+        new(TimeSpan.FromSeconds(10));
 }
 
 internal enum ManageDownloadsAction

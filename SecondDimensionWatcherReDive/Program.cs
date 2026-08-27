@@ -30,6 +30,7 @@ using SecondDimensionWatcherReDive.Utils.Feed;
 using SecondDimensionWatcherReDive.Utils.FileDownload;
 using SecondDimensionWatcherReDive.Utils.FileStore;
 using SecondDimensionWatcherReDive.Utils.MetadataReview;
+using SecondDimensionWatcherReDive.Utils.Incidents;
 using SecondDimensionWatcherReDive.Utils.Scraper;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -170,10 +171,15 @@ builder.Services.AddSingleton(Channel.CreateUnbounded<RemoteTorrentTrackRequest>
 builder.Services.AddSingleton(Channel.CreateUnbounded<FileDownloadStatus>());
 builder.Services.AddSingleton(Channel.CreateUnbounded<DownloadCompleteRequest>());
 
+// Persistent incident inbox and health probes.
+builder.Services.AddSingleton<IIncidentReporter, IncidentReporter>();
+builder.Services.AddSingleton<IIncidentDiskProbe, IncidentDiskProbe>();
+
 //Add hosting services
 builder.Services.AddHostedService<CompleteDownloadBackgroundService>();
 builder.Services.AddHostedService<FetchRemoteTorrentBackgroundService>();
 builder.Services.AddHostedService<UpdateDownloadStatusBackgroundService>();
+builder.Services.AddHostedService<IncidentReconciliationBackgroundService>();
 
 //Add scheduled tasks
 builder.Services.AddSingleton<SyncFeed>();
@@ -217,8 +223,11 @@ builder.Services.AddScoped<IFileNameRegexRuleRepository, FileNameRegexRuleReposi
 builder.Services.AddScoped<IMetadataReviewRepository, MetadataReviewRepository>();
 builder.Services.AddScoped<IMigrationMarkerRepository, MigrationMarkerRepository>();
 builder.Services.AddScoped<IWebDavTokenRepository, WebDavTokenRepository>();
+builder.Services.AddScoped<IPlaybackRepository, PlaybackRepository>();
+builder.Services.AddScoped<IIncidentRepository, IncidentRepository>();
 builder.Services.AddSingleton<ISeasonScraper, MikananiSeasonScraper>();
 builder.Services.AddScoped<IMetadataReviewService, MetadataReviewService>();
+builder.Services.AddScoped<IIncidentRetryService, IncidentRetryService>();
 
 //Add AI Inference
 builder.Services.AddTmdbMetadata(builder.Configuration);

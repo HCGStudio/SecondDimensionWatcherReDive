@@ -10,10 +10,10 @@ import { setDayjsLocale } from "./utils/initDayjs";
 
 import "./styles.css";
 
-void setDayjsLocale(i18n.language);
+setDayjsLocale(i18n.language);
 document.documentElement.lang = i18n.language;
 i18n.on("languageChanged", (lng) => {
-  void setDayjsLocale(lng);
+  setDayjsLocale(lng);
   document.documentElement.lang = lng;
 });
 

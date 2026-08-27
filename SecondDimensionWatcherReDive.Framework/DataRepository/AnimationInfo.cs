@@ -30,4 +30,6 @@ public sealed record AnimationInfo(
     string? MetadataLastError = null,
     DateTimeOffset? MetadataReviewedAt = null,
     long StateVersion = 0,
-    Guid? CurrentMetadataReviewOperationId = null);
+    Guid? CurrentMetadataReviewOperationId = null,
+    Guid? DownloadAttemptId = null,
+    Guid? DownloadCancellationId = null);

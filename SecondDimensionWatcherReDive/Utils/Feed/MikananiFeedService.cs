@@ -1,6 +1,7 @@
 using System.Xml.Serialization;
 using SecondDimensionWatcherReDive.Framework.Feed;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
+using SecondDimensionWatcherReDive.Utils.Incidents;
 
 namespace SecondDimensionWatcherReDive.Utils.Feed;
 
@@ -10,7 +11,8 @@ namespace SecondDimensionWatcherReDive.Utils.Feed;
 public class MikananiFeedService(
     IConfiguration configuration,
     IServiceScopeFactory scopeFactory,
-    ISubscriptionFeedReader feedReader)
+    ISubscriptionFeedReader feedReader,
+    IIncidentReporter? incidentReporter = null)
     : IFeedService
 {
     public async Task<ICollection<AnimationAddRequest>> SyncAsync(CancellationToken cancellationToken)
@@ -40,8 +42,43 @@ public class MikananiFeedService(
             return Array.Empty<AnimationAddRequest>();
 
         var batches = await Task.WhenAll(sources.Select(source =>
-            feedReader.ReadAsync(source.Url, source.FeedId, cancellationToken)));
+            ReadSourceAsync(source.Url, source.FeedId, cancellationToken)));
         return batches.SelectMany(batch => batch).ToArray();
+    }
+
+    private async Task<IReadOnlyList<AnimationAddRequest>> ReadSourceAsync(
+        string url,
+        Guid? feedId,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var releases = await feedReader.ReadAsync(url, feedId, cancellationToken);
+
+            if (incidentReporter is not null)
+                await incidentReporter.ResolveAsync(IncidentType.FeedFailure, url, cancellationToken);
+
+            return releases;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            if (incidentReporter is not null)
+            {
+                await incidentReporter.ReportAsync(new IncidentReport(
+                        IncidentType.FeedFailure,
+                        IncidentSeverity.Error,
+                        "Feed cannot be synchronized",
+                        ex.Message,
+                        url),
+                    cancellationToken);
+            }
+
+            return [];
+        }
     }
 #nullable disable
     [XmlRoot(ElementName = "guid")]

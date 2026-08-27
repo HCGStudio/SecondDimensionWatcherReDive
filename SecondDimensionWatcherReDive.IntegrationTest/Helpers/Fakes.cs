@@ -75,6 +75,16 @@ internal sealed class FakeFileMappingRepository : IFileMappingRepository
     public Task<bool> ExistsForAnimationInfoAsync(Guid animationInfoId, CancellationToken cancellationToken)
         => throw new NotSupportedException();
 
+    public Task<bool> TryFinalizeDownloadCancellationAsync(
+        Guid animationInfoId,
+        Guid? downloadAttemptId,
+        Guid cancellationAttemptId,
+        CancellationToken cancellationToken)
+    {
+        _mappings.RemoveAll(mapping => mapping.AnimationInfoId == animationInfoId);
+        return Task.FromResult(true);
+    }
+
     public Task RemoveByAnimationInfoAsync(Guid animationInfoId, CancellationToken cancellationToken)
         => throw new NotSupportedException();
 }

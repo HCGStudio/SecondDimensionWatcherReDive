@@ -1,12 +1,20 @@
-import { AlertTriangle, ArrowLeft, Bell, Clapperboard, Film } from "lucide-react";
 import React from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useParams } from "react-router";
 
-import { useGroupedAnimations } from "../animation/hooks";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  Bell,
+  Clapperboard,
+  Film,
+} from "lucide-react";
+
 import { IAnimationWithEpisodes } from "../animation/IAnimationGrouped";
+import { useGroupedAnimations } from "../animation/hooks";
 import { tmdbImageUrl } from "../animation/tmdbImage";
 import { AnimationInfo } from "../components/AnimationInfo";
+import { ContinueWatching } from "../components/ContinueWatching";
 import { EpisodeCount, EpisodeList } from "../components/EpisodeList";
 import { EmptyPrompt } from "../components/ui/EmptyPrompt";
 import { Spinner } from "../components/ui/Spinner";
@@ -180,6 +188,7 @@ export const MainPage: React.FC = () => {
 
   return (
     <PageTemplate>
+      <ContinueWatching />
       {data.animations.length > 0 ? (
         <>
           <h2 className="mb-5 font-serif text-xl font-medium text-foreground">

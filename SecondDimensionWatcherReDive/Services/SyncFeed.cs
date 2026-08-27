@@ -7,6 +7,7 @@ using SecondDimensionWatcherReDive.Framework.Feed;
 using SecondDimensionWatcherReDive.Framework.FileDownload;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Framework.Tasks;
+using SecondDimensionWatcherReDive.Utils.Incidents;
 
 namespace SecondDimensionWatcherReDive.Services;
 
@@ -18,7 +19,8 @@ public partial class SyncFeed(
     ILogger<SyncFeed> logger,
     IHttpClientFactory httpClientFactory,
     IServiceScopeFactory scopeFactory,
-    ISubscriptionAutomationMatcher automationMatcher)
+    ISubscriptionAutomationMatcher automationMatcher,
+    IIncidentReporter? incidentReporter = null)
     : ScheduledTaskBase
 {
     private readonly HttpClient _httpClient = httpClientFactory.CreateClient("Feed");
@@ -122,6 +124,12 @@ public partial class SyncFeed(
                         : JsonSerializer.Serialize(evaluation.Explanations, ExplanationJsonOptions));
                 await animationInfoRepository.AddAsync(info, cancellationToken);
 
+                if (incidentReporter is not null)
+                    await incidentReporter.ResolveAsync(
+                        IncidentType.FeedFailure,
+                        request.DownloadUrl,
+                        cancellationToken);
+
                 if (policy?.Mode == SubscriptionAutomationMode.AutoDownload)
                     await QueueAutomaticDownloadAsync(
                         info,
@@ -132,6 +140,16 @@ public partial class SyncFeed(
             catch (InvalidTorrentDataException e)
             {
                 LogSyncFeedWarning(logger, e.Message);
+                if (incidentReporter is not null)
+                {
+                    await incidentReporter.ReportAsync(new IncidentReport(
+                            IncidentType.FeedFailure,
+                            IncidentSeverity.Error,
+                            "Feed item contains invalid torrent data",
+                            e.Message,
+                            request.DownloadUrl),
+                        cancellationToken);
+                }
             }
         }
     }
@@ -142,41 +160,162 @@ public partial class SyncFeed(
         IFileDownloadClientProvider downloadClientProvider,
         CancellationToken cancellationToken)
     {
-        bool success;
+        var downloadClient = downloadClientProvider.GetRequiredClient(info.DownloadType);
+        var downloadAttemptId = Guid.NewGuid();
+        var submissionAttempted = false;
         try
         {
-            var downloadClient = downloadClientProvider.GetRequiredClient(info.DownloadType);
-            success = await downloadClient.SubmitDownloadTaskAsync(
+            if (!await animationInfoRepository.TryStartDownloadAsync(
+                    info.Id,
+                    downloadAttemptId,
+                    DateTimeOffset.UtcNow,
+                    SubscriptionAutomationDisposition.AutoDownloadQueued,
+                    cancellationToken))
+            {
+                LogAutomaticDownloadWarning(logger, info.Title, "download state changed");
+                return;
+            }
+
+            submissionAttempted = true;
+            if (!await downloadClient.SubmitDownloadTaskAsync(
+                    info.Id,
+                    info.DownloadUrl,
+                    info.CachedDownloadData,
+                    info.AdditionalDownloadInfo,
+                    cancellationToken))
+            {
+                await CompensateAutomaticStartAsync(
+                    info,
+                    animationInfoRepository,
+                    downloadClient,
+                    downloadAttemptId,
+                    remoteMayHaveAccepted: false);
+                LogAutomaticDownloadWarning(logger, info.Title, "download client rejected the task");
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            try
+            {
+                await CompensateAutomaticStartAsync(
+                    info,
+                    animationInfoRepository,
+                    downloadClient,
+                    downloadAttemptId,
+                    submissionAttempted);
+            }
+            catch
+            {
+                // Preserve task cancellation.
+            }
+            throw;
+        }
+        catch (Exception exception)
+        {
+            try
+            {
+                await CompensateAutomaticStartAsync(
+                    info,
+                    animationInfoRepository,
+                    downloadClient,
+                    downloadAttemptId,
+                    submissionAttempted);
+            }
+            catch
+            {
+                // Keep the original automatic-download failure in the log.
+            }
+            LogAutomaticDownloadWarning(logger, info.Title, exception.Message);
+        }
+    }
+
+    private static async Task CompensateAutomaticStartAsync(
+        AnimationInfo info,
+        IAnimationInfoRepository animationInfoRepository,
+        IFileDownloadClient downloadClient,
+        Guid downloadAttemptId,
+        bool remoteMayHaveAccepted)
+    {
+        using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        if (remoteMayHaveAccepted)
+        {
+            try
+            {
+                var cancellation = await downloadClient.CancelDownloadTaskAsync(
+                    info.Id,
+                    info.DownloadUrl,
+                    info.CachedDownloadData,
+                    info.AdditionalDownloadInfo,
+                    removeFile: false,
+                    cleanup.Token);
+                if (!cancellation.IsSuccess)
+                {
+                    await QueryDownloadProgressSafelyAsync(downloadClient, info, cleanup.Token);
+                    return;
+                }
+            }
+            catch
+            {
+                await QueryDownloadProgressSafelyAsync(downloadClient, info, cleanup.Token);
+                return;
+            }
+        }
+
+        await animationInfoRepository.TryCancelDownloadAsync(
+            info.Id,
+            downloadAttemptId,
+            SubscriptionAutomationDisposition.AutoDownloadFailed,
+            cleanup.Token);
+    }
+
+    private static async Task QueryDownloadProgressSafelyAsync(
+        IFileDownloadClient downloadClient,
+        AnimationInfo info,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await downloadClient.SubmitQueryDownloadProgressAsync(
                 info.Id,
                 info.DownloadUrl,
                 info.CachedDownloadData,
                 info.AdditionalDownloadInfo,
                 cancellationToken);
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        catch
         {
-            throw;
+            // Startup recovery can rediscover the persisted attempt.
         }
-        catch (Exception exception)
-        {
-            LogAutomaticDownloadWarning(logger, info.Title, exception.Message);
-            return;
-        }
-        var updated = info with
-        {
-            IsDownloadTracked = success,
-            DownloadStartTime = success ? DateTimeOffset.UtcNow : default,
-            AutomationDisposition = success
-                ? SubscriptionAutomationDisposition.AutoDownloadQueued
-                : SubscriptionAutomationDisposition.AutoDownloadFailed
-        };
-        await animationInfoRepository.UpdateAsync(updated, cancellationToken);
     }
 
     private async Task ProcessFeed(IFeedService feedService, CancellationToken cancellationToken)
     {
-        var requests = await feedService.SyncAsync(cancellationToken);
-        await Task.WhenAll(requests.Select(r => ProcessSingle(r, cancellationToken)));
+        var sourceId = feedService.GetType().FullName ?? feedService.GetType().Name;
+        try
+        {
+            var requests = await feedService.SyncAsync(cancellationToken);
+            await Task.WhenAll(requests.Select(r => ProcessSingle(r, cancellationToken)));
+            if (incidentReporter is not null)
+                await incidentReporter.ResolveAsync(IncidentType.FeedFailure, sourceId, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            LogSyncFeedWarning(logger, ex.Message);
+            if (incidentReporter is not null)
+            {
+                await incidentReporter.ReportAsync(new IncidentReport(
+                        IncidentType.FeedFailure,
+                        IncidentSeverity.Error,
+                        "Feed service cannot be synchronized",
+                        ex.Message,
+                        sourceId),
+                    cancellationToken);
+            }
+        }
     }
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "{Message}")]

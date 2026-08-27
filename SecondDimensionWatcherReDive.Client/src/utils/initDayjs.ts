@@ -1,4 +1,6 @@
 import dayjs from "dayjs";
+import "dayjs/locale/ja";
+import "dayjs/locale/zh-cn";
 import duration from "dayjs/plugin/duration";
 import relativeTime from "dayjs/plugin/relativeTime";
 
@@ -12,15 +14,6 @@ const dayjsCodeFor = (lng: string): string => {
   return "en";
 };
 
-const localeLoaders: Record<string, () => Promise<unknown>> = {
-  "zh-cn": () => import("dayjs/locale/zh-cn"),
-  ja: () => import("dayjs/locale/ja"),
-  en: () => Promise.resolve(),
-};
-
-export const setDayjsLocale = async (lng: string): Promise<void> => {
-  const code = dayjsCodeFor(lng);
-  const loader = localeLoaders[code] ?? localeLoaders["en"]!;
-  await loader();
-  dayjs.locale(code);
+export const setDayjsLocale = (lng: string): void => {
+  dayjs.locale(dayjsCodeFor(lng));
 };

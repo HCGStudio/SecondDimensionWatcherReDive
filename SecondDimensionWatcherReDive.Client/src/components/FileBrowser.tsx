@@ -1,10 +1,22 @@
-import { CornerDownLeft, File, FolderOpen, Play } from "lucide-react";
 import React from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router";
+import { mutate as mutateCache } from "swr";
 
-import { useFileList } from "../file/hooks";
+import {
+  CheckCircle2,
+  Circle,
+  CornerDownLeft,
+  File,
+  FolderOpen,
+  Play,
+} from "lucide-react";
+
 import { IFileStoreListResult } from "../file/IFileStoreListResult";
+import { useFileList } from "../file/hooks";
+import { setPlaybackWatched } from "../playback/api";
+import { usePlaybackStates } from "../playback/hooks";
+import { useToast } from "./ToastProvider";
 import { Button } from "./ui/Button";
 import { Spinner } from "./ui/Spinner";
 import { Table, type TableColumn } from "./ui/Table";
@@ -19,7 +31,16 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({ animationId }) => {
     undefined,
   );
   const { data: files, error } = useFileList(animationId, relativeDir);
+  const { data: playbackStates, mutate: mutatePlaybackStates } =
+    usePlaybackStates(animationId);
   const navigate = useNavigate();
+  const { addToast } = useToast();
+  const [updatingPath, setUpdatingPath] = React.useState<string | null>(null);
+
+  const stateByPath = React.useMemo(
+    () => new Map(playbackStates?.map((state) => [state.path, state]) ?? []),
+    [playbackStates],
+  );
 
   const onPlay = React.useCallback(
     (path?: string) => {
@@ -45,10 +66,34 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({ animationId }) => {
     });
   }, []);
 
+  const onToggleWatched = React.useCallback(
+    async (path: string) => {
+      const state = stateByPath.get(path);
+      if (!state) return;
+      setUpdatingPath(path);
+      try {
+        await setPlaybackWatched({
+          animationInfoId: animationId,
+          path,
+          isWatched: !state.isWatched,
+        });
+        await mutatePlaybackStates();
+        await mutateCache(
+          (key) =>
+            typeof key === "string" &&
+            key.startsWith("/api/playback/continue?"),
+        );
+      } catch {
+        addToast({ title: t("browser.watchStateFailed"), color: "danger" });
+      } finally {
+        setUpdatingPath(null);
+      }
+    },
+    [addToast, animationId, mutatePlaybackStates, stateByPath, t],
+  );
+
   if (error) {
-    return (
-      <p className="text-sm text-error">{t("browser.loadFailed")}</p>
-    );
+    return <p className="text-sm text-error">{t("browser.loadFailed")}</p>;
   }
 
   if (!files) {
@@ -81,23 +126,54 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({ animationId }) => {
     {
       name: t("browser.actions"),
       render: (_value: any, item: IFileStoreListResult) =>
-        !item.isDirectory ? (
-          <Button
-            variant="icon"
-            size="sm"
-            aria-label={t("browser.play")}
-            onClick={() =>
-              onPlay(
-                relativeDir
-                  ? `${relativeDir}/${item.fileName}`
-                  : item.fileName,
-              )
-            }
-          >
-            <Play size={16} />
-          </Button>
-        ) : null,
-      width: "60px",
+        !item.isDirectory
+          ? (() => {
+              const path = relativeDir
+                ? `${relativeDir}/${item.fileName}`
+                : item.fileName;
+              const state = stateByPath.get(path);
+              return (
+                <div className="flex items-center justify-end gap-1">
+                  {state ? (
+                    <Button
+                      variant="icon"
+                      size="sm"
+                      color={state.isWatched ? "success" : "default"}
+                      disabled={updatingPath === path}
+                      aria-label={t(
+                        state.isWatched
+                          ? "browser.markUnwatched"
+                          : "browser.markWatched",
+                      )}
+                      title={t(
+                        state.isWatched
+                          ? "browser.markUnwatched"
+                          : "browser.markWatched",
+                      )}
+                      onClick={() => void onToggleWatched(path)}
+                    >
+                      {state.isWatched ? (
+                        <CheckCircle2 size={16} />
+                      ) : (
+                        <Circle size={16} />
+                      )}
+                    </Button>
+                  ) : null}
+                  {state ? (
+                    <Button
+                      variant="icon"
+                      size="sm"
+                      aria-label={t("browser.play")}
+                      onClick={() => onPlay(path)}
+                    >
+                      <Play size={16} />
+                    </Button>
+                  ) : null}
+                </div>
+              );
+            })()
+          : null,
+      width: "96px",
     },
   ];
 

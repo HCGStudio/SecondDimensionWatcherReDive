@@ -36,7 +36,9 @@ internal static class RepositoryConverter
             entity.MetadataLastError,
             entity.MetadataReviewedAt,
             entity.StateVersion,
-            entity.CurrentMetadataReviewOperationId);
+            entity.CurrentMetadataReviewOperationId,
+            entity.DownloadAttemptId,
+            entity.DownloadCancellationId);
 
     public static DataRepo.Animation ToRecord(this Models.Animation entity) =>
         new(entity.Id,
@@ -101,6 +103,26 @@ internal static class RepositoryConverter
             entity.Description,
             entity.CreatedAt);
 
+    public static DataRepo.PlaybackProgress ToRecord(this Models.PlaybackProgress entity) =>
+        new(entity.Id,
+            entity.UserId,
+            entity.AnimationInfoId,
+            entity.VirtualPath,
+            entity.PositionSeconds,
+            entity.DurationSeconds,
+            entity.IsWatched,
+            entity.UpdatedAt,
+            entity.WatchedAt);
+
+    public static DataRepo.PlaybackPreferences ToRecord(this Models.PlaybackPreference entity) =>
+        new(entity.UserId,
+            entity.SubtitleLanguage,
+            entity.SubtitleTrackLabel,
+            entity.AudioLanguage,
+            entity.AudioTrackLabel,
+            entity.AutoPlayNext,
+            entity.UpdatedAt);
+
     // Record -> Entity
 
     public static Models.AnimationInfo ToEntity(this DataRepo.AnimationInfo record) =>
@@ -133,7 +155,9 @@ internal static class RepositoryConverter
             MetadataLastError = record.MetadataLastError,
             MetadataReviewedAt = record.MetadataReviewedAt,
             StateVersion = record.StateVersion,
-            CurrentMetadataReviewOperationId = record.CurrentMetadataReviewOperationId
+            CurrentMetadataReviewOperationId = record.CurrentMetadataReviewOperationId,
+            DownloadAttemptId = record.DownloadAttemptId,
+            DownloadCancellationId = record.DownloadCancellationId
         };
 
     public static Models.Animation ToEntity(this DataRepo.Animation record) =>
@@ -230,6 +254,32 @@ internal static class RepositoryConverter
             CreatedAt = record.CreatedAt
         };
 
+    public static Models.PlaybackProgress ToEntity(this DataRepo.PlaybackProgress record) =>
+        new()
+        {
+            Id = record.Id,
+            UserId = record.UserId,
+            AnimationInfoId = record.AnimationInfoId,
+            VirtualPath = record.VirtualPath,
+            PositionSeconds = record.PositionSeconds,
+            DurationSeconds = record.DurationSeconds,
+            IsWatched = record.IsWatched,
+            UpdatedAt = record.UpdatedAt,
+            WatchedAt = record.WatchedAt
+        };
+
+    public static Models.PlaybackPreference ToEntity(this DataRepo.PlaybackPreferences record) =>
+        new()
+        {
+            UserId = record.UserId,
+            SubtitleLanguage = record.SubtitleLanguage,
+            SubtitleTrackLabel = record.SubtitleTrackLabel,
+            AudioLanguage = record.AudioLanguage,
+            AudioTrackLabel = record.AudioTrackLabel,
+            AutoPlayNext = record.AutoPlayNext,
+            UpdatedAt = record.UpdatedAt
+        };
+
     // Record -> Entity updater (apply record properties to tracked entity)
 
     public static void ApplyTo(this DataRepo.AnimationInfo record, Models.AnimationInfo entity)
@@ -261,6 +311,8 @@ internal static class RepositoryConverter
         entity.MetadataReviewedAt = record.MetadataReviewedAt;
         entity.StateVersion = record.StateVersion;
         entity.CurrentMetadataReviewOperationId = record.CurrentMetadataReviewOperationId;
+        entity.DownloadAttemptId = record.DownloadAttemptId;
+        entity.DownloadCancellationId = record.DownloadCancellationId;
     }
 
     public static void ApplyTo(this DataRepo.SeasonBangumi record, Models.SeasonBangumi entity)

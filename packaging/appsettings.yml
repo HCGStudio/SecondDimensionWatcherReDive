@@ -49,6 +49,15 @@ AI:
 Inference:
   RateLimitDelayMs: 1000
 
+# 异常收件箱检测阈值（TimeSpan 使用 hh:mm:ss）
+Incidents:
+  DownloadStalledAfter: "00:15:00"
+  ReportThrottle: "00:05:00"
+  ReconciliationInterval: "00:05:00"
+  Disk:
+    MinimumAvailableBytes: 5368709120 # 5 GiB
+    MinimumAvailablePercent: 5
+
 # NFSv4 只读导出（可选，默认关闭）
 # 客户端示例: sudo mount -t nfs4 -o vers=4,nolock,port=2049 host:/ /mnt
 # Linux 上 2049 为特权端口，容器中需显式发布或改为非特权端口

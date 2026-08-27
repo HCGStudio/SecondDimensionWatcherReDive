@@ -1,5 +1,12 @@
+import dayjs from "dayjs";
+import React from "react";
+import { useTranslation } from "react-i18next";
+import { mutate } from "swr";
+
 import {
   ArrowDownNarrowWide,
+  CheckCircle2,
+  Circle,
   Clock,
   Download,
   Ellipsis,
@@ -9,10 +16,6 @@ import {
   RefreshCw,
   Trash2,
 } from "lucide-react";
-import dayjs from "dayjs";
-import React from "react";
-import { useTranslation } from "react-i18next";
-import { mutate } from "swr";
 
 import {
   IAnimationInfo,
@@ -27,6 +30,8 @@ import {
   retryInference,
   submitDownload,
 } from "../animation/utils";
+import { setPlaybackWatched } from "../playback/api";
+import { usePlaybackStates } from "../playback/hooks";
 import { formatBytes, formatFileSize } from "../utils/formatBytes";
 import { FileBrowser } from "./FileBrowser";
 import { useToast } from "./ToastProvider";
@@ -41,9 +46,9 @@ import {
 import { Progress } from "./ui/Progress";
 import {
   Sheet,
+  SheetBody,
   SheetContent,
   SheetHeader,
-  SheetBody,
   SheetTitle,
 } from "./ui/Sheet";
 
@@ -128,8 +133,14 @@ const ActionButtons: React.FC<{ value: IAnimationInfo }> = ({ value }) => {
   const { addToast } = useToast();
   const [isSheetOpen, setIsSheetOpen] = React.useState(false);
   const [isRetrying, setIsRetrying] = React.useState(false);
-  const [isReidentifyingFiles, setIsReidentifyingFiles] =
-    React.useState(false);
+  const [isReidentifyingFiles, setIsReidentifyingFiles] = React.useState(false);
+  const [isUpdatingWatched, setIsUpdatingWatched] = React.useState(false);
+  const { data: playbackStates, mutate: mutatePlaybackStates } =
+    usePlaybackStates(value.isDownloadFinished ? value.id : undefined);
+  const allWatched =
+    playbackStates != null &&
+    playbackStates.length > 0 &&
+    playbackStates.every((state) => state.isWatched);
 
   const showRetryItem = value.isAiProcessed;
   const showAiReidentifyItem =
@@ -208,6 +219,35 @@ const ActionButtons: React.FC<{ value: IAnimationInfo }> = ({ value }) => {
     }
   }, [value.id, addToast, t]);
 
+  const onToggleAllWatched = React.useCallback(async () => {
+    if (!playbackStates || playbackStates.length === 0) return;
+    setIsUpdatingWatched(true);
+    try {
+      await Promise.all(
+        playbackStates.map((state) =>
+          setPlaybackWatched({
+            animationInfoId: value.id,
+            path: state.path,
+            isWatched: !allWatched,
+          }),
+        ),
+      );
+      await mutatePlaybackStates();
+      await mutate(
+        (key) =>
+          typeof key === "string" && key.startsWith("/api/playback/continue?"),
+      );
+      addToast({
+        title: t(allWatched ? "toast.markedUnwatched" : "toast.markedWatched"),
+        color: "success",
+      });
+    } catch {
+      addToast({ title: t("toast.watchStateFailed"), color: "danger" });
+    } finally {
+      setIsUpdatingWatched(false);
+    }
+  }, [addToast, allWatched, mutatePlaybackStates, playbackStates, t, value.id]);
+
   const hasOverflowItems =
     showRetryItem ||
     showAiReidentifyItem ||
@@ -241,7 +281,10 @@ const ActionButtons: React.FC<{ value: IAnimationInfo }> = ({ value }) => {
                 title={t("actions.pause")}
                 onClick={() =>
                   pauseDownload(value.id).catch(() =>
-                    addToast({ title: t("toast.pauseFailed"), color: "danger" }),
+                    addToast({
+                      title: t("toast.pauseFailed"),
+                      color: "danger",
+                    }),
                   )
                 }
               >
@@ -256,7 +299,10 @@ const ActionButtons: React.FC<{ value: IAnimationInfo }> = ({ value }) => {
                 title={t("actions.resume")}
                 onClick={() =>
                   resumeDownload(value.id).catch(() =>
-                    addToast({ title: t("toast.resumeFailed"), color: "danger" }),
+                    addToast({
+                      title: t("toast.resumeFailed"),
+                      color: "danger",
+                    }),
                   )
                 }
               >
@@ -267,16 +313,40 @@ const ActionButtons: React.FC<{ value: IAnimationInfo }> = ({ value }) => {
         ) : null}
 
         {value.isDownloadTracked && value.isDownloadFinished ? (
-          <Button
-            size="sm"
-            variant="outline"
-            className="px-2 py-2"
-            title={t("actions.browse")}
-            disabled={isReidentifyingFiles}
-            onClick={() => setIsSheetOpen(true)}
-          >
-            <FolderOpen size={16} />
-          </Button>
+          <>
+            {playbackStates && playbackStates.length > 0 ? (
+              <Button
+                size="sm"
+                variant="outline"
+                color={allWatched ? "success" : "default"}
+                className="px-2 py-2"
+                title={t(
+                  allWatched
+                    ? "actions.markAllUnwatched"
+                    : "actions.markAllWatched",
+                )}
+                aria-label={t(
+                  allWatched
+                    ? "actions.markAllUnwatched"
+                    : "actions.markAllWatched",
+                )}
+                disabled={isUpdatingWatched}
+                onClick={() => void onToggleAllWatched()}
+              >
+                {allWatched ? <CheckCircle2 size={16} /> : <Circle size={16} />}
+              </Button>
+            ) : null}
+            <Button
+              size="sm"
+              variant="outline"
+              className="px-2 py-2"
+              title={t("actions.browse")}
+              disabled={isReidentifyingFiles}
+              onClick={() => setIsSheetOpen(true)}
+            >
+              <FolderOpen size={16} />
+            </Button>
+          </>
         ) : null}
 
         {/* Overflow menu: secondary actions */}
@@ -313,9 +383,7 @@ const ActionButtons: React.FC<{ value: IAnimationInfo }> = ({ value }) => {
                 >
                   <RefreshCw
                     size={14}
-                    className={
-                      isReidentifyingFiles ? "animate-spin" : ""
-                    }
+                    className={isReidentifyingFiles ? "animate-spin" : ""}
                   />
                   {isReidentifyingFiles
                     ? t("actions.reidentifyingFiles")
@@ -329,14 +397,19 @@ const ActionButtons: React.FC<{ value: IAnimationInfo }> = ({ value }) => {
                 <DropdownMenuSeparator />
               ) : null}
 
-              {value.isDownloadTracked && !value.isDownloadFinished && status ? (
+              {value.isDownloadTracked &&
+              !value.isDownloadFinished &&
+              status ? (
                 <DropdownMenuItem
                   color="danger"
                   disabled={isReidentifyingFiles}
                   onSelect={() => {
                     if (window.confirm(t("confirm.cancelAndDelete"))) {
                       cancelDownload(value.id, true).catch(() =>
-                        addToast({ title: t("toast.deleteFailed"), color: "danger" }),
+                        addToast({
+                          title: t("toast.deleteFailed"),
+                          color: "danger",
+                        }),
                       );
                     }
                   }}
@@ -375,14 +448,38 @@ const ActionButtons: React.FC<{ value: IAnimationInfo }> = ({ value }) => {
   );
 };
 
+const PlaybackStatus: React.FC<{ animationInfoId: string }> = ({
+  animationInfoId,
+}) => {
+  const { t } = useTranslation("animation");
+  const { data: states } = usePlaybackStates(animationInfoId);
+  if (!states || states.length === 0) return null;
+  const watched = states.filter((state) => state.isWatched).length;
+  if (watched === 0) return null;
+  const allWatched = watched === states.length;
+
+  return (
+    <>
+      <span>·</span>
+      <span
+        className={allWatched ? "text-success" : "text-accent"}
+        title={t("watchStatus.summary", { watched, total: states.length })}
+      >
+        {allWatched
+          ? t("watchStatus.watched")
+          : t("watchStatus.progress", { watched, total: states.length })}
+      </span>
+    </>
+  );
+};
+
 export const AnimationInfo: React.FC<IAnimationInfoProps> = ({
   value,
   showTimeOfDay = false,
 }) => {
   const { t, i18n } = useTranslation("animation");
   const tag = formatEpisodeTag(value.season, value.episode);
-  const isDownloading =
-    value.isDownloadTracked && !value.isDownloadFinished;
+  const isDownloading = value.isDownloadTracked && !value.isDownloadFinished;
   const publishTime = new Date(value.publishTime);
   const formattedPublishTime = showTimeOfDay
     ? publishTime.toLocaleString(i18n.resolvedLanguage, {
@@ -431,6 +528,7 @@ export const AnimationInfo: React.FC<IAnimationInfoProps> = ({
               <>
                 <span>·</span>
                 <span className="text-success">{t("finished")}</span>
+                <PlaybackStatus animationInfoId={value.id} />
               </>
             ) : null}
           </div>

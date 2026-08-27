@@ -1,0 +1,50 @@
+{
+  "title": "异常收件箱",
+  "subtitle": "集中处理 Feed、下载、AI、文件映射与存储空间异常，并在这里完成恢复。",
+  "types": {
+    "feedFailure": "Feed 失效",
+    "downloadStalled": "下载停滞",
+    "aiFailure": "AI 失败",
+    "fileMappingFailure": "文件映射失败",
+    "diskSpaceLow": "磁盘空间不足"
+  },
+  "severity": {
+    "warning": "警告",
+    "error": "错误",
+    "critical": "严重"
+  },
+  "status": {
+    "open": "待处理",
+    "resolved": "已解决"
+  },
+  "filters": {
+    "all": "全部待处理",
+    "includeResolved": "包含已解决"
+  },
+  "actions": {
+    "retry": "重试",
+    "retrying": "重试中…",
+    "retryAll": "一键重试",
+    "retryingAll": "正在全部重试…"
+  },
+  "retryHistory": "已重试 {{count}} 次 · 最近一次 {{time}}",
+  "pagination": {
+    "label": "异常分页",
+    "previous": "上一页",
+    "next": "下一页",
+    "summary": "第 {{start}}–{{end}} 条，共 {{total}} 条"
+  },
+  "empty": {
+    "title": "异常已清空",
+    "body": "当前筛选条件下没有异常"
+  },
+  "errors": {
+    "loadFailed": "无法加载异常收件箱"
+  },
+  "toast": {
+    "retrySucceeded": "重试完成",
+    "retryFailed": "重试失败",
+    "retryAllFinished": "批量重试完成：成功 {{succeeded}}，失败 {{failed}}",
+    "retryAllFailed": "无法启动批量重试"
+  }
+}

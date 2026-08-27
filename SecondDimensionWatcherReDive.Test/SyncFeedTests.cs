@@ -202,18 +202,22 @@ public class SyncFeedTests
                 It.IsAny<Guid>(), request.DownloadUrl, It.IsAny<byte[]>(), request.AdditionalDownloadInfo,
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
-        AnimationInfo? updated = null;
-        _mockRepo.Setup(repository => repository.UpdateAsync(
-                It.IsAny<AnimationInfo>(), It.IsAny<CancellationToken>()))
-            .Callback<AnimationInfo, CancellationToken>((info, _) => updated = info)
-            .Returns(Task.CompletedTask);
+        _mockRepo.Setup(repository => repository.TryStartDownloadAsync(
+                It.IsAny<Guid>(),
+                It.IsAny<Guid>(),
+                It.IsAny<DateTimeOffset>(),
+                SubscriptionAutomationDisposition.AutoDownloadQueued,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
 
         await InvokeProcessSingleAsync(request);
 
-        Assert.IsNotNull(updated);
-        Assert.IsTrue(updated.IsDownloadTracked);
-        Assert.AreEqual(SubscriptionAutomationDisposition.AutoDownloadQueued, updated.AutomationDisposition);
-        Assert.AreNotEqual(default, updated.DownloadStartTime);
+        _mockRepo.Verify(repository => repository.TryStartDownloadAsync(
+            It.IsAny<Guid>(),
+            It.Is<Guid>(attempt => attempt != Guid.Empty),
+            It.IsAny<DateTimeOffset>(),
+            SubscriptionAutomationDisposition.AutoDownloadQueued,
+            It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [TestMethod]
@@ -228,14 +232,28 @@ public class SyncFeedTests
                 It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<byte[]>(), It.IsAny<string>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(false);
+        _mockRepo.Setup(repository => repository.TryStartDownloadAsync(
+                It.IsAny<Guid>(),
+                It.IsAny<Guid>(),
+                It.IsAny<DateTimeOffset>(),
+                SubscriptionAutomationDisposition.AutoDownloadQueued,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+        _mockRepo.Setup(repository => repository.TryCancelDownloadAsync(
+                It.IsAny<Guid>(),
+                It.IsAny<Guid?>(),
+                SubscriptionAutomationDisposition.AutoDownloadFailed,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((AnimationInfo?)null);
 
         await InvokeProcessSingleAsync(request);
 
-        _mockRepo.Verify(repository => repository.UpdateAsync(
-            It.Is<AnimationInfo>(info =>
-                info.AutomationDisposition == SubscriptionAutomationDisposition.AutoDownloadFailed &&
-                !info.IsDownloadTracked),
-            It.IsAny<CancellationToken>()), Times.Once);
+        _mockRepo.Verify(repository => repository.TryCancelDownloadAsync(
+            It.IsAny<Guid>(),
+            It.IsAny<Guid?>(),
+            SubscriptionAutomationDisposition.AutoDownloadFailed,
+            It.Is<CancellationToken>(token =>
+                token.CanBeCanceled && !token.IsCancellationRequested)), Times.Once);
     }
 
     private void SetupNewPolicyRequest(AnimationAddRequest request, SubscriptionAutomationPolicy policy)

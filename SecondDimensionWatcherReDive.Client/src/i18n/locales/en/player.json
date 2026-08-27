@@ -1,9 +1,59 @@
 {
   "missingId": "Missing animation ID",
+  "missingFile": "Choose a video file before opening the player",
+  "contextFailed": "This video is no longer available or its playback information could not be loaded",
   "generateLinkFailed": "Failed to generate playback link",
   "playFailed": "Playback failed",
   "unknownFile": "Unknown file",
+  "unknownAnime": "Unknown anime",
   "back": "Back",
-  "useExternalHint": "If the video does not play, try a local player",
-  "openInExternal": "Open in local player:"
+  "useExternalHint": "Progress is synced across your devices. If playback fails, try a local player.",
+  "openInExternal": "Open in local player:",
+  "continue": {
+    "title": "Continue watching",
+    "subtitle": "Pick up where you left off on any device",
+    "resume": "Resume"
+  },
+  "progress": {
+    "resumed": "Resumed at {{time}}",
+    "saveFailed": "Could not sync playback progress"
+  },
+  "watched": {
+    "label": "Watched",
+    "markWatched": "Mark watched",
+    "markUnwatched": "Mark unwatched",
+    "marked": "Marked as watched",
+    "unmarked": "Marked as unwatched",
+    "failed": "Could not update watch status"
+  },
+  "preferences": {
+    "title": "Playback preferences",
+    "crossDevice": "Subtitle, audio, and next-episode choices follow you across devices",
+    "saveFailed": "Could not save playback preferences"
+  },
+  "tracks": {
+    "subtitle": "Subtitle track",
+    "audio": "Audio track",
+    "off": "Off",
+    "externalMatched_one": "{{count}} matching sidecar subtitle was linked automatically",
+    "externalMatched_other": "{{count}} matching sidecar subtitles were linked automatically",
+    "noExternal": "No matching sidecar subtitles",
+    "subtitleLoadFailed": "Could not load this subtitle",
+    "audioDetected_one": "{{count}} switchable audio track detected",
+    "audioDetected_other": "{{count}} switchable audio tracks detected",
+    "audioPreferenceOnly": "Your preferred language will be applied when the browser exposes switchable tracks",
+    "unknownAudio": "Audio track",
+    "audioLanguages": {
+      "auto": "Automatic",
+      "ja": "Japanese",
+      "zh": "Chinese",
+      "en": "English"
+    }
+  },
+  "next": {
+    "play": "Next episode",
+    "autoPlay": "Automatically play the next episode",
+    "autoPlayHint": "When playback ends, open and start the next downloaded episode",
+    "autoplayBlocked": "The next episode is ready — press play to start"
+  }
 }

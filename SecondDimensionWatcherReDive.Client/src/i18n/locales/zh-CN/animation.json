@@ -54,6 +54,8 @@
     "pause": "暂停",
     "resume": "恢复",
     "browse": "浏览文件",
+    "markAllWatched": "将此版本的全部视频标记为已看",
+    "markAllUnwatched": "将此版本的全部视频标记为未看",
     "more": "更多操作",
     "delete": "删除",
     "reinfer": "重新推断元数据",
@@ -77,6 +79,14 @@
     "resumeFailed": "恢复失败",
     "deleteFailed": "删除失败",
     "filesReidentified": "已使用 AI 重新识别文件名",
-    "fileReidentifyFailed": "AI 文件名识别失败"
+    "fileReidentifyFailed": "AI 文件名识别失败",
+    "markedWatched": "此版本已标记为已看",
+    "markedUnwatched": "此版本已标记为未看",
+    "watchStateFailed": "更新观看状态失败"
+  },
+  "watchStatus": {
+    "watched": "已看",
+    "progress": "已看 {{watched}}/{{total}}",
+    "summary": "共 {{total}} 个视频，已看 {{watched}} 个"
   }
 }

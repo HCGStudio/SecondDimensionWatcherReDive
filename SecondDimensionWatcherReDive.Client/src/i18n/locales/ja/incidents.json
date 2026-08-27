@@ -1,0 +1,50 @@
+{
+  "title": "異常受信箱",
+  "subtitle": "フィード、ダウンロード、AI、ファイルマッピング、ストレージの問題をまとめて復旧できます。",
+  "types": {
+    "feedFailure": "フィード障害",
+    "downloadStalled": "ダウンロード停止",
+    "aiFailure": "AI 失敗",
+    "fileMappingFailure": "ファイルマッピング失敗",
+    "diskSpaceLow": "ディスク容量不足"
+  },
+  "severity": {
+    "warning": "警告",
+    "error": "エラー",
+    "critical": "重大"
+  },
+  "status": {
+    "open": "未解決",
+    "resolved": "解決済み"
+  },
+  "filters": {
+    "all": "すべての未解決",
+    "includeResolved": "解決済みを含む"
+  },
+  "actions": {
+    "retry": "再試行",
+    "retrying": "再試行中…",
+    "retryAll": "すべて再試行",
+    "retryingAll": "一括再試行中…"
+  },
+  "retryHistory": "{{count}} 回再試行 · 最終 {{time}}",
+  "pagination": {
+    "label": "異常ページ",
+    "previous": "前へ",
+    "next": "次へ",
+    "summary": "{{total}} 件中 {{start}}〜{{end}} 件"
+  },
+  "empty": {
+    "title": "異常はありません",
+    "body": "現在の条件に一致する異常はありません"
+  },
+  "errors": {
+    "loadFailed": "異常受信箱を読み込めませんでした"
+  },
+  "toast": {
+    "retrySucceeded": "再試行が完了しました",
+    "retryFailed": "再試行に失敗しました",
+    "retryAllFinished": "一括再試行完了：成功 {{succeeded}}、失敗 {{failed}}",
+    "retryAllFailed": "一括再試行を開始できませんでした"
+  }
+}

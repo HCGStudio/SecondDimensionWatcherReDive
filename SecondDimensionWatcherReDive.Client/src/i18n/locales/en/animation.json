@@ -57,6 +57,8 @@
     "pause": "Pause",
     "resume": "Resume",
     "browse": "Browse files",
+    "markAllWatched": "Mark every video in this release watched",
+    "markAllUnwatched": "Mark every video in this release unwatched",
     "more": "More actions",
     "delete": "Delete",
     "reinfer": "Re-infer metadata",
@@ -80,6 +82,14 @@
     "resumeFailed": "Failed to resume",
     "deleteFailed": "Failed to delete",
     "filesReidentified": "Filenames re-identified with AI",
-    "fileReidentifyFailed": "Failed to re-identify filenames with AI"
+    "fileReidentifyFailed": "Failed to re-identify filenames with AI",
+    "markedWatched": "Release marked watched",
+    "markedUnwatched": "Release marked unwatched",
+    "watchStateFailed": "Could not update watch status"
+  },
+  "watchStatus": {
+    "watched": "Watched",
+    "progress": "{{watched}}/{{total}} watched",
+    "summary": "{{watched}} of {{total}} videos watched"
   }
 }

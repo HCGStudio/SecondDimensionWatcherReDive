@@ -32,7 +32,10 @@ public class RemoteTorrentDownloadClient(
         var savePath = Path.Combine(basePath, additionalDownloadInfo);
         content.Add(new StringContent(savePath), "savepath");
 
-        using var response = await _httpClient.PostAsync("/api/v2/torrents/add", content);
+        using var response = await _httpClient.PostAsync(
+            "/api/v2/torrents/add",
+            content,
+            cancellationToken);
 
         if (response.IsSuccessStatusCode)
             await remoteTorrentTrackRequest.Writer.WriteAsync(
@@ -61,7 +64,10 @@ public class RemoteTorrentDownloadClient(
     {
         using var content =
             new FormUrlEncodedContent([new("hashes", additionalDownloadInfo)]);
-        using var response = await _httpClient.PostAsync("/api/v2/torrents/stop", content);
+        using var response = await _httpClient.PostAsync(
+            "/api/v2/torrents/stop",
+            content,
+            cancellationToken);
         return response.IsSuccessStatusCode;
     }
 
@@ -74,7 +80,10 @@ public class RemoteTorrentDownloadClient(
     {
         using var content =
             new FormUrlEncodedContent([new("hashes", additionalDownloadInfo)]);
-        using var response = await _httpClient.PostAsync("/api/v2/torrents/start", content);
+        using var response = await _httpClient.PostAsync(
+            "/api/v2/torrents/start",
+            content,
+            cancellationToken);
         return response.IsSuccessStatusCode;
     }
 
@@ -93,7 +102,13 @@ public class RemoteTorrentDownloadClient(
         ]);
         using var response = await _httpClient.PostAsync(
             $"/api/v2/torrents/delete",
-            content);
+            content,
+            cancellationToken);
+
+        if (response.IsSuccessStatusCode)
+            await remoteTorrentTrackRequest.Writer.WriteAsync(
+                new RemoteTorrentTrackRequest(itemId, additionalDownloadInfo, Remove: true),
+                cancellationToken);
 
         return new(response.IsSuccessStatusCode, false);
     }

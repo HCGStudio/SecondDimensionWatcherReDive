@@ -1,4 +1,3 @@
-using System.Reflection;
 using System.Threading.Channels;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -9,79 +8,128 @@ using SecondDimensionWatcherReDive.Framework.PluginParams;
 using SecondDimensionWatcherReDive.Plugin;
 using SecondDimensionWatcherReDive.Services;
 using SecondDimensionWatcherReDive.Utils.FileStore;
+using SecondDimensionWatcherReDive.Utils.Incidents;
 
 namespace SecondDimensionWatcherReDive.Test;
 
 [TestClass]
-public class CompleteDownloadBackgroundServiceTests
+public sealed class CompleteDownloadBackgroundServiceTests
 {
     [TestMethod]
-    public async Task ProcessRequest_AutomaticDownload_MarksDispositionCompleted()
+    public async Task ProcessRequestAsync_CancelledDownload_IgnoresLateCompletion()
     {
-        var id = Guid.NewGuid();
-        var info = new AnimationInfo(
-            id,
-            "Anime",
-            string.Empty,
-            DateTimeOffset.UtcNow,
-            "https://example.com/release.torrent",
-            "torrent",
-            [],
-            "hash",
-            IsDownloadTracked: true,
-            DownloadStartTime: DateTimeOffset.UtcNow.AddMinutes(-5),
-            DownloadEndTime: default,
-            IsDownloadFinished: false,
-            FileStore: null,
-            StorePath: null,
-            Season: null,
-            Episode: null,
-            Group: null,
-            Animation: null,
-            IsAiProcessed: false,
-            AiRetryCount: 0,
-            AutomationDisposition: SubscriptionAutomationDisposition.AutoDownloadQueued);
+        var request = new DownloadCompleteRequest(
+            Guid.NewGuid(),
+            "/downloads/item",
+            "local",
+            Guid.NewGuid());
         var repository = new Mock<IAnimationInfoRepository>();
-        repository.Setup(item => item.FindByIdWithAnimationAsync(id, CancellationToken.None))
-            .ReturnsAsync(info);
-        var fileMapper = new Mock<IFileMapper>();
-        fileMapper.Setup(item => item.MapDownloadAsync(id, CancellationToken.None))
-            .Returns(Task.CompletedTask);
-        var eventTrigger = new Mock<IPluginEventTrigger<FileDownloadCompleteParam>>();
-        eventTrigger.Setup(item => item.InvokeAsync(
-                It.IsAny<FileDownloadCompleteParam>(), CancellationToken.None))
-            .Returns(Task.CompletedTask);
-
-        var scopedProvider = new Mock<IServiceProvider>();
-        scopedProvider.Setup(provider => provider.GetService(typeof(IAnimationInfoRepository)))
-            .Returns(repository.Object);
-        scopedProvider.Setup(provider => provider.GetService(typeof(IFileMapper)))
-            .Returns(fileMapper.Object);
-        scopedProvider.Setup(provider => provider.GetService(
-                typeof(IPluginEventTrigger<FileDownloadCompleteParam>)))
-            .Returns(eventTrigger.Object);
-        var scope = new Mock<IServiceScope>();
-        scope.Setup(item => item.ServiceProvider).Returns(scopedProvider.Object);
-        var scopeFactory = new Mock<IServiceScopeFactory>();
-        scopeFactory.Setup(item => item.CreateScope()).Returns(scope.Object);
+        repository.Setup(candidate => candidate.TryCompleteDownloadAsync(
+                request.ItemId,
+                request.DownloadAttemptId,
+                request.FileStore,
+                request.StorePath,
+                It.IsAny<DateTimeOffset>(),
+                CancellationToken.None))
+            .ReturnsAsync((AnimationInfo?)null);
+        var mapper = new Mock<IFileMapper>();
+        var plugin = new Mock<IPluginEventTrigger<FileDownloadCompleteParam>>();
+        var reporter = new Mock<IIncidentReporter>();
+        using var provider = CreateProvider(repository.Object, mapper.Object, plugin.Object);
         var service = new CompleteDownloadBackgroundService(
             Channel.CreateUnbounded<DownloadCompleteRequest>(),
-            scopeFactory.Object,
-            Mock.Of<ILogger<CompleteDownloadBackgroundService>>());
-        var processRequest = typeof(CompleteDownloadBackgroundService)
-            .GetMethod("ProcessRequest", BindingFlags.Instance | BindingFlags.NonPublic)!;
+            provider.GetRequiredService<IServiceScopeFactory>(),
+            Mock.Of<ILogger<CompleteDownloadBackgroundService>>(),
+            reporter.Object);
 
-        await (Task)processRequest.Invoke(service, [
-            new DownloadCompleteRequest(id, "/downloads/anime", "local"),
-            CancellationToken.None
-        ])!;
+        await service.ProcessRequestAsync(request, CancellationToken.None);
 
-        repository.Verify(item => item.UpdateAsync(
-            It.Is<AnimationInfo>(updated =>
-                updated.IsDownloadFinished &&
-                updated.AutomationDisposition == SubscriptionAutomationDisposition.DownloadCompleted &&
-                updated.FileStore == "local" &&
-                updated.StorePath == "/downloads/anime"),
+        mapper.Verify(candidate => candidate.MapDownloadAsync(
+            It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
+        plugin.Verify(candidate => candidate.InvokeAsync(
+            It.IsAny<FileDownloadCompleteParam>(), It.IsAny<CancellationToken>()), Times.Never);
+        reporter.VerifyNoOtherCalls();
+    }
+
+    [TestMethod]
+    public async Task ProcessRequestAsync_TrackedDownload_CompletesBeforeMappingAndPlugin()
+    {
+        var request = new DownloadCompleteRequest(
+            Guid.NewGuid(),
+            "/downloads/item",
+            "local",
+            Guid.NewGuid());
+        var info = CreateInfo(request.ItemId);
+        var repository = new Mock<IAnimationInfoRepository>();
+        repository.Setup(candidate => candidate.TryCompleteDownloadAsync(
+                request.ItemId,
+                request.DownloadAttemptId,
+                request.FileStore,
+                request.StorePath,
+                It.IsAny<DateTimeOffset>(),
+                CancellationToken.None))
+            .ReturnsAsync(info);
+        var mapper = new Mock<IFileMapper>();
+        mapper.Setup(candidate => candidate.MapDownloadAsync(
+                request.ItemId,
+                CancellationToken.None))
+            .ReturnsAsync(true);
+        var plugin = new Mock<IPluginEventTrigger<FileDownloadCompleteParam>>();
+        plugin.Setup(candidate => candidate.InvokeAsync(
+                It.IsAny<FileDownloadCompleteParam>(),
+                CancellationToken.None))
+            .Returns(Task.CompletedTask);
+        using var provider = CreateProvider(repository.Object, mapper.Object, plugin.Object);
+        var service = new CompleteDownloadBackgroundService(
+            Channel.CreateUnbounded<DownloadCompleteRequest>(),
+            provider.GetRequiredService<IServiceScopeFactory>(),
+            Mock.Of<ILogger<CompleteDownloadBackgroundService>>(),
+            Mock.Of<IIncidentReporter>());
+
+        await service.ProcessRequestAsync(request, CancellationToken.None);
+
+        mapper.Verify(candidate => candidate.MapDownloadAsync(
+            request.ItemId, CancellationToken.None), Times.Once);
+        plugin.Verify(candidate => candidate.InvokeAsync(
+            It.Is<FileDownloadCompleteParam>(parameter =>
+                parameter.ItemId == request.ItemId
+                && parameter.StorePath == request.StorePath
+                && parameter.FileStore == request.FileStore),
             CancellationToken.None), Times.Once);
     }
+
+    private static ServiceProvider CreateProvider(
+        IAnimationInfoRepository repository,
+        IFileMapper mapper,
+        IPluginEventTrigger<FileDownloadCompleteParam> plugin)
+    {
+        return new ServiceCollection()
+            .AddSingleton(repository)
+            .AddSingleton(mapper)
+            .AddSingleton(plugin)
+            .BuildServiceProvider();
+    }
+
+    private static AnimationInfo CreateInfo(Guid id) => new(
+        id,
+        "Title",
+        "Description",
+        DateTimeOffset.UtcNow,
+        "https://example.test/item.torrent",
+        "torrent",
+        [],
+        "hash",
+        true,
+        DateTimeOffset.UtcNow,
+        DateTimeOffset.UtcNow,
+        true,
+        "local",
+        "/downloads/item",
+        1,
+        1,
+        null,
+        null,
+        true,
+        0,
+        AutomationDisposition: SubscriptionAutomationDisposition.DownloadCompleted);
 }

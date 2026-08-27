@@ -26,5 +26,11 @@ public interface IFileMappingRepository
 
     Task<bool> ExistsForAnimationInfoAsync(Guid animationInfoId, CancellationToken cancellationToken);
 
+    Task<bool> TryFinalizeDownloadCancellationAsync(
+        Guid animationInfoId,
+        Guid? downloadAttemptId,
+        Guid cancellationAttemptId,
+        CancellationToken cancellationToken);
+
     Task RemoveByAnimationInfoAsync(Guid animationInfoId, CancellationToken cancellationToken);
 }

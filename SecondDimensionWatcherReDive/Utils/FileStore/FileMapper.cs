@@ -6,7 +6,7 @@ namespace SecondDimensionWatcherReDive.Utils.FileStore;
 
 public interface IFileMapper
 {
-    Task MapDownloadAsync(Guid animationInfoId, CancellationToken cancellationToken);
+    Task<bool> MapDownloadAsync(Guid animationInfoId, CancellationToken cancellationToken);
 
     Task<bool> ReidentifyFilesWithAiAsync(Guid animationInfoId, CancellationToken cancellationToken);
 
@@ -36,7 +36,7 @@ public partial class FileMapper(
 
     private static readonly HashSet<string> VideoExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
-        ".mkv", ".mp4", ".avi", ".flv", ".wmv", ".webm"
+        ".mkv", ".mp4", ".avi", ".flv", ".wmv", ".webm", ".mov", ".m4v", ".ts", ".m2ts"
     };
 
     private static readonly HashSet<string> SubtitleExtensions = new(StringComparer.OrdinalIgnoreCase)
@@ -44,9 +44,9 @@ public partial class FileMapper(
         ".srt", ".ass", ".ssa", ".sub", ".idx", ".vtt"
     };
 
-    public async Task MapDownloadAsync(Guid animationInfoId, CancellationToken cancellationToken)
+    public Task<bool> MapDownloadAsync(Guid animationInfoId, CancellationToken cancellationToken)
     {
-        _ = await MapDownloadCoreAsync(animationInfoId, false, cancellationToken);
+        return MapDownloadCoreAsync(animationInfoId, false, cancellationToken);
     }
 
     public Task<bool> ReidentifyFilesWithAiAsync(
@@ -269,13 +269,16 @@ public partial class FileMapper(
                 $"{knownRoot}/{baseName}{ext}", cancellationToken);
 
             var matchedSubtitles = new HashSet<DiscoveredFile>();
-            foreach (var subtitle in MatchSubtitles(mainVideo.FileName, subtitles, out var suffixes))
+            foreach (var subtitle in MatchSubtitles(
+                         mainVideo,
+                         videos,
+                         subtitles,
+                         allowDirectoryFallback: videos.Count == 1))
             {
                 matchedSubtitles.Add(subtitle.File);
                 AddMapping(mappings, reservedPaths, info, subtitle.File,
                     $"{knownRoot}/{baseName}{subtitle.Suffix}{Path.GetExtension(subtitle.File.FileName)}",
                     cancellationToken);
-                _ = suffixes;
             }
 
             foreach (var video in videos.Where(v => v != mainVideo))
@@ -316,7 +319,11 @@ public partial class FileMapper(
             AddMapping(mappings, reservedPaths, info, video,
                 $"{knownRoot}/{baseName}{ext}", cancellationToken);
 
-            foreach (var subtitle in MatchSubtitles(video.FileName, subtitles, out _))
+            foreach (var subtitle in MatchSubtitles(
+                         video,
+                         videos,
+                         subtitles,
+                         allowDirectoryFallback: false))
             {
                 matchedSubs.Add(subtitle.File);
                 AddMapping(mappings, reservedPaths, info, subtitle.File,
@@ -414,22 +421,61 @@ public partial class FileMapper(
     private sealed record SubtitleMatch(DiscoveredFile File, string Suffix);
 
     private static IEnumerable<SubtitleMatch> MatchSubtitles(
-        string videoFileName, List<DiscoveredFile> subtitles, out List<string> suffixes)
+        DiscoveredFile video,
+        IReadOnlyList<DiscoveredFile> videos,
+        List<DiscoveredFile> subtitles,
+        bool allowDirectoryFallback)
     {
-        var videoBase = Path.GetFileNameWithoutExtension(videoFileName);
-        var matches = new List<SubtitleMatch>();
-        suffixes = new List<string>();
-        foreach (var sub in subtitles)
+        var videoBase = Path.GetFileNameWithoutExtension(video.FileName);
+        var videoDirectory = Path.GetDirectoryName(video.RelativePath) ?? string.Empty;
+        var namedMatches = subtitles
+            .Where(sub => IsSubtitleStemMatch(
+                videoBase,
+                Path.GetFileNameWithoutExtension(sub.FileName)))
+            .ToList();
+        var sameDirectoryMatches = namedMatches
+            .Where(sub => string.Equals(
+                Path.GetDirectoryName(sub.RelativePath) ?? string.Empty,
+                videoDirectory,
+                StringComparison.Ordinal))
+            .ToList();
+        var candidates = sameDirectoryMatches.Count > 0
+            ? sameDirectoryMatches
+            : namedMatches
+                .Where(subtitle => videos.Count(candidate => IsSubtitleStemMatch(
+                    Path.GetFileNameWithoutExtension(candidate.FileName),
+                    Path.GetFileNameWithoutExtension(subtitle.FileName))) == 1)
+                .ToList();
+
+        if (allowDirectoryFallback)
+        {
+            candidates = candidates
+                .Concat(subtitles
+                .Where(sub => string.Equals(
+                    Path.GetDirectoryName(sub.RelativePath) ?? string.Empty,
+                    videoDirectory,
+                    StringComparison.Ordinal)))
+                .Distinct()
+                .ToList();
+        }
+
+        return candidates.Select(sub =>
         {
             var subBase = Path.GetFileNameWithoutExtension(sub.FileName);
-            if (!subBase.Equals(videoBase, StringComparison.OrdinalIgnoreCase)
-                && !subBase.StartsWith(videoBase + ".", StringComparison.OrdinalIgnoreCase))
-                continue;
-            var suffix = subBase.Length > videoBase.Length ? subBase[videoBase.Length..] : "";
-            matches.Add(new SubtitleMatch(sub, suffix));
-            suffixes.Add(suffix);
-        }
-        return matches;
+            var suffix = subBase.StartsWith(videoBase, StringComparison.OrdinalIgnoreCase)
+                ? subBase[videoBase.Length..]
+                : $".{subBase}";
+            return new SubtitleMatch(sub, suffix);
+        });
+    }
+
+    private static bool IsSubtitleStemMatch(string videoBase, string subtitleBase)
+    {
+        if (subtitleBase.Equals(videoBase, StringComparison.OrdinalIgnoreCase)) return true;
+        if (!subtitleBase.StartsWith(videoBase, StringComparison.OrdinalIgnoreCase)
+            || subtitleBase.Length == videoBase.Length)
+            return false;
+        return subtitleBase[videoBase.Length] is '.' or ' ' or '_' or '-' or '[' or '(';
     }
 
     private static void AddMapping(

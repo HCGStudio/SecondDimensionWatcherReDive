@@ -4,6 +4,9 @@
     "filename": "ファイル名",
     "actions": "操作",
     "play": "再生",
+    "markWatched": "視聴済みにする",
+    "markUnwatched": "未視聴に戻す",
+    "watchStateFailed": "視聴状態を更新できませんでした",
     "goUp": "上の階層へ"
   },
   "vfs": {

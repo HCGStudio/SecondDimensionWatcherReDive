@@ -27,6 +27,9 @@ public class ApplicationContext : DbContext
     public DbSet<WebDavToken> WebDavTokens { get; set; }
     public DbSet<MetadataReviewOperation> MetadataReviewOperations { get; set; }
     public DbSet<MetadataReviewMappingSnapshot> MetadataReviewMappingSnapshots { get; set; }
+    public DbSet<Incident> Incidents { get; set; }
+    public DbSet<PlaybackProgress> PlaybackProgresses { get; set; }
+    public DbSet<PlaybackPreference> PlaybackPreferences { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -92,9 +95,88 @@ public class ApplicationContext : DbContext
         modelBuilder.Entity<MigrationMarker>()
             .HasKey(m => m.Key);
 
+        modelBuilder.Entity<Incident>()
+            .HasIndex(incident => incident.Fingerprint)
+            .IsUnique();
+
+        modelBuilder.Entity<Incident>()
+            .HasIndex(incident => new { incident.ResolvedAt, incident.Type, incident.UpdatedAt });
+
+        modelBuilder.Entity<Incident>()
+            .Property(incident => incident.Fingerprint)
+            .HasMaxLength(96);
+
+        modelBuilder.Entity<Incident>()
+            .Property(incident => incident.SourceId)
+            .HasMaxLength(2048);
+
+        modelBuilder.Entity<Incident>()
+            .Property(incident => incident.Title)
+            .HasMaxLength(256);
+
+        modelBuilder.Entity<Incident>()
+            .Property(incident => incident.Detail)
+            .HasMaxLength(2048);
+
+        modelBuilder.Entity<Incident>()
+            .Property(incident => incident.LastRetryError)
+            .HasMaxLength(2048);
+
         modelBuilder.Entity<WebDavToken>()
             .HasIndex(t => t.Username)
             .IsUnique();
+
+        modelBuilder.Entity<PlaybackProgress>()
+            .HasIndex(progress => new
+            {
+                progress.UserId,
+                progress.AnimationInfoId,
+                progress.VirtualPath
+            })
+            .IsUnique();
+
+        modelBuilder.Entity<PlaybackProgress>()
+            .HasIndex(progress => new { progress.UserId, progress.IsWatched, progress.UpdatedAt });
+
+        modelBuilder.Entity<PlaybackProgress>()
+            .Property(progress => progress.VirtualPath)
+            .HasMaxLength(2048);
+
+        modelBuilder.Entity<PlaybackProgress>()
+            .HasOne(progress => progress.AnimationInfo)
+            .WithMany()
+            .HasForeignKey(progress => progress.AnimationInfoId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<PlaybackProgress>()
+            .ToTable(table =>
+            {
+                table.HasCheckConstraint(
+                    "CK_PlaybackProgresses_Position_NonNegative",
+                    "\"PositionSeconds\" >= 0");
+                table.HasCheckConstraint(
+                    "CK_PlaybackProgresses_Duration_NonNegative",
+                    "\"DurationSeconds\" >= 0");
+            });
+
+        modelBuilder.Entity<PlaybackPreference>()
+            .HasKey(preference => preference.UserId);
+
+        modelBuilder.Entity<PlaybackPreference>()
+            .Property(preference => preference.SubtitleLanguage)
+            .HasMaxLength(64);
+
+        modelBuilder.Entity<PlaybackPreference>()
+            .Property(preference => preference.AudioLanguage)
+            .HasMaxLength(64);
+
+        modelBuilder.Entity<PlaybackPreference>()
+            .Property(preference => preference.SubtitleTrackLabel)
+            .HasMaxLength(128);
+
+        modelBuilder.Entity<PlaybackPreference>()
+            .Property(preference => preference.AudioTrackLabel)
+            .HasMaxLength(128);
 
         modelBuilder.Entity<SeasonBangumi>()
             .HasIndex(b => b.MikanId)

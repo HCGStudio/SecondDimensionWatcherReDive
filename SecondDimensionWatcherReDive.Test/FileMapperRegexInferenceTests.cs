@@ -396,7 +396,39 @@ public class FileMapperRegexInferenceTests
             It.IsAny<CancellationToken>()), Times.Never);
     }
 
-    private static Fixture CreateFixture()
+    [TestMethod]
+    public async Task MapDownloadAsync_SingleEpisode_AssociatesSeparatedAndGenericSidecars()
+    {
+        var entries = new[]
+        {
+            new FileStoreInfo(false, "/downloads/anime/Anime - 01.mkv", "Anime - 01.mkv"),
+            new FileStoreInfo(false, "/downloads/anime/Anime - 01 zh-Hans.ass", "Anime - 01 zh-Hans.ass"),
+            new FileStoreInfo(false, "/downloads/anime/Chinese.srt", "Chinese.srt")
+        };
+        var fixture = CreateFixture(entries, episode: 5);
+
+        var result = await fixture.Mapper.MapDownloadAsync(
+            fixture.AnimationInfoId,
+            CancellationToken.None);
+
+        Assert.IsTrue(result);
+        fixture.FileMappingRepository.Verify(repository => repository.ReplaceForAnimationInfoAsync(
+            fixture.AnimationInfoId,
+            ExpectedStateVersion,
+            "test-store",
+            "/downloads/anime",
+            It.Is<IReadOnlyList<FileMapping>>(mappings =>
+                mappings.Count == 3
+                && mappings.Any(mapping => mapping.VirtualPath.EndsWith("Anime S01E05.mkv"))
+                && mappings.Any(mapping => mapping.VirtualPath.EndsWith("Anime S01E05 zh-Hans.ass"))
+                && mappings.Any(mapping => mapping.VirtualPath.EndsWith("Anime S01E05.Chinese.srt"))
+                && mappings.All(mapping => !mapping.VirtualPath.StartsWith("/unknown/"))),
+            CancellationToken.None), Times.Once);
+    }
+
+    private static Fixture CreateFixture(
+        IEnumerable<FileStoreInfo>? fileEntries = null,
+        int? episode = null)
     {
         var animationInfoId = Guid.NewGuid();
         var animationId = Guid.NewGuid();
@@ -418,7 +450,7 @@ public class FileMapperRegexInferenceTests
             "test-store",
             "/downloads/anime",
             1,
-            null,
+            episode,
             group,
             animation,
             true,
@@ -449,7 +481,7 @@ public class FileMapperRegexInferenceTests
             .ReturnsAsync(true);
 
         var fileStore = new FakeFileStore(
-            VideoFileNames.Select(fileName => new FileStoreInfo(
+            fileEntries ?? VideoFileNames.Select(fileName => new FileStoreInfo(
                 false,
                 $"/downloads/anime/{fileName}",
                 fileName)));

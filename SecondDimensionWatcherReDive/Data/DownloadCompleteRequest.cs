@@ -1,3 +1,7 @@
 ﻿namespace SecondDimensionWatcherReDive.Data;
 
-public record struct DownloadCompleteRequest(Guid ItemId, string StorePath, string FileStore);
+public record struct DownloadCompleteRequest(
+    Guid ItemId,
+    string StorePath,
+    string FileStore,
+    Guid? DownloadAttemptId = null);

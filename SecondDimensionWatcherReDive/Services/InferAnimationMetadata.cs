@@ -3,6 +3,7 @@ using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Framework.Tasks;
 using SecondDimensionWatcherReDive.Inference.AI.Tools;
 using SecondDimensionWatcherReDive.Utils.FileStore;
+using SecondDimensionWatcherReDive.Utils.Incidents;
 
 namespace SecondDimensionWatcherReDive.Services;
 
@@ -13,7 +14,8 @@ namespace SecondDimensionWatcherReDive.Services;
 public partial class InferAnimationMetadata(
     IServiceScopeFactory scopeFactory,
     TmdbTool tmdbTool,
-    ILogger<InferAnimationMetadata> logger)
+    ILogger<InferAnimationMetadata> logger,
+    IIncidentReporter? incidentReporter = null)
     : ScheduledTaskBase
 {
     private const int MaxRetryCount = 3;
@@ -137,6 +139,14 @@ public partial class InferAnimationMetadata(
 
             LogInferenceCompleted(logger, item.Id, item.Title);
 
+            if (incidentReporter is not null)
+            {
+                await incidentReporter.ResolveAsync(
+                    IncidentType.AiFailure,
+                    item.Id.ToString(),
+                    cancellationToken);
+            }
+
             // Inference may have populated path-defining metadata (Animation, Group,
             // Season, Episode). If the file is already on disk, rebuild its mappings
             // so the canonical virtual path replaces the prior /unknown/... fallback.
@@ -144,11 +154,30 @@ public partial class InferAnimationMetadata(
             {
                 try
                 {
-                    await fileMapper.MapDownloadAsync(item.Id, cancellationToken);
+                    if (!await fileMapper.MapDownloadAsync(item.Id, cancellationToken))
+                        throw new InvalidOperationException("No file mapping could be produced.");
+
+                    if (incidentReporter is not null)
+                    {
+                        await incidentReporter.ResolveAsync(
+                            IncidentType.FileMappingFailure,
+                            item.Id.ToString(),
+                            cancellationToken);
+                    }
                 }
                 catch (Exception ex)
                 {
                     LogRemapFailed(logger, ex, item.Id);
+                    if (incidentReporter is not null)
+                    {
+                        await incidentReporter.ReportAsync(new IncidentReport(
+                                IncidentType.FileMappingFailure,
+                                IncidentSeverity.Error,
+                                "Downloaded files could not be remapped",
+                                ex.Message,
+                                item.Id.ToString()),
+                            cancellationToken);
+                    }
                 }
             }
         }
@@ -184,6 +213,16 @@ public partial class InferAnimationMetadata(
             }
 
             LogInferenceFailed(logger, ex, item.Id, item.Title, item.AiRetryCount, MaxRetryCount);
+            if (retryCount >= MaxRetryCount && incidentReporter is not null)
+            {
+                await incidentReporter.ReportAsync(new IncidentReport(
+                        IncidentType.AiFailure,
+                        IncidentSeverity.Error,
+                        "AI metadata inference failed",
+                        error,
+                        item.Id.ToString()),
+                    cancellationToken);
+            }
         }
     }
 

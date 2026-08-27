@@ -4,6 +4,9 @@
     "filename": "Name",
     "actions": "Actions",
     "play": "Play",
+    "markWatched": "Mark watched",
+    "markUnwatched": "Mark unwatched",
+    "watchStateFailed": "Could not update watch status",
     "goUp": "Up one level"
   },
   "vfs": {

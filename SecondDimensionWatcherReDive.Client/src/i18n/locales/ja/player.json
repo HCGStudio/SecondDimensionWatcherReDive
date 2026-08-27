@@ -1,9 +1,57 @@
 {
-  "missingId": "アニメ ID がありません",
-  "generateLinkFailed": "再生リンクの生成に失敗しました",
+  "missingId": "アニメーション ID がありません",
+  "missingFile": "プレーヤーを開く前に動画ファイルを選択してください",
+  "contextFailed": "動画が利用できないか、再生情報を読み込めませんでした",
+  "generateLinkFailed": "再生リンクを生成できませんでした",
   "playFailed": "再生に失敗しました",
   "unknownFile": "不明なファイル",
+  "unknownAnime": "不明なアニメ",
   "back": "戻る",
-  "useExternalHint": "再生できない場合はローカルプレーヤーをお試しください",
-  "openInExternal": "ローカルプレーヤーで開く："
+  "useExternalHint": "再生位置は端末間で同期されます。再生できない場合はローカルプレーヤーをお試しください。",
+  "openInExternal": "ローカルプレーヤーで開く：",
+  "continue": {
+    "title": "続きから見る",
+    "subtitle": "どの端末でも前回の続きから再生できます",
+    "resume": "再開"
+  },
+  "progress": {
+    "resumed": "{{time}} から再開しました",
+    "saveFailed": "再生位置を同期できませんでした"
+  },
+  "watched": {
+    "label": "視聴済み",
+    "markWatched": "視聴済みにする",
+    "markUnwatched": "未視聴に戻す",
+    "marked": "視聴済みにしました",
+    "unmarked": "未視聴に戻しました",
+    "failed": "視聴状態を更新できませんでした"
+  },
+  "preferences": {
+    "title": "再生設定",
+    "crossDevice": "字幕・音声・次話自動再生の設定は端末間で同期されます",
+    "saveFailed": "再生設定を保存できませんでした"
+  },
+  "tracks": {
+    "subtitle": "字幕トラック",
+    "audio": "音声トラック",
+    "off": "オフ",
+    "externalMatched": "一致する外部字幕 {{count}} 件を自動で関連付けました",
+    "noExternal": "一致する外部字幕はありません",
+    "subtitleLoadFailed": "この字幕を読み込めませんでした",
+    "audioDetected": "切り替え可能な音声トラックを {{count}} 件検出しました",
+    "audioPreferenceOnly": "ブラウザーが音声切り替えに対応している場合、優先言語を自動適用します",
+    "unknownAudio": "音声トラック",
+    "audioLanguages": {
+      "auto": "自動",
+      "ja": "日本語",
+      "zh": "中国語",
+      "en": "英語"
+    }
+  },
+  "next": {
+    "play": "次のエピソード",
+    "autoPlay": "次のエピソードを自動再生",
+    "autoPlayHint": "再生終了後、ダウンロード済みの次話を開いて再生します",
+    "autoplayBlocked": "次のエピソードを用意しました。再生ボタンを押してください"
+  }
 }

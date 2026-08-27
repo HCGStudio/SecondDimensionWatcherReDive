@@ -5,7 +5,9 @@ using SecondDimensionWatcherReDive.Framework.FileDownload;
 
 namespace SecondDimensionWatcherReDive.Repositories;
 
-public class AnimationInfoRepository(Models.ApplicationContext context) : IAnimationInfoRepository
+public class AnimationInfoRepository(
+    Models.ApplicationContext context,
+    DbContextOptions<Models.ApplicationContext> contextOptions) : IAnimationInfoRepository
 {
     public async Task<PagedResult<AnimationInfo>> GetPagedAsync(int skip, int take, CancellationToken cancellationToken)
     {
@@ -98,7 +100,13 @@ public class AnimationInfoRepository(Models.ApplicationContext context) : IAnima
 
     public async Task<AnimationInfo?> FindByIdAsync(Guid id, CancellationToken cancellationToken)
     {
-        var entity = await context.AnimationInfo.FindAsync([id], cancellationToken);
+        // The returned domain record is later passed back to UpdateAsync. Always load
+        // its relationships so a status-only update cannot accidentally clear them.
+        var entity = await context.AnimationInfo
+            .AsNoTracking()
+            .Include(info => info.Animation)
+            .Include(info => info.Group)
+            .FirstOrDefaultAsync(info => info.Id == id, cancellationToken);
         return entity?.ToRecord();
     }
 
@@ -136,6 +144,36 @@ public class AnimationInfoRepository(Models.ApplicationContext context) : IAnima
         return entities.Select(e => e.ToRecord()).ToList();
     }
 
+    public async Task<IReadOnlyList<AnimationInfo>> GetFailedInferenceAsync(
+        CancellationToken cancellationToken)
+    {
+        var entities = await context.AnimationInfo
+            .AsNoTracking()
+            .Include(info => info.Animation)
+            .Include(info => info.Group)
+            .Where(info => !info.IsAiProcessed
+                           && info.MetadataStatus == MetadataReviewStatus.Failed)
+            .OrderBy(info => info.PublishTime)
+            .ToListAsync(cancellationToken);
+        return entities.Select(entity => entity.ToRecord()).ToList();
+    }
+
+    public async Task<IReadOnlyList<AnimationInfo>> GetDownloadedWithoutFileMappingsAsync(
+        CancellationToken cancellationToken)
+    {
+        var entities = await context.AnimationInfo
+            .AsNoTracking()
+            .Include(info => info.Animation)
+            .Include(info => info.Group)
+            .Where(info => info.IsDownloadFinished
+                           && info.FileStore != null
+                           && info.StorePath != null
+                           && !context.FileMappings.Any(mapping => mapping.AnimationInfoId == info.Id))
+            .OrderBy(info => info.DownloadEndTime)
+            .ToListAsync(cancellationToken);
+        return entities.Select(entity => entity.ToRecord()).ToList();
+    }
+
     public async Task<AnimationInfo?> FindByTitleAsync(string title, CancellationToken cancellationToken)
     {
         var entity = await context.AnimationInfo
@@ -169,6 +207,222 @@ public class AnimationInfoRepository(Models.ApplicationContext context) : IAnima
         entity.StateVersion = checked(currentStateVersion + 1);
 
         await context.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task<bool> TryStartDownloadAsync(
+        Guid id,
+        Guid downloadAttemptId,
+        DateTimeOffset startedAt,
+        SubscriptionAutomationDisposition? queuedDisposition,
+        CancellationToken cancellationToken)
+    {
+        var strategy = context.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(async () =>
+        {
+            await using var writeContext = new Models.ApplicationContext(contextOptions);
+            await using var transaction = await writeContext.Database
+                .BeginTransactionAsync(cancellationToken);
+            var entity = await MappingTransactionLock.LockAnimationInfoAsync(
+                writeContext,
+                id,
+                cancellationToken);
+            if (entity is null)
+                return false;
+            if (entity.IsDownloadTracked)
+            {
+                // A transaction whose commit acknowledgement was lost can be
+                // retried safely with the caller-owned attempt identifier.
+                if (entity.DownloadAttemptId != downloadAttemptId)
+                    return false;
+            }
+            else
+            {
+                entity.IsDownloadTracked = true;
+                entity.IsDownloadFinished = false;
+                entity.DownloadAttemptId = downloadAttemptId;
+                entity.DownloadCancellationId = null;
+                entity.DownloadStartTime = startedAt;
+                entity.FileStore = null;
+                entity.StorePath = null;
+                entity.AutomationDisposition = queuedDisposition
+                    ?? entity.AutomationDisposition switch
+                    {
+                        SubscriptionAutomationDisposition.Notified or
+                            SubscriptionAutomationDisposition.PendingConfirmation or
+                            SubscriptionAutomationDisposition.AutoDownloadFailed or
+                            SubscriptionAutomationDisposition.DownloadCancelled =>
+                            SubscriptionAutomationDisposition.ManualDownloadQueued,
+                        _ => entity.AutomationDisposition
+                    };
+                entity.StateVersion = checked(entity.StateVersion + 1);
+                await writeContext.SaveChangesAsync(cancellationToken);
+            }
+
+            await transaction.CommitAsync(cancellationToken);
+            return true;
+        });
+    }
+
+    public async Task<bool> TryBeginCancelDownloadAsync(
+        Guid id,
+        Guid? downloadAttemptId,
+        Guid cancellationAttemptId,
+        CancellationToken cancellationToken)
+    {
+        var strategy = context.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(async () =>
+        {
+            await using var writeContext = new Models.ApplicationContext(contextOptions);
+            await using var transaction = await writeContext.Database
+                .BeginTransactionAsync(cancellationToken);
+            var entity = await MappingTransactionLock.LockAnimationInfoAsync(
+                writeContext,
+                id,
+                cancellationToken);
+            if (entity is null
+                || !entity.IsDownloadTracked
+                || entity.DownloadAttemptId != downloadAttemptId)
+                return false;
+
+            if (entity.DownloadCancellationId == cancellationAttemptId)
+            {
+                await transaction.CommitAsync(cancellationToken);
+                return true;
+            }
+            if (entity.DownloadCancellationId is not null)
+                return false;
+
+            entity.DownloadCancellationId = cancellationAttemptId;
+            entity.StateVersion = checked(entity.StateVersion + 1);
+            await writeContext.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return true;
+        });
+    }
+
+    public async Task<AnimationInfo?> TryCompleteDownloadAsync(
+        Guid id,
+        Guid? downloadAttemptId,
+        string fileStore,
+        string storePath,
+        DateTimeOffset completedAt,
+        CancellationToken cancellationToken)
+    {
+        var strategy = context.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(async () =>
+        {
+            // Keep the state transition and materialization in one retryable
+            // transaction. If the read fails after the update, the update rolls
+            // back and the execution strategy can safely repeat the whole unit.
+            await using var writeContext = new Models.ApplicationContext(contextOptions);
+            await using var transaction = await writeContext.Database
+                .BeginTransactionAsync(cancellationToken);
+            var entity = await MappingTransactionLock.LockAnimationInfoAsync(
+                writeContext,
+                id,
+                cancellationToken);
+            if (entity is null
+                || !entity.IsDownloadTracked
+                || entity.DownloadAttemptId != downloadAttemptId
+                || entity.DownloadCancellationId is not null)
+                return null;
+
+            var changed = false;
+            if (!entity.IsDownloadFinished)
+            {
+                entity.IsDownloadFinished = true;
+                entity.DownloadEndTime = completedAt;
+                entity.FileStore = fileStore;
+                entity.StorePath = storePath;
+                changed = true;
+            }
+            else if (!string.Equals(entity.FileStore, fileStore, StringComparison.Ordinal)
+                     || !string.Equals(entity.StorePath, storePath, StringComparison.Ordinal))
+            {
+                // A delayed completion for an older download must not replace
+                // the location persisted by a newer completion.
+                return null;
+            }
+
+            if (entity.AutomationDisposition is
+                SubscriptionAutomationDisposition.AutoDownloadQueued or
+                SubscriptionAutomationDisposition.ManualDownloadQueued)
+            {
+                entity.AutomationDisposition = SubscriptionAutomationDisposition.DownloadCompleted;
+                changed = true;
+            }
+
+            if (changed)
+            {
+                entity.StateVersion = checked(entity.StateVersion + 1);
+                await writeContext.SaveChangesAsync(cancellationToken);
+            }
+
+            await writeContext.Entry(entity)
+                .Reference(info => info.Animation)
+                .LoadAsync(cancellationToken);
+            await writeContext.Entry(entity)
+                .Reference(info => info.Group)
+                .LoadAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return entity.ToRecord();
+        });
+    }
+
+    public async Task<AnimationInfo?> TryCancelDownloadAsync(
+        Guid id,
+        Guid? downloadAttemptId,
+        SubscriptionAutomationDisposition? terminalDisposition,
+        CancellationToken cancellationToken)
+    {
+        var strategy = context.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(async () =>
+        {
+            await using var writeContext = new Models.ApplicationContext(contextOptions);
+            await using var transaction = await writeContext.Database
+                .BeginTransactionAsync(cancellationToken);
+            var entity = await MappingTransactionLock.LockAnimationInfoAsync(
+                writeContext,
+                id,
+                cancellationToken);
+            if (entity is null)
+                return null;
+
+            if (entity.IsDownloadTracked)
+            {
+                if (entity.DownloadAttemptId != downloadAttemptId
+                    || entity.DownloadCancellationId is not null)
+                    return null;
+
+                entity.IsDownloadTracked = false;
+                entity.IsDownloadFinished = false;
+                entity.DownloadAttemptId = null;
+                entity.DownloadCancellationId = null;
+                entity.AutomationDisposition = terminalDisposition
+                    ?? (entity.AutomationDisposition is
+                        SubscriptionAutomationDisposition.AutoDownloadQueued or
+                        SubscriptionAutomationDisposition.ManualDownloadQueued or
+                        SubscriptionAutomationDisposition.DownloadCompleted
+                            ? SubscriptionAutomationDisposition.DownloadCancelled
+                            : entity.AutomationDisposition);
+                entity.StateVersion = checked(entity.StateVersion + 1);
+                await writeContext.SaveChangesAsync(cancellationToken);
+            }
+            else if (entity.DownloadAttemptId is not null
+                     || entity.DownloadCancellationId is not null)
+            {
+                return null;
+            }
+
+            await writeContext.Entry(entity)
+                .Reference(info => info.Animation)
+                .LoadAsync(cancellationToken);
+            await writeContext.Entry(entity)
+                .Reference(info => info.Group)
+                .LoadAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return entity.ToRecord();
+        });
     }
 
     public async Task<bool> TryUpdateAsync(

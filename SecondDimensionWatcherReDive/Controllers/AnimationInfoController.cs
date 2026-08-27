@@ -6,6 +6,7 @@ using Microsoft.Extensions.Caching.Distributed;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Framework.FileDownload;
 using SecondDimensionWatcherReDive.Utils.FileStore;
+using SecondDimensionWatcherReDive.Utils.Incidents;
 
 namespace SecondDimensionWatcherReDive.Controllers;
 
@@ -17,7 +18,8 @@ internal class AnimationInfoController(
     IFileMappingRepository fileMappingRepository,
     IDistributedCache distributedCache,
     IFileDownloadClientProvider fileDownloadClientProvider,
-    IFileMapper fileMapper)
+    IFileMapper fileMapper,
+    IIncidentReporter? incidentReporter = null)
     : ControllerBase
 {
     [HttpGet]
@@ -77,30 +79,52 @@ internal class AnimationInfoController(
             return Conflict();
 
         var downloadClient = fileDownloadClientProvider.GetRequiredClient(info.DownloadType);
-        var success = await downloadClient.SubmitDownloadTaskAsync(
-            id,
-            info.DownloadUrl,
-            info.CachedDownloadData,
-            info.AdditionalDownloadInfo,
-            cancellationToken);
-
-        if (!success) return BadRequest();
-
-        var updated = info with
+        var downloadAttemptId = Guid.NewGuid();
+        var submissionAttempted = false;
+        try
         {
-            IsDownloadTracked = true,
-            DownloadStartTime = DateTimeOffset.Now,
-            AutomationDisposition = info.AutomationDisposition switch
+            if (!await animationInfoRepository.TryStartDownloadAsync(
+                    id,
+                    downloadAttemptId,
+                    DateTimeOffset.Now,
+                    queuedDisposition: null,
+                    cancellationToken))
+                return Conflict();
+
+            submissionAttempted = true;
+            if (!await downloadClient.SubmitDownloadTaskAsync(
+                id,
+                info.DownloadUrl,
+                info.CachedDownloadData,
+                info.AdditionalDownloadInfo,
+                cancellationToken))
             {
-                SubscriptionAutomationDisposition.Notified or
-                    SubscriptionAutomationDisposition.PendingConfirmation or
-                    SubscriptionAutomationDisposition.AutoDownloadFailed or
-                    SubscriptionAutomationDisposition.DownloadCancelled =>
-                    SubscriptionAutomationDisposition.ManualDownloadQueued,
-                _ => info.AutomationDisposition
+                await CompensateFailedStartAsync(
+                    info,
+                    downloadClient,
+                    downloadAttemptId,
+                    remoteMayHaveAccepted: false);
+                return BadRequest();
             }
-        };
-        await animationInfoRepository.UpdateAsync(updated, cancellationToken);
+        }
+        catch
+        {
+            try
+            {
+                await CompensateFailedStartAsync(
+                    info,
+                    downloadClient,
+                    downloadAttemptId,
+                    submissionAttempted);
+            }
+            catch
+            {
+                // Preserve the initiating exception. A conditional cleanup can
+                // be retried safely by the tracker or a later cancellation.
+            }
+            throw;
+        }
+
         return Ok();
     }
 
@@ -163,6 +187,21 @@ internal class AnimationInfoController(
             return Conflict();
 
         var downloadClient = fileDownloadClientProvider.GetRequiredClient(info.DownloadType);
+        // A persisted cancellation id means an earlier request reached the
+        // remote delete but did not observe the local finalize commit. Reuse it
+        // so cancellation can be resumed idempotently across requests.
+        var cancellationAttemptId = info.DownloadCancellationId ?? Guid.NewGuid();
+        cancellationToken.ThrowIfCancellationRequested();
+        using (var beginCancellation = CreateDownloadSagaTokenSource())
+        {
+            if (!await animationInfoRepository.TryBeginCancelDownloadAsync(
+                    id,
+                    info.DownloadAttemptId,
+                    cancellationAttemptId,
+                    beginCancellation.Token))
+                return Conflict();
+        }
+
         var result = await downloadClient.CancelDownloadTaskAsync(
             id,
             info.DownloadUrl,
@@ -172,23 +211,83 @@ internal class AnimationInfoController(
             cancellationToken);
 
         if (!result.IsSuccess)
-            return StatusCode(StatusCodes.Status500InternalServerError);
-
-        var updated = info with
         {
-            IsDownloadTracked = false,
-            IsDownloadFinished = false,
-            AutomationDisposition = info.AutomationDisposition is
-                SubscriptionAutomationDisposition.AutoDownloadQueued or
-                SubscriptionAutomationDisposition.ManualDownloadQueued or
-                SubscriptionAutomationDisposition.DownloadCompleted
-                    ? SubscriptionAutomationDisposition.DownloadCancelled
-                    : info.AutomationDisposition
-        };
-        await animationInfoRepository.UpdateAsync(updated, cancellationToken);
-        await fileMappingRepository.RemoveByAnimationInfoAsync(id, cancellationToken);
+            // Keep the durable cancellation intent so the next request can
+            // retry the idempotent remote delete and local finalize.
+            return StatusCode(StatusCodes.Status500InternalServerError);
+        }
+
+        using var finalizeCancellation = CreateDownloadSagaTokenSource();
+        var cancelled = await fileMappingRepository.TryFinalizeDownloadCancellationAsync(
+            id,
+            info.DownloadAttemptId,
+            cancellationAttemptId,
+            finalizeCancellation.Token);
+        if (!cancelled)
+            return Conflict();
         return Ok();
     }
+
+    private async Task CompensateFailedStartAsync(
+        AnimationInfo info,
+        IFileDownloadClient downloadClient,
+        Guid downloadAttemptId,
+        bool remoteMayHaveAccepted)
+    {
+        using var cleanup = CreateDownloadSagaTokenSource();
+        if (remoteMayHaveAccepted)
+        {
+            try
+            {
+                var remoteCancellation = await downloadClient.CancelDownloadTaskAsync(
+                    info.Id,
+                    info.DownloadUrl,
+                    info.CachedDownloadData,
+                    info.AdditionalDownloadInfo,
+                    removeFile: false,
+                    cleanup.Token);
+                if (!remoteCancellation.IsSuccess)
+                {
+                    await QueryDownloadProgressSafelyAsync(downloadClient, info, cleanup.Token);
+                    return;
+                }
+            }
+            catch
+            {
+                await QueryDownloadProgressSafelyAsync(downloadClient, info, cleanup.Token);
+                return;
+            }
+        }
+
+        await animationInfoRepository.TryCancelDownloadAsync(
+            info.Id,
+            downloadAttemptId,
+            terminalDisposition: null,
+            cleanup.Token);
+    }
+
+    private static async Task QueryDownloadProgressSafelyAsync(
+        IFileDownloadClient downloadClient,
+        AnimationInfo info,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await downloadClient.SubmitQueryDownloadProgressAsync(
+                info.Id,
+                info.DownloadUrl,
+                info.CachedDownloadData,
+                info.AdditionalDownloadInfo,
+                cancellationToken);
+        }
+        catch
+        {
+            // The persisted attempt remains discoverable by startup recovery.
+        }
+    }
+
+    private static CancellationTokenSource CreateDownloadSagaTokenSource() =>
+        new(TimeSpan.FromSeconds(10));
 
     [HttpPost("{id:guid}/retry-inference")]
     public async Task<IActionResult> RetryInference([FromRoute] Guid id, CancellationToken cancellationToken)
@@ -230,9 +329,14 @@ internal class AnimationInfoController(
 
         try
         {
-            return await fileMapper.ReidentifyFilesWithAiAsync(id, cancellationToken)
-                ? Ok()
-                : UnprocessableEntity();
+            if (!await fileMapper.ReidentifyFilesWithAiAsync(id, cancellationToken))
+                return UnprocessableEntity();
+            if (incidentReporter is not null)
+                await incidentReporter.ResolveAsync(
+                    IncidentType.FileMappingFailure,
+                    id.ToString(),
+                    cancellationToken);
+            return Ok();
         }
         catch (AiFileNameInferenceUnavailableException)
         {
