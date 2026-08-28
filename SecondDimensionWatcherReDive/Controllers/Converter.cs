@@ -1,4 +1,5 @@
 using SecondDimensionWatcherReDive.Framework.DataRepository;
+using SecondDimensionWatcherReDive.Framework.FileDownload;
 
 namespace SecondDimensionWatcherReDive.Controllers;
 
@@ -19,7 +20,11 @@ internal static class Converter
             record.SourceFeedId,
             record.ReleaseSizeBytes,
             record.AutomationDisposition?.ToString(),
-            record.AutomationExplanationJson);
+            record.AutomationExplanationJson,
+            string.Equals(
+                record.DownloadType,
+                FileDownloadTypes.MediaLibraryImport,
+                StringComparison.Ordinal));
 
     public static External.Animation ToExternal(this Animation record) =>
         new(record.Name,

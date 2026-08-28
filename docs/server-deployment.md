@@ -91,6 +91,14 @@ Torrent:
 FileStore:
   Local: /var/lib/sdw-redive/downloads
 
+# 现有媒体库扫描间隔与文件稳定等待时间
+MediaLibrary:
+  AllowedRoots:
+    - /path/to/your/media
+  ScanInterval: "00:05:00"
+  SettlingPeriod: "00:00:30"
+  MissingGracePeriod: "1.00:00:00"
+
 # TMDB API 密钥（用于海报和元数据）
 TmdbApiKey: "YOUR_TMDB_API_KEY"
 
@@ -129,6 +137,17 @@ sudo systemctl edit sdw-redive
 ```ini
 [Service]
 ReadWritePaths=/path/to/your/downloads
+```
+
+### 导入现有媒体库
+
+确保 `sdw-redive` 用户对媒体目录拥有只读权限，并且必须至少将一个目录（或其父目录）加入
+`MediaLibrary:AllowedRoots` 白名单；未配置白名单时不会接受任何导入源。导入路径不能与 `FileStore:Local` 管理的下载目录相同、互为父目录或以其他方式重叠。然后在网页「设置 → 现有媒体库导入」中填写服务器绝对路径。导入和后续对账只会修改数据库中的媒体记录和虚拟路径映射；即使扫描发现源条目消失，也绝不会移动、重命名或删除原文件。缺失条目会先撤下映射，并在 `MissingGracePeriod` 内保留观看与审核记录。若 systemd
+加固策略限制了该路径，可创建 override 显式声明只读访问：
+
+```ini
+[Service]
+ReadOnlyPaths=/path/to/your/media
 ```
 
 ### 修改监听端口

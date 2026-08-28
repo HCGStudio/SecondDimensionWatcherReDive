@@ -38,7 +38,9 @@ internal static class RepositoryConverter
             entity.StateVersion,
             entity.CurrentMetadataReviewOperationId,
             entity.DownloadAttemptId,
-            entity.DownloadCancellationId);
+            entity.DownloadCancellationId,
+            entity.MediaLibrarySourceId,
+            entity.MediaLibraryMissingSince);
 
     public static DataRepo.Animation ToRecord(this Models.Animation entity) =>
         new(entity.Id,
@@ -157,7 +159,9 @@ internal static class RepositoryConverter
             StateVersion = record.StateVersion,
             CurrentMetadataReviewOperationId = record.CurrentMetadataReviewOperationId,
             DownloadAttemptId = record.DownloadAttemptId,
-            DownloadCancellationId = record.DownloadCancellationId
+            DownloadCancellationId = record.DownloadCancellationId,
+            MediaLibrarySourceId = record.MediaLibrarySourceId,
+            MediaLibraryMissingSince = record.MediaLibraryMissingSince
         };
 
     public static Models.Animation ToEntity(this DataRepo.Animation record) =>
@@ -313,6 +317,8 @@ internal static class RepositoryConverter
         entity.CurrentMetadataReviewOperationId = record.CurrentMetadataReviewOperationId;
         entity.DownloadAttemptId = record.DownloadAttemptId;
         entity.DownloadCancellationId = record.DownloadCancellationId;
+        entity.MediaLibrarySourceId = record.MediaLibrarySourceId;
+        entity.MediaLibraryMissingSince = record.MediaLibraryMissingSince;
     }
 
     public static void ApplyTo(this DataRepo.SeasonBangumi record, Models.SeasonBangumi entity)

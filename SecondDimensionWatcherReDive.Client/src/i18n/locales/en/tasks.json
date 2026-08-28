@@ -41,6 +41,10 @@
     "InferAnimationMetadata": {
       "name": "InferAnimationMetadata",
       "description": "AI metadata inference"
+    },
+    "ScanMediaLibraries": {
+      "name": "ScanMediaLibraries",
+      "description": "Scan monitored existing media-library directories"
     }
   }
 }

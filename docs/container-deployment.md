@@ -111,6 +111,10 @@ podman logs qbittorrent 2>&1 | grep "temporary password"
 | `ConnectionStrings__sdw` | PostgreSQL 连接字符串 | 必填 |
 | `JwtSecret` | JWT 签名密钥（>=32 字符） | 必填 |
 | `FileStore__Local` | 下载文件存储路径 | `/downloads` |
+| `MediaLibrary__ScanInterval` | 持续监控目录的轮询间隔 | `00:05:00` |
+| `MediaLibrary__SettlingPeriod` | 新文件写入完成后的稳定等待时间 | `00:00:30` |
+| `MediaLibrary__MissingGracePeriod` | 条目缺失后保留观看/审核记录的宽限期 | `1.00:00:00` |
+| `MediaLibrary__AllowedRoots__0`, `__1`, ... | 允许导入的服务端根目录白名单 | `/media` |
 | `Torrent__Remote__Url` | qBittorrent API 地址 | `http://qbittorrent:8080` |
 | `Valkey__ConnectionString` | Valkey 连接字符串 | 空（使用内存缓存） |
 | `TmdbApiKey` | TMDB API 密钥 | 空（海报功能不可用） |
@@ -120,6 +124,21 @@ podman logs qbittorrent 2>&1 | grep "temporary password"
 | `Inference__ApiKey` | AI API 密钥 | 空（禁用推断） |
 | `Inference__Model` | AI 模型名称 | `gpt-4o-mini` |
 | `Inference__BaseUrl` | AI API 端点 | `https://api.openai.com/v1` |
+
+### 导入现有媒体库
+
+先将宿主机媒体目录以只读方式挂载到应用容器：
+
+```yaml
+services:
+  sdw-redive:
+    volumes:
+      - /path/to/anime:/media/anime:ro
+```
+
+重启容器后，在网页「设置 → 现有媒体库导入」中填写容器内路径
+`/media/anime`。必须至少配置一个 `MediaLibrary__AllowedRoots__*` 白名单项，否则不会接受任何导入源；导入路径还不能与 `FileStore__Local` 管理的下载目录相同、互为父目录或以其他方式重叠。系统把每个一级子目录作为一个多集媒体项、每个一级视频文件
+作为一个单集媒体项，复用现有正则和 AI 推断建立虚拟路径。导入和后续对账只会修改数据库中的媒体记录与虚拟映射；即使扫描发现源条目消失，也绝不会复制、移动、重命名或删除原文件。缺失条目会先撤下虚拟映射，并在 `MediaLibrary__MissingGracePeriod` 内保留观看与审核记录。
 
 ### 启用 AI 元数据推断
 

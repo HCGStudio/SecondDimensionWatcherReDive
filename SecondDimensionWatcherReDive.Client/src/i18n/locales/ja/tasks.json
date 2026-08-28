@@ -38,6 +38,10 @@
     "InferAnimationMetadata": {
       "name": "InferAnimationMetadata",
       "description": "AI メタデータ推論"
+    },
+    "ScanMediaLibraries": {
+      "name": "ScanMediaLibraries",
+      "description": "監視中の既存メディアライブラリをスキャン"
     }
   }
 }

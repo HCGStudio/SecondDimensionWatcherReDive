@@ -839,6 +839,51 @@ let webDavTokens = [
   },
 ];
 
+// Existing media-library import sources. Scans are asynchronous so the
+// Settings page can exercise the same polling flow as the real API.
+let mediaLibrarySources = [
+  {
+    id: randomUUID(),
+    path: "/media/anime",
+    isMonitoring: true,
+    createdAt: new Date(Date.now() - 86400_000 * 7).toISOString(),
+    lastScanAt: new Date(Date.now() - 3600_000 * 2).toISOString(),
+    lastError: null,
+    lastImportedCount: 18,
+    lastUpdatedCount: 2,
+    lastRemovedCount: 1,
+    lastSkippedCount: 4,
+    isScanning: false,
+  },
+];
+
+function isAbsoluteServerPath(path) {
+  return (
+    path.startsWith("/") ||
+    /^[A-Za-z]:[\\/]/.test(path) ||
+    path.startsWith("\\\\")
+  );
+}
+
+function startMediaLibraryScan(source) {
+  if (source.isScanning) return false;
+
+  const isFirstScan = source.lastScanAt == null;
+  source.isScanning = true;
+  source.lastError = null;
+
+  setTimeout(() => {
+    source.isScanning = false;
+    source.lastScanAt = new Date().toISOString();
+    source.lastImportedCount = isFirstScan ? 12 : 1;
+    source.lastUpdatedCount = isFirstScan ? 0 : 2;
+    source.lastRemovedCount = isFirstScan ? 0 : 1;
+    source.lastSkippedCount = isFirstScan ? 3 : 14;
+  }, 1200);
+
+  return true;
+}
+
 // Mock file tree
 const FILE_TREE = {
   "": [
@@ -2126,6 +2171,84 @@ async function route(method, pathname, searchParams, req, res) {
     }
   }
 
+  // --- Existing media-library imports ---
+
+  if (method === "GET" && pathname === "/api/media-library/sources") {
+    return json(res, mediaLibrarySources);
+  }
+
+  if (method === "POST" && pathname === "/api/media-library/sources") {
+    return readBody(req).then((body) => {
+      const path = typeof body.path === "string" ? body.path.trim() : "";
+      if (!path || !isAbsoluteServerPath(path)) {
+        return json(res, { error: "An absolute server path is required" }, 400);
+      }
+      if (mediaLibrarySources.some((source) => source.path === path)) {
+        return json(res, { error: "Import source already exists" }, 409);
+      }
+
+      const source = {
+        id: randomUUID(),
+        path,
+        isMonitoring: body.isMonitoring === true,
+        createdAt: new Date().toISOString(),
+        lastScanAt: null,
+        lastError: null,
+        lastImportedCount: 0,
+        lastUpdatedCount: 0,
+        lastRemovedCount: 0,
+        lastSkippedCount: 0,
+        isScanning: false,
+      };
+      mediaLibrarySources.unshift(source);
+      startMediaLibraryScan(source);
+      return json(res, source, 201);
+    });
+  }
+
+  {
+    const scanMatch = pathname.match(
+      /^\/api\/media-library\/sources\/([^/]+)\/scan$/,
+    );
+    if (method === "POST" && scanMatch) {
+      const id = decodeURIComponent(scanMatch[1]);
+      const source = mediaLibrarySources.find((item) => item.id === id);
+      if (!source) return empty(res, 404);
+      return json(res, { queued: startMediaLibraryScan(source) }, 202);
+    }
+  }
+
+  {
+    const sourceMatch = pathname.match(
+      /^\/api\/media-library\/sources\/([^/]+)$/,
+    );
+    if (sourceMatch) {
+      const id = decodeURIComponent(sourceMatch[1]);
+      const source = mediaLibrarySources.find((item) => item.id === id);
+      if (!source) return empty(res, 404);
+
+      if (method === "PATCH") {
+        return readBody(req).then((body) => {
+          if (typeof body.isMonitoring !== "boolean") {
+            return json(res, { error: "isMonitoring must be a boolean" }, 400);
+          }
+          source.isMonitoring = body.isMonitoring;
+          return empty(res, 204);
+        });
+      }
+
+      if (method === "DELETE") {
+        if (source.isScanning) {
+          return json(res, { error: "Source is being scanned" }, 409);
+        }
+        mediaLibrarySources = mediaLibrarySources.filter(
+          (item) => item.id !== id,
+        );
+        return empty(res, 204);
+      }
+    }
+  }
+
   // --- Files ---
 
   if (method === "GET" && pathname === "/api/file/list") {
@@ -2208,6 +2331,13 @@ async function route(method, pathname, searchParams, req, res) {
       interval: "7.00:00:00",
       isEnabled: true,
       lastRunAt: new Date(Date.now() - 86400_000).toISOString(),
+      isRunning: false,
+    },
+    {
+      id: "ScanMediaLibraries",
+      interval: "00:05:00",
+      isEnabled: true,
+      lastRunAt: new Date(Date.now() - 120_000).toISOString(),
       isRunning: false,
     },
   ];

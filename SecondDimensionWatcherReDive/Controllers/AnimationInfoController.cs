@@ -186,6 +186,14 @@ internal class AnimationInfoController(
         if (!info.IsDownloadTracked)
             return Conflict();
 
+        // Imported media is registered in place and must never be passed to a
+        // download client deletion flow, even when removeFile=true is requested.
+        if (string.Equals(
+                info.DownloadType,
+                FileDownloadTypes.MediaLibraryImport,
+                StringComparison.Ordinal))
+            return Conflict(new { message = "Media library imports are read-only." });
+
         var downloadClient = fileDownloadClientProvider.GetRequiredClient(info.DownloadType);
         // A persisted cancellation id means an earlier request reached the
         // remote delete but did not observe the local finalize commit. Reuse it

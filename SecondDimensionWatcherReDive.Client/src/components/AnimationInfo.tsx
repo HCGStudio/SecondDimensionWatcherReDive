@@ -252,7 +252,9 @@ const ActionButtons: React.FC<{ value: IAnimationInfo }> = ({ value }) => {
     showRetryItem ||
     showAiReidentifyItem ||
     (value.isDownloadTracked && !value.isDownloadFinished && status) ||
-    (value.isDownloadTracked && value.isDownloadFinished);
+    (value.isDownloadTracked &&
+      value.isDownloadFinished &&
+      !value.isMediaLibraryImport);
 
   return (
     <>
@@ -419,7 +421,9 @@ const ActionButtons: React.FC<{ value: IAnimationInfo }> = ({ value }) => {
                 </DropdownMenuItem>
               ) : null}
 
-              {value.isDownloadTracked && value.isDownloadFinished ? (
+              {value.isDownloadTracked &&
+              value.isDownloadFinished &&
+              !value.isMediaLibraryImport ? (
                 <DropdownMenuItem
                   color="danger"
                   disabled={isReidentifyingFiles}

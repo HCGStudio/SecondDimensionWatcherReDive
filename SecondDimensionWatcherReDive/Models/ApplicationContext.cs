@@ -1,4 +1,5 @@
 ﻿using Microsoft.EntityFrameworkCore;
+using SecondDimensionWatcherReDive.Framework.FileDownload;
 using SecondDimensionWatcherReDive.Framework.Inference;
 
 namespace SecondDimensionWatcherReDive.Models;
@@ -30,6 +31,7 @@ public class ApplicationContext : DbContext
     public DbSet<Incident> Incidents { get; set; }
     public DbSet<PlaybackProgress> PlaybackProgresses { get; set; }
     public DbSet<PlaybackPreference> PlaybackPreferences { get; set; }
+    public DbSet<MediaLibrarySource> MediaLibrarySources { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -60,6 +62,25 @@ public class ApplicationContext : DbContext
         modelBuilder.Entity<AnimationInfo>()
             .HasIndex(info => info.CurrentMetadataReviewOperationId)
             .IsUnique();
+
+        modelBuilder.Entity<AnimationInfo>()
+            .HasIndex(info => new { info.FileStore, info.StorePath })
+            .IsUnique()
+            .HasFilter($"\"DownloadType\" = '{FileDownloadTypes.MediaLibraryImport}'");
+
+        modelBuilder.Entity<MediaLibrarySource>()
+            .HasIndex(source => source.Path)
+            .IsUnique();
+
+        modelBuilder.Entity<MediaLibrarySource>()
+            .Property(source => source.LastError)
+            .HasMaxLength(2048);
+
+        modelBuilder.Entity<AnimationInfo>()
+            .HasOne<MediaLibrarySource>()
+            .WithMany()
+            .HasForeignKey(info => info.MediaLibrarySourceId)
+            .OnDelete(DeleteBehavior.SetNull);
 
         modelBuilder.Entity<MetadataReviewOperation>()
             .HasOne(operation => operation.AnimationInfo)
