@@ -1,7 +1,9 @@
 using System.Reflection;
+using BencodeNET.Objects;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Moq;
+using SecondDimensionWatcherReDive.Exceptions;
 using SecondDimensionWatcherReDive.Framework.Feed;
 using SecondDimensionWatcherReDive.Framework.FileDownload;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
@@ -254,6 +256,44 @@ public class SyncFeedTests
             SubscriptionAutomationDisposition.AutoDownloadFailed,
             It.Is<CancellationToken>(token =>
                 token.CanBeCanceled && !token.IsCancellationRequested)), Times.Once);
+    }
+
+    [TestMethod]
+    public void GetTorrentPayloadSize_MultiFileTorrent_ReturnsCheckedAggregate()
+    {
+        var first = new BDictionary();
+        first.Add("length", 1_500L);
+        var second = new BDictionary();
+        second.Add("length", 2_500L);
+        var files = new BList([first, second]);
+        var info = new BDictionary { ["files"] = files };
+
+        var size = InvokeGetTorrentPayloadSize(info);
+
+        Assert.AreEqual(4_000L, size);
+    }
+
+    [TestMethod]
+    public void GetTorrentPayloadSize_OverflowingAggregate_RejectsTorrent()
+    {
+        var first = new BDictionary();
+        first.Add("length", long.MaxValue);
+        var second = new BDictionary();
+        second.Add("length", 1L);
+        var info = new BDictionary { ["files"] = new BList([first, second]) };
+
+        var exception = Assert.ThrowsExactly<TargetInvocationException>(
+            () => InvokeGetTorrentPayloadSize(info));
+
+        Assert.IsInstanceOfType<InvalidTorrentDataException>(exception.InnerException);
+    }
+
+    private static long InvokeGetTorrentPayloadSize(BDictionary info)
+    {
+        var method = typeof(SyncFeed).GetMethod(
+            "GetTorrentPayloadSize",
+            BindingFlags.NonPublic | BindingFlags.Static)!;
+        return (long)method.Invoke(null, [info, "https://example.com/release.torrent"])!;
     }
 
     private void SetupNewPolicyRequest(AnimationAddRequest request, SubscriptionAutomationPolicy policy)
