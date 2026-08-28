@@ -6,6 +6,13 @@ internal static class RepositoryConverter
 {
     // Entity -> Record
 
+    public static DataRepo.ApplicationSettings ToRecord(this Models.ApplicationSettings entity) =>
+        new(entity.Id,
+            entity.ValuesJson,
+            entity.ProtectedSecrets,
+            entity.Revision,
+            entity.UpdatedAt);
+
     public static DataRepo.AnimationInfo ToRecord(this Models.AnimationInfo entity) =>
         new(entity.Id,
             entity.Title,

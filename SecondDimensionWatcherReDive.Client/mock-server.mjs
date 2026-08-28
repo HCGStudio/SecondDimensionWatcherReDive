@@ -839,6 +839,117 @@ let webDavTokens = [
   },
 ];
 
+// Runtime-editable settings. The mock exposes only secret state, never the
+// plaintext, just like the real API.
+let systemSettings = {
+  revision: 1,
+  pendingRestart: false,
+  ai: {
+    executionMode: "builtIn",
+    provider: "openAI",
+    openAI: {
+      baseUrl: "https://api.openai.com/v1",
+      apiMode: "responses",
+      model: "gpt-4o-mini",
+      maxTokens: 1024,
+      apiKey: { isConfigured: true, source: "deployment" },
+    },
+    anthropic: {
+      baseUrl: "https://api.anthropic.com",
+      model: "claude-sonnet-4-20250514",
+      maxTokens: 1024,
+      apiVersion: "2023-06-01",
+      apiKey: { isConfigured: false, source: "none" },
+    },
+    codexAppServer: {
+      endpoint: "ws://127.0.0.1:4500",
+      model: "",
+      permissionProfile: ":read-only",
+      timeoutSeconds: 120,
+      token: { isConfigured: false, source: "none" },
+    },
+    inference: { rateLimitDelayMs: 1000 },
+  },
+  tmdb: { apiKey: { isConfigured: true, source: "deployment" } },
+  torrent: {
+    url: "http://localhost:8080",
+    userName: "",
+    userAgent: "",
+    password: { isConfigured: false, source: "none" },
+  },
+  mediaLibrary: {
+    allowedRoots: ["/media"],
+    scanInterval: "00:05:00",
+    settlingPeriod: "00:00:30",
+    missingGracePeriod: "1.00:00:00",
+  },
+  incidents: {
+    downloadStalledAfter: "00:15:00",
+    reportThrottle: "00:05:00",
+    reconciliationInterval: "00:05:00",
+    disk: {
+      minimumAvailableBytes: 5 * 1024 * 1024 * 1024,
+      minimumAvailablePercent: 5,
+    },
+  },
+  nfs: {
+    enabled: false,
+    port: 2049,
+    bindAddress: "0.0.0.0",
+    leaseSeconds: 90,
+    maxConnections: 32,
+    restartRequired: true,
+    pendingRestart: false,
+  },
+};
+
+const deploymentSecrets = {
+  openAi: { isConfigured: true, source: "deployment" },
+  anthropic: { isConfigured: false, source: "none" },
+  codex: { isConfigured: false, source: "none" },
+  tmdb: { isConfigured: true, source: "deployment" },
+  torrent: { isConfigured: false, source: "none" },
+};
+
+function applySecretMutation(current, mutation, deploymentValue) {
+  if (!mutation || mutation.operation === "keep") return current;
+  if (mutation.operation === "set") {
+    if (typeof mutation.value !== "string" || !mutation.value.trim())
+      throw new Error("A non-empty secret value is required");
+    return { isConfigured: true, source: "runtime" };
+  }
+  if (mutation.operation === "clear")
+    return { isConfigured: false, source: "runtime" };
+  if (mutation.operation === "reset") return { ...deploymentValue };
+  throw new Error("Unknown secret operation");
+}
+
+function endpointOrigin(value) {
+  try {
+    return new URL(value).origin;
+  } catch {
+    return null;
+  }
+}
+
+function requiresCredentialMutation(currentUrl, nextUrl, secret, mutation) {
+  return (
+    secret.isConfigured &&
+    endpointOrigin(currentUrl) !== endpointOrigin(nextUrl) &&
+    !["set", "clear"].includes(mutation?.operation)
+  );
+}
+
+function isMockAiConfigured() {
+  const ai = systemSettings.ai;
+  if (ai.executionMode === "codexAppServer")
+    return Boolean(
+      ai.codexAppServer.endpoint && ai.codexAppServer.permissionProfile,
+    );
+  const provider = ai.provider === "openAI" ? ai.openAI : ai.anthropic;
+  return provider.apiKey.isConfigured && Boolean(provider.model);
+}
+
 // Existing media-library import sources. Scans are asynchronous so the
 // Settings page can exercise the same polling flow as the real API.
 let mediaLibrarySources = [
@@ -1260,6 +1371,142 @@ async function route(method, pathname, searchParams, req, res) {
   // --- All remaining endpoints require auth ---
   if (!hasAuth(req) && !pathname.startsWith("/api/auth/")) {
     return empty(res, 401);
+  }
+
+  // --- Runtime system settings ---
+
+  if (method === "GET" && pathname === "/api/settings") {
+    return json(res, systemSettings);
+  }
+
+  if (method === "PATCH" && pathname === "/api/settings") {
+    const body = await readBody(req);
+    if (body.expectedRevision !== systemSettings.revision)
+      return json(res, { error: "Settings revision conflict" }, 409);
+
+    const unsafeCredentialChange =
+      (body.ai &&
+        (requiresCredentialMutation(
+          systemSettings.ai.openAI.baseUrl,
+          body.ai.openAI.baseUrl,
+          systemSettings.ai.openAI.apiKey,
+          body.ai.openAI.apiKey,
+        ) ||
+          requiresCredentialMutation(
+            systemSettings.ai.anthropic.baseUrl,
+            body.ai.anthropic.baseUrl,
+            systemSettings.ai.anthropic.apiKey,
+            body.ai.anthropic.apiKey,
+          ) ||
+          requiresCredentialMutation(
+            systemSettings.ai.codexAppServer.endpoint,
+            body.ai.codexAppServer.endpoint,
+            systemSettings.ai.codexAppServer.token,
+            body.ai.codexAppServer.token,
+          ))) ||
+      (body.torrent &&
+        requiresCredentialMutation(
+          systemSettings.torrent.url,
+          body.torrent.url,
+          systemSettings.torrent.password,
+          body.torrent.password,
+        ));
+    if (unsafeCredentialChange)
+      return json(
+        res,
+        { error: "A credential must be set or cleared after an origin change" },
+        400,
+      );
+    if (body.ai && !body.ai.codexAppServer.permissionProfile?.trim())
+      return json(res, { error: "A permission profile is required" }, 400);
+
+    try {
+      if (body.ai) {
+        systemSettings.ai = {
+          executionMode: body.ai.executionMode,
+          provider: body.ai.provider,
+          openAI: {
+            ...body.ai.openAI,
+            apiKey: applySecretMutation(
+              systemSettings.ai.openAI.apiKey,
+              body.ai.openAI.apiKey,
+              deploymentSecrets.openAi,
+            ),
+          },
+          anthropic: {
+            ...body.ai.anthropic,
+            apiKey: applySecretMutation(
+              systemSettings.ai.anthropic.apiKey,
+              body.ai.anthropic.apiKey,
+              deploymentSecrets.anthropic,
+            ),
+          },
+          codexAppServer: {
+            ...body.ai.codexAppServer,
+            token: applySecretMutation(
+              systemSettings.ai.codexAppServer.token,
+              body.ai.codexAppServer.token,
+              deploymentSecrets.codex,
+            ),
+          },
+          inference: { ...body.ai.inference },
+        };
+      }
+
+      if (body.tmdb)
+        systemSettings.tmdb = {
+          apiKey: applySecretMutation(
+            systemSettings.tmdb.apiKey,
+            body.tmdb.apiKey,
+            deploymentSecrets.tmdb,
+          ),
+        };
+
+      if (body.torrent)
+        systemSettings.torrent = {
+          url: body.torrent.url,
+          userName: body.torrent.userName,
+          userAgent: body.torrent.userAgent,
+          password: applySecretMutation(
+            systemSettings.torrent.password,
+            body.torrent.password,
+            deploymentSecrets.torrent,
+          ),
+        };
+
+      if (body.mediaLibrary)
+        systemSettings.mediaLibrary = {
+          ...body.mediaLibrary,
+          allowedRoots: [...body.mediaLibrary.allowedRoots],
+        };
+      if (body.incidents)
+        systemSettings.incidents = {
+          ...body.incidents,
+          disk: { ...body.incidents.disk },
+        };
+
+      if (body.nfs) {
+        const runningNfs = {
+          enabled: systemSettings.nfs.enabled,
+          port: systemSettings.nfs.port,
+          bindAddress: systemSettings.nfs.bindAddress,
+          leaseSeconds: systemSettings.nfs.leaseSeconds,
+          maxConnections: systemSettings.nfs.maxConnections,
+        };
+        const changed = JSON.stringify(runningNfs) !== JSON.stringify(body.nfs);
+        systemSettings.nfs = {
+          ...body.nfs,
+          restartRequired: true,
+          pendingRestart: systemSettings.nfs.pendingRestart || changed,
+        };
+        systemSettings.pendingRestart = systemSettings.nfs.pendingRestart;
+      }
+
+      systemSettings.revision += 1;
+      return json(res, systemSettings);
+    } catch (error) {
+      return json(res, { error: error.message }, 400);
+    }
   }
 
   // --- Playback continuity ---
@@ -2369,11 +2616,29 @@ async function route(method, pathname, searchParams, req, res) {
 
   // GET /api/chat/status
   if (method === "GET" && pathname === "/api/chat/status") {
-    return json(res, { aiEnabled: true, provider: "MockAI" });
+    return json(res, {
+      aiEnabled: isMockAiConfigured(),
+      provider:
+        systemSettings.ai.executionMode === "codexAppServer"
+          ? "Codex App Server"
+          : systemSettings.ai.provider === "openAI"
+            ? "OpenAI"
+            : "Anthropic",
+    });
   }
 
   // GET /api/chat/models
   if (method === "GET" && pathname === "/api/chat/models") {
+    if (!isMockAiConfigured())
+      return json(res, { error: "AI is not configured" }, 503);
+    if (systemSettings.ai.executionMode === "codexAppServer")
+      return json(res, [
+        {
+          id: systemSettings.ai.codexAppServer.model || "app-server-default",
+          name: systemSettings.ai.codexAppServer.model || "App-server default",
+          provider: "Codex App Server",
+        },
+      ]);
     return json(res, [
       { id: "mock-gpt-4o", name: "Mock GPT-4o", provider: "MockAI" },
       { id: "mock-claude", name: "Mock Claude", provider: "MockAI" },

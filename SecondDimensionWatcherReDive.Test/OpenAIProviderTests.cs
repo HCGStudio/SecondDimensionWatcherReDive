@@ -243,6 +243,67 @@ public sealed class OpenAIProviderTests
     }
 
     [TestMethod]
+    public async Task ResponsesContinuation_PinsEndpointAndCredentialAcrossToolRounds()
+    {
+        var firstRound = Sse(
+            """{"type":"response.output_item.added","output_index":0,"item":{"id":"fc_1","type":"function_call","call_id":"call_1","name":"lookup","arguments":"{\"query\":\"one\"}","status":"in_progress"}}""",
+            """{"type":"response.completed","response":{"id":"resp_1","status":"completed","output":[{"id":"fc_1","type":"function_call","call_id":"call_1","name":"lookup","arguments":"{\"query\":\"one\"}","status":"completed"}]}}""",
+            "[DONE]");
+        var secondRound = Sse(
+            """{"type":"response.output_text.delta","output_index":0,"delta":"done"}""",
+            """{"type":"response.completed","response":{"id":"resp_2","status":"completed","output":[{"id":"msg_2","type":"message","status":"completed","role":"assistant","content":[{"type":"output_text","text":"done"}]}]}}""",
+            "[DONE]");
+        var handler = new RecordingHandler(firstRound, secondRound);
+        var monitor = new TestOptionsMonitor<OpenAIOptions>(new()
+        {
+            BaseUrl = "https://origin-a.example/v1",
+            ApiKey = "key-a",
+            Model = "model-a",
+            ApiMode = OpenAIApiMode.Responses,
+            MaxTokens = 100
+        });
+        var provider = new OpenAIProvider(
+            new StubHttpClientFactory(handler),
+            monitor,
+            NullLogger<OpenAIProvider>.Instance);
+
+        var firstUpdates = await CollectAsync(provider.StreamChatCompletionAsync(
+            [new UserMessage("use a tool")],
+            null,
+            null,
+            null,
+            null,
+            CancellationToken.None));
+        var continuation = firstUpdates.OfType<Finished>().Single().Continuation;
+        Assert.IsNotNull(continuation);
+
+        monitor.Set(new OpenAIOptions
+        {
+            BaseUrl = "https://origin-b.example/v1",
+            ApiKey = "key-b",
+            Model = "model-b",
+            ApiMode = OpenAIApiMode.Responses,
+            MaxTokens = 200
+        });
+
+        await CollectAsync(provider.StreamChatCompletionAsync(
+            [new ToolResultMessage("call_1", "tool result")],
+            null,
+            null,
+            null,
+            continuation,
+            CancellationToken.None));
+
+        Assert.AreEqual(2, handler.Requests.Count);
+        Assert.IsTrue(handler.Requests.All(request =>
+            request.Uri == "https://origin-a.example/v1/responses"));
+        Assert.IsTrue(handler.Requests.All(request => request.Authorization == "Bearer key-a"));
+        using var secondRequest = JsonDocument.Parse(handler.Requests[1].Body);
+        Assert.AreEqual("model-a", secondRequest.RootElement.GetProperty("model").GetString());
+        Assert.AreEqual(100, secondRequest.RootElement.GetProperty("max_output_tokens").GetInt32());
+    }
+
+    [TestMethod]
     public async Task AIEngine_ZeroToolRounds_DoesNotAdvertiseOrExecuteTools()
     {
         var handler = new RecordingHandler(Sse(

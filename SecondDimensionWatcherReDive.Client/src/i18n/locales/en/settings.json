@@ -1,5 +1,189 @@
 {
-  "pageTitle": "Settings",
+  "pageTitle": "System settings",
+  "system": {
+    "pageDescription": "Configure AI execution, external services, media processing, health monitoring, and access protocols. Secret values are never displayed, and leaving a new value blank preserves the current setting.",
+    "loadFailed": "System settings could not be loaded. Check the service and try again.",
+    "retry": "Reload",
+    "navigation": {
+      "label": "Settings category",
+      "ai": "AI & agents",
+      "downloads": "Downloads & storage",
+      "media": "Media & metadata",
+      "health": "Health monitoring",
+      "access": "Access protocols"
+    },
+    "pendingRestart": {
+      "title": "Some settings are waiting for a restart",
+      "description": "New settings for startup services such as NFS have been saved. Restart the application when convenient."
+    },
+    "restartNotice": "This setting takes effect after the application restarts.",
+    "save": {
+      "unsaved": "You have unsaved changes",
+      "noChanges": "No changes in this section",
+      "saved": "Settings saved and applied",
+      "requiresRestart": "Settings saved; restart required",
+      "reset": "Discard changes",
+      "submit": "Save settings",
+      "failed": "Could not save settings",
+      "conflict": "Another session updated these settings. The latest values have been reloaded."
+    },
+    "secret": {
+      "configured": "Configured",
+      "configuredPlaceholder": "Configured; leave blank to keep",
+      "emptyPlaceholder": "Enter a new secret value",
+      "keepHelp": "The server never returns the current plaintext. Leave this blank to preserve it, or enter a replacement.",
+      "operationLabel": "Save behavior for {{label}}",
+      "keep": "Keep current value",
+      "set": "Use the entered value",
+      "clear": "Clear the effective value",
+      "reset": "Restore deployment value",
+      "source": {
+        "runtime": "Source: web settings",
+        "deployment": "Source: deployment",
+        "none": "Not configured"
+      }
+    },
+    "ai": {
+      "eyebrow": "Intelligent execution",
+      "title": "AI and local agents",
+      "description": "Run chat, metadata inference, and filename inference with the built-in model client or a local Codex app-server.",
+      "saved": "AI settings saved",
+      "validationFailed": "Check the AI endpoint, model, permission profile, and numeric settings",
+      "originCredentialRequired": "The endpoint origin changed. Enter a new credential or explicitly clear it.",
+      "engine": {
+        "title": "Default execution engine",
+        "scope": "This selection applies to the AI assistant, anime metadata inference, and filename inference.",
+        "builtIn": {
+          "title": "Built-in agent",
+          "description": "Call OpenAI, Anthropic, or a compatible HTTP model API directly."
+        },
+        "codex": {
+          "title": "Local Codex app-server",
+          "description": "Send AI work over WebSocket to a Codex instance reachable by the server."
+        }
+      },
+      "builtIn": {
+        "title": "Built-in model service",
+        "description": "Configure the active provider and default model. Switching providers does not delete the other provider's settings.",
+        "provider": "Provider",
+        "apiMode": "OpenAI API mode",
+        "apiVersion": "Anthropic API version",
+        "baseUrl": "Base URL",
+        "model": "Default model",
+        "maxTokens": "Maximum output tokens",
+        "apiKey": "API key"
+      },
+      "codex": {
+        "title": "Codex app-server connection",
+        "description": "This only connects to an app-server started by an administrator. It never starts processes or runs commands from the web UI.",
+        "endpoint": "WebSocket endpoint",
+        "endpointError": "Remote endpoints must use wss://; ws:// is allowed only for localhost or another loopback address.",
+        "model": "Default model",
+        "modelPlaceholder": "Leave blank for the app-server default",
+        "modelHelp": "Optional. When blank, Codex app-server selects its default model.",
+        "permissionProfile": "Permission profile",
+        "permissionProfileHelp": "Required. Use :read-only or an administrator-defined profile. The backend verifies that the resolved sandbox is read-only and agent network access is disabled; the profile may still allow file reads.",
+        "timeout": "Timeout (seconds)",
+        "token": "Access token",
+        "remoteTokenRequired": "A bearer token is required for a remote wss:// endpoint.",
+        "serverAddressHelp": "The backend server connects to this address. In a container, 127.0.0.1 means the application container itself, not the host or this browser's device."
+      },
+      "inference": {
+        "title": "Inference throttling",
+        "rateLimitDelay": "Minimum delay between AI requests (ms)"
+      }
+    },
+    "downloads": {
+      "eyebrow": "Download service",
+      "title": "Downloads and storage",
+      "description": "Configure the qBittorrent Web API connection. The download root affects existing physical paths and is not migrated from this page.",
+      "saved": "Download settings saved",
+      "invalidUrl": "Enter a valid HTTP or HTTPS URL",
+      "originCredentialRequired": "The endpoint origin changed. Enter the password again or explicitly clear it.",
+      "qbittorrent": {
+        "title": "qBittorrent",
+        "description": "Submits, tracks, pauses, and cancels remote torrent jobs.",
+        "url": "Web API URL",
+        "userName": "Username (optional)",
+        "password": "Password",
+        "userAgent": "Custom user agent (optional)"
+      },
+      "storage": {
+        "title": "Download storage root",
+        "description": "The storage path remains managed by deployment configuration.",
+        "readOnlyHelp": "Changing the download root affects active jobs, disk probes, and recorded physical paths, so use deployment configuration and a dedicated migration procedure."
+      }
+    },
+    "media": {
+      "eyebrow": "Content identification",
+      "title": "Media and metadata",
+      "description": "Configure TMDB metadata access, media import allowlists, and automatic scan timing.",
+      "saved": "Media settings saved",
+      "validationFailed": "Check the allowed roots and time formats",
+      "tmdb": {
+        "title": "TMDB metadata",
+        "description": "Provides normalized anime names, descriptions, posters, and season information.",
+        "apiKey": "TMDB API key"
+      },
+      "allowedRoots": {
+        "title": "Allowed import roots",
+        "description": "Only directories below these absolute server paths can be added as media sources.",
+        "itemLabel": "Allowed root {{index}}",
+        "add": "Add root",
+        "remove": "Remove root"
+      },
+      "timing": {
+        "title": "Scanning and file stability",
+        "description": "Control monitored-source scans, file settling, and retention of temporarily missing records.",
+        "scanInterval": "Scan interval",
+        "settlingPeriod": "File settling period",
+        "missingGracePeriod": "Missing-item grace period",
+        "help": "Use the TimeSpan format hh:mm:ss or d.hh:mm:ss, such as 00:05:00 or 1.00:00:00."
+      }
+    },
+    "health": {
+      "eyebrow": "Reliability",
+      "title": "Health monitoring",
+      "description": "Tune stalled-download, report throttling, reconciliation, and disk-space thresholds.",
+      "saved": "Health settings saved",
+      "validationFailed": "Check the time, space, and percentage thresholds",
+      "download": {
+        "title": "Download incidents",
+        "description": "Create an incident when progress stops, while limiting repeat reports.",
+        "stalledAfter": "No-progress threshold",
+        "reportThrottle": "Repeat-report interval"
+      },
+      "reconciliation": {
+        "title": "Background reconciliation",
+        "description": "Periodically checks inference, file mappings, downloads, and disk incidents.",
+        "interval": "Reconciliation interval"
+      },
+      "disk": {
+        "title": "Disk space",
+        "description": "Available space must satisfy both the capacity and percentage thresholds.",
+        "minimumBytes": "Minimum available space (GiB)",
+        "minimumPercent": "Minimum available percentage (%)"
+      }
+    },
+    "access": {
+      "eyebrow": "Device access",
+      "title": "Access protocols",
+      "description": "Manage the read-only NFS export and independent WebDAV credentials for each device.",
+      "saved": "NFS settings saved",
+      "validationFailed": "Check the NFS address, port, and numeric settings",
+      "nfs": {
+        "title": "Read-only NFSv4 export",
+        "description": "Mount the same virtual filesystem over the network.",
+        "enabled": "Enable the NFS service",
+        "enabledHelp": "The export is read-only; network and firewall configuration remain the security boundary.",
+        "bindAddress": "Bind address",
+        "port": "Port",
+        "leaseSeconds": "Lease duration (seconds)",
+        "maxConnections": "Maximum connections",
+        "restartHelp": "NFS binds its listening port when the application starts. Changes are saved now and used after a restart."
+      }
+    }
+  },
   "mediaLibrary": {
     "title": "Import an existing media library",
     "intro": "Scan media directories on the server and reuse the existing regular-expression, AI metadata inference, and virtual mapping pipeline to add their files to the library.",

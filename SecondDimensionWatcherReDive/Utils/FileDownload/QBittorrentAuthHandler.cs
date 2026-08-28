@@ -1,54 +1,171 @@
 using System.Net;
+using Microsoft.Extensions.Options;
 
 namespace SecondDimensionWatcherReDive.Utils.FileDownload;
 
 public sealed partial class QBittorrentAuthHandler(
-    IConfiguration configuration,
+    IOptionsMonitor<QBittorrentRemoteOptions> options,
     ILogger<QBittorrentAuthHandler> logger)
     : DelegatingHandler
 {
     private const string LoginPath = "/api/v2/auth/login";
+    private const string LogoutPath = "/api/v2/auth/logout";
 
-    private readonly string? _userName = configuration["Torrent:Remote:UserName"];
-    private readonly string? _password = configuration["Torrent:Remote:Password"];
+    private sealed record SessionSettings(
+        Uri Endpoint,
+        string? UserName,
+        string? Password);
+
     private readonly SemaphoreSlim _loginLock = new(1, 1);
+    private SessionSettings? _sessionSettings;
     private bool _hasLoggedIn;
 
     protected override async Task<HttpResponseMessage> SendAsync(
         HttpRequestMessage request,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrEmpty(_userName))
-            return await base.SendAsync(request, cancellationToken);
-
         if (request.RequestUri?.AbsolutePath == LoginPath)
             return await base.SendAsync(request, cancellationToken);
+
+        var settings = GetSessionSettings(request);
+        var credentialsChanged = await RefreshCredentialsAsync(settings, cancellationToken);
+
+        if (string.IsNullOrEmpty(settings.UserName))
+            return await base.SendAsync(request, cancellationToken);
+
+        // Refresh the qBittorrent cookie before sending a request with newly saved
+        // credentials. Otherwise the pooled primary handler could keep using the old session.
+        if (credentialsChanged)
+            await EnsureLoggedInAsync(forceRefresh: false, settings, cancellationToken);
+
+        // Buffer a retry before the first send. Copying content after a 403 loses
+        // non-seekable request bodies because the primary handler has already consumed them.
+        using var retryRequest = await CloneRequestAsync(request, cancellationToken);
 
         var response = await base.SendAsync(request, cancellationToken);
         if (response.StatusCode != HttpStatusCode.Forbidden)
             return response;
 
-        response.Dispose();
-        var loggedIn = await EnsureLoggedInAsync(forceRefresh: true, cancellationToken);
+        var loggedIn = await EnsureLoggedInAsync(
+            forceRefresh: true,
+            settings,
+            cancellationToken);
         if (!loggedIn)
-            return await base.SendAsync(request, cancellationToken);
+            return response;
 
-        return await base.SendAsync(await CloneRequestAsync(request, cancellationToken), cancellationToken);
+        response.Dispose();
+        return await base.SendAsync(retryRequest, cancellationToken);
     }
 
-    private async Task<bool> EnsureLoggedInAsync(bool forceRefresh, CancellationToken cancellationToken)
+    private SessionSettings GetSessionSettings(HttpRequestMessage request)
+    {
+        if (request.RequestUri is not { IsAbsoluteUri: true } requestUri)
+            throw new InvalidOperationException("qBittorrent requests must have an absolute URI.");
+
+        var settings = GetCurrentSessionSettings();
+        var requestEndpoint = new Uri(requestUri.GetLeftPart(UriPartial.Authority) + "/");
+        if (requestEndpoint != settings.Endpoint)
+            throw new HttpRequestException(
+                "The qBittorrent endpoint changed after this client was created; retry with a new client.");
+
+        return settings;
+    }
+
+    private SessionSettings GetCurrentSessionSettings()
+    {
+        var current = options.CurrentValue;
+        if (!Uri.TryCreate(current.Url, UriKind.Absolute, out var configuredUri)
+            || configuredUri.Scheme is not ("http" or "https")
+            || !string.IsNullOrEmpty(configuredUri.UserInfo)
+            || !string.IsNullOrEmpty(configuredUri.Query)
+            || !string.IsNullOrEmpty(configuredUri.Fragment))
+            throw new InvalidOperationException("The configured qBittorrent URL is invalid.");
+
+        var configuredEndpoint = new Uri(configuredUri.GetLeftPart(UriPartial.Authority) + "/");
+        return new(
+            configuredEndpoint,
+            current.UserName,
+            current.Password);
+    }
+
+    private async Task<bool> RefreshCredentialsAsync(
+        SessionSettings settings,
+        CancellationToken cancellationToken)
     {
         await _loginLock.WaitAsync(cancellationToken);
         try
         {
+            // This request may have captured its snapshot before a newer request rotated the
+            // shared cookie session. Never let the waiter restore stale credentials after it
+            // acquires the lock.
+            if (GetCurrentSessionSettings() != settings)
+                throw new HttpRequestException(
+                    "The qBittorrent credentials changed while this request was waiting; retry with current settings.");
+
+            if (_sessionSettings == settings) return false;
+
+            // Invalidate the cookie issued for the previous credentials before a cleared
+            // username can fall through to an apparently unauthenticated request.
+            if (_hasLoggedIn && _sessionSettings is not null)
+            {
+                try
+                {
+                    using var logoutRequest = new HttpRequestMessage(
+                        HttpMethod.Post,
+                        new Uri(_sessionSettings.Endpoint, LogoutPath));
+                    using var logoutResponse = await base.SendAsync(logoutRequest, cancellationToken);
+                    if (!logoutResponse.IsSuccessStatusCode)
+                    {
+                        LogLogoutHttpFailed(logger, (int)logoutResponse.StatusCode);
+                        throw new HttpRequestException(
+                            $"qBittorrent logout returned HTTP {(int)logoutResponse.StatusCode}.");
+                    }
+                }
+                catch (Exception exception) when (exception is not OperationCanceledException)
+                {
+                    LogLogoutFailed(logger, exception);
+                    throw new HttpRequestException(
+                        "Unable to invalidate the previous qBittorrent session; the request was blocked.",
+                        exception);
+                }
+            }
+
+            _sessionSettings = settings;
+            _hasLoggedIn = false;
+            return true;
+        }
+        finally
+        {
+            _loginLock.Release();
+        }
+    }
+
+    private async Task<bool> EnsureLoggedInAsync(
+        bool forceRefresh,
+        SessionSettings settings,
+        CancellationToken cancellationToken)
+    {
+        await _loginLock.WaitAsync(cancellationToken);
+        try
+        {
+            // Another request may have observed a newer endpoint or credential set while
+            // this request was in flight. Never restore the stale session in that case.
+            if (_sessionSettings != settings || string.IsNullOrEmpty(settings.UserName))
+                return false;
+
             if (_hasLoggedIn && !forceRefresh)
                 return true;
 
             using var content = new FormUrlEncodedContent([
-                new KeyValuePair<string, string>("username", _userName!),
-                new KeyValuePair<string, string>("password", _password ?? string.Empty)
+                new KeyValuePair<string, string>("username", settings.UserName),
+                new KeyValuePair<string, string>("password", settings.Password ?? string.Empty)
             ]);
-            using var loginRequest = new HttpRequestMessage(HttpMethod.Post, LoginPath) { Content = content };
+            using var loginRequest = new HttpRequestMessage(
+                HttpMethod.Post,
+                new Uri(settings.Endpoint, LoginPath))
+            {
+                Content = content
+            };
             using var loginResponse = await base.SendAsync(loginRequest, cancellationToken);
             if (!loginResponse.IsSuccessStatusCode)
             {
@@ -60,7 +177,7 @@ public sealed partial class QBittorrentAuthHandler(
             var body = await loginResponse.Content.ReadAsStringAsync(cancellationToken);
             if (!string.Equals(body.Trim(), "Ok.", StringComparison.Ordinal))
             {
-                LogLoginRejected(logger, body.Trim());
+                LogLoginRejected(logger);
                 _hasLoggedIn = false;
                 return false;
             }
@@ -78,7 +195,11 @@ public sealed partial class QBittorrentAuthHandler(
         HttpRequestMessage original,
         CancellationToken cancellationToken)
     {
-        var clone = new HttpRequestMessage(original.Method, original.RequestUri) { Version = original.Version };
+        var clone = new HttpRequestMessage(original.Method, original.RequestUri)
+        {
+            Version = original.Version,
+            VersionPolicy = original.VersionPolicy
+        };
 
         if (original.Content is not null)
         {
@@ -92,12 +213,21 @@ public sealed partial class QBittorrentAuthHandler(
         foreach (var header in original.Headers)
             clone.Headers.TryAddWithoutValidation(header.Key, header.Value);
 
+        foreach (var option in original.Options)
+            clone.Options.Set(new HttpRequestOptionsKey<object?>(option.Key), option.Value);
+
         return clone;
     }
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "qBittorrent login HTTP {StatusCode}.")]
     private static partial void LogLoginHttpFailed(ILogger logger, int statusCode);
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "qBittorrent login rejected: {Body}")]
-    private static partial void LogLoginRejected(ILogger logger, string body);
+    [LoggerMessage(Level = LogLevel.Warning, Message = "qBittorrent login rejected")]
+    private static partial void LogLoginRejected(ILogger logger);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "qBittorrent logout failed while rotating credentials")]
+    private static partial void LogLogoutFailed(ILogger logger, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "qBittorrent logout HTTP {StatusCode} while rotating credentials")]
+    private static partial void LogLogoutHttpFailed(ILogger logger, int statusCode);
 }

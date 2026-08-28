@@ -1,6 +1,7 @@
 {
   "aiNotConfigured": "AI 功能未配置",
-  "aiNotConfiguredHelp": "请在服务端配置 AI Provider 和 API Key 后使用此功能。详见 appsettings.example.json 中的 AI 配置项。",
+  "aiNotConfiguredHelp": "请在系统设置中配置内置模型服务或本地 Codex app-server。",
+  "openAiSettings": "打开 AI 设置",
   "selectOrCreate": "选择或创建对话",
   "createHint": "点击左侧 + 创建新对话开始聊天",
   "newConversation": "新建对话",

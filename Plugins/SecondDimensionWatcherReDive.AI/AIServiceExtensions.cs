@@ -1,7 +1,9 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using SecondDimensionWatcherReDive.AI.Abstractions;
+using SecondDimensionWatcherReDive.AI.Codex;
 using SecondDimensionWatcherReDive.AI.Configuration;
 using SecondDimensionWatcherReDive.AI.Engines;
 using SecondDimensionWatcherReDive.AI.Providers;
@@ -14,43 +16,63 @@ public static class AIServiceExtensions
         this IServiceCollection services,
         IConfiguration configuration)
     {
-        var provider = configuration["AI:Provider"]
-            is { Length: > 0 } p
-            ? p
-            : "OpenAI";
+        // Register every backend. The router and built-in engine select from the current
+        // IOptionsMonitor snapshot, so a settings update applies to the next request without a
+        // process restart. Validation is deliberately performed by the selected backend instead
+        // of at startup, because unselected providers are allowed to be unconfigured.
+        services.AddOptions<AIOptions>()
+            .Bind(configuration.GetSection(AIOptions.SectionName));
+        services.AddOptions<OpenAIOptions>()
+            .Bind(configuration.GetSection(OpenAIOptions.SectionName));
+        services.AddOptions<AnthropicOptions>()
+            .Bind(configuration.GetSection(AnthropicOptions.SectionName));
+        services.AddOptions<CodexAppServerOptions>()
+            .Bind(configuration.GetSection(CodexAppServerOptions.SectionName));
 
-        if (string.Equals(provider, "Anthropic", StringComparison.OrdinalIgnoreCase))
-        {
-            services.AddOptionsWithValidateOnStart<AnthropicOptions, ValidateAnthropicOptions>()
-                .BindConfiguration(AnthropicOptions.SectionName);
-
-            services.AddHttpClient("AnthropicAI", (sp, client) =>
+        // Provider credentials must never be replayed by HttpClientHandler to a redirect target.
+        // In particular, .NET only strips Authorization automatically; custom headers such as
+        // Anthropic's x-api-key would otherwise survive a cross-origin redirect.
+        services.AddHttpClient("OpenAI")
+            .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
             {
-                var opts = sp.GetRequiredService<IOptions<AnthropicOptions>>().Value;
-                client.BaseAddress = new(opts.BaseUrl.TrimEnd('/') + "/");
-                client.DefaultRequestHeaders.Add("x-api-key", opts.ApiKey);
-                client.DefaultRequestHeaders.Add("anthropic-version", opts.ApiVersion);
+                AllowAutoRedirect = false
+            });
+        services.AddHttpClient("AnthropicAI")
+            .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+            {
+                AllowAutoRedirect = false
             });
 
-            services.AddScoped<IAIProvider, AnthropicProvider>();
-        }
-        else
-        {
-            services.AddOptionsWithValidateOnStart<OpenAIOptions, ValidateOpenAIOptions>()
-                .BindConfiguration(OpenAIOptions.SectionName);
+        // Explicit factories choose the reloadable monitor overload. Both providers retain their
+        // original IOptions<T> constructors for direct callers and backwards compatibility.
+        services.AddScoped<OpenAIProvider>(serviceProvider => new OpenAIProvider(
+            serviceProvider.GetRequiredService<IHttpClientFactory>(),
+            serviceProvider.GetRequiredService<IOptionsMonitor<OpenAIOptions>>(),
+            serviceProvider.GetRequiredService<ILogger<OpenAIProvider>>()));
+        services.AddScoped<AnthropicProvider>(serviceProvider => new AnthropicProvider(
+            serviceProvider.GetRequiredService<IHttpClientFactory>(),
+            serviceProvider.GetRequiredService<IOptionsMonitor<AnthropicOptions>>(),
+            serviceProvider.GetRequiredService<ILogger<AnthropicProvider>>()));
+        services.AddScoped<IAIProvider>(serviceProvider =>
+            serviceProvider.GetRequiredService<OpenAIProvider>());
+        services.AddScoped<IAIProvider>(serviceProvider =>
+            serviceProvider.GetRequiredService<AnthropicProvider>());
 
-            services.AddHttpClient("OpenAI", (sp, client) =>
-            {
-                var opts = sp.GetRequiredService<IOptions<OpenAIOptions>>().Value;
-                client.BaseAddress = new(opts.BaseUrl.TrimEnd('/') + "/");
-                client.DefaultRequestHeaders.Authorization =
-                    new("Bearer", opts.ApiKey);
-            });
+        services.AddSingleton<ICodexAppServerTransportFactory, CodexWebSocketTransportFactory>();
+        services.AddScoped(serviceProvider => new AIEngine(
+            serviceProvider.GetServices<IAIProvider>(),
+            serviceProvider.GetRequiredService<IOptionsMonitor<AIOptions>>(),
+            serviceProvider.GetRequiredService<ILogger<AIEngine>>()));
+        services.AddScoped<CodexAppServerEngine>();
+        services.AddScoped<IAIEngineBackend>(serviceProvider =>
+            serviceProvider.GetRequiredService<AIEngine>());
+        services.AddScoped<IAIEngineBackend>(serviceProvider =>
+            serviceProvider.GetRequiredService<CodexAppServerEngine>());
 
-            services.AddScoped<IAIProvider, OpenAIProvider>();
-        }
-
-        services.AddScoped<IAIEngine, AIEngine>();
+        services.AddScoped<AIEngineRouter>();
+        services.AddScoped<IAIEngine>(serviceProvider =>
+            serviceProvider.GetRequiredService<AIEngineRouter>());
+        services.AddSingleton<IAIEngineStatus, AIEngineStatus>();
 
         return services;
     }

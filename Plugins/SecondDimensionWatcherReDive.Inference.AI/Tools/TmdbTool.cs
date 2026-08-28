@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using TMDbLib.Client;
 
@@ -7,9 +8,18 @@ namespace SecondDimensionWatcherReDive.Inference.AI.Tools;
 
 public partial class TmdbTool
 {
-    private readonly bool _isConfigured;
+    private readonly IConfiguration? _configuration;
+    private readonly bool _explicitlyConfigured;
     private readonly ILogger<TmdbTool> _logger;
-    private readonly TMDbClient _tmdbClient;
+    private readonly object _clientLock = new();
+    private TMDbClient? _tmdbClient;
+    private string? _cachedApiKey;
+
+    public TmdbTool(IConfiguration configuration, ILogger<TmdbTool> logger)
+    {
+        _configuration = configuration;
+        _logger = logger;
+    }
 
     public TmdbTool(TMDbClient tmdbClient, ILogger<TmdbTool> logger)
         : this(tmdbClient, logger, true)
@@ -20,19 +30,22 @@ public partial class TmdbTool
     {
         _tmdbClient = tmdbClient;
         _logger = logger;
-        _isConfigured = isConfigured;
+        _explicitlyConfigured = isConfigured;
     }
 
-    public bool IsConfigured => _isConfigured;
+    public bool IsConfigured => _configuration is not null
+        ? !string.IsNullOrWhiteSpace(_configuration["TmdbApiKey"])
+        : _explicitlyConfigured;
 
     public async Task<string> SearchAsync(string query, CancellationToken cancellationToken)
     {
-        if (!_isConfigured) return "[]";
+        var tmdbClient = GetClient();
+        if (tmdbClient is null) return "[]";
 
         LogSearching(_logger, query);
         try
         {
-            var tvResults = await _tmdbClient.SearchTvShowAsync(query, cancellationToken: cancellationToken);
+            var tvResults = await tmdbClient.SearchTvShowAsync(query, cancellationToken: cancellationToken);
 
             if (tvResults?.Results is { Count: > 0 })
             {
@@ -49,7 +62,7 @@ public partial class TmdbTool
                 return JsonSerializer.Serialize(results);
             }
 
-            var movieResults = await _tmdbClient.SearchMovieAsync(query, cancellationToken: cancellationToken);
+            var movieResults = await tmdbClient.SearchMovieAsync(query, cancellationToken: cancellationToken);
 
             if (movieResults?.Results is { Count: > 0 })
             {
@@ -78,12 +91,13 @@ public partial class TmdbTool
 
     public async Task<string> GetSeasonsAsync(int tmdbId, CancellationToken cancellationToken)
     {
-        if (!_isConfigured) return "{}";
+        var tmdbClient = GetClient();
+        if (tmdbClient is null) return "{}";
 
         LogGettingSeasonInfo(_logger, tmdbId);
         try
         {
-            var show = await _tmdbClient.GetTvShowAsync(tmdbId, cancellationToken: cancellationToken);
+            var show = await tmdbClient.GetTvShowAsync(tmdbId, cancellationToken: cancellationToken);
             if (show == null)
             {
                 LogTvShowNotFound(_logger, tmdbId);
@@ -122,12 +136,14 @@ public partial class TmdbTool
 
     public async Task<string> GetSeasonEpisodesAsync(int tmdbId, int seasonNumber, CancellationToken cancellationToken)
     {
-        if (!_isConfigured) return "{}";
+        var tmdbClient = GetClient();
+        if (tmdbClient is null) return "{}";
 
         LogGettingSeasonEpisodes(_logger, tmdbId, seasonNumber);
         try
         {
-            var season = await _tmdbClient.GetTvSeasonAsync(tmdbId, seasonNumber, cancellationToken: cancellationToken);
+            var season = await tmdbClient.GetTvSeasonAsync(tmdbId, seasonNumber,
+                cancellationToken: cancellationToken);
             if (season == null)
             {
                 LogSeasonNotFound(_logger, tmdbId, seasonNumber);
@@ -168,13 +184,14 @@ public partial class TmdbTool
     /// </summary>
     public async Task<TmdbDetails?> GetLocalizedDetailsAsync(int tmdbId, CancellationToken cancellationToken)
     {
-        if (!_isConfigured) return null;
+        var tmdbClient = GetClient();
+        if (tmdbClient is null) return null;
 
         var language = CultureInfo.CurrentCulture.Name; // e.g. "zh-CN", "en-US", "ja-JP"
         LogGettingLocalizedDetails(_logger, tmdbId, language);
         try
         {
-            var show = await _tmdbClient.GetTvShowAsync(tmdbId, language: language,
+            var show = await tmdbClient.GetTvShowAsync(tmdbId, language: language,
                 cancellationToken: cancellationToken);
             if (show == null) return null;
 
@@ -188,6 +205,26 @@ public partial class TmdbTool
         {
             LogGetLocalizedDetailsFailed(_logger, ex, tmdbId);
             return null;
+        }
+    }
+
+    private TMDbClient? GetClient()
+    {
+        if (_configuration is null)
+            return _explicitlyConfigured ? _tmdbClient : null;
+
+        var apiKey = _configuration["TmdbApiKey"];
+        if (string.IsNullOrWhiteSpace(apiKey)) return null;
+
+        lock (_clientLock)
+        {
+            if (_tmdbClient is null || !string.Equals(_cachedApiKey, apiKey, StringComparison.Ordinal))
+            {
+                _tmdbClient = new TMDbClient(apiKey);
+                _cachedApiKey = apiKey;
+            }
+
+            return _tmdbClient;
         }
     }
 

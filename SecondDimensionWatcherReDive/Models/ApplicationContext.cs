@@ -32,9 +32,33 @@ public class ApplicationContext : DbContext
     public DbSet<PlaybackProgress> PlaybackProgresses { get; set; }
     public DbSet<PlaybackPreference> PlaybackPreferences { get; set; }
     public DbSet<MediaLibrarySource> MediaLibrarySources { get; set; }
+    public DbSet<ApplicationSettings> ApplicationSettings { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<ApplicationSettings>()
+            .Property(settings => settings.Id)
+            .ValueGeneratedNever();
+
+        modelBuilder.Entity<ApplicationSettings>()
+            .Property(settings => settings.ValuesJson)
+            .HasColumnType("jsonb");
+
+        modelBuilder.Entity<ApplicationSettings>()
+            .Property(settings => settings.Revision)
+            .IsConcurrencyToken();
+
+        modelBuilder.Entity<ApplicationSettings>()
+            .ToTable(table =>
+            {
+                table.HasCheckConstraint(
+                    "CK_ApplicationSettings_Singleton",
+                    "\"Id\" = 1");
+                table.HasCheckConstraint(
+                    "CK_ApplicationSettings_Revision_Positive",
+                    "\"Revision\" > 0");
+            });
+
         modelBuilder.Entity<Animation>()
             .HasIndex(animation => animation.TmdbId)
             .IsUnique();

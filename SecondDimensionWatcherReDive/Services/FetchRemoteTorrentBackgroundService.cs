@@ -20,10 +20,6 @@ public partial class FetchRemoteTorrentBackgroundService(
     IIncidentReporter? incidentReporter = null)
     : BackgroundService
 {
-    private readonly HttpClient _httpClient = httpClientFactory.CreateClient(nameof(RemoteTorrentDownloadClient));
-    private readonly TimeSpan _stalledAfter = GetStalledAfter(configuration);
-    private readonly TimeSpan _reportThrottle = GetReportThrottle(configuration);
-
     private sealed record DownloadObservation(
         Guid ItemId,
         double Progress,
@@ -100,7 +96,8 @@ public partial class FetchRemoteTorrentBackgroundService(
             var info = default(RemoteTorrentInfo[]);
             try
             {
-                info = await _httpClient.GetFromJsonAsync(
+                using var httpClient = httpClientFactory.CreateClient(nameof(RemoteTorrentDownloadClient));
+                info = await httpClient.GetFromJsonAsync(
                     $"/api/v2/torrents/info?hashes={string.Join('|', tracked.Keys)}",
                     QBittorrentJsonSerializerContext.Default.RemoteTorrentInfoArray,
                     cancellationToken);
@@ -227,11 +224,12 @@ public partial class FetchRemoteTorrentBackgroundService(
             return;
         }
 
-        if (now - observation.LastProgressAt >= _stalledAfter && ShouldReport(observation, now))
+        var stalledAfter = GetStalledAfter(configuration);
+        if (now - observation.LastProgressAt >= stalledAfter && ShouldReport(observation, now))
         {
             await ReportDownloadIncidentAsync(
                 request.ItemId,
-                $"No download progress for {_stalledAfter.TotalMinutes:F0} minutes " +
+                $"No download progress for {stalledAfter.TotalMinutes:F0} minutes " +
                 $"(state: {torrentInfo.State}, progress: {torrentInfo.Progress:P1}).",
                 cancellationToken);
             observations[torrentInfo.Hash] = observation with
@@ -249,18 +247,19 @@ public partial class FetchRemoteTorrentBackgroundService(
         CancellationToken cancellationToken)
     {
         var now = DateTimeOffset.UtcNow;
+        var stalledAfter = GetStalledAfter(configuration);
         foreach (var pair in tracked)
         {
             if (returnedHashes.Contains(pair.Key)) continue;
             var observation = observations.GetOrAdd(
                 pair.Key,
                 _ => new DownloadObservation(pair.Value.ItemId, 0, now, null, null));
-            if (now - observation.LastProgressAt < _stalledAfter || !ShouldReport(observation, now)) continue;
+            if (now - observation.LastProgressAt < stalledAfter || !ShouldReport(observation, now)) continue;
 
             await ReportDownloadIncidentAsync(
                 pair.Value.ItemId,
                 $"The remote download client has not reported this torrent for " +
-                $"{_stalledAfter.TotalMinutes:F0} minutes.",
+                $"{stalledAfter.TotalMinutes:F0} minutes.",
                 cancellationToken);
             observations[pair.Key] = observation with
             {
@@ -310,14 +309,16 @@ public partial class FetchRemoteTorrentBackgroundService(
 
     private bool ShouldReport(DownloadObservation observation, DateTimeOffset now)
     {
+        var reportThrottle = GetReportThrottle(configuration);
         return observation.LastReportedAt is null
-               || now - observation.LastReportedAt.Value >= _reportThrottle;
+               || now - observation.LastReportedAt.Value >= reportThrottle;
     }
 
     private bool ShouldResolve(DownloadObservation observation, DateTimeOffset now)
     {
+        var reportThrottle = GetReportThrottle(configuration);
         return observation.LastResolvedAt is null
-               || now - observation.LastResolvedAt.Value >= _reportThrottle;
+               || now - observation.LastResolvedAt.Value >= reportThrottle;
     }
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to fetch torrent status from remote client")]

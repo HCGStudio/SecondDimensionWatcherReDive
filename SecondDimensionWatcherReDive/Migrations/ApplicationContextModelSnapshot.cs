@@ -208,6 +208,35 @@ namespace SecondDimensionWatcherReDive.Migrations
                         });
                 });
 
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.ApplicationSettings", b =>
+                {
+                    b.Property<int>("Id")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ProtectedSecrets")
+                        .HasColumnType("text");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ValuesJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("ApplicationSettings", t =>
+                        {
+                            t.HasCheckConstraint("CK_ApplicationSettings_Revision_Positive", "\"Revision\" > 0");
+
+                            t.HasCheckConstraint("CK_ApplicationSettings_Singleton", "\"Id\" = 1");
+                        });
+                });
+
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.BangumiSubgroup", b =>
                 {
                     b.Property<Guid>("Id")

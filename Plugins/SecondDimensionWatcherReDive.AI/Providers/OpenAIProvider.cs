@@ -2,6 +2,7 @@ using System.Net.ServerSentEvents;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using SecondDimensionWatcherReDive.AI.Abstractions;
@@ -12,19 +13,49 @@ using SecondDimensionWatcherReDive.Framework.AI;
 
 namespace SecondDimensionWatcherReDive.AI.Providers;
 
-public sealed partial class OpenAIProvider(
-    IHttpClientFactory httpClientFactory,
-    IOptions<OpenAIOptions> options,
-    ILogger<OpenAIProvider> logger) : IAIProvider
+public sealed partial class OpenAIProvider : IAIProvider
 {
     private const string HttpClientName = "OpenAI";
+    private readonly Func<OpenAIOptions> _getOptions;
+    private readonly IHttpClientFactory _httpClientFactory;
+    private readonly ILogger<OpenAIProvider> _logger;
+
+    [ActivatorUtilitiesConstructor]
+    public OpenAIProvider(
+        IHttpClientFactory httpClientFactory,
+        IOptionsMonitor<OpenAIOptions> options,
+        ILogger<OpenAIProvider> logger)
+    {
+        _httpClientFactory = httpClientFactory;
+        _getOptions = () => options.CurrentValue;
+        _logger = logger;
+    }
+
+    /// <summary>
+    ///     Preserves the original snapshot-options constructor for callers and tests that build a
+    ///     provider directly. The application DI registration uses the monitor overload so saved
+    ///     settings apply to subsequent requests.
+    /// </summary>
+    public OpenAIProvider(
+        IHttpClientFactory httpClientFactory,
+        IOptions<OpenAIOptions> options,
+        ILogger<OpenAIProvider> logger)
+    {
+        _httpClientFactory = httpClientFactory;
+        _getOptions = () => options.Value;
+        _logger = logger;
+    }
 
     public string ProviderName => "OpenAI";
 
+    public bool IsConfigured => IsValidConfiguration(_getOptions());
+
     public async Task<IReadOnlyList<AIModel>> GetAvailableModelsAsync(CancellationToken cancellationToken)
     {
-        var client = httpClientFactory.CreateClient(HttpClientName);
-        using var response = await client.GetAsync("models", cancellationToken);
+        var opts = Snapshot(GetConfiguredOptions());
+        var client = _httpClientFactory.CreateClient(HttpClientName);
+        using var request = CreateRequest(HttpMethod.Get, opts, "models");
+        using var response = await client.SendAsync(request, cancellationToken);
         response.EnsureSuccessStatusCode();
 
         var json = await response.Content.ReadAsStreamAsync(cancellationToken);
@@ -47,24 +78,34 @@ public sealed partial class OpenAIProvider(
         IAIProviderContinuation? continuation,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        var opts = options.Value;
+        // Keep one immutable endpoint/credential snapshot for the complete provider tool loop.
+        // Otherwise a settings update between rounds could replay one origin's conversation to
+        // another origin with a different credential.
+        var opts = continuation switch
+        {
+            null => Snapshot(GetConfiguredOptions()),
+            OpenAIResponsesContinuation state => state.Options,
+            OpenAIChatContinuation state => state.Options,
+            _ => throw new InvalidOperationException(
+                $"Unsupported OpenAI continuation state: {continuation.GetType().Name}")
+        };
 
         if (opts.ApiMode == OpenAIApiMode.Responses)
         {
             await foreach (var update in StreamResponsesAsync(
                                messages, tools, model ?? opts.Model, maxTokens ?? opts.MaxTokens,
-                               continuation, cancellationToken))
+                               continuation, opts, cancellationToken))
                 yield return update;
 
             yield break;
         }
 
-        if (continuation is not null)
+        if (continuation is OpenAIResponsesContinuation)
             throw new InvalidOperationException("Chat Completions does not accept Responses continuation state.");
 
         await foreach (var update in StreamChatCompletionsAsync(
                            messages, tools, model ?? opts.Model, maxTokens ?? opts.MaxTokens,
-                           cancellationToken))
+                           opts, cancellationToken))
             yield return update;
     }
 
@@ -76,6 +117,7 @@ public sealed partial class OpenAIProvider(
         string model,
         int maxTokens,
         IAIProviderContinuation? continuation,
+        OpenAIOptions requestOptions,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         var input = continuation switch
@@ -106,7 +148,7 @@ public sealed partial class OpenAIProvider(
         OpenAIResponsesResponse? completedResponse = null;
         var refused = false;
 
-        await foreach (var evt in StreamResponsesRawAsync(request, cancellationToken))
+        await foreach (var evt in StreamResponsesRawAsync(request, requestOptions, cancellationToken))
         {
             switch (evt.Type)
             {
@@ -213,24 +255,23 @@ public sealed partial class OpenAIProvider(
         var finishReason = toolCallBuilders.Count > 0
             ? "tool_calls"
             : refused ? "refusal" : "stop";
-        LogStreamComplete(logger, OpenAIApiMode.Responses, finishReason, toolCallBuilders.Count);
+        LogStreamComplete(_logger, OpenAIApiMode.Responses, finishReason, toolCallBuilders.Count);
         yield return new Finished(finishReason)
         {
-            Continuation = new OpenAIResponsesContinuation(nextInput)
+            Continuation = new OpenAIResponsesContinuation(nextInput, requestOptions)
         };
     }
 
     private async IAsyncEnumerable<OpenAIResponsesStreamEvent> StreamResponsesRawAsync(
         OpenAIResponsesRequest request,
+        OpenAIOptions requestOptions,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        var client = httpClientFactory.CreateClient(HttpClientName);
+        var client = _httpClientFactory.CreateClient(HttpClientName);
         var jsonContent = JsonSerializer.SerializeToUtf8Bytes(
             request, OpenAIJsonContext.Default.OpenAIResponsesRequest);
-        using var httpRequest = new HttpRequestMessage(HttpMethod.Post, "responses")
-        {
-            Content = new ByteArrayContent(jsonContent)
-        };
+        using var httpRequest = CreateRequest(HttpMethod.Post, requestOptions, "responses");
+        httpRequest.Content = new ByteArrayContent(jsonContent);
         httpRequest.Content.Headers.ContentType = new("application/json");
 
         using var response = await client.SendAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead,
@@ -423,6 +464,7 @@ public sealed partial class OpenAIProvider(
         IReadOnlyList<ToolDefinition>? tools,
         string model,
         int maxTokens,
+        OpenAIOptions requestOptions,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         var request = new OpenAIChatRequest
@@ -437,7 +479,7 @@ public sealed partial class OpenAIProvider(
         var toolCallBuilders = new Dictionary<int, (string Id, string Name, StringBuilder Args)>();
         string? finishReason = null;
 
-        await foreach (var chunk in StreamChatCompletionsRawAsync(request, cancellationToken))
+        await foreach (var chunk in StreamChatCompletionsRawAsync(request, requestOptions, cancellationToken))
         {
             if (chunk.Choices is null) continue;
 
@@ -484,21 +526,23 @@ public sealed partial class OpenAIProvider(
             }
         }
 
-        LogStreamComplete(logger, OpenAIApiMode.ChatCompletions, finishReason, toolCallBuilders.Count);
-        yield return new Finished(finishReason);
+        LogStreamComplete(_logger, OpenAIApiMode.ChatCompletions, finishReason, toolCallBuilders.Count);
+        yield return new Finished(finishReason)
+        {
+            Continuation = new OpenAIChatContinuation(requestOptions)
+        };
     }
 
     private async IAsyncEnumerable<OpenAIChatChunk> StreamChatCompletionsRawAsync(
         OpenAIChatRequest request,
+        OpenAIOptions requestOptions,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        var client = httpClientFactory.CreateClient(HttpClientName);
+        var client = _httpClientFactory.CreateClient(HttpClientName);
 
         var jsonContent = JsonSerializer.SerializeToUtf8Bytes(request, OpenAIJsonContext.Default.OpenAIChatRequest);
-        using var httpRequest = new HttpRequestMessage(HttpMethod.Post, "chat/completions")
-        {
-            Content = new ByteArrayContent(jsonContent)
-        };
+        using var httpRequest = CreateRequest(HttpMethod.Post, requestOptions, "chat/completions");
+        httpRequest.Content = new ByteArrayContent(jsonContent);
         httpRequest.Content.Headers.ContentType = new("application/json");
 
         using var response = await client.SendAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead,
@@ -563,7 +607,49 @@ public sealed partial class OpenAIProvider(
         }).ToList();
     }
 
-    private sealed record OpenAIResponsesContinuation(List<JsonElement> Input) : IAIProviderContinuation;
+    private sealed record OpenAIResponsesContinuation(
+        List<JsonElement> Input,
+        OpenAIOptions Options) : IAIProviderContinuation;
+
+    private sealed record OpenAIChatContinuation(OpenAIOptions Options) : IAIProviderContinuation;
+
+    private static OpenAIOptions Snapshot(OpenAIOptions options) => new()
+    {
+        BaseUrl = options.BaseUrl,
+        ApiKey = options.ApiKey,
+        Model = options.Model,
+        ApiMode = options.ApiMode,
+        MaxTokens = options.MaxTokens
+    };
+
+    private OpenAIOptions GetConfiguredOptions()
+    {
+        var current = _getOptions();
+        if (!IsValidConfiguration(current))
+            throw new InvalidOperationException("OpenAI is not configured.");
+        return current;
+    }
+
+    private static bool IsValidConfiguration(OpenAIOptions options)
+        => Uri.TryCreate(options.BaseUrl, UriKind.Absolute, out var baseUri)
+           && baseUri.Scheme is "http" or "https"
+           && string.IsNullOrEmpty(baseUri.UserInfo)
+           && string.IsNullOrEmpty(baseUri.Query)
+           && string.IsNullOrEmpty(baseUri.Fragment)
+           && !string.IsNullOrWhiteSpace(options.ApiKey)
+           && !string.IsNullOrWhiteSpace(options.Model)
+           && options.MaxTokens > 0;
+
+    private static HttpRequestMessage CreateRequest(
+        HttpMethod method,
+        OpenAIOptions options,
+        string relativePath)
+    {
+        var baseUri = new Uri(options.BaseUrl.TrimEnd('/') + "/", UriKind.Absolute);
+        var request = new HttpRequestMessage(method, new Uri(baseUri, relativePath));
+        request.Headers.Authorization = new("Bearer", options.ApiKey);
+        return request;
+    }
 
     [LoggerMessage(Level = LogLevel.Debug,
         Message = "[OpenAI/{ApiMode}] Stream complete. finish_reason: {FinishReason}, tool_calls: {ToolCallCount}")]

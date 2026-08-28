@@ -7,6 +7,8 @@ public interface IAIProvider
 {
     string ProviderName { get; }
 
+    bool IsConfigured { get; }
+
     Task<IReadOnlyList<AIModel>> GetAvailableModelsAsync(CancellationToken cancellationToken);
 
     IAsyncEnumerable<IChatUpdate> StreamChatCompletionAsync(

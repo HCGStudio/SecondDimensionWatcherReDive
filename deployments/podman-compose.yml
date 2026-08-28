@@ -56,6 +56,7 @@ services:
       MediaLibrary__AllowedRoots__0: "/media"
       MediaLibrary__MissingGracePeriod: "1.00:00:00"
       PasswordFile: "/app/data/password.json"
+      DataProtection__KeyRingPath: "/app/data/data-protection-keys"
       Torrent__Remote__Url: "http://qbittorrent:8080"
       Torrent__Remote__UserName: ""
       Torrent__Remote__Password: ""

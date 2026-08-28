@@ -66,6 +66,7 @@ sudo pacman -U sdw-redive-*.pkg.tar.zst
 | `/usr/lib/sdw-redive/` | 应用程序文件（二进制、wwwroot 静态资源） |
 | `/etc/sdw-redive/appsettings.yml` | 配置文件（YAML 格式，升级时保留用户修改） |
 | `/var/lib/sdw-redive/downloads/` | 默认下载存储目录 |
+| `/var/lib/sdw-redive/data-protection-keys/` | 网页保存的敏感配置所用持久加密密钥环 |
 | `/usr/lib/systemd/system/sdw-redive.service` | systemd 服务单元 |
 
 安装时自动创建 `sdw-redive` 系统用户和组用于运行服务。
@@ -81,6 +82,9 @@ ConnectionStrings:
 
 # JWT 签名密钥（首次安装时自动生成，无需手动设置）
 JwtSecret: "..."
+
+DataProtection:
+  KeyRingPath: /var/lib/sdw-redive/data-protection-keys
 
 # qBittorrent Web API 地址（必填）
 Torrent:
@@ -104,6 +108,7 @@ TmdbApiKey: "YOUR_TMDB_API_KEY"
 
 # AI 推断配置（可选，留空 ApiKey 则禁用）
 AI:
+  Engine: BuiltIn
   Provider: OpenAI
   OpenAI:
     BaseUrl: https://api.openai.com/v1
@@ -111,6 +116,12 @@ AI:
     ApiKey: ""
     Model: gpt-4o-mini
     MaxTokens: 1024
+  CodexAppServer:
+    Endpoint: ""
+    BearerToken: ""
+    Model: ""
+    PermissionProfile: ":read-only"
+    TimeoutSeconds: 300
 Inference:
   RateLimitDelayMs: 1000
 
@@ -120,7 +131,44 @@ Inference:
 #   InstanceName: "sdw-redive:"
 ```
 
+`DataProtection:KeyRingPath` 是运行时敏感设置的解密根密钥，不是普通缓存。请持久化并备份该目录，权限应仅允许应用服务账号读取。多副本连接同一个 PostgreSQL 数据库时，**所有副本必须挂载同一份共享密钥环**；否则一个副本写入的 API key/密码无法被其他副本解密。所有副本也必须保持应用内置的 Data Protection application name 一致（`SecondDimensionWatcherReDive`）。
+
 > **注意**：配置文件在包升级时不会被覆盖（标记为 conffile / noreplace）。
+
+安装脚本会把配置文件设为 `root:sdw-redive`、权限 `0640`，并把 Data Protection 密钥目录设为仅服务账户可访问的 `0700`（密钥文件 `0600`）。手动迁移或恢复备份后也应重新执行：
+
+```bash
+sudo chown root:sdw-redive /etc/sdw-redive/appsettings.yml
+sudo chmod 0640 /etc/sdw-redive/appsettings.yml
+sudo install -d -m 0700 -o sdw-redive -g sdw-redive /var/lib/sdw-redive/data-protection-keys
+```
+
+### 网页运行时设置
+
+登录后可在「设置」中修改 AI/TMDB、qBittorrent、媒体库扫描、异常阈值和 NFS。网页值保存在 PostgreSQL并覆盖 YAML 默认值；API key 和密码使用 Data Protection 加密，接口不回显明文。请备份 `/var/lib/sdw-redive/data-protection-keys/`，丢失密钥环后已保存的敏感值无法恢复。
+
+数据库、JWT、下载存储根目录、登录密码文件、Valkey 和 CORS 仍只允许由部署配置修改。NFS 监听配置需要重启服务，其余支持项对后续请求和新任务热生效。后台定时任务的间隔变更不会中断已经开始的等待，最迟会在当前等待周期结束后采用新值。
+
+设置页提交的 API key 和密码会经过浏览器与服务端之间的连接；除严格的本机访问外，必须先为网页入口配置 HTTPS。带凭据的 AI 与 qBittorrent 上游同样应使用 TLS，或仅位于受信任的隔离网络中。
+
+### 使用 Codex app-server
+
+需要 Codex app-server 0.144.5 或兼容版本提供实验性的 `permissionProfile/list` 与 `permissions` 协议。应用默认选择 `:read-only`，并核验 thread 实际启用的 profile、`readOnly` sandbox 和 `networkAccess=false`；任一条件不满足都会失败关闭。当前 `:read-only` 仍可读取运行 app-server 的操作系统账号本来就能读取的文件，且 sandbox 的网络开关不阻止 app-server 自身访问模型 API，因此不能把它当作主机级隔离边界。
+
+为 app-server 建立不同于 `sdw-redive`、管理员和日常开发账户的独立低权限用户。它的 `HOME`/`CODEX_HOME` 只保存专用 Codex 登录和最小配置，权限应为 `0700`；不要安装或启用个人 MCP servers、skills、plugins，也不要复用个人 Codex 配置。准备一个不含业务文件和密钥的空工作目录，从该目录启动：
+
+```bash
+sudo install -d -m 0700 -o sdw-codex -g sdw-codex \
+  /var/lib/sdw-codex /var/lib/sdw-codex/.codex /var/lib/sdw-codex/empty-workspace
+sudo -u sdw-codex env HOME=/var/lib/sdw-codex CODEX_HOME=/var/lib/sdw-codex/.codex \
+  sh -c 'cd /var/lib/sdw-codex/empty-workspace && codex app-server --listen ws://127.0.0.1:4500'
+```
+
+随后在网页「设置 → AI」选择 Codex app-server 并填写该地址；模型留空时使用 app-server 默认模型。权限配置默认为 `:read-only`，也可填写管理员在 Codex 中定义的更严格 profile；无论选择哪个，应用都要求其最终结果为只读且 agent 网络关闭。应用按次创建临时 thread，固定使用 `approvalPolicy=never`，并通过 dynamic tools 转接现有业务能力。协议细节见 [OpenAI Codex app-server 文档](https://learn.chatgpt.com/docs/app-server)。
+
+只读 sandbox 不是完整的信任边界：提示词注入仍可能读取该 profile 与操作系统账户权限允许的内容、调用已启用的能力；dynamic tools 也可能修改应用数据。不要把秘密放在 app-server 账户可读的位置，并把聊天、RSS、种子名和媒体元数据视为不受信任输入。
+
+app-server WebSocket 目前是实验性接口。明文 `ws://` 只允许 loopback，并应只供本机受信任进程访问；跨主机时必须使用带 TLS 和认证的 `wss://` 反向代理并设置 Bearer token，不能把无认证端点暴露到公网。参见 [Codex App Server 官方文档](https://learn.chatgpt.com/docs/app-server)。
 
 ### 修改下载存储路径
 

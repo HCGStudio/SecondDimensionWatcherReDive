@@ -93,6 +93,24 @@ find_asset() {
     echo "$1" | grep -i "$2" | head -1
 }
 
+secure_system_secrets() {
+    local config="$1"
+
+    # The service must read appsettings, but database/JWT/upstream credentials
+    # must not be exposed to unrelated local users.
+    sudo chown root:sdw-redive "$config"
+    sudo chmod 0640 "$config"
+    sudo install -d -m 0700 -o sdw-redive -g sdw-redive \
+        /var/lib/sdw-redive/data-protection-keys
+    if sudo test -f /var/lib/sdw-redive/password.json; then
+        sudo chown sdw-redive:sdw-redive /var/lib/sdw-redive/password.json
+        sudo chmod 0600 /var/lib/sdw-redive/password.json
+    fi
+    sudo find /var/lib/sdw-redive/data-protection-keys -type f \
+        -exec chown sdw-redive:sdw-redive {} + \
+        -exec chmod 0600 {} +
+}
+
 # ============================================================
 # Valkey configuration (shared across deployment methods)
 # ============================================================
@@ -129,11 +147,20 @@ configure_valkey() {
 
 configure_ai() {
     echo
-    echo "=== AI 元数据推断配置（必填） ==="
+    echo "=== AI 元数据推断配置（可选） ==="
     echo "AI 推断用于自动识别动画的 TMDB ID、季度、集数等元数据。"
-    echo "需要 AI API 密钥和 TMDB API 密钥。"
+    echo "也可以跳过并在首次登录后通过网页「设置」配置内置 AI 或 Codex app-server。"
 
+    AI_CONFIGURED=false
     AI_PROVIDER="" AI_BASE_URL="" AI_API_KEY="" AI_MODEL="" AI_API_MODE="" TMDB_KEY=""
+    read -rp "是否现在配置内置 AI 与 TMDB？[y/N] " CONFIGURE_AI
+    case "${CONFIGURE_AI:-}" in
+        y|Y|yes|YES) AI_CONFIGURED=true ;;
+        *)
+            echo "跳过 AI 配置；应用仍可启动，稍后可从网页完成设置。"
+            return
+            ;;
+    esac
 
     echo
     echo "选择 AI 提供商："
@@ -272,6 +299,7 @@ install_system_package() {
 
     # Guide through essential config
     configure_system_config "/etc/sdw-redive/appsettings.yml"
+    secure_system_secrets "/etc/sdw-redive/appsettings.yml"
 
     echo
     read -rp "是否启动并启用服务？[Y/n] " START_SERVICE
@@ -345,6 +373,7 @@ install_tarball() {
     fi
     sudo mkdir -p /var/lib/sdw-redive/downloads
     sudo chown -R sdw-redive:sdw-redive /var/lib/sdw-redive
+    secure_system_secrets "/etc/sdw-redive/appsettings.yml"
 
     # Generate JwtSecret if placeholder present
     if grep -q '<Please fill this with a 32 length random string>' /etc/sdw-redive/appsettings.yml 2>/dev/null; then
@@ -358,6 +387,7 @@ install_tarball() {
     echo "tar.gz 安装完成。配置文件: /etc/sdw-redive/appsettings.yml"
 
     configure_system_config "/etc/sdw-redive/appsettings.yml"
+    secure_system_secrets "/etc/sdw-redive/appsettings.yml"
 
     echo
     read -rp "是否启动并启用服务？[Y/n] " START_SERVICE
@@ -445,29 +475,29 @@ configure_system_config() {
     # --- AI config ---
     configure_ai
 
-    # Write AI provider
-    sudo sed -i "s|Provider: \"OpenAI\"|Provider: \"${AI_PROVIDER}\"|" "$config"
+    if [ "$AI_CONFIGURED" = true ]; then
+        # Write AI provider
+        sudo sed -i "s|Provider: \"OpenAI\"|Provider: \"${AI_PROVIDER}\"|" "$config"
 
-    # Write provider-specific config.  BaseUrl and Model defaults are unique
-    # per subsection so plain substitution targets the right one.  ApiKey
-    # defaults are identical ("") in both subsections, so we scope the
-    # replacement with a sed address range anchored to the section header.
-    if [ "$AI_PROVIDER" = "Anthropic" ]; then
-        sudo sed -i \
-            -e "s|BaseUrl: https://api.anthropic.com|BaseUrl: ${AI_BASE_URL}|" \
-            -e "s|Model: claude-sonnet-4-20250514|Model: ${AI_MODEL}|" \
-            -e '/^  Anthropic:/,/^[A-Z]/s|ApiKey: ""|ApiKey: "'"${AI_API_KEY}"'"|' \
-            "$config"
-    else
-        sudo sed -i \
-            -e "s|BaseUrl: https://api.openai.com/v1|BaseUrl: ${AI_BASE_URL}|" \
-            -e "s|ApiMode: Responses|ApiMode: ${AI_API_MODE}|" \
-            -e "s|Model: gpt-4o-mini|Model: ${AI_MODEL}|" \
-            -e '/^  OpenAI:/,/^  Anthropic:/s|ApiKey: ""|ApiKey: "'"${AI_API_KEY}"'"|' \
-            "$config"
+        # Write provider-specific config. BaseUrl and Model defaults are unique
+        # per subsection; scope the shared empty ApiKey to its section.
+        if [ "$AI_PROVIDER" = "Anthropic" ]; then
+            sudo sed -i \
+                -e "s|BaseUrl: https://api.anthropic.com|BaseUrl: ${AI_BASE_URL}|" \
+                -e "s|Model: claude-sonnet-4-20250514|Model: ${AI_MODEL}|" \
+                -e '/^  Anthropic:/,/^[A-Z]/s|ApiKey: ""|ApiKey: "'"${AI_API_KEY}"'"|' \
+                "$config"
+        else
+            sudo sed -i \
+                -e "s|BaseUrl: https://api.openai.com/v1|BaseUrl: ${AI_BASE_URL}|" \
+                -e "s|ApiMode: Responses|ApiMode: ${AI_API_MODE}|" \
+                -e "s|Model: gpt-4o-mini|Model: ${AI_MODEL}|" \
+                -e '/^  OpenAI:/,/^  Anthropic:/s|ApiKey: ""|ApiKey: "'"${AI_API_KEY}"'"|' \
+                "$config"
+        fi
+
+        sudo sed -i "s|TmdbApiKey: \"\"|TmdbApiKey: \"${TMDB_KEY}\"|" "$config"
     fi
-
-    sudo sed -i "s|TmdbApiKey: \"\"|TmdbApiKey: \"${TMDB_KEY}\"|" "$config"
 
     # --- Valkey config ---
     configure_valkey
@@ -511,6 +541,7 @@ deploy_container() {
 
     mkdir -p "$deploy_dir"
     curl -fsSL "$COMPOSE_URL" -o "$deploy_dir/podman-compose.yml"
+    chmod 0600 "$deploy_dir/podman-compose.yml"
 
     # Generate secrets
     local db_pass jwt
@@ -524,9 +555,7 @@ deploy_container() {
         "$deploy_dir/podman-compose.yml"
     rm -f "$deploy_dir/podman-compose.yml.bak"
 
-    echo "Generated secrets:"
-    echo "  PostgreSQL password: $db_pass"
-    echo "  JWT secret: $jwt"
+    echo "已将随机 PostgreSQL 密码和 JWT 密钥写入权限为 0600 的 podman-compose.yml。"
 
     # Pre-seed qBittorrent.conf with a subnet whitelist covering RFC1918
     # ranges so sdw-redive can call the WebUI from inside the container
@@ -561,29 +590,35 @@ EOF
     # AI config
     configure_ai
 
-    # Build provider-specific env vars for the new AI:* config layout
-    local ai_envs
-    if [ "$AI_PROVIDER" = "Anthropic" ]; then
-        ai_envs="      AI__Provider: \"${AI_PROVIDER}\"\\
+    if [ "$AI_CONFIGURED" = true ]; then
+        # Build provider-specific env vars for the new AI:* config layout
+        local ai_envs
+        if [ "$AI_PROVIDER" = "Anthropic" ]; then
+            ai_envs="      AI__Provider: \"${AI_PROVIDER}\"\\
       AI__Anthropic__ApiKey: \"${AI_API_KEY}\"\\
       AI__Anthropic__BaseUrl: \"${AI_BASE_URL}\"\\
       AI__Anthropic__Model: \"${AI_MODEL}\""
-    else
-        ai_envs="      AI__Provider: \"${AI_PROVIDER}\"\\
+        else
+            ai_envs="      AI__Provider: \"${AI_PROVIDER}\"\\
       AI__OpenAI__ApiKey: \"${AI_API_KEY}\"\\
       AI__OpenAI__BaseUrl: \"${AI_BASE_URL}\"\\
       AI__OpenAI__ApiMode: \"${AI_API_MODE}\"\\
       AI__OpenAI__Model: \"${AI_MODEL}\""
-    fi
+        fi
 
-    ai_envs="${ai_envs}\\
+        ai_envs="${ai_envs}\\
       TmdbApiKey: \"${TMDB_KEY}\""
 
-    sed -i.bak \
-        -e "/Torrent__Remote__Url/a\\
+        sed -i.bak \
+            -e "/Torrent__Remote__Url/a\\
 ${ai_envs}" \
-        "$deploy_dir/podman-compose.yml"
-    rm -f "$deploy_dir/podman-compose.yml.bak"
+            "$deploy_dir/podman-compose.yml"
+        rm -f "$deploy_dir/podman-compose.yml.bak"
+    fi
+
+    # Some sed implementations replace the file; enforce the secret-bearing
+    # Compose file's permissions immediately before handing it to the runtime.
+    chmod 0600 "$deploy_dir/podman-compose.yml"
 
     echo
     cd "$deploy_dir"

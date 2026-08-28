@@ -1,5 +1,189 @@
 {
-  "pageTitle": "設定",
+  "pageTitle": "システム設定",
+  "system": {
+    "pageDescription": "AI 実行エンジン、外部サービス、メディア処理、ヘルス監視、アクセスプロトコルを設定します。シークレット値は表示されず、新しい値を空欄にすると現在の設定が保持されます。",
+    "loadFailed": "システム設定を読み込めませんでした。サービスを確認して再試行してください。",
+    "retry": "再読み込み",
+    "navigation": {
+      "label": "設定カテゴリ",
+      "ai": "AI と Agent",
+      "downloads": "ダウンロードと保存先",
+      "media": "メディアとメタデータ",
+      "health": "ヘルス監視",
+      "access": "アクセスプロトコル"
+    },
+    "pendingRestart": {
+      "title": "再起動待ちの設定があります",
+      "description": "NFS など起動時サービスの新しい設定は保存済みです。都合のよい時にアプリケーションを再起動してください。"
+    },
+    "restartNotice": "この設定はアプリケーションの再起動後に反映されます。",
+    "save": {
+      "unsaved": "未保存の変更があります",
+      "noChanges": "このセクションに変更はありません",
+      "saved": "設定を保存して反映しました",
+      "requiresRestart": "設定を保存しました。再起動が必要です",
+      "reset": "変更を破棄",
+      "submit": "設定を保存",
+      "failed": "設定を保存できませんでした",
+      "conflict": "別のセッションで設定が更新されました。最新の値を再読み込みしました。"
+    },
+    "secret": {
+      "configured": "設定済み",
+      "configuredPlaceholder": "設定済み・空欄で保持",
+      "emptyPlaceholder": "新しいシークレット値を入力",
+      "keepHelp": "サーバーは現在の平文を返しません。空欄のままなら保持し、入力すると置き換えます。",
+      "operationLabel": "{{label}} の保存方法",
+      "keep": "現在の値を保持",
+      "set": "入力した値を使用",
+      "clear": "実際に使用する値を消去",
+      "reset": "デプロイ設定に戻す",
+      "source": {
+        "runtime": "取得元：Web 設定",
+        "deployment": "取得元：デプロイ設定",
+        "none": "未設定"
+      }
+    },
+    "ai": {
+      "eyebrow": "インテリジェント実行",
+      "title": "AI とローカル Agent",
+      "description": "チャット、メタデータ推論、ファイル名推論を内蔵モデルクライアントまたはローカル Codex app-server で実行します。",
+      "saved": "AI 設定を保存しました",
+      "validationFailed": "AI エンドポイント、モデル、権限プロファイル、数値設定を確認してください",
+      "originCredentialRequired": "エンドポイントのオリジンが変わりました。新しい認証情報を入力するか、明示的に消去してください。",
+      "engine": {
+        "title": "既定の実行エンジン",
+        "scope": "この選択は AI アシスタント、アニメのメタデータ推論、ファイル名推論に共通で適用されます。",
+        "builtIn": {
+          "title": "内蔵 Agent",
+          "description": "OpenAI、Anthropic、または互換 HTTP モデル API を直接呼び出します。"
+        },
+        "codex": {
+          "title": "ローカル Codex app-server",
+          "description": "サーバーから到達可能な Codex インスタンスへ WebSocket で AI 処理を送ります。"
+        }
+      },
+      "builtIn": {
+        "title": "内蔵モデルサービス",
+        "description": "使用中の Provider と既定モデルを設定します。Provider を切り替えても他方の設定は削除されません。",
+        "provider": "Provider",
+        "apiMode": "OpenAI API モード",
+        "apiVersion": "Anthropic API バージョン",
+        "baseUrl": "Base URL",
+        "model": "既定モデル",
+        "maxTokens": "最大出力トークン数",
+        "apiKey": "API キー"
+      },
+      "codex": {
+        "title": "Codex app-server 接続",
+        "description": "管理者が起動済みの app-server に接続するだけで、Web UI からプロセスやコマンドを実行することはありません。",
+        "endpoint": "WebSocket エンドポイント",
+        "endpointError": "リモート接続は wss:// が必須です。ws:// は localhost または loopback アドレスでのみ使用できます。",
+        "model": "既定モデル",
+        "modelPlaceholder": "空欄で app-server の既定値を使用",
+        "modelHelp": "任意です。空欄の場合は Codex app-server が既定モデルを選択します。",
+        "permissionProfile": "権限プロファイル",
+        "permissionProfileHelp": "必須です。:read-only または管理者定義のプロファイルを使用してください。バックエンドは最終的な sandbox が読み取り専用で Agent のネットワークアクセスが無効であることを検証しますが、ファイル読み取りが許可される場合があります。",
+        "timeout": "タイムアウト（秒）",
+        "token": "アクセストークン",
+        "remoteTokenRequired": "リモートの wss:// エンドポイントには Bearer token が必要です。",
+        "serverAddressHelp": "このアドレスへ接続するのはバックエンドです。コンテナでは 127.0.0.1 はアプリケーションコンテナ自身を指し、ホストやこのブラウザー端末ではありません。"
+      },
+      "inference": {
+        "title": "推論のレート制御",
+        "rateLimitDelay": "AI リクエストの最小間隔（ミリ秒）"
+      }
+    },
+    "downloads": {
+      "eyebrow": "ダウンロードサービス",
+      "title": "ダウンロードと保存先",
+      "description": "qBittorrent Web API 接続を設定します。ダウンロードルートは既存の物理パスに影響するため、このページでは移行しません。",
+      "saved": "ダウンロード設定を保存しました",
+      "invalidUrl": "有効な HTTP または HTTPS URL を入力してください",
+      "originCredentialRequired": "エンドポイントのオリジンが変わりました。パスワードを再入力するか、明示的に消去してください。",
+      "qbittorrent": {
+        "title": "qBittorrent",
+        "description": "リモート Torrent ジョブの登録、追跡、一時停止、取消を行います。",
+        "url": "Web API URL",
+        "userName": "ユーザー名（任意）",
+        "password": "パスワード",
+        "userAgent": "カスタム User-Agent（任意）"
+      },
+      "storage": {
+        "title": "ダウンロード保存ルート",
+        "description": "保存パスは引き続きデプロイ設定で管理されます。",
+        "readOnlyHelp": "ダウンロードルートの変更は実行中ジョブ、ディスク監視、記録済み物理パスに影響するため、デプロイ設定と専用の移行手順を使用してください。"
+      }
+    },
+    "media": {
+      "eyebrow": "コンテンツ識別",
+      "title": "メディアとメタデータ",
+      "description": "TMDB メタデータ、メディア取り込み許可リスト、自動スキャン間隔を設定します。",
+      "saved": "メディア設定を保存しました",
+      "validationFailed": "許可ルートと時刻形式を確認してください",
+      "tmdb": {
+        "title": "TMDB メタデータ",
+        "description": "アニメ名、説明、ポスター、シーズン情報を正規化します。",
+        "apiKey": "TMDB API キー"
+      },
+      "allowedRoots": {
+        "title": "取り込みを許可するルート",
+        "description": "これらのサーバー絶対パス配下だけをメディアソースとして追加できます。",
+        "itemLabel": "許可ルート {{index}}",
+        "add": "ルートを追加",
+        "remove": "ルートを削除"
+      },
+      "timing": {
+        "title": "スキャンとファイル安定性",
+        "description": "監視ソースのスキャン、書き込み完了待ち、一時的に欠落した記録の保持期間を制御します。",
+        "scanInterval": "スキャン間隔",
+        "settlingPeriod": "ファイル安定待ち",
+        "missingGracePeriod": "欠落時の猶予期間",
+        "help": "TimeSpan 形式 hh:mm:ss または d.hh:mm:ss を使用します（例：00:05:00、1.00:00:00）。"
+      }
+    },
+    "health": {
+      "eyebrow": "信頼性",
+      "title": "ヘルス監視",
+      "description": "ダウンロード停止、再報告、バックグラウンド照合、ディスク容量のしきい値を調整します。",
+      "saved": "ヘルス監視設定を保存しました",
+      "validationFailed": "時間、容量、割合のしきい値を確認してください",
+      "download": {
+        "title": "ダウンロード異常",
+        "description": "進捗が止まった場合に異常を作成し、重複報告を抑制します。",
+        "stalledAfter": "進捗なし判定時間",
+        "reportThrottle": "再報告間隔"
+      },
+      "reconciliation": {
+        "title": "バックグラウンド照合",
+        "description": "推論、ファイルマッピング、ダウンロード、ディスク異常を定期確認します。",
+        "interval": "照合間隔"
+      },
+      "disk": {
+        "title": "ディスク容量",
+        "description": "空き容量は容量と割合の両方のしきい値を満たす必要があります。",
+        "minimumBytes": "最小空き容量（GiB）",
+        "minimumPercent": "最小空き割合（%）"
+      }
+    },
+    "access": {
+      "eyebrow": "デバイスアクセス",
+      "title": "アクセスプロトコル",
+      "description": "読み取り専用 NFS エクスポートとデバイス別 WebDAV 認証情報を管理します。",
+      "saved": "NFS 設定を保存しました",
+      "validationFailed": "NFS アドレス、ポート、数値設定を確認してください",
+      "nfs": {
+        "title": "読み取り専用 NFSv4 エクスポート",
+        "description": "同じ仮想ファイルシステムをネットワーク経由でマウントします。",
+        "enabled": "NFS サービスを有効化",
+        "enabledHelp": "エクスポートは読み取り専用です。ネットワークとファイアウォールがセキュリティ境界になります。",
+        "bindAddress": "待受アドレス",
+        "port": "ポート",
+        "leaseSeconds": "リース時間（秒）",
+        "maxConnections": "最大接続数",
+        "restartHelp": "NFS はアプリケーション起動時に待受ポートをバインドします。変更は保存され、再起動後に使用されます。"
+      }
+    }
+  },
   "mediaLibrary": {
     "title": "既存メディアライブラリの取り込み",
     "intro": "サーバー上の既存メディアディレクトリをスキャンし、現在の正規表現・AI メタデータ推論・仮想パスマッピングを再利用してライブラリに追加します。",
