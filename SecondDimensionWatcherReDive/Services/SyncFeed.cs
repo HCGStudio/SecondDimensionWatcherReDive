@@ -35,7 +35,7 @@ public partial class SyncFeed(
         await Task.WhenAll(feeds.Select(f => ProcessFeed(f, cancellationToken)));
     }
 
-    private readonly record struct TorrentData(byte[] CachedDownloadData, string Hash);
+    private readonly record struct TorrentData(byte[] CachedDownloadData, string Hash, long? PayloadSizeBytes);
 
     private async Task<TorrentData> DownloadTorrentData(
         AnimationAddRequest request,
@@ -47,13 +47,58 @@ public partial class SyncFeed(
             throw new InvalidTorrentDataException(request.DownloadUrl);
         }
         var parser = new BencodeParser();
+        BDictionary info;
+        try
+        {
+            info = parser.Parse<BDictionary>(data).Get<BDictionary>("info")
+                ?? throw new InvalidTorrentDataException(request.DownloadUrl, "info dictionary is missing");
+        }
+        catch (InvalidTorrentDataException)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            throw new InvalidTorrentDataException(request.DownloadUrl, exception.Message);
+        }
+
+        var payloadSize = GetTorrentPayloadSize(info, request.DownloadUrl);
         var hash = BitConverter
             .ToString(SHA1.HashData(
-                parser.Parse<BDictionary>(data)["info"]
-                    .EncodeAsBytes()))
+                info.EncodeAsBytes()))
             .Replace("-", "")
             .ToLower();
-        return new TorrentData(data, hash);
+        return new TorrentData(data, hash, payloadSize);
+    }
+
+    private static long GetTorrentPayloadSize(BDictionary info, string url)
+    {
+        var singleFileLength = info.Get<BNumber>("length");
+        var files = info.Get<BList>("files");
+        if ((singleFileLength is null) == (files is null))
+            throw new InvalidTorrentDataException(url, "info must contain either length or files");
+
+        try
+        {
+            if (singleFileLength is not null)
+                return singleFileLength.Value >= 0
+                    ? singleFileLength.Value
+                    : throw new InvalidTorrentDataException(url, "payload length is negative");
+
+            long total = 0;
+            foreach (var item in files!.Value)
+            {
+                var length = (item as BDictionary)?.Get<BNumber>("length")?.Value;
+                if (length is null || length < 0)
+                    throw new InvalidTorrentDataException(url, "file length is missing or negative");
+                total = checked(total + length.Value);
+            }
+            return total;
+        }
+        catch (OverflowException)
+        {
+            throw new InvalidTorrentDataException(url, "aggregate payload length exceeds supported limits");
+        }
     }
 
     private async Task ProcessSingle(AnimationAddRequest request, CancellationToken cancellationToken)
@@ -67,25 +112,33 @@ public partial class SyncFeed(
             try
             {
                 SubscriptionAutomationPolicy? policy = null;
-                SubscriptionAutomationEvaluation? evaluation = null;
                 if (request.FeedId is { } feedId)
                 {
                     var policyRepository = scope.ServiceProvider
                         .GetRequiredService<ISubscriptionAutomationPolicyRepository>();
                     policy = await policyRepository.FindByFeedIdAsync(feedId, cancellationToken);
-                    if (policy is not null)
-                    {
-                        evaluation = automationMatcher.Evaluate(policy, request);
-                        if (!evaluation.Matched)
-                            return;
-                    }
                 }
 
                 var torrentData = request.DownloadType switch
                 {
                     FileDownloadTypes.TorrentDownload => await DownloadTorrentData(request, cancellationToken),
-                    _ => new TorrentData(Array.Empty<byte>(), request.AdditionalDownloadInfo)
+                    _ => new TorrentData(Array.Empty<byte>(), request.AdditionalDownloadInfo, request.ContentLength)
                 };
+
+                if (request.DownloadType == FileDownloadTypes.TorrentDownload &&
+                    request.ContentLength is { } advertisedSize &&
+                    advertisedSize != torrentData.PayloadSizeBytes)
+                    throw new InvalidTorrentDataException(request.DownloadUrl, "advertised and declared payload sizes differ");
+
+                SubscriptionAutomationEvaluation? evaluation = null;
+                if (policy is not null)
+                {
+                    evaluation = automationMatcher.Evaluate(
+                        policy,
+                        request with { ContentLength = torrentData.PayloadSizeBytes });
+                    if (!evaluation.Matched)
+                        return;
+                }
 
                 var info = new AnimationInfo(
                     Guid.NewGuid(),
@@ -109,7 +162,7 @@ public partial class SyncFeed(
                     IsAiProcessed: false,
                     AiRetryCount: 0,
                     SourceFeedId: request.FeedId,
-                    ReleaseSizeBytes: evaluation?.Metadata.SizeBytes ?? request.ContentLength,
+                    ReleaseSizeBytes: torrentData.PayloadSizeBytes,
                     AutomationDisposition: policy?.Mode switch
                     {
                         SubscriptionAutomationMode.NotifyOnly => SubscriptionAutomationDisposition.Notified,
