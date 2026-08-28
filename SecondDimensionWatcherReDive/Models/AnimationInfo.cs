@@ -65,4 +65,8 @@ public class AnimationInfo
     public long StateVersion { get; set; }
 
     public Guid? CurrentMetadataReviewOperationId { get; set; }
+
+    public Guid? MediaLibrarySourceId { get; set; }
+
+    public DateTimeOffset? MediaLibraryMissingSince { get; set; }
 }

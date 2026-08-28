@@ -22,6 +22,7 @@
 - [x] 通过 qBittorrent 进行下载 / 暂停 / 恢复 / 取消管理
 - [x] 实时下载进度追踪（速度、剩余时间）
 - [x] 虚拟文件系统：磁盘文件不重命名，按 `S##E##` 规则映射虚拟路径（含字幕语言后缀）
+- [x] 现有媒体库原地导入（手动扫描或周期监控，不移动/删除原文件）
 - [x] 多集种子通过 AI 推断逐文件拆分集数
 - [x] HTTP 文件浏览和流媒体播放，支持外部播放器（VLC / PotPlayer / IINA / mpv / nPlayer）URL Scheme
 - [x] WebDAV 只读网关（RFC 4918，按设备签发的 Basic 访问令牌，独立于 JWT）
@@ -90,6 +91,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/HCGStudio/SecondDimensionWat
 | `Password:Value` | 登录密码的 BCrypt 哈希；为空时允许首次注册写入 `password.json` |
 | `Torrent:Remote:Url` | qBittorrent API 地址 |
 | `FileStore:Local` | 下载文件存储根目录 |
+| `MediaLibrary:AllowedRoots` / `ScanInterval` / `SettlingPeriod` / `MissingGracePeriod` | 必须显式配置的导入根目录白名单、监控间隔、文件写入稳定等待时间与缺失记录保留期 |
 | `MikananiFeeds` | RSS 源 URL 数组 |
 | `TmdbApiKey` | TMDB API 密钥 |
 | `AI:Provider` | `OpenAI` 或 `Anthropic`（默认 `OpenAI`） |
@@ -97,6 +99,8 @@ bash <(curl -fsSL https://raw.githubusercontent.com/HCGStudio/SecondDimensionWat
 | `AI:Anthropic:ApiKey` / `BaseUrl` / `Model` / `MaxTokens` / `ApiVersion` | Anthropic 端点 |
 | `Inference:RateLimitDelayMs` | 推断 API 调用最小间隔（毫秒，默认 1000） |
 | `Valkey:ConnectionString` | Valkey / Redis 连接（可选；为空则使用内存缓存） |
+
+> 使用现有媒体库导入前，必须至少配置一个 `MediaLibrary:AllowedRoots`。导入源必须位于白名单内，且不能与 `FileStore:Local` 管理的下载目录相同、互为父目录或以其他方式重叠。导入与后续对账只会修改数据库中的媒体记录和虚拟路径映射；系统绝不会移动、重命名或删除原文件。短暂缺失的条目会先撤下映射并保留观看/审核记录，超过 `MissingGracePeriod`（默认 24 小时）后才清理数据库记录。
 
 > 从 v2.2 之前升级：旧的 `Inference:ApiKey/Provider/Model` 已迁移到 `AI:` 前缀。运行 `deployments/migrate-config.sh` 自动迁移；包管理器安装时 `postinstall.sh` 会自动执行。
 
@@ -116,4 +120,3 @@ Plugins/
 Share/
   SecondDimensionWatcherReDive.Analyzers/     # Roslyn 源生成器（生成 [Tool<T>] 的 Definition / ExecuteAsync）
 ```
-

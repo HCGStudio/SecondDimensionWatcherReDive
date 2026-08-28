@@ -1,5 +1,58 @@
 {
   "pageTitle": "Settings",
+  "mediaLibrary": {
+    "title": "Import an existing media library",
+    "intro": "Scan media directories on the server and reuse the existing regular-expression, AI metadata inference, and virtual mapping pipeline to add their files to the library.",
+    "create": {
+      "title": "Add an import directory",
+      "pathLabel": "Absolute server path",
+      "pathPlaceholder": "e.g. /media/anime",
+      "pathHelp": "Configure at least one MediaLibrary:AllowedRoots entry first. Enter an application-readable absolute server path under an allowed root, not a local path on this browser's device; it must not overlap the download directory managed by FileStore:Local. The first scan starts automatically.",
+      "monitorLabel": "Keep watching directory",
+      "submit": "Add and scan"
+    },
+    "safety": {
+      "noMove": "Import and later reconciliation only change media records and virtual path mappings in the database. Original files are never copied, moved, renamed, or deleted. Temporarily missing items lose their mapping first while watch and review history is retained for the configured grace period.",
+      "containerMount": "For container deployments, first mount the media directory read-only into the application container, then enter its absolute path inside the container here."
+    },
+    "list": {
+      "title": "Import directories",
+      "loadFailed": "Could not load the media-library import directories. Please try again.",
+      "empty": {
+        "title": "No import directories yet",
+        "body": "Add a media directory on the server to scan its files and create virtual mappings."
+      },
+      "columns": {
+        "path": "Path",
+        "monitoring": "Mode",
+        "lastScanAt": "Last scan",
+        "result": "Scan result",
+        "actions": "Actions"
+      },
+      "monitoring": "Watching",
+      "manual": "Manual scans",
+      "monitoringAria": "Toggle continuous monitoring for {{path}}",
+      "neverScanned": "Not completed",
+      "scanning": "Scanning",
+      "scanResult": "{{imported}} added · {{updated}} updated · {{removed}} removed · {{skipped}} skipped",
+      "scanNow": "Scan now",
+      "scanAria": "Scan {{path}} now",
+      "deleteAria": "Remove import directory {{path}}",
+      "deleteConfirm": "Remove import directory \"{{path}}\"? Monitoring will stop, but imported media records, virtual mappings, and original files will be retained."
+    },
+    "toast": {
+      "pathRequired": "Enter an absolute server path",
+      "created": "Import directory added and its first scan has started",
+      "createFailed": "Could not add the directory. Check its path and read permissions.",
+      "scanQueued": "Scan started",
+      "scanFailed": "Could not start the scan",
+      "monitoringEnabled": "Continuous monitoring enabled",
+      "monitoringDisabled": "Switched to manual scans",
+      "updateFailed": "Could not update the monitoring setting",
+      "deleted": "Import directory removed; imported content was retained",
+      "deleteFailed": "Could not remove the import directory"
+    }
+  },
   "webdav": {
     "title": "WebDAV credentials",
     "intro": "Issue per-device WebDAV username and access-token pairs. Tokens are stored as BCrypt hashes in the database and the plaintext is displayed exactly once at creation time. Revoke any pair at any time.",

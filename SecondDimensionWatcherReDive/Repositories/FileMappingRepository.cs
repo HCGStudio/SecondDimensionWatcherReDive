@@ -126,6 +126,22 @@ public class FileMappingRepository(
         return entities.Select(entity => entity.ToRecord()).ToList();
     }
 
+    public async Task<IReadOnlyList<FileMapping>> GetForAnimationInfosAsync(
+        IReadOnlyCollection<Guid> animationInfoIds,
+        CancellationToken cancellationToken)
+    {
+        if (animationInfoIds.Count == 0) return [];
+
+        var ids = animationInfoIds.Distinct().ToArray();
+        var entities = await context.FileMappings
+            .AsNoTracking()
+            .Where(mapping => ids.Contains(mapping.AnimationInfoId))
+            .OrderBy(mapping => mapping.AnimationInfoId)
+            .ThenBy(mapping => mapping.VirtualPath)
+            .ToListAsync(cancellationToken);
+        return entities.Select(entity => entity.ToRecord()).ToList();
+    }
+
     public async Task<FileMapping?> FindByVirtualPathAsync(string virtualPath, CancellationToken cancellationToken)
     {
         var entity = await context.FileMappings
@@ -260,9 +276,6 @@ public class FileMappingRepository(
                 removeContext,
                 animationInfoId,
                 cancellationToken);
-            await removeContext.PlaybackProgresses
-                .Where(progress => progress.AnimationInfoId == animationInfoId)
-                .ExecuteDeleteAsync(cancellationToken);
             await removeContext.FileMappings
                 .Where(mapping => mapping.AnimationInfoId == animationInfoId)
                 .ExecuteDeleteAsync(cancellationToken);

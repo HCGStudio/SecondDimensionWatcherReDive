@@ -20,6 +20,15 @@ Torrent:
 FileStore:
   Local: /var/lib/sdw-redive/downloads
 
+# 现有媒体库扫描（目录在网页「设置」中添加，不会移动或删除原文件）
+# 缺失条目先撤下虚拟映射，超过 MissingGracePeriod 后才清理数据库记录
+MediaLibrary:
+  AllowedRoots:
+    - /var/lib/sdw-redive/media
+  ScanInterval: "00:05:00"
+  SettlingPeriod: "00:00:30"
+  MissingGracePeriod: "1.00:00:00"
+
 # 密码文件路径
 PasswordFile: /var/lib/sdw-redive/password.json
 

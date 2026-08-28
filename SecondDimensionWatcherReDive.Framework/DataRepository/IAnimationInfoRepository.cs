@@ -14,6 +14,35 @@ public interface IAnimationInfoRepository
 
     Task<AnimationInfo?> FindByIdWithAnimationAsync(Guid id, CancellationToken cancellationToken);
 
+    Task<AnimationInfo?> FindByStorageLocationAsync(
+        string fileStore,
+        string storePath,
+        CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<AnimationInfo>> GetByStorageLocationsAsync(
+        string fileStore,
+        IReadOnlyCollection<string> storePaths,
+        CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<AnimationInfo>> GetByMediaLibrarySourceAsync(
+        Guid sourceId,
+        CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<AnimationInfo>> GetUnownedMediaLibraryEntriesUnderPathAsync(
+        string fileStore,
+        string sourcePath,
+        CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<AnimationInfo>> GetByPhysicalPathsAsync(
+        string fileStore,
+        IReadOnlyCollection<string> physicalPaths,
+        CancellationToken cancellationToken);
+
+    Task<bool> RemoveMediaLibraryEntryAsync(
+        Guid id,
+        Guid? expectedSourceId,
+        CancellationToken cancellationToken);
+
     IAsyncEnumerable<AnimationInfo> GetUnfinishedTorrentDownloadsAsync(CancellationToken cancellationToken);
 
     Task<IReadOnlyList<AnimationInfo>> GetPendingInferenceAsync(int maxRetryCount, CancellationToken cancellationToken);

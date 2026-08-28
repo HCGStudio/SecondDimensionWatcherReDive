@@ -426,6 +426,63 @@ public class FileMapperRegexInferenceTests
             CancellationToken.None), Times.Once);
     }
 
+    [TestMethod]
+    public async Task MapDownloadAsync_MultiEpisodeSharedPrefix_AssignsSubtitleOnlyToExactVideoEpisode()
+    {
+        const string firstVideoPath = "/downloads/anime/Show.mkv";
+        const string secondVideoPath = "/downloads/anime/Show 2.mkv";
+        const string subtitlePath = "/downloads/anime/Show 2.srt";
+        var entries = new[]
+        {
+            new FileStoreInfo(false, firstVideoPath, "Show.mkv"),
+            new FileStoreInfo(false, secondVideoPath, "Show 2.mkv"),
+            new FileStoreInfo(false, subtitlePath, "Show 2.srt")
+        };
+        var fixture = CreateFixture(entries);
+        fixture.RuleRepository.Setup(repository => repository.GetForAnimationAsync(
+                fixture.AnimationId,
+                CancellationToken.None))
+            .ReturnsAsync(Array.Empty<FileNameRegexRule>());
+        fixture.InferenceEngine.Setup(engine => engine.InferFileNamesAsync(
+                It.IsAny<FileNameInferenceRequest>(),
+                CancellationToken.None))
+            .ReturnsAsync(
+            [
+                new FileNameInferenceResult("Show.mkv", 1, 1),
+                new FileNameInferenceResult("Show 2.mkv", 1, 2)
+            ]);
+
+        var result = await fixture.Mapper.MapDownloadAsync(
+            fixture.AnimationInfoId,
+            CancellationToken.None);
+
+        Assert.IsTrue(result);
+        fixture.FileMappingRepository.Verify(repository => repository.ReplaceForAnimationInfoAsync(
+            fixture.AnimationInfoId,
+            ExpectedStateVersion,
+            "test-store",
+            "/downloads/anime",
+            It.Is<IReadOnlyList<FileMapping>>(mappings =>
+                mappings.Count == 3
+                && mappings.Any(mapping =>
+                    mapping.PhysicalPath == firstVideoPath
+                    && mapping.VirtualPath.EndsWith("Anime S01E01.mkv"))
+                && mappings.Any(mapping =>
+                    mapping.PhysicalPath == secondVideoPath
+                    && mapping.VirtualPath.EndsWith("Anime S01E02.mkv"))
+                && mappings.Count(mapping => mapping.PhysicalPath == subtitlePath) == 1
+                && mappings.Any(mapping =>
+                    mapping.PhysicalPath == subtitlePath
+                    && mapping.VirtualPath.EndsWith("Anime S01E02.srt"))
+                && mappings.All(mapping =>
+                    mapping.PhysicalPath != subtitlePath
+                    || !mapping.VirtualPath.Contains("E01", StringComparison.Ordinal))
+                && mappings.All(mapping =>
+                    mapping.PhysicalPath != subtitlePath
+                    || !mapping.VirtualPath.StartsWith("/unknown/", StringComparison.Ordinal))),
+            CancellationToken.None), Times.Once);
+    }
+
     private static Fixture CreateFixture(
         IEnumerable<FileStoreInfo>? fileEntries = null,
         int? episode = null)

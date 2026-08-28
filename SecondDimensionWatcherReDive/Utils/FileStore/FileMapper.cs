@@ -1,4 +1,5 @@
 using SecondDimensionWatcherReDive.Framework.DataRepository;
+using SecondDimensionWatcherReDive.Framework.FileDownload;
 using SecondDimensionWatcherReDive.Framework.FileStore;
 using SecondDimensionWatcherReDive.Framework.Inference;
 
@@ -33,16 +34,6 @@ public partial class FileMapper(
     IInferenceEngine? inferenceEngine = null) : IFileMapper
 {
     private const string UnknownRoot = "/unknown";
-
-    private static readonly HashSet<string> VideoExtensions = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ".mkv", ".mp4", ".avi", ".flv", ".wmv", ".webm", ".mov", ".m4v", ".ts", ".m2ts"
-    };
-
-    private static readonly HashSet<string> SubtitleExtensions = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ".srt", ".ass", ".ssa", ".sub", ".idx", ".vtt"
-    };
 
     public Task<bool> MapDownloadAsync(Guid animationInfoId, CancellationToken cancellationToken)
     {
@@ -151,6 +142,15 @@ public partial class FileMapper(
         }
 
         var files = await EnumerateFilesAsync(store, info.StorePath, cancellationToken);
+        if (string.Equals(
+                info.DownloadType,
+                FileDownloadTypes.MediaLibraryImport,
+                StringComparison.Ordinal))
+            files = await IncludeImportedFileSidecarsAsync(
+                store,
+                info.StorePath,
+                files,
+                cancellationToken);
         if (files.Count == 0)
         {
             LogNoFiles(logger, info.StorePath);
@@ -170,7 +170,7 @@ public partial class FileMapper(
         IReadOnlyList<FileMapping> mappings)
     {
         var videos = mappings
-            .Where(mapping => VideoExtensions.Contains(Path.GetExtension(mapping.PhysicalPath)))
+            .Where(mapping => MediaFileTypes.VideoExtensions.Contains(Path.GetExtension(mapping.PhysicalPath)))
             .ToList();
         if (videos.Count == 0) return false;
 
@@ -184,6 +184,50 @@ public partial class FileMapper(
     }
 
     private sealed record DiscoveredFile(string PhysicalPath, string FileName, string RelativePath);
+
+    private static async Task<List<DiscoveredFile>> IncludeImportedFileSidecarsAsync(
+        IFileStore store,
+        string rootPath,
+        List<DiscoveredFile> files,
+        CancellationToken cancellationToken)
+    {
+        if (files.Count != 1
+            || !MediaLibraryPath.PathEquals(files[0].PhysicalPath, rootPath)
+            || !MediaFileTypes.IsVideo(files[0].FileName))
+            return files;
+
+        var parentPath = Path.GetDirectoryName(rootPath);
+        if (string.IsNullOrEmpty(parentPath)) return files;
+
+        var siblings = new List<FileStoreInfo>();
+        await foreach (var entry in store.EnumerateDirectory(parentPath))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!entry.IsDirectory) siblings.Add(entry);
+        }
+
+        var videoNames = siblings
+            .Where(entry => MediaFileTypes.IsVideo(entry.FileName))
+            .Select(entry => entry.FileName)
+            .ToList();
+        var result = new List<DiscoveredFile>(files);
+        result.AddRange(siblings
+            .Where(entry => MediaFileTypes.IsSubtitle(entry.FileName)
+                            && string.Equals(
+                                MediaFileTypes.FindBestVideoForSubtitle(
+                                    videoNames,
+                                    entry.FileName),
+                                files[0].FileName,
+                                StringComparison.OrdinalIgnoreCase))
+            .Select(entry => new DiscoveredFile(
+                entry.Path,
+                entry.FileName,
+                entry.FileName)));
+
+        return result
+            .OrderBy(file => file.RelativePath, StringComparer.Ordinal)
+            .ToList();
+    }
 
     private static async Task<List<DiscoveredFile>> EnumerateFilesAsync(
         IFileStore store, string rootPath, CancellationToken cancellationToken)
@@ -231,20 +275,21 @@ public partial class FileMapper(
         var knownRoot = animationName is not null && season is not null
             ? $"/{animationName}/{subGroup}"
             : null;
+        var unknownRoot = GetUnknownRoot(info);
 
         // Case 1: unknown anime — everything goes under /unknown preserving tree
         if (knownRoot is null)
         {
             foreach (var file in files)
             {
-                var virtualPath = $"{UnknownRoot}/{file.RelativePath}";
+                var virtualPath = $"{unknownRoot}/{file.RelativePath}";
                 AddMapping(mappings, reservedPaths, info, file, virtualPath, cancellationToken);
             }
             return await ResolveCollisionsAsync(mappings, warnings, cancellationToken);
         }
 
-        var videos = files.Where(f => VideoExtensions.Contains(Path.GetExtension(f.FileName))).ToList();
-        var subtitles = files.Where(f => SubtitleExtensions.Contains(Path.GetExtension(f.FileName))).ToList();
+        var videos = files.Where(f => MediaFileTypes.VideoExtensions.Contains(Path.GetExtension(f.FileName))).ToList();
+        var subtitles = files.Where(f => MediaFileTypes.SubtitleExtensions.Contains(Path.GetExtension(f.FileName))).ToList();
         var others = files.Except(videos).Except(subtitles).ToList();
 
         // Case 2: known single-episode — pick largest video
@@ -255,7 +300,7 @@ public partial class FileMapper(
                 // Degrade to unknown rule entirely
                 foreach (var file in files)
                     AddMapping(mappings, reservedPaths, info, file,
-                        $"{UnknownRoot}/{file.RelativePath}", cancellationToken);
+                        $"{unknownRoot}/{file.RelativePath}", cancellationToken);
                 return await ResolveCollisionsAsync(mappings, warnings, cancellationToken);
             }
 
@@ -283,13 +328,13 @@ public partial class FileMapper(
 
             foreach (var video in videos.Where(v => v != mainVideo))
                 AddMapping(mappings, reservedPaths, info, video,
-                    $"{UnknownRoot}/{video.RelativePath}", cancellationToken);
+                    $"{unknownRoot}/{video.RelativePath}", cancellationToken);
             foreach (var sub in subtitles.Where(s => !matchedSubtitles.Contains(s)))
                 AddMapping(mappings, reservedPaths, info, sub,
-                    $"{UnknownRoot}/{sub.RelativePath}", cancellationToken);
+                    $"{unknownRoot}/{sub.RelativePath}", cancellationToken);
             foreach (var file in others)
                 AddMapping(mappings, reservedPaths, info, file,
-                    $"{UnknownRoot}/{file.RelativePath}", cancellationToken);
+                    $"{unknownRoot}/{file.RelativePath}", cancellationToken);
 
             return await ResolveCollisionsAsync(mappings, warnings, cancellationToken);
         }
@@ -309,7 +354,7 @@ public partial class FileMapper(
             {
                 LogCouldNotInferEpisode(logger, video.FileName);
                 AddMapping(mappings, reservedPaths, info, video,
-                    $"{UnknownRoot}/{video.RelativePath}", cancellationToken);
+                    $"{unknownRoot}/{video.RelativePath}", cancellationToken);
                 continue;
             }
 
@@ -334,10 +379,10 @@ public partial class FileMapper(
 
         foreach (var sub in subtitles.Where(s => !matchedSubs.Contains(s)))
             AddMapping(mappings, reservedPaths, info, sub,
-                $"{UnknownRoot}/{sub.RelativePath}", cancellationToken);
+                $"{unknownRoot}/{sub.RelativePath}", cancellationToken);
         foreach (var file in others)
             AddMapping(mappings, reservedPaths, info, file,
-                $"{UnknownRoot}/{file.RelativePath}", cancellationToken);
+                $"{unknownRoot}/{file.RelativePath}", cancellationToken);
 
         return await ResolveCollisionsAsync(mappings, warnings, cancellationToken);
     }
@@ -428,24 +473,9 @@ public partial class FileMapper(
     {
         var videoBase = Path.GetFileNameWithoutExtension(video.FileName);
         var videoDirectory = Path.GetDirectoryName(video.RelativePath) ?? string.Empty;
-        var namedMatches = subtitles
-            .Where(sub => IsSubtitleStemMatch(
-                videoBase,
-                Path.GetFileNameWithoutExtension(sub.FileName)))
+        var candidates = subtitles
+            .Where(subtitle => FindBestVideoForSubtitle(subtitle, videos) == video)
             .ToList();
-        var sameDirectoryMatches = namedMatches
-            .Where(sub => string.Equals(
-                Path.GetDirectoryName(sub.RelativePath) ?? string.Empty,
-                videoDirectory,
-                StringComparison.Ordinal))
-            .ToList();
-        var candidates = sameDirectoryMatches.Count > 0
-            ? sameDirectoryMatches
-            : namedMatches
-                .Where(subtitle => videos.Count(candidate => IsSubtitleStemMatch(
-                    Path.GetFileNameWithoutExtension(candidate.FileName),
-                    Path.GetFileNameWithoutExtension(subtitle.FileName))) == 1)
-                .ToList();
 
         if (allowDirectoryFallback)
         {
@@ -469,13 +499,32 @@ public partial class FileMapper(
         });
     }
 
-    private static bool IsSubtitleStemMatch(string videoBase, string subtitleBase)
+    private static DiscoveredFile? FindBestVideoForSubtitle(
+        DiscoveredFile subtitle,
+        IReadOnlyList<DiscoveredFile> videos)
     {
-        if (subtitleBase.Equals(videoBase, StringComparison.OrdinalIgnoreCase)) return true;
-        if (!subtitleBase.StartsWith(videoBase, StringComparison.OrdinalIgnoreCase)
-            || subtitleBase.Length == videoBase.Length)
-            return false;
-        return subtitleBase[videoBase.Length] is '.' or ' ' or '_' or '-' or '[' or '(';
+        var subtitleDirectory = Path.GetDirectoryName(subtitle.RelativePath) ?? string.Empty;
+        var namedMatches = videos
+            .Where(video => MediaFileTypes.IsSubtitleFor(video.FileName, subtitle.FileName))
+            .ToList();
+        var sameDirectoryMatches = namedMatches
+            .Where(video => string.Equals(
+                Path.GetDirectoryName(video.RelativePath) ?? string.Empty,
+                subtitleDirectory,
+                StringComparison.Ordinal))
+            .ToList();
+        var candidates = sameDirectoryMatches.Count > 0
+            ? sameDirectoryMatches
+            : namedMatches;
+        if (candidates.Count == 0) return null;
+
+        var longestStem = candidates.Max(candidate =>
+            Path.GetFileNameWithoutExtension(candidate.FileName).Length);
+        var best = candidates
+            .Where(candidate =>
+                Path.GetFileNameWithoutExtension(candidate.FileName).Length == longestStem)
+            .ToList();
+        return best.Count == 1 ? best[0] : null;
     }
 
     private static void AddMapping(
@@ -567,6 +616,22 @@ public partial class FileMapper(
     private static long SafeFileLength(string path)
     {
         try { return new FileInfo(path).Length; } catch { return 0; }
+    }
+
+    private static string GetUnknownRoot(AnimationInfo info)
+    {
+        if (!string.Equals(
+                info.DownloadType,
+                FileDownloadTypes.MediaLibraryImport,
+                StringComparison.Ordinal)
+            || string.IsNullOrWhiteSpace(info.StorePath))
+            return UnknownRoot;
+
+        var trimmedPath = Path.TrimEndingDirectorySeparator(info.StorePath);
+        var itemName = MediaFileTypes.IsVideo(trimmedPath)
+            ? Path.GetFileNameWithoutExtension(trimmedPath)
+            : Path.GetFileName(trimmedPath);
+        return $"{UnknownRoot}/{SanitizePathSegment(itemName)}";
     }
 
     private static string SanitizePathSegment(string name)

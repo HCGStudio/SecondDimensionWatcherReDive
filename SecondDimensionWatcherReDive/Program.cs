@@ -63,6 +63,13 @@ if (builder.Configuration["Config"] is { } configPath)
     builder.Configuration.AddYamlFile(configPath, optional: false, reloadOnChange: true);
 var passwordFile = builder.Configuration["PasswordFile"] ?? "password.json";
 builder.Configuration.AddJsonFile(passwordFile, optional: true, reloadOnChange: true);
+builder.Services.Configure<MediaLibraryOptions>(
+    builder.Configuration.GetSection(MediaLibraryOptions.SectionName));
+builder.Services.PostConfigure<MediaLibraryOptions>(options =>
+{
+    var localStore = builder.Configuration["FileStore:Local"] ?? "./download";
+    options.DownloadRoot = Path.GetFullPath(localStore);
+});
 
 builder.Services.AddDbContext<ApplicationContext>(options =>
 {
@@ -180,6 +187,10 @@ builder.Services.AddHostedService<CompleteDownloadBackgroundService>();
 builder.Services.AddHostedService<FetchRemoteTorrentBackgroundService>();
 builder.Services.AddHostedService<UpdateDownloadStatusBackgroundService>();
 builder.Services.AddHostedService<IncidentReconciliationBackgroundService>();
+builder.Services.AddSingleton<MediaLibraryScanQueue>();
+builder.Services.AddSingleton<IMediaLibraryScanQueue>(sp =>
+    sp.GetRequiredService<MediaLibraryScanQueue>());
+builder.Services.AddHostedService<MediaLibraryScanBackgroundService>();
 
 //Add scheduled tasks
 builder.Services.AddSingleton<SyncFeed>();
@@ -189,6 +200,10 @@ builder.Services.AddHostedService<ScheduledTaskBackgroundService<SyncFeed>>();
 builder.Services.AddSingleton<ScrapeSeasonBangumi>();
 builder.Services.AddSingleton<IScheduledTask>(sp => sp.GetRequiredService<ScrapeSeasonBangumi>());
 builder.Services.AddHostedService<ScheduledTaskBackgroundService<ScrapeSeasonBangumi>>();
+
+builder.Services.AddSingleton<ScanMediaLibraries>();
+builder.Services.AddSingleton<IScheduledTask>(sp => sp.GetRequiredService<ScanMediaLibraries>());
+builder.Services.AddHostedService<ScheduledTaskBackgroundService<ScanMediaLibraries>>();
 
 builder.Services.AddSingleton<IMigrationTask, MigrateFileMappings>();
 builder.Services.AddSingleton<MigrationTaskRunner>();
@@ -201,6 +216,7 @@ builder.Services.AddScoped<IFileDownloadClientProvider, FileDownloadClientProvid
 builder.Services.AddScoped<IFileStoreProvider, FileStoreProvider>();
 builder.Services.AddScoped<IFileExplorer, FileExplorer>();
 builder.Services.AddScoped<IFileMapper, FileMapper>();
+builder.Services.AddScoped<IMediaLibraryScanner, MediaLibraryScanner>();
 
 //Add feed
 builder.Services.AddSingleton<ISubscriptionFeedReader, MikananiSubscriptionFeedReader>();
@@ -225,6 +241,7 @@ builder.Services.AddScoped<IMigrationMarkerRepository, MigrationMarkerRepository
 builder.Services.AddScoped<IWebDavTokenRepository, WebDavTokenRepository>();
 builder.Services.AddScoped<IPlaybackRepository, PlaybackRepository>();
 builder.Services.AddScoped<IIncidentRepository, IncidentRepository>();
+builder.Services.AddScoped<IMediaLibrarySourceRepository, MediaLibrarySourceRepository>();
 builder.Services.AddSingleton<ISeasonScraper, MikananiSeasonScraper>();
 builder.Services.AddScoped<IMetadataReviewService, MetadataReviewService>();
 builder.Services.AddScoped<IIncidentRetryService, IncidentRetryService>();

@@ -53,6 +53,8 @@ services:
       ConnectionStrings__sdw: "Host=db;Username=sdw;Password=sdw_password;Database=sdw"
       JwtSecret: "CHANGE_ME_TO_A_32_CHAR_RANDOM_STRING"
       FileStore__Local: "/downloads"
+      MediaLibrary__AllowedRoots__0: "/media"
+      MediaLibrary__MissingGracePeriod: "1.00:00:00"
       PasswordFile: "/app/data/password.json"
       Torrent__Remote__Url: "http://qbittorrent:8080"
       Torrent__Remote__UserName: ""
@@ -62,6 +64,9 @@ services:
     volumes:
       - downloads:/downloads
       - appdata:/app/data
+      # Existing libraries can be imported in place from Settings. Replace the
+      # host path and keep the mount read-only so originals cannot be modified.
+      # - /path/to/anime:/media/anime:ro
     depends_on:
       - db
       - valkey

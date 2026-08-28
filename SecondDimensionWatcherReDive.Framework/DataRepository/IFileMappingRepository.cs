@@ -16,6 +16,22 @@ public interface IFileMappingRepository
         Guid animationInfoId,
         CancellationToken cancellationToken);
 
+    async Task<IReadOnlyList<FileMapping>> GetForAnimationInfosAsync(
+        IReadOnlyCollection<Guid> animationInfoIds,
+        CancellationToken cancellationToken)
+    {
+        var mappings = new List<FileMapping>();
+        foreach (var animationInfoId in animationInfoIds.Distinct())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            mappings.AddRange(await GetForAnimationInfoAsync(
+                animationInfoId,
+                cancellationToken));
+        }
+
+        return mappings;
+    }
+
     Task<FileMapping?> FindByVirtualPathAsync(string virtualPath, CancellationToken cancellationToken);
 
     Task<IReadOnlyList<FileMapping>> GetByVirtualPathPrefixAsync(string virtualPathPrefix, CancellationToken cancellationToken);

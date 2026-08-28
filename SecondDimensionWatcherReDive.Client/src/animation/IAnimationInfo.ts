@@ -26,4 +26,5 @@ export interface IAnimationInfo {
   releaseSizeBytes?: number | null;
   automationDisposition?: SubscriptionAutomationDisposition | null;
   automationExplanationJson?: string | null;
+  isMediaLibraryImport: boolean;
 }

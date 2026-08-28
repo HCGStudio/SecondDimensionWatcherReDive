@@ -9,6 +9,7 @@ const KNOWN_TASK_IDS = [
   "SyncFeed",
   "ScrapeSeasonBangumi",
   "InferAnimationMetadata",
+  "ScanMediaLibraries",
 ] as const;
 
 export function useTaskMetadata(): (id: string) => TaskMetadata {

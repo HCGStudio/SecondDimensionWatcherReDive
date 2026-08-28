@@ -15,7 +15,8 @@ internal sealed record AnimationInfo(
     Guid? SourceFeedId,
     long? ReleaseSizeBytes,
     string? AutomationDisposition,
-    string? AutomationExplanationJson);
+    string? AutomationExplanationJson,
+    bool IsMediaLibraryImport);
 
 internal sealed record Animation(
     string Name,

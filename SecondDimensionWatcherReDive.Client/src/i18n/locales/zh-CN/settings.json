@@ -1,5 +1,58 @@
 {
   "pageTitle": "设置",
+  "mediaLibrary": {
+    "title": "现有媒体库导入",
+    "intro": "扫描服务器上的已有媒体目录，复用当前的正则、AI 元数据推断和虚拟路径映射能力，将文件纳入媒体库。",
+    "create": {
+      "title": "添加导入目录",
+      "pathLabel": "服务端绝对路径",
+      "pathPlaceholder": "例如：/media/anime",
+      "pathHelp": "必须先配置至少一个 MediaLibrary:AllowedRoots 白名单目录。请输入白名单内、应用进程可访问的服务端绝对路径，而不是浏览器所在设备的本地路径；导入路径不得与 FileStore:Local 管理的下载目录重叠。添加后会自动执行首次扫描。",
+      "monitorLabel": "持续监控目录",
+      "submit": "添加并扫描"
+    },
+    "safety": {
+      "noMove": "导入及后续对账只会修改数据库中的媒体记录和虚拟路径映射，绝不会复制、移动、重命名或删除原文件。短暂缺失会先撤下映射，并在配置的宽限期内保留观看与审核记录。",
+      "containerMount": "使用容器部署时，请先将媒体目录以只读方式挂载到应用容器，并在这里填写容器内的绝对路径。"
+    },
+    "list": {
+      "title": "导入目录",
+      "loadFailed": "无法加载媒体库导入目录，请稍后重试。",
+      "empty": {
+        "title": "尚未添加导入目录",
+        "body": "添加服务器上的媒体目录后，系统会扫描文件并建立虚拟映射。"
+      },
+      "columns": {
+        "path": "路径",
+        "monitoring": "模式",
+        "lastScanAt": "上次扫描",
+        "result": "扫描结果",
+        "actions": "操作"
+      },
+      "monitoring": "持续监控",
+      "manual": "手动扫描",
+      "monitoringAria": "切换 {{path}} 的持续监控",
+      "neverScanned": "尚未完成",
+      "scanning": "扫描中",
+      "scanResult": "新增 {{imported}} · 更新 {{updated}} · 移除 {{removed}} · 跳过 {{skipped}}",
+      "scanNow": "立即扫描",
+      "scanAria": "立即扫描 {{path}}",
+      "deleteAria": "移除导入目录 {{path}}",
+      "deleteConfirm": "确认移除导入目录「{{path}}」吗？系统会停止监控，但已导入的媒体记录、虚拟映射和原文件都会保留。"
+    },
+    "toast": {
+      "pathRequired": "请输入服务端绝对路径",
+      "created": "导入目录已添加，首次扫描已开始",
+      "createFailed": "添加导入目录失败，请检查路径和读取权限",
+      "scanQueued": "扫描已开始",
+      "scanFailed": "无法启动扫描",
+      "monitoringEnabled": "已启用持续监控",
+      "monitoringDisabled": "已切换为手动扫描",
+      "updateFailed": "更新监控设置失败",
+      "deleted": "导入目录已移除，已导入内容仍会保留",
+      "deleteFailed": "移除导入目录失败"
+    }
+  },
   "webdav": {
     "title": "WebDAV 凭据",
     "intro": "在这里为每台设备生成独立的 WebDAV 用户名和访问令牌，可随时撤销。访问令牌在数据库中以 BCrypt 哈希保存，明文仅在创建时显示一次。",

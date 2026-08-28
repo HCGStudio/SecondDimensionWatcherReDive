@@ -32,4 +32,6 @@ public sealed record AnimationInfo(
     long StateVersion = 0,
     Guid? CurrentMetadataReviewOperationId = null,
     Guid? DownloadAttemptId = null,
-    Guid? DownloadCancellationId = null);
+    Guid? DownloadCancellationId = null,
+    Guid? MediaLibrarySourceId = null,
+    DateTimeOffset? MediaLibraryMissingSince = null);

@@ -15,6 +15,7 @@ public class AnimationInfoRepository(
             .AsNoTracking()
             .Include(i => i.Group)
             .Include(i => i.Animation)
+            .Where(i => i.MediaLibraryMissingSince == null)
             .OrderByDescending(i => i.PublishTime);
 
         var totalCount = await coreQuery.CountAsync(cancellationToken);
@@ -31,6 +32,7 @@ public class AnimationInfoRepository(
             .AsNoTracking()
             .Include(i => i.Animation)
             .Include(i => i.Group)
+            .Where(i => i.MediaLibraryMissingSince == null)
             .OrderByDescending(i => i.PublishTime)
             .ToListAsync(cancellationToken);
 
@@ -87,7 +89,8 @@ public class AnimationInfoRepository(
             .AsNoTracking()
             .Include(i => i.Group)
             .Include(i => i.Animation)
-            .Where(i => i.IsDownloadFinished)
+            .Where(i => i.IsDownloadFinished
+                        && i.MediaLibraryMissingSince == null)
             .OrderByDescending(i => i.PublishTime);
 
         var totalCount = await coreQuery.CountAsync(cancellationToken);
@@ -119,6 +122,135 @@ public class AnimationInfoRepository(
         return entity?.ToRecord();
     }
 
+    public async Task<AnimationInfo?> FindByStorageLocationAsync(
+        string fileStore,
+        string storePath,
+        CancellationToken cancellationToken)
+    {
+        var entity = await context.AnimationInfo
+            .AsNoTracking()
+            .Include(info => info.Animation)
+            .Include(info => info.Group)
+            .FirstOrDefaultAsync(
+                info => info.FileStore == fileStore && info.StorePath == storePath,
+                cancellationToken);
+        return entity?.ToRecord();
+    }
+
+    public async Task<IReadOnlyList<AnimationInfo>> GetByStorageLocationsAsync(
+        string fileStore,
+        IReadOnlyCollection<string> storePaths,
+        CancellationToken cancellationToken)
+    {
+        if (storePaths.Count == 0) return [];
+
+        var paths = storePaths
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        var entities = await context.AnimationInfo
+            .AsNoTracking()
+            .Include(info => info.Animation)
+            .Include(info => info.Group)
+            .Where(info => info.FileStore == fileStore
+                           && info.StorePath != null
+                           && paths.Contains(info.StorePath))
+            .ToListAsync(cancellationToken);
+        return entities.Select(entity => entity.ToRecord()).ToList();
+    }
+
+    public async Task<IReadOnlyList<AnimationInfo>> GetByMediaLibrarySourceAsync(
+        Guid sourceId,
+        CancellationToken cancellationToken)
+    {
+        var entities = await context.AnimationInfo
+            .AsNoTracking()
+            .Include(info => info.Animation)
+            .Include(info => info.Group)
+            .Where(info => info.MediaLibrarySourceId == sourceId
+                           && info.DownloadType == FileDownloadTypes.MediaLibraryImport)
+            .ToListAsync(cancellationToken);
+        return entities.Select(entity => entity.ToRecord()).ToList();
+    }
+
+    public async Task<IReadOnlyList<AnimationInfo>> GetUnownedMediaLibraryEntriesUnderPathAsync(
+        string fileStore,
+        string sourcePath,
+        CancellationToken cancellationToken)
+    {
+        var pathPrefix = Path.EndsInDirectorySeparator(sourcePath)
+            ? sourcePath
+            : sourcePath + Path.DirectorySeparatorChar;
+        var entities = await context.AnimationInfo
+            .AsNoTracking()
+            .Include(info => info.Animation)
+            .Include(info => info.Group)
+            .Where(info => info.DownloadType == FileDownloadTypes.MediaLibraryImport
+                           && info.MediaLibrarySourceId == null
+                           && info.FileStore == fileStore
+                           && info.StorePath != null
+                           && (info.StorePath == sourcePath
+                               || info.StorePath.StartsWith(pathPrefix)))
+            .ToListAsync(cancellationToken);
+        return entities.Select(entity => entity.ToRecord()).ToList();
+    }
+
+    public async Task<IReadOnlyList<AnimationInfo>> GetByPhysicalPathsAsync(
+        string fileStore,
+        IReadOnlyCollection<string> physicalPaths,
+        CancellationToken cancellationToken)
+    {
+        if (physicalPaths.Count == 0) return [];
+
+        var paths = physicalPaths
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        var animationInfoIds = context.FileMappings
+            .AsNoTracking()
+            .Where(mapping => mapping.FileStore == fileStore
+                              && paths.Contains(mapping.PhysicalPath))
+            .Select(mapping => mapping.AnimationInfoId)
+            .Distinct();
+        var entities = await context.AnimationInfo
+            .AsNoTracking()
+            .Include(info => info.Animation)
+            .Include(info => info.Group)
+            .Where(info => animationInfoIds.Contains(info.Id))
+            .ToListAsync(cancellationToken);
+        return entities.Select(entity => entity.ToRecord()).ToList();
+    }
+
+    public async Task<bool> RemoveMediaLibraryEntryAsync(
+        Guid id,
+        Guid? expectedSourceId,
+        CancellationToken cancellationToken)
+    {
+        var strategy = context.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(async () =>
+        {
+            await using var writeContext = new Models.ApplicationContext(contextOptions);
+            await using var transaction = await writeContext.Database
+                .BeginTransactionAsync(cancellationToken);
+
+            await MappingTransactionLock.AcquireAsync(writeContext, cancellationToken);
+            var entity = await MappingTransactionLock.LockAnimationInfoAsync(
+                writeContext,
+                id,
+                cancellationToken);
+            if (entity is null
+                || entity.MediaLibrarySourceId != expectedSourceId
+                || entity.DownloadType != FileDownloadTypes.MediaLibraryImport)
+                return false;
+
+            await writeContext.FileMappings
+                .Where(mapping => mapping.AnimationInfoId == id)
+                .ExecuteDeleteAsync(cancellationToken);
+            writeContext.AnimationInfo.Remove(entity);
+            await writeContext.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return true;
+        });
+    }
+
     public async IAsyncEnumerable<AnimationInfo> GetUnfinishedTorrentDownloadsAsync(
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
@@ -138,6 +270,7 @@ public class AnimationInfoRepository(
         var entities = await context.AnimationInfo
             .Where(i => !i.IsAiProcessed
                         && i.AiRetryCount < maxRetryCount
+                        && i.MediaLibraryMissingSince == null
                         && i.MetadataStatus == MetadataReviewStatus.Pending)
             .OrderBy(i => i.PublishTime)
             .ToListAsync(cancellationToken);
@@ -152,6 +285,7 @@ public class AnimationInfoRepository(
             .Include(info => info.Animation)
             .Include(info => info.Group)
             .Where(info => !info.IsAiProcessed
+                           && info.MediaLibraryMissingSince == null
                            && info.MetadataStatus == MetadataReviewStatus.Failed)
             .OrderBy(info => info.PublishTime)
             .ToListAsync(cancellationToken);
@@ -166,6 +300,7 @@ public class AnimationInfoRepository(
             .Include(info => info.Animation)
             .Include(info => info.Group)
             .Where(info => info.IsDownloadFinished
+                           && info.MediaLibraryMissingSince == null
                            && info.FileStore != null
                            && info.StorePath != null
                            && !context.FileMappings.Any(mapping => mapping.AnimationInfoId == info.Id))

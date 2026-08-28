@@ -38,6 +38,10 @@
     "InferAnimationMetadata": {
       "name": "InferAnimationMetadata",
       "description": "AI 元数据推断"
+    },
+    "ScanMediaLibraries": {
+      "name": "ScanMediaLibraries",
+      "description": "扫描持续监控的现有媒体库目录"
     }
   }
 }
