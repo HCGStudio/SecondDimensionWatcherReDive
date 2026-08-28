@@ -133,7 +133,7 @@ configure_ai() {
     echo "AI 推断用于自动识别动画的 TMDB ID、季度、集数等元数据。"
     echo "需要 AI API 密钥和 TMDB API 密钥。"
 
-    AI_PROVIDER="" AI_BASE_URL="" AI_API_KEY="" AI_MODEL="" TMDB_KEY=""
+    AI_PROVIDER="" AI_BASE_URL="" AI_API_KEY="" AI_MODEL="" AI_API_MODE="" TMDB_KEY=""
 
     echo
     echo "选择 AI 提供商："
@@ -151,6 +151,7 @@ configure_ai() {
             ;;
         3)
             AI_PROVIDER="OpenAI"
+            AI_API_MODE="ChatCompletions"
             while [ -z "${AI_BASE_URL:-}" ]; do
                 read -rp "请输入 API 端点 URL: " AI_BASE_URL
                 [ -z "$AI_BASE_URL" ] && echo "API 端点 URL 不能为空。"
@@ -160,6 +161,7 @@ configure_ai() {
         *)
             AI_PROVIDER="OpenAI"
             AI_BASE_URL="https://api.openai.com/v1"
+            AI_API_MODE="Responses"
             default_model="gpt-4o-mini"
             ;;
     esac
@@ -191,6 +193,9 @@ configure_ai() {
     echo "AI 配置:"
     echo "  Provider: $AI_PROVIDER"
     echo "  Base URL: $AI_BASE_URL"
+    if [ "$AI_PROVIDER" = "OpenAI" ]; then
+        echo "  API Mode: $AI_API_MODE"
+    fi
     echo "  Model:    $AI_MODEL"
     echo "  TMDB:     (已设置)"
 }
@@ -456,6 +461,7 @@ configure_system_config() {
     else
         sudo sed -i \
             -e "s|BaseUrl: https://api.openai.com/v1|BaseUrl: ${AI_BASE_URL}|" \
+            -e "s|ApiMode: Responses|ApiMode: ${AI_API_MODE}|" \
             -e "s|Model: gpt-4o-mini|Model: ${AI_MODEL}|" \
             -e '/^  OpenAI:/,/^  Anthropic:/s|ApiKey: ""|ApiKey: "'"${AI_API_KEY}"'"|' \
             "$config"
@@ -566,6 +572,7 @@ EOF
         ai_envs="      AI__Provider: \"${AI_PROVIDER}\"\\
       AI__OpenAI__ApiKey: \"${AI_API_KEY}\"\\
       AI__OpenAI__BaseUrl: \"${AI_BASE_URL}\"\\
+      AI__OpenAI__ApiMode: \"${AI_API_MODE}\"\\
       AI__OpenAI__Model: \"${AI_MODEL}\""
     fi
 

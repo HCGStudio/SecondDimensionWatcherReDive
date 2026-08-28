@@ -6,6 +6,7 @@ public sealed class ChatOptions
 {
     public IToolExecutor? ToolExecutor { get; init; }
 
+    /// <summary>Maximum number of tool-execution rounds before the final model response.</summary>
     public int MaxToolRounds { get; init; } = 8;
 
     public int? MaxTokens { get; init; }

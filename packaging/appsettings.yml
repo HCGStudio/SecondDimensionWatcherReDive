@@ -39,12 +39,13 @@ TmdbApiKey: ""
 MikananiFeeds: []
 
 # AI 推断配置（可选，留空 ApiKey 则禁用）
-# Provider: OpenAI 或 Anthropic（也支持任何 OpenAI 兼容端点）
+# Provider: OpenAI 或 Anthropic；Ollama/vLLM 等兼容端点请使用 ChatCompletions
 # 不设置 Provider 时默认为 OpenAI
 AI:
   Provider: "OpenAI"
   OpenAI:
     BaseUrl: https://api.openai.com/v1
+    ApiMode: Responses
     ApiKey: ""
     Model: gpt-4o-mini
     MaxTokens: 1024

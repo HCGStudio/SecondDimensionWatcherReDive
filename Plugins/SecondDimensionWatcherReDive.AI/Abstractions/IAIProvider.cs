@@ -14,5 +14,6 @@ public interface IAIProvider
         IReadOnlyList<ToolDefinition>? tools,
         string? model,
         int? maxTokens,
+        IAIProviderContinuation? continuation,
         CancellationToken cancellationToken);
 }

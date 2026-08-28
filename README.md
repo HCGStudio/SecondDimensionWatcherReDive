@@ -95,7 +95,8 @@ bash <(curl -fsSL https://raw.githubusercontent.com/HCGStudio/SecondDimensionWat
 | `MikananiFeeds` | RSS 源 URL 数组 |
 | `TmdbApiKey` | TMDB API 密钥 |
 | `AI:Provider` | `OpenAI` 或 `Anthropic`（默认 `OpenAI`） |
-| `AI:OpenAI:ApiKey` / `BaseUrl` / `Model` / `MaxTokens` | OpenAI 兼容端点（支持 Ollama / vLLM 等） |
+| `AI:OpenAI:ApiKey` / `BaseUrl` / `Model` / `MaxTokens` | OpenAI 或 OpenAI 兼容端点配置 |
+| `AI:OpenAI:ApiMode` | `Responses`（官方 OpenAI）或 `ChatCompletions`（Ollama / vLLM / 旧兼容端点）；旧配置缺省为后者 |
 | `AI:Anthropic:ApiKey` / `BaseUrl` / `Model` / `MaxTokens` / `ApiVersion` | Anthropic 端点 |
 | `Inference:RateLimitDelayMs` | 推断 API 调用最小间隔（毫秒，默认 1000） |
 | `Valkey:ConnectionString` | Valkey / Redis 连接（可选；为空则使用内存缓存） |

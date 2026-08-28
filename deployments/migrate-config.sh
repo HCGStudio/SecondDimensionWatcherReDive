@@ -76,11 +76,13 @@ if echo "$PROVIDER" | grep -qi anthropic; then
     O_URL="https://api.openai.com/v1"
     O_MODEL="gpt-4o-mini"
     O_MT="1024"
+    O_MODE="ChatCompletions"
 else
     O_KEY="$API_KEY"
     O_URL="${BASE_URL:-https://api.openai.com/v1}"
     O_MODEL="${MODEL:-gpt-4o-mini}"
     O_MT="$MAX_TOKENS"
+    O_MODE="ChatCompletions"
     A_KEY=""
     A_URL="https://api.anthropic.com"
     A_MODEL="claude-sonnet-4-20250514"
@@ -101,6 +103,7 @@ AI:
   Provider: "$PROVIDER"
   OpenAI:
     BaseUrl: $O_URL
+    ApiMode: $O_MODE
     ApiKey: "$O_KEY"
     Model: $O_MODEL
     MaxTokens: $O_MT

@@ -120,10 +120,11 @@ podman logs qbittorrent 2>&1 | grep "temporary password"
 | `TmdbApiKey` | TMDB API 密钥 | 空（海报功能不可用） |
 | `DisableCors` | 允许跨域 | `true` |
 | `MikananiFeeds__0`, `__1`, ... | RSS 订阅源 URL | 空 |
-| `Inference__Provider` | AI 推断提供商 (`OpenAI` / `Anthropic`) | `OpenAI` |
-| `Inference__ApiKey` | AI API 密钥 | 空（禁用推断） |
-| `Inference__Model` | AI 模型名称 | `gpt-4o-mini` |
-| `Inference__BaseUrl` | AI API 端点 | `https://api.openai.com/v1` |
+| `AI__Provider` | AI 推断提供商 (`OpenAI` / `Anthropic`) | `OpenAI` |
+| `AI__OpenAI__ApiKey` | OpenAI API 密钥 | 空（禁用推断） |
+| `AI__OpenAI__Model` | OpenAI 模型名称 | `gpt-4o-mini` |
+| `AI__OpenAI__BaseUrl` | OpenAI API 端点 | `https://api.openai.com/v1` |
+| `AI__OpenAI__ApiMode` | `Responses`；Ollama/vLLM 等旧兼容端点使用 `ChatCompletions` | 随附配置为 `Responses`；旧配置缺省为 `ChatCompletions` |
 
 ### 导入现有媒体库
 
@@ -145,9 +146,11 @@ services:
 在 `sdw-redive` 服务的 `environment` 中添加：
 
 ```yaml
-Inference__ApiKey: "sk-your-api-key"
-Inference__Provider: "OpenAI"
-Inference__Model: "gpt-4o-mini"
+AI__Provider: "OpenAI"
+AI__OpenAI__ApiKey: "sk-your-api-key"
+AI__OpenAI__BaseUrl: "https://api.openai.com/v1"
+AI__OpenAI__ApiMode: "Responses"
+AI__OpenAI__Model: "gpt-4o-mini"
 TmdbApiKey: "your-tmdb-api-key"
 ```
 

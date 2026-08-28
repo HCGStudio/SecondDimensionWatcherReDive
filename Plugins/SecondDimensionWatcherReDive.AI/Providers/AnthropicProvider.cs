@@ -44,6 +44,7 @@ public sealed partial class AnthropicProvider(
         IReadOnlyList<ToolDefinition>? tools,
         string? model,
         int? maxTokens,
+        IAIProviderContinuation? continuation,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         var opts = options.Value;
