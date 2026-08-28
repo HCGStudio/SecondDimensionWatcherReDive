@@ -35,7 +35,8 @@
     </ItemGroup>
 
     <ItemGroup>
-        <InternalsVisibleTo Include="SecondDimensionWatcherReDive.Test" />
+      <InternalsVisibleTo Include="SecondDimensionWatcherReDive.Test" />
+      <InternalsVisibleTo Include="SecondDimensionWatcherReDive.IntegrationTest" />
     </ItemGroup>
 
     <ItemGroup>
