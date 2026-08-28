@@ -4,6 +4,7 @@
   <Project Path="SecondDimensionWatcherReDive.IntegrationTest/SecondDimensionWatcherReDive.IntegrationTest.csproj" />
   <Project Path="SecondDimensionWatcherReDive/SecondDimensionWatcherReDive.csproj" />
   <Project Path="SecondDimensionWatcherReDive.FUSE/SecondDimensionWatcherReDive.FUSE.csproj" />
+  <Project Path="SecondDimensionWatcherReDive.FUSE.Test/SecondDimensionWatcherReDive.FUSE.Test.csproj" />
   <Folder Name="/Plugins/">
     <Project Path="Plugins/SecondDimensionWatcherReDive.AI/SecondDimensionWatcherReDive.AI.csproj" />
     <Project Path="Plugins/SecondDimensionWatcherReDive.Chat/SecondDimensionWatcherReDive.Chat.csproj" />

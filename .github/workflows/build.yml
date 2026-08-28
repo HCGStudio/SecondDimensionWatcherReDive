@@ -3,6 +3,8 @@ name: Build & Release
 on:
   push:
     branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
   workflow_dispatch:
     inputs:
       release_version:
@@ -25,14 +27,20 @@ jobs:
           dotnet-version: '10.0.x'
 
       - name: Run tests
-        run: dotnet test SecondDimensionWatcherReDive.slnx -c Release --logger "trx;LogFileName=test-results.trx"
+        run: >-
+          dotnet test SecondDimensionWatcherReDive.slnx -c Release
+          --logger "trx;LogFileName=test-results.trx"
+          --collect "XPlat Code Coverage"
+          -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=cobertura
 
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: test-results
-          path: '**/TestResults/*.trx'
+          path: |
+            **/TestResults/*.trx
+            **/TestResults/**/coverage.cobertura.xml
 
   build-frontend:
     needs: test

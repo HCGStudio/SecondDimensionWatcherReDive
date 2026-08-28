@@ -15,14 +15,19 @@ internal sealed class SdwClient : IDisposable
     private bool _disposed;
 
     public SdwClient(Uri serverBaseUrl, string username, string password, string userAgent, ILogger<SdwClient> logger)
-    {
-        _logger = logger;
-        var handler = new SocketsHttpHandler
+        : this(serverBaseUrl, username, password, userAgent, logger, new SocketsHttpHandler
         {
             PooledConnectionLifetime = TimeSpan.FromMinutes(5),
             PooledConnectionIdleTimeout = TimeSpan.FromMinutes(2),
             AutomaticDecompression = DecompressionMethods.None,
-        };
+        })
+    {
+    }
+
+    internal SdwClient(Uri serverBaseUrl, string username, string password, string userAgent,
+        ILogger<SdwClient> logger, HttpMessageHandler handler)
+    {
+        _logger = logger;
         _http = new HttpClient(handler, disposeHandler: true)
         {
             BaseAddress = serverBaseUrl,
@@ -58,10 +63,9 @@ internal sealed class SdwClient : IDisposable
         CancellationToken cancellationToken)
     {
         var url = $"/api/vfs/read?path={EncodePath(virtualPath)}";
-        using var request = new HttpRequestMessage(HttpMethod.Get, url);
-        request.Headers.Range = new RangeHeaderValue(offset, offset + count - 1);
-
-        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        using var response = await SendWithRetryAsync(HttpMethod.Get, url, cancellationToken,
+            request => request.Headers.Range = new RangeHeaderValue(offset, offset + count - 1),
+            HttpCompletionOption.ResponseHeadersRead);
         if (response.StatusCode == HttpStatusCode.NotFound) return -Native.Errno.ENOENT;
         if (response.StatusCode == HttpStatusCode.RequestedRangeNotSatisfiable) return 0;
         if (response.StatusCode == HttpStatusCode.Unauthorized)
@@ -84,7 +88,9 @@ internal sealed class SdwClient : IDisposable
         return total;
     }
 
-    private async Task<HttpResponseMessage> SendWithRetryAsync(HttpMethod method, string url, CancellationToken cancellationToken)
+    private async Task<HttpResponseMessage> SendWithRetryAsync(HttpMethod method, string url,
+        CancellationToken cancellationToken, Action<HttpRequestMessage>? configureRequest = null,
+        HttpCompletionOption completionOption = HttpCompletionOption.ResponseContentRead)
     {
         const int MaxAttempts = 3;
         Exception? last = null;
@@ -93,7 +99,8 @@ internal sealed class SdwClient : IDisposable
             try
             {
                 using var request = new HttpRequestMessage(method, url);
-                var response = await _http.SendAsync(request, cancellationToken);
+                configureRequest?.Invoke(request);
+                var response = await _http.SendAsync(request, completionOption, cancellationToken);
                 if ((int)response.StatusCode >= 500 && attempt < MaxAttempts)
                 {
                     response.Dispose();
