@@ -103,11 +103,16 @@ MediaLibrary:
 TmdbApiKey: "YOUR_TMDB_API_KEY"
 
 # AI 推断配置（可选，留空 ApiKey 则禁用）
-Inference:
+AI:
   Provider: OpenAI
-  BaseUrl: https://api.openai.com/v1
-  ApiKey: ""
-  Model: gpt-4o-mini
+  OpenAI:
+    BaseUrl: https://api.openai.com/v1
+    ApiMode: Responses
+    ApiKey: ""
+    Model: gpt-4o-mini
+    MaxTokens: 1024
+Inference:
+  RateLimitDelayMs: 1000
 
 # Valkey / Redis 分布式缓存（可选，留空则使用内存缓存）
 # Valkey:

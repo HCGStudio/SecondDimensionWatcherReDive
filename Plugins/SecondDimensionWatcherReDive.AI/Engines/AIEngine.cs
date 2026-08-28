@@ -20,20 +20,32 @@ public sealed partial class AIEngine(
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         var maxToolRounds = options?.MaxToolRounds ?? 8;
+        if (maxToolRounds < 0)
+            throw new ArgumentOutOfRangeException(
+                nameof(ChatOptions.MaxToolRounds), "MaxToolRounds cannot be negative.");
+
         var tools = options?.ToolExecutor?.ToolDefinitions;
         var conversation = new List<IMessage>(messages);
+        IAIProviderContinuation? continuation = null;
         string? finishReason = null;
 
-        for (var round = 0; round < maxToolRounds; round++)
+        // One initial model round plus, at most, one follow-up round for each executed tool round.
+        for (var round = 0; round <= maxToolRounds; round++)
         {
-            LogInferenceRound(logger, provider.ProviderName, round + 1, maxToolRounds);
+            LogInferenceRound(logger, provider.ProviderName, round + 1, maxToolRounds + 1);
 
             var textContent = new StringBuilder();
             var toolCallBuilders = new Dictionary<string, (string Name, StringBuilder Args)>();
+            IAIProviderContinuation? nextContinuation = null;
             finishReason = null;
 
+            // The last allowed model round is the final-answer round. Do not advertise tools there,
+            // otherwise the model can legitimately request work whose result we cannot return.
+            var canExecuteTools = round < maxToolRounds;
+            var roundTools = canExecuteTools ? tools : null;
             await foreach (var update in provider.StreamChatCompletionAsync(
-                               conversation, tools, options?.Model, options?.MaxTokens, cancellationToken))
+                               conversation, roundTools, options?.Model, options?.MaxTokens, continuation,
+                               cancellationToken))
             {
                 switch (update)
                 {
@@ -43,23 +55,35 @@ public sealed partial class AIEngine(
                         break;
                     case ToolCallBegin tcb:
                         toolCallBuilders[tcb.Id] = (tcb.Name, new StringBuilder());
-                        yield return tcb;
+                        if (canExecuteTools)
+                            yield return tcb;
                         break;
                     case ToolCallDelta tcd:
                         if (toolCallBuilders.TryGetValue(tcd.Id, out var builder))
                             builder.Args.Append(tcd.ArgumentsDelta);
-                        yield return tcd;
+                        if (canExecuteTools)
+                            yield return tcd;
                         break;
                     case Finished f:
                         finishReason = f.StopReason;
+                        nextContinuation = f.Continuation;
                         // Do not yield yet — only after the final round
                         break;
                 }
             }
 
+            continuation = nextContinuation;
+
             LogStreamComplete(logger, provider.ProviderName, finishReason, toolCallBuilders.Count);
 
             if (toolCallBuilders.Count == 0) break;
+
+            // A tool result needs one more model round to be consumed. Never execute calls from the
+            // final allowed round and then silently discard their results (especially for tools with
+            // side effects).
+            if (round == maxToolRounds)
+                throw new InvalidOperationException(
+                    $"AI tool-call limit reached after {maxToolRounds} tool rounds.");
 
             // Build completed tool calls
             var completedCalls = toolCallBuilders

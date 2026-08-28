@@ -240,6 +240,17 @@ internal sealed partial class ChatController(
                         break;
 
                     case ToolCallBegin toolCallBegin:
+                        // A new call after results belongs to the next model round. Persist the prior
+                        // call/result segment first so sequential dependencies are not flattened into
+                        // one apparent parallel batch in conversation history.
+                        if (hasToolResults)
+                        {
+                            LogSegmentFlushed(conversationId, currentToolCalls.Count, currentToolResults.Count);
+                            FlushSegment(messagesToSave, currentText, currentToolCalls,
+                                currentToolResults, ref messageOrder);
+                            hasToolResults = false;
+                        }
+
                         LogToolCallBegin(conversationId, toolCallBegin.Name, toolCallBegin.Id);
                         currentToolCalls[toolCallBegin.Id] = (toolCallBegin.Name, new StringBuilder());
                         await writer.WriteAsync(
