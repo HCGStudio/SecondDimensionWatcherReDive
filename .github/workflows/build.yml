@@ -134,15 +134,15 @@ jobs:
         with:
           node-version: '24'
 
-      - name: Install FUSE runtime
+      - name: Install FUSE and NativeAOT prerequisites
         run: |
           sudo apt-get update
-          sudo apt-get install -y fuse3 libfuse3-3
+          sudo apt-get install -y fuse3 libfuse3-dev clang zlib1g-dev
 
-      - name: Publish managed smoke binary
+      - name: Publish NativeAOT smoke binary
         run: >-
           dotnet publish SecondDimensionWatcherReDive.FUSE/SecondDimensionWatcherReDive.FUSE.csproj
-          -c Release -r linux-x64 --self-contained false -p:PublishAot=false
+          -c Release -r linux-x64 -p:StripSymbols=true
           -o publish-fuse-smoke
 
       - name: Run real mount when supported

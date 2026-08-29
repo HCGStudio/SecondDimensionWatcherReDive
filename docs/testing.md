@@ -36,12 +36,12 @@ yarn playwright install chromium
 yarn test:e2e
 ```
 
-For a local mount smoke, publish the managed FUSE client and pass its executable to the
-script:
+For a local mount smoke, install the NativeAOT build prerequisites documented in the
+FUSE README, publish the release client, and pass its executable to the script:
 
 ```bash
 dotnet publish SecondDimensionWatcherReDive.FUSE/SecondDimensionWatcherReDive.FUSE.csproj \
-  -c Release -r linux-x64 --self-contained false -p:PublishAot=false \
+  -c Release -r linux-x64 -p:StripSymbols=true \
   -o /tmp/sdw-fuse-smoke
 deployments/ci/fuse-mount-smoke.sh /tmp/sdw-fuse-smoke/sdwfuse
 ```
