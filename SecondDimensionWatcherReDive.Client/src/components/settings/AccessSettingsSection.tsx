@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 
 import { Network, RadioTower } from "lucide-react";
 
+import { apiErrorStatus } from "../../errors/apiError";
 import {
   NfsSettings,
   NfsSettingsPatch,
@@ -80,7 +81,7 @@ export const AccessSettingsSection: React.FC<AccessSettingsSectionProps> = ({
     } catch (error) {
       addToast({
         title:
-          error instanceof Error && error.message === "409"
+          apiErrorStatus(error) === 409
             ? t("system.save.conflict")
             : t("system.save.failed"),
         color: "danger",

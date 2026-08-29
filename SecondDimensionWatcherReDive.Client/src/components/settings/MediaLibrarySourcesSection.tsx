@@ -159,6 +159,7 @@ export const MediaLibrarySourcesSection: React.FC = () => {
           {value}
         </span>
       ),
+      mobile: "primary",
     },
     {
       name: t("settings:mediaLibrary.list.columns.monitoring"),
@@ -193,6 +194,7 @@ export const MediaLibrarySourcesSection: React.FC = () => {
           ? new Date(value).toLocaleString()
           : t("settings:mediaLibrary.list.neverScanned"),
       width: "190px",
+      mobile: "hidden",
     },
     {
       name: t("settings:mediaLibrary.list.columns.result"),
@@ -319,12 +321,18 @@ export const MediaLibrarySourcesSection: React.FC = () => {
       <div className="mt-6">
         {error ? (
           <EmptyPrompt
+            role="alert"
             icon={<AlertTriangle size={44} />}
             title={<h3>{t("errors:loadFailed")}</h3>}
             body={<p>{t("settings:mediaLibrary.list.loadFailed")}</p>}
           />
         ) : data && data.length > 0 ? (
-          <Table items={data} columns={columns} />
+          <Table
+            items={data}
+            columns={columns}
+            label={t("settings:mediaLibrary.list.title")}
+            rowKey={(source) => source.id}
+          />
         ) : data ? (
           <EmptyPrompt
             title={<h3>{t("settings:mediaLibrary.list.empty.title")}</h3>}

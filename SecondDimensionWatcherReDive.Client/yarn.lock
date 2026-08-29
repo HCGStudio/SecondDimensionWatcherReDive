@@ -21,6 +21,17 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@axe-core/playwright@npm:^4.13.0":
+  version: 4.13.0
+  resolution: "@axe-core/playwright@npm:4.13.0"
+  dependencies:
+    axe-core: "npm:~4.13.0"
+  peerDependencies:
+    playwright-core: ">= 1.0.0"
+  checksum: 10/2400e309d6f6d96b3f3f12b00a80e32cb0213726fcfc3c457b36d17f7136a3361f02a7523286024d7e8ceba9045a5f9c18edd8bc352f76b549faedce298fada2
+  languageName: node
+  linkType: hard
+
 "@babel/code-frame@npm:^7.29.7":
   version: 7.29.7
   resolution: "@babel/code-frame@npm:7.29.7"
@@ -404,10 +415,12 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@hcgstudio/sdwr-client@workspace:."
   dependencies:
+    "@axe-core/playwright": "npm:^4.13.0"
     "@ffmpeg/core": "npm:^0.12.10"
     "@ffmpeg/ffmpeg": "patch:@ffmpeg/ffmpeg@npm%3A0.12.15#~/.yarn/patches/@ffmpeg-ffmpeg-npm-0.12.15-ef17f09f1b.patch"
     "@parcel/core": "npm:^2.16.4"
     "@parcel/transformer-inline-string": "npm:2.16.4"
+    "@playwright/test": "npm:^1.62.1"
     "@radix-ui/react-dialog": "npm:^1.1.23"
     "@radix-ui/react-dropdown-menu": "npm:^2.1.24"
     "@radix-ui/react-progress": "npm:^1.1.16"
@@ -415,6 +428,7 @@ __metadata:
     "@tailwindcss/postcss": "npm:^4.3.3"
     "@tailwindcss/typography": "npm:^0.5.20"
     "@trivago/prettier-plugin-sort-imports": "npm:^6.0.2"
+    "@types/node": "npm:^26.4.0"
     "@types/react": "npm:^19.2.18"
     "@types/react-dom": "npm:^19.2.5"
     "@yarnpkg/sdks": "npm:^3.3.1"
@@ -431,6 +445,7 @@ __metadata:
     media-captions: "npm:^0.0.18"
     mediabunny: "npm:^1.55.3"
     parcel: "npm:^2.16.4"
+    playwright-core: "npm:1.62.1"
     postcss: "npm:^8.5.26"
     prettier: "npm:^3.9.6"
     process: "npm:^0.11.10"
@@ -446,6 +461,11 @@ __metadata:
     tailwindcss: "npm:^4.3.3"
     tsx: "npm:^4.20.6"
     typescript: "npm:^6.0.3"
+  dependenciesMeta:
+    "@playwright/test@1.62.1":
+      unplugged: true
+    playwright-core@1.62.1:
+      unplugged: true
   languageName: unknown
   linkType: soft
 
@@ -1599,6 +1619,17 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@playwright/test@npm:^1.62.1":
+  version: 1.62.1
+  resolution: "@playwright/test@npm:1.62.1"
+  dependencies:
+    playwright: "npm:1.62.1"
+  bin:
+    playwright: cli.js
+  checksum: 10/a84fdc2b0c0f01131fa4c0f0aaebf2698a618ca4a459e3b71ebec4b0b8a5be5b7b1a3cfc063e316d4d75f403a04078d214baf69c4bcbc9606ba12be696d4ff14
+  languageName: node
+  linkType: hard
+
 "@radix-ui/primitive@npm:1.1.7":
   version: 1.1.7
   resolution: "@radix-ui/primitive@npm:1.1.7"
@@ -2659,7 +2690,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@types/node@npm:*":
+"@types/node@npm:*, @types/node@npm:^26.4.0":
   version: 26.4.0
   resolution: "@types/node@npm:26.4.0"
   dependencies:
@@ -2886,6 +2917,13 @@ __metadata:
   dependencies:
     option-validator: "npm:^2.0.6"
   checksum: 10/0418dd59d31cfbe167d54b01c77033622b1e96634c28e0b4c53527aaad52a46de6e88acfb1330ca2d4785926aa3d623fd046726a9ef81c45c09b6a8b6cde7977
+  languageName: node
+  linkType: hard
+
+"axe-core@npm:~4.13.0":
+  version: 4.13.0
+  resolution: "axe-core@npm:4.13.0"
+  checksum: 10/b9319bedc705fde00e4abd981d8724202cc20102e4ae6d8edfde33cb5265e0fb8f67f32adcb4ad33fbd4a2c8d7ad7ef5af1d933d9ad859bed90e3eae0ee8c52f
   languageName: node
   linkType: hard
 
@@ -3542,12 +3580,31 @@ __metadata:
   languageName: node
   linkType: hard
 
+"fsevents@npm:2.3.2":
+  version: 2.3.2
+  resolution: "fsevents@npm:2.3.2"
+  dependencies:
+    node-gyp: "npm:latest"
+  checksum: 10/6b5b6f5692372446ff81cf9501c76e3e0459a4852b3b5f1fc72c103198c125a6b8c72f5f166bdd76ffb2fca261e7f6ee5565daf80dca6e571e55bcc589cc1256
+  conditions: os=darwin
+  languageName: node
+  linkType: hard
+
 "fsevents@npm:~2.3.3":
   version: 2.3.3
   resolution: "fsevents@npm:2.3.3"
   dependencies:
     node-gyp: "npm:latest"
   checksum: 10/4c1ade961ded57cdbfbb5cac5106ec17bc8bccd62e16343c569a0ceeca83b9dfef87550b4dc5cbb89642da412b20c5071f304c8c464b80415446e8e155a038c0
+  conditions: os=darwin
+  languageName: node
+  linkType: hard
+
+"fsevents@patch:fsevents@npm%3A2.3.2#optional!builtin<compat/fsevents>":
+  version: 2.3.2
+  resolution: "fsevents@patch:fsevents@npm%3A2.3.2#optional!builtin<compat/fsevents>::version=2.3.2&hash=df0bf1"
+  dependencies:
+    node-gyp: "npm:latest"
   conditions: os=darwin
   languageName: node
   linkType: hard
@@ -5203,6 +5260,30 @@ __metadata:
   version: 4.0.7
   resolution: "picomatch@npm:4.0.7"
   checksum: 10/66e1df34bc39c72fa3756be4069f7887ea3e35e94bba1c3f6167763007698cb04b8a0a365161d186fda6e9571a2d3efb606b2966eb6a7dea6252911224dc2f48
+  languageName: node
+  linkType: hard
+
+"playwright-core@npm:1.62.1":
+  version: 1.62.1
+  resolution: "playwright-core@npm:1.62.1"
+  bin:
+    playwright-core: cli.js
+  checksum: 10/2dab88793a6a5cbfa27641664548ded72a4f869d7eab8d3541e070081b5e09595253aa3dbd42eb4e6eca1b03d96a727c60704359b5b309e71ca58b12549a4c06
+  languageName: node
+  linkType: hard
+
+"playwright@npm:1.62.1":
+  version: 1.62.1
+  resolution: "playwright@npm:1.62.1"
+  dependencies:
+    fsevents: "npm:2.3.2"
+    playwright-core: "npm:1.62.1"
+  dependenciesMeta:
+    fsevents:
+      optional: true
+  bin:
+    playwright: cli.js
+  checksum: 10/f99546873ab2545160ad5a0145fef8e2c1d805efd1ba77356f5b0ee3d8688192b3a2af08cd948bece36ca386fdfad889ef7e53b7aaad309940744c0bbccc0a19
   languageName: node
   linkType: hard
 

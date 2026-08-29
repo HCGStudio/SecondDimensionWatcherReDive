@@ -11,6 +11,9 @@
   "runNow": "今すぐ実行",
   "running": "実行中",
   "idle": "待機中",
+  "announcements": {
+    "started": "タスク「{{name}}」を開始しました"
+  },
   "empty": {
     "title": "バックグラウンドタスクがありません",
     "body": "登録されているスケジュールタスクがありません"

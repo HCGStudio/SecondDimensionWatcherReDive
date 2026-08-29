@@ -100,6 +100,7 @@
       "title": "Simulate against history",
       "description": "Replay recent items with the current unsaved settings. This never sends notifications or creates downloads.",
       "run": "Run simulation",
+      "running": "Running simulation",
       "empty": "Run a simulation to preview which historical releases match and why.",
       "summary": "{{matched}} of {{total}} historical releases match",
       "matchedCount": "{{count}} matched",

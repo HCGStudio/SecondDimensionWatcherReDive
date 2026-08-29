@@ -204,6 +204,28 @@ builder.Services.AddHttpClient("Feed", client =>
     }
 });
 
+builder.Services.AddOptions<TmdbImageProxyOptions>()
+    .BindConfiguration(TmdbImageProxyOptions.SectionName)
+    .Validate(options => options.CacheSizeBytes > 0, "TMDB image cache size must be positive.")
+    .Validate(options => options.MaxImageBytes > 0, "TMDB maximum image size must be positive.")
+    .Validate(options => options.CacheDuration > TimeSpan.Zero, "TMDB cache duration must be positive.")
+    .Validate(options => options.ClientCacheDuration >= TimeSpan.Zero,
+        "TMDB client cache duration cannot be negative.")
+    .ValidateOnStart();
+builder.Services.AddHttpClient("TmdbImages", client =>
+{
+    client.BaseAddress = new Uri("https://image.tmdb.org/t/p/", UriKind.Absolute);
+    client.Timeout = TimeSpan.FromSeconds(10);
+    client.DefaultRequestHeaders.UserAgent.Add(
+        new ProductInfoHeaderValue("SecondDimensionWatcherReDive", "2.0"));
+}).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+{
+    // The upstream origin is intentionally fixed. Never follow a redirect to a
+    // caller-controlled or unexpected host.
+    AllowAutoRedirect = false
+});
+builder.Services.AddSingleton<ITmdbImageProxyService, TmdbImageProxyService>();
+
 var contentTypeProvider = new FileExtensionContentTypeProvider();
 contentTypeProvider.Mappings.Add(".mkv", "video/x-matroska");
 builder.Services.AddSingleton<IContentTypeProvider>(contentTypeProvider);

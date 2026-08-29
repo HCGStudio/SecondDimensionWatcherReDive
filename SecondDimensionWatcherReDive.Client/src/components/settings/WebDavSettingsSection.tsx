@@ -112,6 +112,7 @@ export const WebDavSettingsSection: React.FC = () => {
       render: (value: string) => (
         <span className="font-mono text-foreground">{value}</span>
       ),
+      mobile: "primary",
     },
     {
       field: "description",
@@ -122,6 +123,7 @@ export const WebDavSettingsSection: React.FC = () => {
       field: "createdAt",
       name: t("settings:webdav.list.columns.createdAt"),
       render: (value: string) => new Date(value).toLocaleString(),
+      mobile: "hidden",
     },
     {
       name: t("settings:webdav.list.columns.actions"),
@@ -230,11 +232,17 @@ export const WebDavSettingsSection: React.FC = () => {
       <div className="mt-6">
         {error ? (
           <EmptyPrompt
+            role="alert"
             icon={<AlertTriangle size={44} />}
             title={<h3>{t("errors:loadFailed")}</h3>}
           />
         ) : data && data.length > 0 ? (
-          <Table items={data} columns={columns} />
+          <Table
+            items={data}
+            columns={columns}
+            label={t("settings:webdav.title")}
+            rowKey={(token) => token.id}
+          />
         ) : data ? (
           <EmptyPrompt
             title={<h3>{t("settings:webdav.list.empty.title")}</h3>}

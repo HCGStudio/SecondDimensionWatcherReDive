@@ -66,6 +66,7 @@ export const SettingsNavigation: React.FC<SettingsNavigationProps> = ({
           <button
             key={section}
             type="button"
+            aria-current={section === active ? "page" : undefined}
             onClick={() => onChange(section)}
             className={cn(
               "flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm transition-colors",

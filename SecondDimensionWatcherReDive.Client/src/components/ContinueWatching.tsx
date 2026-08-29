@@ -2,11 +2,12 @@ import React from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router";
 
-import { Film, Play } from "lucide-react";
+import { Play } from "lucide-react";
 
 import { tmdbImageUrl } from "../animation/tmdbImage";
 import { useContinueWatching } from "../playback/hooks";
 import { playbackPercent } from "../playback/types";
+import { ResilientPoster } from "./ResilientPoster";
 
 const formatPlaybackTime = (seconds: number): string => {
   const value = Math.max(0, Math.floor(seconds));
@@ -68,18 +69,12 @@ export const ContinueWatching: React.FC = () => {
               className="group overflow-hidden rounded-xl border border-border bg-surface text-left shadow-ring transition-all hover:border-accent/30 hover:shadow-ring-brand"
             >
               <div className="flex min-w-0 gap-3 p-3">
-                {posterUrl ? (
-                  <img
-                    src={posterUrl}
-                    alt=""
-                    className="h-24 w-16 shrink-0 rounded-md bg-canvas object-cover"
-                    loading="lazy"
-                  />
-                ) : (
-                  <div className="flex h-24 w-16 shrink-0 items-center justify-center rounded-md bg-canvas text-subtle">
-                    <Film size={22} />
-                  </div>
-                )}
+                <ResilientPoster
+                  src={posterUrl}
+                  alt=""
+                  className="h-24 w-16 rounded-md"
+                  allowManualRetry={false}
+                />
                 <div className="flex min-w-0 flex-1 flex-col justify-between py-0.5">
                   <div>
                     <p className="line-clamp-1 text-xs text-accent">

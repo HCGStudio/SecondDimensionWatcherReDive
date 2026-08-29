@@ -37,5 +37,15 @@
   },
   "actions": {
     "close": "关闭"
+  },
+  "notifications": {
+    "label": "通知",
+    "dismiss": "关闭通知"
+  },
+  "images": {
+    "poster": "海报",
+    "unavailable": "图片暂不可用",
+    "unavailableFor": "{{name}} 的图片暂不可用",
+    "retry": "重新加载 {{name}} 的图片"
   }
 }
