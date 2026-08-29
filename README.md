@@ -13,7 +13,7 @@
 - **下载**: qBittorrent Web API
 - **AI**: OpenAI / Anthropic，或本地 Codex app-server（流式 SSE + 工具调用）+ TMDB API
 - **包管理**: Yarn Berry (PnP)
-- **测试**: MSTest + Moq（单元）/ `Microsoft.AspNetCore.Mvc.Testing`（集成，覆盖 WebDAV 与 Basic Auth）
+- **测试**: MSTest + Moq、Testcontainers PostgreSQL、Playwright，以及 FUSE/交付制品 smoke tests
 
 ## 功能
 
@@ -68,6 +68,8 @@ yarn dev    # Mock 服务器 + 开发服务器
 # 或连接真实后端
 yarn start  # 仅前端开发服务器（代理到 localhost:5097）
 ```
+
+完整测试矩阵与本地命令见 **[生产边界测试指南](docs/testing.md)**。
 
 ### 一键部署
 

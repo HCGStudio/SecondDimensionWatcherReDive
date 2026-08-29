@@ -32,7 +32,9 @@
   "devDependencies": {
     "@parcel/core": "^2.16.4",
     "@parcel/transformer-inline-string": "2.16.4",
+    "@playwright/test": "^1.62.1",
     "@trivago/prettier-plugin-sort-imports": "^6.0.2",
+    "@types/node": "^24",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.5",
     "@yarnpkg/sdks": "^3.3.1",
@@ -52,7 +54,9 @@
     "build": "rimraf dist && parcel build --no-source-maps",
     "mock": "node mock-server.mjs",
     "dev": "node mock-server.mjs & parcel --no-cache",
-    "test": "tsx --test src/playback/mkv/*.test.ts"
+    "test": "yarn test:unit",
+    "test:unit": "tsx --test src/auth/*.test.ts src/playback/*.test.ts src/playback/mkv/*.test.ts",
+    "test:e2e": "playwright test"
   },
   "source": "src/index.html",
   "@parcel/resolver-default": {

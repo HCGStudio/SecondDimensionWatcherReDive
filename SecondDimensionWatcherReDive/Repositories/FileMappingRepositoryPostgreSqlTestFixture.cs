@@ -1,4 +1,6 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 
 namespace SecondDimensionWatcherReDive.Repositories;
@@ -18,6 +20,64 @@ internal sealed class FileMappingRepositoryPostgreSqlTestFixture(string connecti
     {
         await using var context = new Models.ApplicationContext(_contextOptions);
         await context.Database.MigrateAsync(cancellationToken);
+    }
+
+    public async Task<MigrationUpgradeResult> UpgradeFromPreviousMigrationAsync(
+        CancellationToken cancellationToken)
+    {
+        await using var context = new Models.ApplicationContext(_contextOptions);
+        var migrations = context.Database.GetMigrations().ToArray();
+        if (migrations.Length < 2)
+            throw new InvalidOperationException("At least two migrations are required for an upgrade test.");
+
+        var previousMigration = migrations[^2];
+        var latestMigration = migrations[^1];
+
+        await context.Database.EnsureDeletedAsync(cancellationToken);
+        var migrator = context.GetService<IMigrator>();
+        await migrator.MigrateAsync(previousMigration, cancellationToken);
+
+        const string MarkerKey = "postgres-upgrade-sentinel";
+        await context.Database.ExecuteSqlRawAsync(
+            "INSERT INTO \"MigrationMarkers\" (\"Key\", \"AppliedAt\") VALUES ({0}, {1})",
+            [MarkerKey, DateTimeOffset.UtcNow],
+            cancellationToken);
+
+        await migrator.MigrateAsync(latestMigration, cancellationToken);
+
+        var appliedMigrations = await context.Database
+            .GetAppliedMigrationsAsync(cancellationToken);
+        var markerSurvived = await context.MigrationMarkers
+            .AnyAsync(marker => marker.Key == MarkerKey, cancellationToken);
+        var valuesJsonType = await context.Database
+            .SqlQueryRaw<string>(
+                """
+                SELECT data_type AS "Value"
+                FROM information_schema.columns
+                WHERE table_schema = 'public'
+                  AND table_name = 'ApplicationSettings'
+                  AND column_name = 'ValuesJson'
+                """)
+            .SingleAsync(cancellationToken);
+        var checkConstraints = await context.Database
+            .SqlQueryRaw<string>(
+                """
+                SELECT constraint_name AS "Value"
+                FROM information_schema.table_constraints
+                WHERE table_schema = 'public'
+                  AND table_name = 'ApplicationSettings'
+                  AND constraint_type = 'CHECK'
+                ORDER BY constraint_name
+                """)
+            .ToArrayAsync(cancellationToken);
+
+        return new MigrationUpgradeResult(
+            previousMigration,
+            latestMigration,
+            appliedMigrations.ToArray(),
+            markerSurvived,
+            valuesJsonType,
+            checkConstraints);
     }
 
     public async Task ResetAsync(CancellationToken cancellationToken)
@@ -84,3 +144,11 @@ internal sealed class FileMappingRepositoryPostgreSqlTestFixture(string connecti
             .ToArrayAsync(cancellationToken);
     }
 }
+
+internal sealed record MigrationUpgradeResult(
+    string PreviousMigration,
+    string LatestMigration,
+    string[] AppliedMigrations,
+    bool MarkerSurvived,
+    string ValuesJsonType,
+    string[] CheckConstraints);
