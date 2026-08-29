@@ -21,6 +21,9 @@ RUN dotnet publish SecondDimensionWatcherReDive/SecondDimensionWatcherReDive.csp
 # Stage 3: Runtime
 FROM mcr.microsoft.com/dotnet/aspnet:10.0
 WORKDIR /app
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
 COPY --from=backend-build /app .
 EXPOSE 8080
 # Optional: read-only NFSv4 export (set Nfs:Enabled=true to activate; publish port at run time).

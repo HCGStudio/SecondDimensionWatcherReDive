@@ -18,6 +18,7 @@ using SecondDimensionWatcherReDive.Framework.FileStore;
 using SecondDimensionWatcherReDive.Framework.Tasks;
 using SecondDimensionWatcherReDive.IntegrationTest.Helpers;
 using SecondDimensionWatcherReDive.MigrationTasks;
+using SecondDimensionWatcherReDive.Services.Transcoding;
 using FileMapping = SecondDimensionWatcherReDive.Framework.DataRepository.FileMapping;
 using ApplicationContext = SecondDimensionWatcherReDive.Models.ApplicationContext;
 
@@ -52,6 +53,7 @@ internal sealed class WebDavWebApplicationFactory : WebApplicationFactory<Migrat
     public Mock<IFileStore> FileStoreMock { get; } = new();
     public Mock<IFileStoreProvider> FileStoreProviderMock { get; } = new();
     public Helpers.FakeFileMappingRepository MappingRepository { get; }
+    public FakeTranscodingService TranscodingService { get; } = new();
 
     private readonly object _mappingsLock = new();
 
@@ -122,6 +124,7 @@ internal sealed class WebDavWebApplicationFactory : WebApplicationFactory<Migrat
             services.RemoveAll<IFileExplorer>();
             services.RemoveAll<IWebDavTokenRepository>();
             services.RemoveAll<IApplicationSettingsRepository>();
+            services.RemoveAll<IHlsTranscodingService>();
 
             services.AddSingleton(FileStoreMock.Object);
             services.AddSingleton(FileStoreProviderMock.Object);
@@ -130,6 +133,7 @@ internal sealed class WebDavWebApplicationFactory : WebApplicationFactory<Migrat
             services.AddSingleton<IWebDavTokenRepository>(_ =>
                 new FakeWebDavTokenRepository(TestUserName, BCrypt.Net.BCrypt.HashPassword(TestPassword)));
             services.AddSingleton<IApplicationSettingsRepository, FakeApplicationSettingsRepository>();
+            services.AddSingleton<IHlsTranscodingService>(TranscodingService);
         });
     }
 
@@ -146,6 +150,7 @@ internal sealed class WebDavWebApplicationFactory : WebApplicationFactory<Migrat
         FileStoreProviderMock
             .Setup(p => p.GetClient(It.IsAny<string>()))
             .Returns(FileStoreMock.Object);
+        TranscodingService.Reset();
     }
 
     public HttpClient CreateBasicAuthClient(string user = TestUserName, string pass = TestPassword)

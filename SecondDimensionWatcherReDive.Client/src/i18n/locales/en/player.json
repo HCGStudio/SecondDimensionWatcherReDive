@@ -56,25 +56,27 @@
   "mkv": {
     "mode": {
       "demuxed": "Browser MKV demux",
-      "transcoded": "Browser transcoded"
+      "serverRemuxed": "Server HLS remux",
+      "serverTranscoded": "Server HLS transcode"
     },
     "stages": {
       "probing": "Inspecting MKV audio and video tracks",
       "extractingSubtitles": "Extracting and converting embedded subtitles",
-      "loadingTranscoder": "Loading the browser transcoder",
-      "downloading": "Downloading the MKV for browser conversion",
-      "readingTracks": "Reading MKV track information",
-      "convertingSubtitles": "Converting embedded subtitles to WebVTT",
-      "transcodingVideo": "Converting unsupported audio or video codecs",
-      "finalizing": "Preparing the playable video"
+      "serverQueued": "Waiting in the server transcoding queue (position {{position}})",
+      "serverProbing": "The server is inspecting media tracks",
+      "serverRemuxing": "Remuxing compatible tracks into HLS",
+      "serverTranscoding": "Transcoding unsupported tracks into HLS",
+      "serverFinalizing": "Streaming generated HLS segments while the server finishes"
     },
-    "playbackPreparationFailed": "This MKV could not be demuxed or converted in the browser",
+    "playbackPreparationFailed": "The server could not prepare this MKV for browser playback",
     "subtitleExtractionFailed": "The MKV can play, but its embedded subtitles could not be extracted",
-    "transcodeNotice": "Browser software conversion downloads the complete file and can take a while. Keep this page open.",
+    "serverNotice": "Playback starts as soon as the first server segment is ready; the source file is not downloaded to this device.",
+    "subtitleNotice": "The video is ready while compatible embedded subtitles are prepared in the background.",
+    "cacheHit": "Cached segments",
     "codecSummary": "MKV demuxed automatically · video {{video}} · audio {{audio}}",
     "noAudio": "none",
-    "bitmapSubtitlesSkipped_one": "Skipped {{count}} subtitle track that the browser could not convert",
-    "bitmapSubtitlesSkipped_other": "Skipped {{count}} subtitle tracks that the browser could not convert"
+    "bitmapSubtitlesSkipped_one": "{{count}} bitmap subtitle track is unavailable unless server burn-in is enabled",
+    "bitmapSubtitlesSkipped_other": "{{count}} bitmap subtitle tracks are unavailable unless server burn-in is enabled"
   },
   "next": {
     "play": "Next episode",

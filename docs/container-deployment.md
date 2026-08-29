@@ -19,7 +19,7 @@
 - `downloads` — sdw-redive 和 qbittorrent **共享**，用于下载文件的读写
 - `pgdata` — PostgreSQL 数据持久化
 - `valkeydata` — Valkey 缓存数据持久化
-- `appdata` — 登录密码文件与运行时敏感配置的 Data Protection 密钥环
+- `appdata` — 登录密码、Data Protection 密钥环与可复用 HLS 转码缓存
 
 ## 快速开始
 
@@ -120,6 +120,11 @@ podman logs qbittorrent 2>&1 | grep "temporary password"
 | `MediaLibrary__SettlingPeriod` | 新文件写入完成后的稳定等待时间 | `00:00:30` |
 | `MediaLibrary__MissingGracePeriod` | 条目缺失后保留观看/审核记录的宽限期 | `1.00:00:00` |
 | `MediaLibrary__AllowedRoots__0`, `__1`, ... | 允许导入的服务端根目录白名单 | `/media` |
+| `Transcoding__CachePath` | 服务端 HLS 分片缓存（应挂载持久卷） | `/app/data/transcode-cache` |
+| `Transcoding__MaxConcurrentJobs` | 同时运行的 FFmpeg 任务数 | `1` |
+| `Transcoding__QueueCapacity` | 等待队列容量；满时返回 429 | `8` |
+| `Transcoding__MaxMemoryBytesPerJob` | 单个 FFmpeg 工作集上限 | `2147483648` |
+| `Transcoding__MaxCacheBytes` | HLS 缓存总上限 | `107374182400` |
 | `Torrent__Remote__Url` | qBittorrent API 地址 | `http://qbittorrent:8080` |
 | `Valkey__ConnectionString` | Valkey 连接字符串 | 空（使用内存缓存） |
 | `TmdbApiKey` | TMDB API 密钥 | 空（海报功能不可用） |
@@ -134,6 +139,11 @@ podman logs qbittorrent 2>&1 | grep "temporary password"
 | `AI__CodexAppServer__Endpoint` | 本地 Agent 的 WebSocket 地址 | 空 |
 | `AI__CodexAppServer__BearerToken` | app-server / 反向代理要求的 Bearer token | 空 |
 | `AI__CodexAppServer__PermissionProfile` | `:read-only` 或管理员定义的 permission profile id | `:read-only` |
+
+镜像已包含 FFmpeg。浏览器会继续优先直放兼容源；只有不兼容轨道才进入有界服务端队列，
+首个 HLS 分片生成后立即开始播放。`appdata` 必须留有足够空间，缓存会按 TTL/LRU 自动清理。
+硬件转码需要额外映射 GPU 设备/驱动并设置 `Transcoding__HardwareVideoEncoder`；硬件失败会
+自动回退 CPU。
 
 ### 网页运行时设置
 

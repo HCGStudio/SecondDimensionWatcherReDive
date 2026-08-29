@@ -53,24 +53,26 @@
   "mkv": {
     "mode": {
       "demuxed": "MKV 前端拆包",
-      "transcoded": "浏览器已转码"
+      "serverRemuxed": "服务端 HLS 无损封装",
+      "serverTranscoded": "服务端 HLS 转码"
     },
     "stages": {
       "probing": "正在检查 MKV 音视频轨道",
       "extractingSubtitles": "正在拆出并转换内封字幕",
-      "loadingTranscoder": "正在加载浏览器转码器",
-      "downloading": "正在下载 MKV 以供前端转换",
-      "readingTracks": "正在读取 MKV 轨道信息",
-      "convertingSubtitles": "正在把内封字幕转换为 WebVTT",
-      "transcodingVideo": "正在转换浏览器不支持的音视频编码",
-      "finalizing": "正在生成可播放的视频"
+      "serverQueued": "正在等待服务端转码（队列第 {{position}} 位）",
+      "serverProbing": "服务端正在探测媒体轨道",
+      "serverRemuxing": "正在将兼容轨道无损封装为 HLS",
+      "serverTranscoding": "正在将不兼容轨道转为 HLS",
+      "serverFinalizing": "已开始播放生成的分片，服务端继续处理剩余内容"
     },
-    "playbackPreparationFailed": "无法在浏览器中拆包或转换此 MKV",
+    "playbackPreparationFailed": "服务端无法为浏览器准备此 MKV",
     "subtitleExtractionFailed": "MKV 可以播放，但内封字幕拆出失败",
-    "transcodeNotice": "前端软件转码需要完整下载文件，首次处理可能较慢，请保持此页面打开。",
+    "serverNotice": "首个服务端分片就绪后即可播放，源文件不会完整下载到本设备。",
+    "subtitleNotice": "视频已可播放，兼容的内封字幕仍在后台准备。",
+    "cacheHit": "已复用缓存分片",
     "codecSummary": "MKV 已自动拆包 · 视频 {{video}} · 音频 {{audio}}",
     "noAudio": "无",
-    "bitmapSubtitlesSkipped": "已跳过 {{count}} 条浏览器无法转换的字幕轨道"
+    "bitmapSubtitlesSkipped": "{{count}} 条位图字幕不可用；管理员可配置服务端烧录"
   },
   "next": {
     "play": "下一集",
