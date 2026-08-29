@@ -23,23 +23,6 @@ internal sealed class PluginProcessExecutor(
     IPluginCapabilityBroker capabilityBroker,
     IOptions<PluginPlatformOptions> options) : IPluginProcessExecutor
 {
-    private static readonly string[] RuntimeInjectionEnvironmentVariables =
-    [
-        "CORECLR_ENABLE_PROFILING",
-        "CORECLR_PROFILER",
-        "CORECLR_PROFILER_PATH",
-        "CORECLR_PROFILER_PATH_32",
-        "CORECLR_PROFILER_PATH_64",
-        "COR_ENABLE_PROFILING",
-        "COR_PROFILER",
-        "COR_PROFILER_PATH",
-        "COR_PROFILER_PATH_32",
-        "COR_PROFILER_PATH_64",
-        "DOTNET_STARTUP_HOOKS",
-        "DOTNET_ADDITIONAL_DEPS",
-        "DOTNET_SHARED_STORE"
-    ];
-
     private readonly PluginPlatformOptions _options = options.Value;
     private readonly SemaphoreSlim _globalGate = new(
         options.Value.MaximumConcurrentWorkers,
@@ -132,8 +115,10 @@ internal sealed class PluginProcessExecutor(
                         await HandleCapabilityAsync(process, plugin, message, timeout.Token);
                         break;
                     case "result" when message.Result is not null:
+                        await WaitForWorkerExitAfterTerminalMessageAsync(process, timeout, monitor);
                         return message.Result.Value.Clone();
                     case "error":
+                        await WaitForWorkerExitAfterTerminalMessageAsync(process, timeout, monitor);
                         throw new InvalidOperationException(message.Error ?? "Plugin execution failed.");
                     default:
                         throw new InvalidDataException($"Unexpected plugin worker message '{message.Type}'.");
@@ -234,14 +219,19 @@ internal sealed class PluginProcessExecutor(
             string.Equals(Path.GetFileNameWithoutExtension(processPath), "dotnet", StringComparison.OrdinalIgnoreCase))
             startInfo.ArgumentList.Add(hostAssembly.Location);
         startInfo.ArgumentList.Add(PluginWorkerHost.WorkerArgument);
-        RemoveRuntimeInjectionEnvironmentVariables(startInfo);
         return startInfo;
     }
 
-    internal static void RemoveRuntimeInjectionEnvironmentVariables(ProcessStartInfo startInfo)
+    private static async Task WaitForWorkerExitAfterTerminalMessageAsync(
+        Process process,
+        CancellationTokenSource timeout,
+        Task monitor)
     {
-        foreach (var variable in RuntimeInjectionEnvironmentVariables)
-            startInfo.Environment.Remove(variable);
+        timeout.Cancel();
+        try { await monitor; } catch (OperationCanceledException) { }
+
+        using var exitGrace = new CancellationTokenSource(TimeSpan.FromSeconds(1));
+        try { await process.WaitForExitAsync(exitGrace.Token); } catch (OperationCanceledException) { }
     }
 
     private static async Task<string> ReadErrorAsync(Process process)

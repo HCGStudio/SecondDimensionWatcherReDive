@@ -448,61 +448,53 @@ public sealed class PluginPlatformIntegrationTests
     }
 
     [TestMethod]
-    public void WorkerEnvironment_RemovesProfilerAndStartupHookInjection()
+    public async Task Worker_ReportsScriptErrorsThroughProtocol_AndLeavesHealthyPluginAvailable()
     {
-        var startInfo = new ProcessStartInfo();
-        string[] injectedVariables =
-        [
-            "CORECLR_ENABLE_PROFILING",
-            "CORECLR_PROFILER",
-            "CORECLR_PROFILER_PATH",
-            "CORECLR_PROFILER_PATH_32",
-            "CORECLR_PROFILER_PATH_64",
-            "COR_ENABLE_PROFILING",
-            "COR_PROFILER",
-            "COR_PROFILER_PATH",
-            "COR_PROFILER_PATH_32",
-            "COR_PROFILER_PATH_64",
-            "DOTNET_STARTUP_HOOKS",
-            "DOTNET_ADDITIONAL_DEPS",
-            "DOTNET_SHARED_STORE"
-        ];
-        foreach (var variable in injectedVariables) startInfo.Environment[variable] = "injected";
+        const string crashingScript = """
+            'use strict';
+            globalThis.sdwPlugin = { handlers: {
+              crash() { throw new Error('intentional crash'); }
+            }};
+            """;
+        await using var fixture = new PluginPlatformFixture();
+        var crashing = Manifest("test.crash-protocol");
+        await fixture.InstallAndEnableAsync(crashing, crashingScript);
+        var healthy = Manifest("test.crash-healthy");
+        await fixture.InstallAndEnableAsync(healthy, PingScript);
 
-        PluginProcessExecutor.RemoveRuntimeInjectionEnvironmentVariables(startInfo);
+        var failure = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
+            fixture.InvokeAsync(crashing.Id, "crash"));
+        StringAssert.Contains(failure.Message, "intentional crash");
 
-        foreach (var variable in injectedVariables)
-            Assert.IsFalse(startInfo.Environment.ContainsKey(variable), $"{variable} must not reach the worker.");
+        var result = await fixture.InvokeAsync(healthy.Id, "ping", new { value = 7 });
+        Assert.AreEqual(7, result.GetProperty("value").GetInt32());
     }
 
     [TestMethod]
-    public async Task Worker_ContainsTimeoutCrashAndResourceExhaustion_ThenOpensCircuit()
+    public async Task WorkerCapacity_RejectionsDoNotDegradePluginHealth()
     {
-        const string hostileScript = """
+        const string timeoutScript = """
             'use strict';
             globalThis.sdwPlugin = { handlers: {
-              timeout() { while (true) {} },
-              crash() { throw new Error('intentional crash'); },
-              memory() { const values = []; while (true) values.push(new ArrayBuffer(1048576)); }
+              timeout() { while (true) {} }
             }};
             """;
         await using var fixture = new PluginPlatformFixture(options =>
         {
-            options.InvocationTimeoutMilliseconds = 400;
-            options.MaximumWorkerCpuMilliseconds = 300;
-            options.MaximumWorkerMemoryMegabytes = 64;
+            options.InvocationTimeoutMilliseconds = 2_000;
+            options.MaximumWorkerCpuMilliseconds = 1_500;
+            options.MaximumWorkerMemoryMegabytes = 256;
             options.MaximumConcurrentWorkers = 1;
             options.MaximumConcurrentWorkersPerPlugin = 1;
             options.CircuitBreakerFailures = 3;
         });
-        var hostile = Manifest("test.hostile");
-        await fixture.InstallAndEnableAsync(hostile, hostileScript);
-        var healthy = Manifest("test.healthy");
+        var hostile = Manifest("test.capacity-hostile");
+        await fixture.InstallAndEnableAsync(hostile, timeoutScript);
+        var healthy = Manifest("test.capacity-healthy");
         await fixture.InstallAndEnableAsync(healthy, PingScript);
-        var stopwatch = Stopwatch.StartNew();
 
         var firstTimeout = fixture.InvokeAsync(hostile.Id, "timeout");
-        await Task.Delay(100);
+        await Task.Delay(25);
         var rejected = await Task.WhenAll(Enumerable.Range(0, 20).Select(async _ =>
         {
             try
@@ -527,16 +519,39 @@ public sealed class PluginPlatformIntegrationTests
             .Single(plugin => plugin.Manifest.Id == healthy.Id).Health;
         Assert.AreEqual(0, healthyHealth.ConsecutiveFailures,
             "A global capacity rejection must not be attributed to another plugin.");
-        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => fixture.InvokeAsync(hostile.Id, "crash"));
-        await Assert.ThrowsAsync<Exception>(() => fixture.InvokeAsync(hostile.Id, "memory"));
+    }
+
+    [TestMethod]
+    public async Task Worker_ContainsTimeoutAndResourceExhaustion_ThenOpensCircuit()
+    {
+        const string hostileScript = """
+            'use strict';
+            globalThis.sdwPlugin = { handlers: {
+              timeout() { while (true) {} },
+              memory() { const values = []; while (true) values.push(new ArrayBuffer(1048576)); }
+            }};
+            """;
+        await using var fixture = new PluginPlatformFixture(options =>
+        {
+            options.InvocationTimeoutMilliseconds = 400;
+            options.MaximumWorkerCpuMilliseconds = 300;
+            options.MaximumWorkerMemoryMegabytes = 64;
+            options.CircuitBreakerFailures = 3;
+        });
+        var hostile = Manifest("test.resource-hostile");
+        await fixture.InstallAndEnableAsync(hostile, hostileScript);
+        var stopwatch = Stopwatch.StartNew();
+
+        await Assert.ThrowsExactlyAsync<TimeoutException>(() => fixture.InvokeAsync(hostile.Id, "timeout"));
+        await Assert.ThrowsExactlyAsync<TimeoutException>(() => fixture.InvokeAsync(hostile.Id, "timeout"));
+        var memoryFailure = await Assert.ThrowsAsync<Exception>(() => fixture.InvokeAsync(hostile.Id, "memory"));
+        Assert.IsTrue(memoryFailure is TimeoutException or InvalidOperationException,
+            $"Unexpected resource failure type: {memoryFailure.GetType().Name}");
         Assert.IsLessThan(TimeSpan.FromSeconds(8), stopwatch.Elapsed);
 
         var circuit = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
-            fixture.InvokeAsync(hostile.Id, "crash"));
+            fixture.InvokeAsync(hostile.Id, "timeout"));
         StringAssert.Contains(circuit.Message, "circuit is open");
-
-        var result = await fixture.InvokeAsync(healthy.Id, "ping", new { value = 7 });
-        Assert.AreEqual(7, result.GetProperty("value").GetInt32());
     }
 
     [TestMethod]

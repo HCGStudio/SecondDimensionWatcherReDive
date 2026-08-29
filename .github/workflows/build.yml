@@ -26,9 +26,19 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      - name: Run tests
+      # These tests intentionally start and kill child processes that load the application assembly.
+      # Coverlet statically instruments that assembly with one shared hits file, so collecting the
+      # class in-process can corrupt coverage when a hostile worker is terminated by design.
+      - name: Run plugin platform process tests without coverage
+        run: >-
+          dotnet test SecondDimensionWatcherReDive.Test/SecondDimensionWatcherReDive.Test.csproj -c Release
+          --filter "FullyQualifiedName~SecondDimensionWatcherReDive.Test.PluginPlatformIntegrationTests"
+          --logger "trx;LogFileName=plugin-platform-test-results.trx"
+
+      - name: Run remaining tests with coverage
         run: >-
           dotnet test SecondDimensionWatcherReDive.slnx -c Release
+          --filter "FullyQualifiedName!~SecondDimensionWatcherReDive.Test.PluginPlatformIntegrationTests"
           --logger "trx;LogFileName=test-results.trx"
           --collect "XPlat Code Coverage"
           -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=cobertura
