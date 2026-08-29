@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using SecondDimensionWatcherReDive.Framework.Authorization;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Framework.Tasks;
 using SecondDimensionWatcherReDive.Utils.Scraper;
@@ -106,6 +107,7 @@ internal class SeasonController(
 
     /// <summary>Manually refresh the season anime list.</summary>
     [HttpPost("refresh")]
+    [Authorize(Policy = AccessPolicies.Administrator)]
     public async Task<IActionResult> Refresh(CancellationToken cancellationToken)
     {
         // Rate limit: reject if last scrape < 10 minutes ago
@@ -124,6 +126,7 @@ internal class SeasonController(
 
     /// <summary>Subscribe to a bangumi by creating a Feed record.</summary>
     [HttpPost("subscribe")]
+    [Authorize(Policy = AccessPolicies.ContentWrite)]
     public async Task<IActionResult> Subscribe([FromBody] External.SubscribeRequest request,
         CancellationToken cancellationToken)
     {

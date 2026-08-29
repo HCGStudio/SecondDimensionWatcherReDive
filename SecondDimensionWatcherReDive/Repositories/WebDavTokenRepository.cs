@@ -33,12 +33,16 @@ public class WebDavTokenRepository(Models.ApplicationContext context) : IWebDavT
         await context.SaveChangesAsync(cancellationToken);
     }
 
-    public async Task<bool> RemoveByIdAsync(Guid id, CancellationToken cancellationToken)
+    public async Task<bool> RevokeByIdAsync(
+        Guid id,
+        DateTimeOffset revokedAt,
+        CancellationToken cancellationToken)
     {
         var entity = await context.WebDavTokens.FindAsync([id], cancellationToken);
         if (entity is null) return false;
 
-        context.WebDavTokens.Remove(entity);
+        if (entity.RevokedAt is null)
+            entity.RevokedAt = revokedAt;
         await context.SaveChangesAsync(cancellationToken);
         return true;
     }

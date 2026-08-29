@@ -7,6 +7,7 @@ public static class ChatServiceExtensions
 {
     public static IServiceCollection AddChat(this IServiceCollection services)
     {
+        services.AddHttpContextAccessor();
         services.AddScoped<QueryAnimationsTool>();
         services.AddScoped<ManageFeedsTool>();
         services.AddScoped<QuerySeasonTool>();

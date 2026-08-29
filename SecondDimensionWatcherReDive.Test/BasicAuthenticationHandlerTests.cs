@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
 using SecondDimensionWatcherReDive.Auth;
+using SecondDimensionWatcherReDive.Framework.Authorization;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 
 namespace SecondDimensionWatcherReDive.Test;
@@ -16,6 +17,7 @@ public class BasicAuthenticationHandlerTests
 {
     private const string ValidUser = "alice";
     private const string ValidPassword = "correct-horse";
+    private static readonly Guid UserId = Guid.Parse("10000000-0000-0000-0000-000000000001");
     private string _hash = null!;
 
     [TestInitialize]
@@ -35,6 +37,12 @@ public class BasicAuthenticationHandlerTests
 
         var services = new ServiceCollection();
         services.AddSingleton(repo.Object);
+        var identityRepo = new Mock<IIdentityRepository>();
+        identityRepo.Setup(r => r.FindUserByIdAsync(UserId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new UserAccount(
+                UserId, "admin", "hash", UserRole.Admin, false,
+                DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
+        services.AddSingleton(identityRepo.Object);
         var provider = services.BuildServiceProvider();
 
         var optionsMonitor = new Mock<IOptionsMonitor<AuthenticationSchemeOptions>>();
@@ -53,8 +61,14 @@ public class BasicAuthenticationHandlerTests
         return (handler, httpContext, repo);
     }
 
-    private WebDavToken SeededToken(string username = ValidUser) =>
-        new(Guid.NewGuid(), username, _hash, null, DateTimeOffset.UtcNow);
+    private WebDavToken SeededToken(
+        string username = ValidUser,
+        string scope = "read",
+        string root = "/Anime",
+        DateTimeOffset? expiresAt = null,
+        DateTimeOffset? revokedAt = null) =>
+        new(Guid.NewGuid(), UserId, username, _hash, null, DateTimeOffset.UtcNow,
+            scope, root, expiresAt ?? DateTimeOffset.UtcNow.AddDays(1), revokedAt);
 
     private static string BasicHeader(string user, string password) =>
         "Basic " + Convert.ToBase64String(Encoding.UTF8.GetBytes($"{user}:{password}"));
@@ -116,6 +130,28 @@ public class BasicAuthenticationHandlerTests
         var result = await handler.AuthenticateAsync();
         Assert.IsTrue(result.Succeeded);
         Assert.AreEqual(ValidUser, result.Principal!.Identity!.Name);
+        Assert.AreEqual("/Anime", result.Principal.FindFirst(IdentityClaimTypes.VirtualRoot)?.Value);
+        Assert.AreEqual("read", result.Principal.FindFirst(IdentityClaimTypes.DeviceScope)?.Value);
+        Assert.AreEqual(UserId.ToString(), result.Principal.FindFirst(IdentityClaimTypes.UserId)?.Value);
+    }
+
+    [TestMethod]
+    public async Task RevokedExpiredOrNonReadToken_Fails()
+    {
+        var revoked = await CreateHandlerAsync(
+            BasicHeader(ValidUser, ValidPassword),
+            SeededToken(revokedAt: DateTimeOffset.UtcNow));
+        Assert.IsFalse((await revoked.handler.AuthenticateAsync()).Succeeded);
+
+        var expired = await CreateHandlerAsync(
+            BasicHeader(ValidUser, ValidPassword),
+            SeededToken(expiresAt: DateTimeOffset.UtcNow.AddMinutes(-1)));
+        Assert.IsFalse((await expired.handler.AuthenticateAsync()).Succeeded);
+
+        var write = await CreateHandlerAsync(
+            BasicHeader(ValidUser, ValidPassword),
+            SeededToken(scope: "write"));
+        Assert.IsFalse((await write.handler.AuthenticateAsync()).Succeeded);
     }
 
     [TestMethod]

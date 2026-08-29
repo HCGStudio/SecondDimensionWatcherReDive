@@ -10,6 +10,8 @@ import {
   Trash2,
 } from "lucide-react";
 
+import { useUsers } from "../../accounts/hooks";
+import { retryAfterReauthentication } from "../../auth/utils";
 import {
   ICreateWebDavTokenResponse,
   IWebDavToken,
@@ -27,9 +29,13 @@ import { Table, TableColumn } from "../ui/Table";
 export const WebDavSettingsSection: React.FC = () => {
   const { t } = useTranslation(["settings", "errors"]);
   const { data, error, mutate } = useWebDavTokens();
+  const { data: users } = useUsers(true);
   const { addToast } = useToast();
   const [username, setUsername] = React.useState("");
   const [description, setDescription] = React.useState("");
+  const [virtualRoot, setVirtualRoot] = React.useState("/");
+  const [expiresAt, setExpiresAt] = React.useState("");
+  const [userId, setUserId] = React.useState("");
   const [creating, setCreating] = React.useState(false);
   const [created, setCreated] =
     React.useState<ICreateWebDavTokenResponse | null>(null);
@@ -38,9 +44,18 @@ export const WebDavSettingsSection: React.FC = () => {
     if (creating) return;
     setCreating(true);
     try {
-      const response = await createWebDavToken(
-        username.trim() || undefined,
-        description.trim() || undefined,
+      const response = await retryAfterReauthentication(
+        () =>
+          createWebDavToken(
+            username.trim() || undefined,
+            description.trim() || undefined,
+            virtualRoot.trim() || "/",
+            expiresAt
+              ? new Date(`${expiresAt}T23:59:59`).toISOString()
+              : undefined,
+            userId || undefined,
+          ),
+        t("settings:system.reauthenticatePrompt"),
       );
       setCreated(response);
       setUsername("");
@@ -58,7 +73,17 @@ export const WebDavSettingsSection: React.FC = () => {
     } finally {
       setCreating(false);
     }
-  }, [addToast, creating, description, mutate, t, username]);
+  }, [
+    addToast,
+    creating,
+    description,
+    expiresAt,
+    mutate,
+    t,
+    username,
+    userId,
+    virtualRoot,
+  ]);
 
   const remove = React.useCallback(
     async (token: IWebDavToken) => {
@@ -71,7 +96,10 @@ export const WebDavSettingsSection: React.FC = () => {
       )
         return;
       try {
-        await deleteWebDavToken(token.id);
+        await retryAfterReauthentication(
+          () => deleteWebDavToken(token.id),
+          t("settings:system.reauthenticatePrompt"),
+        );
         await mutate();
         addToast({
           title: t("settings:webdav.toast.deleted"),
@@ -119,25 +147,49 @@ export const WebDavSettingsSection: React.FC = () => {
       render: (value: string | undefined) => value || "-",
     },
     {
+      field: "userId",
+      name: t("settings:webdav.list.columns.user"),
+      render: (value: string) =>
+        users?.find((user) => user.id === value)?.username ?? value,
+    },
+    {
+      field: "virtualRoot",
+      name: t("settings:webdav.list.columns.virtualRoot"),
+      render: (value: string) => (
+        <span className="font-mono text-foreground">{value}</span>
+      ),
+    },
+    {
+      field: "expiresAt",
+      name: t("settings:webdav.list.columns.expiresAt"),
+      render: (value: string | undefined, item) =>
+        item.revokedAt
+          ? t("settings:webdav.list.revoked")
+          : value
+            ? new Date(value).toLocaleString()
+            : "-",
+    },
+    {
       field: "createdAt",
       name: t("settings:webdav.list.columns.createdAt"),
       render: (value: string) => new Date(value).toLocaleString(),
     },
     {
       name: t("settings:webdav.list.columns.actions"),
-      render: (_value, item) => (
-        <Button
-          variant="icon"
-          color="danger"
-          size="sm"
-          aria-label={t("settings:webdav.list.deleteAria", {
-            username: item.username,
-          })}
-          onClick={() => void remove(item)}
-        >
-          <Trash2 size={16} />
-        </Button>
-      ),
+      render: (_value, item) =>
+        item.revokedAt ? null : (
+          <Button
+            variant="icon"
+            color="danger"
+            size="sm"
+            aria-label={t("settings:webdav.list.deleteAria", {
+              username: item.username,
+            })}
+            onClick={() => void remove(item)}
+          >
+            <Trash2 size={16} />
+          </Button>
+        ),
       width: "60px",
     },
   ];
@@ -156,7 +208,23 @@ export const WebDavSettingsSection: React.FC = () => {
         icon={<KeyRound size={18} />}
         title={t("settings:webdav.create.title")}
       >
-        <div className="flex flex-col gap-4 md:flex-row md:items-end">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 xl:items-end">
+          <FormRow label={t("settings:webdav.create.userLabel")}>
+            <select
+              className="rounded-lg border border-border bg-surface px-3 py-2 text-sm"
+              value={userId}
+              onChange={(event) => setUserId(event.target.value)}
+            >
+              <option value="">
+                {t("settings:webdav.create.currentUser")}
+              </option>
+              {users?.map((user) => (
+                <option key={user.id} value={user.id}>
+                  {user.username}
+                </option>
+              ))}
+            </select>
+          </FormRow>
           <FormRow
             className="flex-1"
             label={t("settings:webdav.create.usernameLabel")}
@@ -166,6 +234,20 @@ export const WebDavSettingsSection: React.FC = () => {
               maxLength={32}
               placeholder={t("settings:webdav.create.usernamePlaceholder")}
               onChange={(event) => setUsername(event.target.value)}
+            />
+          </FormRow>
+          <FormRow label={t("settings:webdav.create.virtualRootLabel")}>
+            <Input
+              value={virtualRoot}
+              placeholder="/"
+              onChange={(event) => setVirtualRoot(event.target.value)}
+            />
+          </FormRow>
+          <FormRow label={t("settings:webdav.create.expiresAtLabel")}>
+            <Input
+              type="date"
+              value={expiresAt}
+              onChange={(event) => setExpiresAt(event.target.value)}
             />
           </FormRow>
           <FormRow

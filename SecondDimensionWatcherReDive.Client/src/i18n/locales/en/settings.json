@@ -2,6 +2,7 @@
   "pageTitle": "System settings",
   "system": {
     "pageDescription": "Configure AI execution, external services, media processing, health monitoring, and access protocols. Secret values are never displayed, and leaving a new value blank preserves the current setting.",
+    "reauthenticatePrompt": "Enter your account password to confirm this sensitive action",
     "loadFailed": "System settings could not be loaded. Check the service and try again.",
     "retry": "Reload",
     "navigation": {
@@ -242,11 +243,15 @@
     "intro": "Issue per-device WebDAV username and access-token pairs. Tokens are stored as BCrypt hashes in the database and the plaintext is displayed exactly once at creation time. Revoke any pair at any time.",
     "create": {
       "title": "Create a new credential",
+      "userLabel": "Credential owner",
+      "currentUser": "Current administrator",
       "usernameLabel": "Username (optional)",
       "usernamePlaceholder": "Leave blank to auto-generate",
       "usernameHelp": "Usernames may contain letters, digits, '.', '_' or '-' and must be 3-32 characters long.",
       "descriptionLabel": "Note (optional)",
       "descriptionPlaceholder": "e.g. living-room Mac mini",
+      "virtualRootLabel": "Visible virtual root",
+      "expiresAtLabel": "Expires on (optional)",
       "submit": "Generate"
     },
     "created": {
@@ -263,12 +268,16 @@
       },
       "columns": {
         "username": "Username",
+        "user": "Owner",
         "description": "Note",
+        "virtualRoot": "Visible root",
+        "expiresAt": "Expiry / status",
         "createdAt": "Created",
         "actions": "Actions"
       },
       "deleteConfirm": "Revoke credential \"{{username}}\"? This cannot be undone.",
-      "deleteAria": "Revoke {{username}}"
+      "deleteAria": "Revoke {{username}}",
+      "revoked": "Revoked"
     },
     "toast": {
       "created": "Credential generated",

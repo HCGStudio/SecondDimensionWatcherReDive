@@ -25,7 +25,6 @@ namespace SecondDimensionWatcherReDive.Migrations
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.Animation", b =>
                 {
                     b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
                     b.Property<string>("Name")
@@ -273,6 +272,9 @@ namespace SecondDimensionWatcherReDive.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<Guid>("ProfileId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("Title")
                         .HasColumnType("text");
 
@@ -280,6 +282,8 @@ namespace SecondDimensionWatcherReDive.Migrations
                         .HasColumnType("timestamp with time zone");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("ProfileId", "UpdatedAt");
 
                     b.ToTable("ChatConversations");
                 });
@@ -463,6 +467,51 @@ namespace SecondDimensionWatcherReDive.Migrations
                     b.HasIndex("ResolvedAt", "Type", "UpdatedAt");
 
                     b.ToTable("Incidents");
+                });
+
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.LoginSession", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ActiveProfileId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("AuthenticatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DeviceName")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("LastSeenAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("RefreshTokenHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset?>("RevokedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ActiveProfileId");
+
+                    b.HasIndex("UserId", "RevokedAt", "ExpiresAt");
+
+                    b.ToTable("LoginSessions");
                 });
 
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.MediaLibrarySource", b =>
@@ -674,7 +723,6 @@ namespace SecondDimensionWatcherReDive.Migrations
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.PlaybackPreference", b =>
                 {
                     b.Property<Guid>("UserId")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
                     b.Property<string>("AudioLanguage")
@@ -832,6 +880,81 @@ namespace SecondDimensionWatcherReDive.Migrations
                     b.ToTable("SubscriptionAutomationPolicies");
                 });
 
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.UserAccount", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsDisabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("PasswordHash")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("Role")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Username")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Username")
+                        .IsUnique();
+
+                    b.ToTable("Users");
+                });
+
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.UserProfile", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Avatar")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsDefault")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("PinHash")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId", "Name")
+                        .IsUnique();
+
+                    b.ToTable("Profiles");
+                });
+
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.WebDavToken", b =>
                 {
                     b.Property<Guid>("Id")
@@ -844,15 +967,36 @@ namespace SecondDimensionWatcherReDive.Migrations
                     b.Property<string>("Description")
                         .HasColumnType("text");
 
+                    b.Property<DateTimeOffset?>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("RevokedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Scope")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
                     b.Property<string>("TokenHash")
                         .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
 
                     b.Property<string>("Username")
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("VirtualRoot")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
                     b.HasKey("Id");
+
+                    b.HasIndex("UserId");
 
                     b.HasIndex("Username")
                         .IsUnique();
@@ -896,6 +1040,17 @@ namespace SecondDimensionWatcherReDive.Migrations
                     b.Navigation("SeasonBangumi");
                 });
 
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.ChatConversation", b =>
+                {
+                    b.HasOne("SecondDimensionWatcherReDive.Models.UserProfile", "Profile")
+                        .WithMany()
+                        .HasForeignKey("ProfileId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Profile");
+                });
+
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.ChatMessage", b =>
                 {
                     b.HasOne("SecondDimensionWatcherReDive.Models.ChatConversation", "Conversation")
@@ -914,6 +1069,25 @@ namespace SecondDimensionWatcherReDive.Migrations
                         .HasForeignKey("AnimationId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.LoginSession", b =>
+                {
+                    b.HasOne("SecondDimensionWatcherReDive.Models.UserProfile", "ActiveProfile")
+                        .WithMany()
+                        .HasForeignKey("ActiveProfileId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SecondDimensionWatcherReDive.Models.UserAccount", "User")
+                        .WithMany("Sessions")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("ActiveProfile");
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.MetadataReviewMappingSnapshot", b =>
@@ -938,6 +1112,17 @@ namespace SecondDimensionWatcherReDive.Migrations
                     b.Navigation("AnimationInfo");
                 });
 
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.PlaybackPreference", b =>
+                {
+                    b.HasOne("SecondDimensionWatcherReDive.Models.UserProfile", "Profile")
+                        .WithOne()
+                        .HasForeignKey("SecondDimensionWatcherReDive.Models.PlaybackPreference", "UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Profile");
+                });
+
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.PlaybackProgress", b =>
                 {
                     b.HasOne("SecondDimensionWatcherReDive.Models.AnimationInfo", "AnimationInfo")
@@ -946,7 +1131,15 @@ namespace SecondDimensionWatcherReDive.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.HasOne("SecondDimensionWatcherReDive.Models.UserProfile", "Profile")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
                     b.Navigation("AnimationInfo");
+
+                    b.Navigation("Profile");
                 });
 
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.SubscriptionAutomationPolicy", b =>
@@ -958,6 +1151,28 @@ namespace SecondDimensionWatcherReDive.Migrations
                         .IsRequired();
 
                     b.Navigation("Feed");
+                });
+
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.UserProfile", b =>
+                {
+                    b.HasOne("SecondDimensionWatcherReDive.Models.UserAccount", "User")
+                        .WithMany("Profiles")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.WebDavToken", b =>
+                {
+                    b.HasOne("SecondDimensionWatcherReDive.Models.UserAccount", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.ChatConversation", b =>
@@ -973,6 +1188,13 @@ namespace SecondDimensionWatcherReDive.Migrations
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.SeasonBangumi", b =>
                 {
                     b.Navigation("Subgroups");
+                });
+
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.UserAccount", b =>
+                {
+                    b.Navigation("Profiles");
+
+                    b.Navigation("Sessions");
                 });
 #pragma warning restore 612, 618
         }

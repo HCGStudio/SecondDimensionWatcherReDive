@@ -1,6 +1,9 @@
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using SecondDimensionWatcherReDive.AI.Models;
 using SecondDimensionWatcherReDive.Framework.AI;
 using SecondDimensionWatcherReDive.Framework.Attributes;
+using SecondDimensionWatcherReDive.Framework.Authorization;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Framework.FileDownload;
 
@@ -12,7 +15,9 @@ namespace SecondDimensionWatcherReDive.Chat.Tools;
 internal sealed partial class ManageDownloadsTool(
     IAnimationInfoRepository animationInfoRepository,
     IFileMappingRepository fileMappingRepository,
-    IFileDownloadClientProvider fileDownloadClientProvider) : ITool
+    IFileDownloadClientProvider fileDownloadClientProvider,
+    IHttpContextAccessor httpContextAccessor,
+    IAuthorizationService authorizationService) : ITool
 {
     private async Task<IToolResult> ExecuteCoreAsync(
         ManageDownloadsParams param, CancellationToken cancellationToken)
@@ -111,6 +116,14 @@ internal sealed partial class ManageDownloadsTool(
     private async Task<IToolResult> CancelDownloadAsync(
         AnimationInfo info, IFileDownloadClient client, bool removeFile, CancellationToken cancellationToken)
     {
+        if (removeFile)
+        {
+            var principal = httpContextAccessor.HttpContext?.User;
+            if (principal is null || !(await authorizationService.AuthorizeAsync(
+                    principal, resource: null, AccessPolicies.RecentAdministrator)).Succeeded)
+                return new ToolFailureResult("Deleting downloaded files requires recent administrator authentication");
+        }
+
         var cancellationAttemptId = info.DownloadCancellationId ?? Guid.NewGuid();
         cancellationToken.ThrowIfCancellationRequested();
         using (var beginCancellation = CreateDownloadSagaTokenSource())

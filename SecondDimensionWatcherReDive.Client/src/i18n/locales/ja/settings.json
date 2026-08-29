@@ -2,6 +2,7 @@
   "pageTitle": "システム設定",
   "system": {
     "pageDescription": "AI 実行エンジン、外部サービス、メディア処理、ヘルス監視、アクセスプロトコルを設定します。シークレット値は表示されず、新しい値を空欄にすると現在の設定が保持されます。",
+    "reauthenticatePrompt": "この重要な操作を確認するため、アカウントのパスワードを入力してください",
     "loadFailed": "システム設定を読み込めませんでした。サービスを確認して再試行してください。",
     "retry": "再読み込み",
     "navigation": {
@@ -242,11 +243,15 @@
     "intro": "デバイスごとに個別の WebDAV ユーザー名とアクセストークンを発行できます。トークンはデータベースに BCrypt ハッシュで保存され、平文は作成時に一度だけ表示されます。いつでも失効可能です。",
     "create": {
       "title": "新しい認証情報を作成",
+      "userLabel": "認証情報の所有者",
+      "currentUser": "現在の管理者",
       "usernameLabel": "ユーザー名（任意）",
       "usernamePlaceholder": "空欄で自動生成",
       "usernameHelp": "ユーザー名は英数字、ドット、アンダースコア、ハイフンのみ、3-32 文字。",
       "descriptionLabel": "メモ（任意）",
       "descriptionPlaceholder": "例：リビングの Mac mini",
+      "virtualRootLabel": "表示する仮想ルート",
+      "expiresAtLabel": "有効期限（任意）",
       "submit": "生成"
     },
     "created": {
@@ -263,12 +268,16 @@
       },
       "columns": {
         "username": "ユーザー名",
+        "user": "所有者",
         "description": "メモ",
+        "virtualRoot": "表示ルート",
+        "expiresAt": "期限 / 状態",
         "createdAt": "作成日時",
         "actions": "操作"
       },
       "deleteConfirm": "認証情報「{{username}}」を失効させますか？この操作は取り消せません。",
-      "deleteAria": "{{username}} を失効"
+      "deleteAria": "{{username}} を失効",
+      "revoked": "失効済み"
     },
     "toast": {
       "created": "認証情報を作成しました",

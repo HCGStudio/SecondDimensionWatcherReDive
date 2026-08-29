@@ -33,6 +33,7 @@
     "@parcel/core": "^2.16.4",
     "@parcel/transformer-inline-string": "2.16.4",
     "@trivago/prettier-plugin-sort-imports": "^6.0.2",
+    "@types/node": "^26.4.0",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.5",
     "@yarnpkg/sdks": "^3.3.1",
@@ -52,7 +53,7 @@
     "build": "rimraf dist && parcel build --no-source-maps",
     "mock": "node mock-server.mjs",
     "dev": "node mock-server.mjs & parcel --no-cache",
-    "test": "tsx --test src/playback/mkv/*.test.ts"
+    "test": "tsx --test src/auth/*.test.ts src/playback/mkv/*.test.ts"
   },
   "source": "src/index.html",
   "@parcel/resolver-default": {

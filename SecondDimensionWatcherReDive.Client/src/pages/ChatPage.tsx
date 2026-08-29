@@ -4,6 +4,7 @@ import { useNavigate, useParams } from "react-router";
 
 import { MessageSquare } from "lucide-react";
 
+import { subscribeToAuthChanges } from "../auth/httpClient";
 import { createConversation, deleteConversation } from "../chat/api";
 import {
   useChatModels,
@@ -47,6 +48,17 @@ export const ChatPage: React.FC = () => {
     sendMessage,
     reset: resetStreaming,
   } = useStreamingChat();
+
+  useEffect(
+    () =>
+      subscribeToAuthChanges(({ auth, profileChanged }) => {
+        if (!auth || profileChanged) {
+          setPendingUserMessage(null);
+          resetStreaming();
+        }
+      }),
+    [resetStreaming],
+  );
 
   // Sync URL param with selected conversation
   useEffect(() => {

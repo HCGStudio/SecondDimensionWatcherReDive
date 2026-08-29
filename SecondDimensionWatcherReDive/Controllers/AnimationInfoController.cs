@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using SecondDimensionWatcherReDive.Framework.Authorization;
 using Microsoft.Extensions.Caching.Distributed;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Framework.FileDownload;
@@ -19,6 +20,7 @@ internal class AnimationInfoController(
     IDistributedCache distributedCache,
     IFileDownloadClientProvider fileDownloadClientProvider,
     IFileMapper fileMapper,
+    IAuthorizationService authorizationService,
     IIncidentReporter? incidentReporter = null)
     : ControllerBase
 {
@@ -68,6 +70,7 @@ internal class AnimationInfoController(
     }
 
     [HttpPost("download/{id:guid}")]
+    [Authorize(Policy = AccessPolicies.ContentWrite)]
     public async Task<IActionResult> StartDownload([FromRoute] Guid id, CancellationToken cancellationToken)
     {
         var info = await animationInfoRepository.FindByIdAsync(id, cancellationToken);
@@ -129,6 +132,7 @@ internal class AnimationInfoController(
     }
 
     [HttpPost("pause/{id:guid}")]
+    [Authorize(Policy = AccessPolicies.ContentWrite)]
     public async Task<IActionResult> PauseDownload([FromRoute] Guid id, CancellationToken cancellationToken)
     {
         var info = await animationInfoRepository.FindByIdAsync(id, cancellationToken);
@@ -152,6 +156,7 @@ internal class AnimationInfoController(
     }
 
     [HttpPost("resume/{id:guid}")]
+    [Authorize(Policy = AccessPolicies.ContentWrite)]
     public async Task<IActionResult> ResumeDownload([FromRoute] Guid id, CancellationToken cancellationToken)
     {
         var info = await animationInfoRepository.FindByIdAsync(id, cancellationToken);
@@ -175,9 +180,14 @@ internal class AnimationInfoController(
     }
 
     [HttpDelete("cancel/{id:guid}")]
+    [Authorize(Policy = AccessPolicies.ContentWrite)]
     public async Task<IActionResult> CancelDownload([FromRoute] Guid id, [FromQuery] bool removeFile = false,
         CancellationToken cancellationToken = default)
     {
+        if (removeFile && !(await authorizationService.AuthorizeAsync(
+                User, resource: null, AccessPolicies.RecentAdministrator)).Succeeded)
+            return Forbid();
+
         var info = await animationInfoRepository.FindByIdAsync(id, cancellationToken);
 
         if (info is null)
@@ -298,6 +308,7 @@ internal class AnimationInfoController(
         new(TimeSpan.FromSeconds(10));
 
     [HttpPost("{id:guid}/retry-inference")]
+    [Authorize(Policy = AccessPolicies.Administrator)]
     public async Task<IActionResult> RetryInference([FromRoute] Guid id, CancellationToken cancellationToken)
     {
         var info = await animationInfoRepository.FindByIdAsync(id, cancellationToken);
@@ -319,6 +330,7 @@ internal class AnimationInfoController(
     }
 
     [HttpPost("{id:guid}/reidentify-files/ai")]
+    [Authorize(Policy = AccessPolicies.Administrator)]
     public async Task<IActionResult> ReidentifyFilesWithAi(
         [FromRoute] Guid id,
         CancellationToken cancellationToken)

@@ -1,8 +1,10 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Caching.Distributed;
 using Moq;
 using SecondDimensionWatcherReDive.Controllers;
+using SecondDimensionWatcherReDive.Framework.Authorization;
 using SecondDimensionWatcherReDive.Framework.FileDownload;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Utils.FileStore;
@@ -18,6 +20,7 @@ public class AnimationInfoControllerTests
     private Mock<IFileDownloadClientProvider> _providerMock = null!;
     private Mock<IFileDownloadClient> _downloadClientMock = null!;
     private Mock<IFileMapper> _fileMapperMock = null!;
+    private Mock<IAuthorizationService> _authorizationServiceMock = null!;
     private AnimationInfoController _controller = null!;
 
     [TestInitialize]
@@ -29,6 +32,7 @@ public class AnimationInfoControllerTests
         _providerMock = new Mock<IFileDownloadClientProvider>();
         _downloadClientMock = new Mock<IFileDownloadClient>();
         _fileMapperMock = new Mock<IFileMapper>();
+        _authorizationServiceMock = new Mock<IAuthorizationService>();
 
         _providerMock
             .Setup(p => p.GetRequiredClient(It.IsAny<string>()))
@@ -39,7 +43,8 @@ public class AnimationInfoControllerTests
             _fileMappingRepoMock.Object,
             _cacheMock.Object,
             _providerMock.Object,
-            _fileMapperMock.Object)
+            _fileMapperMock.Object,
+            _authorizationServiceMock.Object)
         {
             ControllerContext = new ControllerContext
             {
@@ -341,6 +346,35 @@ public class AnimationInfoControllerTests
             cancellationAttemptId.Value,
             It.Is<CancellationToken>(token =>
                 token.CanBeCanceled && !token.IsCancellationRequested)), Times.Once);
+        _authorizationServiceMock.Verify(service => service.AuthorizeAsync(
+            It.IsAny<System.Security.Claims.ClaimsPrincipal>(),
+            It.IsAny<object?>(),
+            It.IsAny<string>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task CancelDownload_RemoveFileWithoutRecentAdministrator_ReturnsForbidBeforeLookup()
+    {
+        var id = Guid.NewGuid();
+        _authorizationServiceMock.Setup(service => service.AuthorizeAsync(
+                It.IsAny<System.Security.Claims.ClaimsPrincipal>(),
+                null,
+                AccessPolicies.RecentAdministrator))
+            .ReturnsAsync(AuthorizationResult.Failed());
+
+        var result = await _controller.CancelDownload(
+            id, removeFile: true, CancellationToken.None);
+
+        Assert.IsInstanceOfType<ForbidResult>(result);
+        _repoMock.Verify(repository => repository.FindByIdAsync(
+            It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
+        _downloadClientMock.Verify(client => client.CancelDownloadTaskAsync(
+            It.IsAny<Guid>(),
+            It.IsAny<string>(),
+            It.IsAny<byte[]>(),
+            It.IsAny<string>(),
+            It.IsAny<bool>(),
+            It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [TestMethod]

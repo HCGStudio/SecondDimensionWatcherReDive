@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 
 import { AlertTriangle, Plus, SlidersHorizontal, Trash2 } from "lucide-react";
 
+import { useAccess } from "../auth/hooks";
 import {
   SubscriptionPolicyModeBadge,
   SubscriptionPolicySheet,
@@ -24,6 +25,7 @@ import { PageTemplate } from "./PageTemplate";
 
 export const FeedsPage: React.FC = () => {
   const { t } = useTranslation(["feeds", "errors"]);
+  const { canContentWrite } = useAccess();
   const { data: feeds, error, mutate } = useFeeds();
   const {
     data: policies,
@@ -115,30 +117,31 @@ export const FeedsPage: React.FC = () => {
     },
     {
       name: t("feeds:columns.actions"),
-      render: (_value: any, item: IFeed) => (
-        <div className="flex items-center gap-1">
-          <Button
-            variant="outline"
-            size="sm"
-            aria-label={t("feeds:automation.configureAria", {
-              name: item.name || item.url,
-            })}
-            onClick={() => setSelectedFeed(item)}
-          >
-            <SlidersHorizontal size={15} />
-            {t("feeds:automation.configure")}
-          </Button>
-          <Button
-            variant="icon"
-            color="danger"
-            size="sm"
-            aria-label={t("feeds:columns.delete")}
-            onClick={() => onRemove(item.id)}
-          >
-            <Trash2 size={16} />
-          </Button>
-        </div>
-      ),
+      render: (_value: any, item: IFeed) =>
+        canContentWrite ? (
+          <div className="flex items-center gap-1">
+            <Button
+              variant="outline"
+              size="sm"
+              aria-label={t("feeds:automation.configureAria", {
+                name: item.name || item.url,
+              })}
+              onClick={() => setSelectedFeed(item)}
+            >
+              <SlidersHorizontal size={15} />
+              {t("feeds:automation.configure")}
+            </Button>
+            <Button
+              variant="icon"
+              color="danger"
+              size="sm"
+              aria-label={t("feeds:columns.delete")}
+              onClick={() => onRemove(item.id)}
+            >
+              <Trash2 size={16} />
+            </Button>
+          </div>
+        ) : null,
       width: "190px",
     },
   ];
@@ -150,28 +153,30 @@ export const FeedsPage: React.FC = () => {
       <h2 className="mb-4 font-serif text-xl font-medium text-foreground">
         {t("feeds:manualSubscribe")}
       </h2>
-      <div className="flex items-end gap-4">
-        <FormRow label={t("feeds:urlLabel")} className="flex-1">
-          <Input
-            placeholder={t("feeds:urlPlaceholder")}
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-          />
-        </FormRow>
-        <FormRow label={t("feeds:nameLabel")}>
-          <Input
-            placeholder={t("feeds:namePlaceholder")}
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-          />
-        </FormRow>
-        <FormRow hasEmptyLabelSpace>
-          <Button onClick={onAdd}>
-            <Plus size={16} />
-            {t("feeds:add")}
-          </Button>
-        </FormRow>
-      </div>
+      {canContentWrite ? (
+        <div className="flex items-end gap-4">
+          <FormRow label={t("feeds:urlLabel")} className="flex-1">
+            <Input
+              placeholder={t("feeds:urlPlaceholder")}
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+            />
+          </FormRow>
+          <FormRow label={t("feeds:nameLabel")}>
+            <Input
+              placeholder={t("feeds:namePlaceholder")}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+          </FormRow>
+          <FormRow hasEmptyLabelSpace>
+            <Button onClick={onAdd}>
+              <Plus size={16} />
+              {t("feeds:add")}
+            </Button>
+          </FormRow>
+        </div>
+      ) : null}
       <div className="mt-8">
         <div className="mb-4 flex items-start gap-3">
           <div className="mt-0.5 rounded-md bg-brand/10 p-2 text-brand">
@@ -201,16 +206,18 @@ export const FeedsPage: React.FC = () => {
           />
         ) : null}
       </div>
-      <SubscriptionPolicySheet
-        feed={selectedFeed}
-        initialPolicy={
-          selectedFeed ? policiesByFeed.get(selectedFeed.id) : undefined
-        }
-        onOpenChange={(open) => {
-          if (!open) setSelectedFeed(null);
-        }}
-        onPolicyChanged={() => mutatePolicies()}
-      />
+      {canContentWrite ? (
+        <SubscriptionPolicySheet
+          feed={selectedFeed}
+          initialPolicy={
+            selectedFeed ? policiesByFeed.get(selectedFeed.id) : undefined
+          }
+          onOpenChange={(open) => {
+            if (!open) setSelectedFeed(null);
+          }}
+          onPolicyChanged={() => mutatePolicies()}
+        />
+      ) : null}
     </PageTemplate>
   );
 };

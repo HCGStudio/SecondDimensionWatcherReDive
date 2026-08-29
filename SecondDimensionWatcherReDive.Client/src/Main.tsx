@@ -3,7 +3,9 @@ import { useTranslation } from "react-i18next";
 import { createBrowserRouter } from "react-router";
 import { RouterProvider } from "react-router/dom";
 
+import { useAuthSynchronization } from "./auth/hooks";
 import { ProtectedRoute } from "./components/ProtectedRoute";
+import { AccountPage } from "./pages/AccountPage";
 import { ChatPage } from "./pages/ChatPage";
 import { DownloadedPage } from "./pages/DownloadedPage";
 import { DownloadingPage } from "./pages/DownloadingPage";
@@ -137,6 +139,15 @@ const router = createBrowserRouter([
     errorElement: <ErrorPage />,
   },
   {
+    path: "/account",
+    element: (
+      <ProtectedRoute>
+        <AccountPage />
+      </ProtectedRoute>
+    ),
+    errorElement: <ErrorPage />,
+  },
+  {
     path: "/settings",
     element: (
       <ProtectedRoute>
@@ -153,6 +164,7 @@ const router = createBrowserRouter([
 ]);
 
 export const Main: React.FC = () => {
+  useAuthSynchronization();
   const { t } = useTranslation();
   React.useEffect(() => {
     document.title = `${t("appName")} Re:Dive`;

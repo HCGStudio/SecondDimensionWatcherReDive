@@ -22,12 +22,13 @@ internal sealed partial class VfsController(
     [HttpGet("stat")]
     public async Task<IActionResult> Stat([FromQuery] string? path, CancellationToken cancellationToken)
     {
-        if (!TryNormalize(path, out var virtualPath)) return BadRequest();
+        if (!TryGetScopedPaths(path, out var publicPath, out var internalPath))
+            return BadRequest();
 
-        var resource = await ResolveAsync(virtualPath, cancellationToken);
+        var resource = await ResolveAsync(publicPath, internalPath, cancellationToken);
         if (resource is null)
         {
-            LogResourceMissing(logger, virtualPath);
+            LogResourceMissing(logger, publicPath);
             return NotFound();
         }
 
@@ -38,25 +39,26 @@ internal sealed partial class VfsController(
     [HttpGet("list")]
     public async Task<IActionResult> List([FromQuery] string? path, CancellationToken cancellationToken)
     {
-        if (!TryNormalize(path, out var virtualPath)) return BadRequest();
+        if (!TryGetScopedPaths(path, out var publicPath, out var internalPath))
+            return BadRequest();
 
-        var resource = await ResolveAsync(virtualPath, cancellationToken);
+        var resource = await ResolveAsync(publicPath, internalPath, cancellationToken);
         if (resource is null)
         {
-            LogResourceMissing(logger, virtualPath);
+            LogResourceMissing(logger, publicPath);
             return NotFound();
         }
 
         if (!resource.IsDirectory)
         {
-            LogListOnFile(logger, virtualPath);
+            LogListOnFile(logger, publicPath);
             return BadRequest();
         }
 
-        var directoryPath = EnsureTrailingSlash(resource.VirtualPath);
-        var directoryName = resource.VirtualPath == "/"
+        var directoryPath = EnsureTrailingSlash(resource.InternalPath);
+        var directoryName = resource.PublicPath == "/"
             ? string.Empty
-            : Path.GetFileName(resource.VirtualPath.TrimEnd('/'));
+            : Path.GetFileName(resource.PublicPath.TrimEnd('/'));
 
         var children = await fileExplorer.EnumerateDirectoryAsync(
             new DirectoryToken(directoryPath, directoryName), cancellationToken);
@@ -73,17 +75,18 @@ internal sealed partial class VfsController(
     [HttpGet("read")]
     public async Task<IActionResult> Read([FromQuery] string? path, CancellationToken cancellationToken)
     {
-        if (!TryNormalize(path, out var virtualPath)) return BadRequest();
+        if (!TryGetScopedPaths(path, out var publicPath, out var internalPath))
+            return BadRequest();
 
-        var resource = await ResolveAsync(virtualPath, cancellationToken);
+        var resource = await ResolveAsync(publicPath, internalPath, cancellationToken);
         if (resource is null || resource.IsDirectory || resource.Mapping is null)
         {
-            LogResourceMissing(logger, virtualPath);
+            LogResourceMissing(logger, publicPath);
             return NotFound();
         }
 
         var mapping = resource.Mapping;
-        var fileName = Path.GetFileName(mapping.VirtualPath);
+        var fileName = Path.GetFileName(resource.PublicPath);
         var contentType = contentTypeProvider.TryGetContentType(fileName, out var ct)
             ? ct
             : "application/octet-stream";
@@ -95,9 +98,9 @@ internal sealed partial class VfsController(
 
     private async Task<External.VfsEntry> BuildEntryAsync(ResolvedResource resource, CancellationToken cancellationToken)
     {
-        var name = resource.VirtualPath == "/"
+        var name = resource.PublicPath == "/"
             ? string.Empty
-            : Path.GetFileName(resource.VirtualPath.TrimEnd('/'));
+            : Path.GetFileName(resource.PublicPath.TrimEnd('/'));
 
         if (resource.IsDirectory || resource.Mapping is null)
             return new External.VfsEntry(name, IsDirectory: true, Size: null, LastModifiedUtc: null);
@@ -137,53 +140,46 @@ internal sealed partial class VfsController(
         }
     }
 
-    private async Task<ResolvedResource?> ResolveAsync(string virtualPath, CancellationToken cancellationToken)
+    private async Task<ResolvedResource?> ResolveAsync(
+        string publicPath,
+        string internalPath,
+        CancellationToken cancellationToken)
     {
-        if (virtualPath == "/") return new ResolvedResource("/", IsDirectory: true, null);
+        if (internalPath == "/")
+            return new ResolvedResource(publicPath, internalPath, IsDirectory: true, null);
 
-        var trimmed = virtualPath.TrimEnd('/');
-        if (trimmed.Length == 0) return new ResolvedResource("/", IsDirectory: true, null);
+        var trimmed = internalPath.TrimEnd('/');
+        if (trimmed.Length == 0)
+            return new ResolvedResource(publicPath, "/", IsDirectory: true, null);
 
         var mapping = await fileMappingRepository.FindByVirtualPathAsync(trimmed, cancellationToken);
-        if (mapping is not null) return new ResolvedResource(trimmed, IsDirectory: false, mapping);
+        if (mapping is not null)
+            return new ResolvedResource(publicPath, trimmed, IsDirectory: false, mapping);
 
         var prefix = trimmed + "/";
         var children = await fileMappingRepository.GetByVirtualPathPrefixAsync(prefix, cancellationToken);
-        return children.Count > 0 ? new ResolvedResource(trimmed, IsDirectory: true, null) : null;
+        return children.Count > 0
+            ? new ResolvedResource(publicPath, trimmed, IsDirectory: true, null)
+            : null;
     }
 
-    private static bool TryNormalize(string? raw, out string normalized)
-    {
-        if (string.IsNullOrEmpty(raw))
-        {
-            normalized = "/";
-            return true;
-        }
-
-        if (!raw.StartsWith('/'))
-        {
-            normalized = string.Empty;
-            return false;
-        }
-
-        // Reject path traversal segments. We never expect them in legitimate virtual paths.
-        foreach (var segment in raw.Split('/', StringSplitOptions.RemoveEmptyEntries))
-        {
-            if (segment == "." || segment == "..")
-            {
-                normalized = string.Empty;
-                return false;
-            }
-        }
-
-        var trimmed = raw.TrimEnd('/');
-        normalized = trimmed.Length == 0 ? "/" : trimmed;
-        return true;
-    }
+    private bool TryGetScopedPaths(
+        string? raw,
+        out string publicPath,
+        out string internalPath) =>
+        DevicePathScope.TryMapPublicToInternal(
+            raw,
+            DevicePathScope.GetVirtualRoot(User),
+            out publicPath,
+            out internalPath);
 
     private static string EnsureTrailingSlash(string path) => path.EndsWith('/') ? path : path + "/";
 
-    private sealed record ResolvedResource(string VirtualPath, bool IsDirectory, FileMapping? Mapping);
+    private sealed record ResolvedResource(
+        string PublicPath,
+        string InternalPath,
+        bool IsDirectory,
+        FileMapping? Mapping);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "VFS resource not found: {VirtualPath}")]
     private static partial void LogResourceMissing(ILogger logger, string virtualPath);

@@ -1,7 +1,10 @@
+using System.Security.Claims;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Moq;
 using SecondDimensionWatcherReDive.Controllers;
 using SecondDimensionWatcherReDive.Controllers.External;
+using SecondDimensionWatcherReDive.Framework.Authorization;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 
 namespace SecondDimensionWatcherReDive.Test;
@@ -10,7 +13,10 @@ namespace SecondDimensionWatcherReDive.Test;
 public class WebDavTokenControllerTests
 {
     private Mock<IWebDavTokenRepository> _repo = null!;
+    private Mock<IIdentityRepository> _identityRepo = null!;
+    private Mock<IFileMappingRepository> _mappingRepo = null!;
     private WebDavTokenController _controller = null!;
+    private readonly Guid _userId = Guid.Parse("10000000-0000-0000-0000-000000000001");
 
     [TestInitialize]
     public void Setup()
@@ -18,7 +24,27 @@ public class WebDavTokenControllerTests
         _repo = new Mock<IWebDavTokenRepository>();
         _repo.Setup(r => r.ExistsByUsernameAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(false);
-        _controller = new WebDavTokenController(_repo.Object);
+        _identityRepo = new Mock<IIdentityRepository>();
+        _identityRepo.Setup(r => r.FindUserByIdAsync(_userId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new UserAccount(
+                _userId, "admin", "hash", UserRole.Admin, false,
+                DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
+        _mappingRepo = new Mock<IFileMappingRepository>();
+        _controller = new WebDavTokenController(
+            _repo.Object, _identityRepo.Object, _mappingRepo.Object)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext
+                {
+                    User = new ClaimsPrincipal(new ClaimsIdentity(
+                    [
+                        new Claim(IdentityClaimTypes.UserId, _userId.ToString()),
+                        new Claim(ClaimTypes.Role, nameof(UserRole.Admin))
+                    ], "test"))
+                }
+            }
+        };
     }
 
     [TestMethod]
@@ -26,8 +52,8 @@ public class WebDavTokenControllerTests
     {
         var seeded = new List<WebDavToken>
         {
-            new(Guid.NewGuid(), "alice", "hash-1", "first key", DateTimeOffset.UtcNow.AddMinutes(-1)),
-            new(Guid.NewGuid(), "bob", "hash-2", null, DateTimeOffset.UtcNow)
+            Token("alice", "hash-1", "first key", DateTimeOffset.UtcNow.AddMinutes(-1)),
+            Token("bob", "hash-2", null, DateTimeOffset.UtcNow)
         };
         _repo.Setup(r => r.GetAllOrderedAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(seeded);
@@ -63,6 +89,10 @@ public class WebDavTokenControllerTests
         Assert.AreNotEqual(payload.Token, captured.TokenHash, "TokenHash must not be plaintext.");
         Assert.IsTrue(BCrypt.Net.BCrypt.Verify(payload.Token, captured.TokenHash));
         Assert.IsNull(captured.Description);
+        Assert.AreEqual(_userId, captured.UserId);
+        Assert.AreEqual("read", captured.Scope);
+        Assert.AreEqual("/", captured.VirtualRoot);
+        Assert.IsTrue(captured.ExpiresAt > DateTimeOffset.UtcNow.AddDays(364));
     }
 
     [TestMethod]
@@ -116,7 +146,8 @@ public class WebDavTokenControllerTests
     [TestMethod]
     public async Task DeleteToken_ReturnsNotFoundWhenMissing()
     {
-        _repo.Setup(r => r.RemoveByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+        _repo.Setup(r => r.RevokeByIdAsync(
+                It.IsAny<Guid>(), It.IsAny<DateTimeOffset>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(false);
         var response = await _controller.DeleteToken(Guid.NewGuid(), CancellationToken.None);
         Assert.IsInstanceOfType(response, typeof(NotFoundResult));
@@ -125,9 +156,18 @@ public class WebDavTokenControllerTests
     [TestMethod]
     public async Task DeleteToken_ReturnsNoContentOnSuccess()
     {
-        _repo.Setup(r => r.RemoveByIdAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+        _repo.Setup(r => r.RevokeByIdAsync(
+                It.IsAny<Guid>(), It.IsAny<DateTimeOffset>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
         var response = await _controller.DeleteToken(Guid.NewGuid(), CancellationToken.None);
         Assert.IsInstanceOfType(response, typeof(NoContentResult));
     }
+
+    private WebDavToken Token(
+        string username,
+        string hash,
+        string? description,
+        DateTimeOffset createdAt) =>
+        new(Guid.NewGuid(), _userId, username, hash, description, createdAt,
+            "read", "/", createdAt.AddYears(1), null);
 }

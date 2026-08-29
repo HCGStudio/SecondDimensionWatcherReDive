@@ -27,6 +27,7 @@
 - [x] HTTP 文件浏览和流媒体播放，支持外部播放器（VLC / PotPlayer / IINA / mpv / nPlayer）URL Scheme
 - [x] WebDAV 只读网关（RFC 4918，按设备签发的 Basic 访问令牌，独立于 JWT）
 - [x] JWT 认证 + 刷新令牌
+- [x] 家庭账户与独立档案（Admin / Member / Viewer、PIN、会话撤销、独立播放/聊天状态）
 - [x] AI 元数据推断（OpenAI / Anthropic）— 自动识别 TMDB ID、季度、集数、字幕组
 - [x] 本地 Agent 执行模式（Codex app-server）— 同时用于元数据推断与对话助手
 - [x] AI 对话助手：流式响应 + 7 个内置工具（动画 / 订阅 / 季度 / 下载 / 任务 / 文件查询）
@@ -90,7 +91,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/HCGStudio/SecondDimensionWat
 |--------|------|
 | `ConnectionStrings:sdw` | PostgreSQL 连接字符串 |
 | `JwtSecret` | JWT 签名密钥 |
-| `Password:Value` | 登录密码的 BCrypt 哈希；为空时允许首次注册写入 `password.json` |
+| `Password:Value` | 旧版单站点密码的 BCrypt 哈希；存在时禁止公开注册，仅允许 `admin` 首次登录并迁移到数据库账户 |
 | `DataProtection:KeyRingPath` | 网页保存的 API key/密码所用加密密钥环；必须位于持久化目录 |
 | `Torrent:Remote:Url` | qBittorrent API 地址 |
 | `FileStore:Local` | 下载文件存储根目录 |
@@ -117,6 +118,16 @@ bash <(curl -fsSL https://raw.githubusercontent.com/HCGStudio/SecondDimensionWat
 数据库连接、JWT、下载存储根目录、登录密码文件、CORS 和 Valkey 仍属于启动/基础设施配置，不允许从网页修改。NFS 监听地址、端口和启用状态会保存，但需要重启应用才能切换；其余上述设置对后续请求和新任务热生效。后台定时任务的间隔变更不会中断已经开始的等待，最迟会在当前等待周期结束后采用新值。
 
 设置页提交的 API key 和密码会经过浏览器与服务端之间的连接；除严格的本机访问外，必须为网页入口配置 HTTPS。配置带凭据的 AI 或 qBittorrent 端点时也应使用 TLS，或将明文 HTTP 严格限制在受信任的隔离网络内。
+
+### 家庭账户、档案与设备访问
+
+首次安装由注册页创建管理员和默认档案；旧实例若仍配置 `Password:Value`，注册入口会保持关闭，使用用户名 `admin` 和原密码首次登录后才会安全迁移。右上角档案菜单可即时切换档案，「账户与档案」页可管理名称、头像、可选 PIN、家庭用户和登录会话。档案切换会轮换访问/刷新令牌，并清除浏览器中上一档案的播放、聊天等缓存；多个标签页通过 Web Locks 与浏览器消息同步轮换结果。
+
+角色权限由服务端强制执行：Admin 可管理全局设置、用户、任务、元数据和设备凭据；Member 可管理订阅、下载任务和播放状态，但删除已下载文件仍需近期管理员验证；Viewer 仅可浏览和播放。敏感管理操作在超过近期验证窗口后会要求再次输入账户密码，无需退出登录。
+
+管理员可在「设置 → 访问协议」为指定家庭用户签发 WebDAV/VFS 设备凭据。每个凭据固定为只读，可限制虚拟根路径并设置到期时间；撤销、到期和路径边界同时由 WebDAV 与 VFS 强制执行。路径 `/Anime` 不会授权 `/Anime2`，客户端看到的根目录和 WebDAV href 会重写到所授权的命名空间。
+
+升级迁移会把旧播放进度、偏好和聊天记录归入默认 `Home` 档案。旧数据库结构无法表达多用户、档案归属、token 根路径、到期或撤销状态；因此一旦创建了新身份数据或受限设备凭据，向该迁移之前降级会在删除任何列之前明确失败并保持数据库原样，避免静默合并历史或扩大已撤销凭据权限。
 
 ### 使用本地 Codex app-server
 

@@ -13,6 +13,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.IdentityModel.Tokens;
 using Moq;
+using SecondDimensionWatcherReDive.Framework.Authorization;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Framework.FileStore;
 using SecondDimensionWatcherReDive.Framework.Tasks;
@@ -28,6 +29,11 @@ internal sealed class WebDavWebApplicationFactory : WebApplicationFactory<Migrat
     public const string TestUserName = "sdwuser";
     public const string TestPassword = "test-pass";
     public const string JwtSecret = "integration-test-jwt-secret-must-be-long-enough-32-bytes";
+    public static readonly Guid UserId = Guid.Parse("10000000-0000-0000-0000-000000000001");
+    public static readonly Guid ProfileId = Guid.Parse("20000000-0000-0000-0000-000000000001");
+    public static readonly Guid SessionId = Guid.Parse("30000000-0000-0000-0000-000000000001");
+    private static readonly DateTimeOffset AuthenticatedAt = DateTimeOffset.FromUnixTimeSeconds(
+        DateTimeOffset.UtcNow.ToUnixTimeSeconds());
 
     static WebDavWebApplicationFactory()
     {
@@ -52,12 +58,23 @@ internal sealed class WebDavWebApplicationFactory : WebApplicationFactory<Migrat
     public Mock<IFileStore> FileStoreMock { get; } = new();
     public Mock<IFileStoreProvider> FileStoreProviderMock { get; } = new();
     public Helpers.FakeFileMappingRepository MappingRepository { get; }
+    public FakeWebDavTokenRepository DeviceTokenRepository { get; }
 
     private readonly object _mappingsLock = new();
+    private readonly UserRole _role;
+    private bool _sessionRevoked;
 
-    public WebDavWebApplicationFactory()
+    public WebDavWebApplicationFactory(
+        string virtualRoot = "/",
+        UserRole role = UserRole.Admin)
     {
+        _role = role;
         MappingRepository = new Helpers.FakeFileMappingRepository(Mappings);
+        DeviceTokenRepository = new FakeWebDavTokenRepository(
+            UserId,
+            TestUserName,
+            BCrypt.Net.BCrypt.HashPassword(TestPassword),
+            virtualRoot);
         FileStoreMock.SetupGet(s => s.Name).Returns("local");
         FileStoreProviderMock
             .Setup(p => p.GetRequiredClient(It.IsAny<string>()))
@@ -121,14 +138,52 @@ internal sealed class WebDavWebApplicationFactory : WebApplicationFactory<Migrat
             services.RemoveAll<IFileMappingRepository>();
             services.RemoveAll<IFileExplorer>();
             services.RemoveAll<IWebDavTokenRepository>();
+            services.RemoveAll<IIdentityRepository>();
             services.RemoveAll<IApplicationSettingsRepository>();
 
             services.AddSingleton(FileStoreMock.Object);
             services.AddSingleton(FileStoreProviderMock.Object);
             services.AddSingleton<IFileMappingRepository>(_ => MappingRepository);
             services.AddSingleton<IFileExplorer>(_ => new FakeFileExplorer(Mappings, FileStoreMock.Object, MappingRepository));
-            services.AddSingleton<IWebDavTokenRepository>(_ =>
-                new FakeWebDavTokenRepository(TestUserName, BCrypt.Net.BCrypt.HashPassword(TestPassword)));
+            services.AddSingleton<IWebDavTokenRepository>(_ => DeviceTokenRepository);
+            var identityRepository = new Mock<IIdentityRepository>();
+            var user = new UserAccount(
+                UserId,
+                TestUserName,
+                "hash",
+                _role,
+                false,
+                AuthenticatedAt,
+                AuthenticatedAt);
+            var profile = new UserProfile(
+                ProfileId,
+                UserId,
+                "Test",
+                null,
+                null,
+                true,
+                AuthenticatedAt,
+                AuthenticatedAt);
+            var session = new UserSession(
+                SessionId,
+                UserId,
+                ProfileId,
+                "hash",
+                "integration-test",
+                AuthenticatedAt,
+                AuthenticatedAt,
+                AuthenticatedAt,
+                DateTimeOffset.UtcNow.AddDays(1),
+                null);
+            identityRepository.Setup(repository => repository.FindUserByIdAsync(
+                    UserId, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(user);
+            identityRepository.Setup(repository => repository.GetAuthenticatedSessionAsync(
+                    SessionId, It.IsAny<DateTimeOffset>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(() => _sessionRevoked
+                    ? null
+                    : new AuthenticatedSession(user, profile, session));
+            services.AddSingleton(identityRepository.Object);
             services.AddSingleton<IApplicationSettingsRepository, FakeApplicationSettingsRepository>();
         });
     }
@@ -160,13 +215,24 @@ internal sealed class WebDavWebApplicationFactory : WebApplicationFactory<Migrat
     public HttpClient CreateUnauthenticatedClient()
         => CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
 
+    public void RevokeLoginSession() => _sessionRevoked = true;
+
     public HttpClient CreateJwtClient()
     {
         var client = CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
         var keyBytes = Encoding.ASCII.GetBytes(JwtSecret);
         var creds = new SigningCredentials(new SymmetricSecurityKey(keyBytes), SecurityAlgorithms.HmacSha256);
         var token = new JwtSecurityToken(
-            claims: new[] { new Claim(ClaimTypes.Name, TestUserName) },
+            claims:
+            [
+                new Claim(ClaimTypes.Name, TestUserName),
+                new Claim(ClaimTypes.Role, _role.ToString()),
+                new Claim(IdentityClaimTypes.UserId, UserId.ToString()),
+                new Claim(IdentityClaimTypes.ProfileId, ProfileId.ToString()),
+                new Claim(IdentityClaimTypes.SessionId, SessionId.ToString()),
+                new Claim(IdentityClaimTypes.AuthenticatedAt,
+                    AuthenticatedAt.ToUnixTimeSeconds().ToString())
+            ],
             expires: DateTime.UtcNow.AddMinutes(10),
             signingCredentials: creds);
         var jwt = new JwtSecurityTokenHandler().WriteToken(token);

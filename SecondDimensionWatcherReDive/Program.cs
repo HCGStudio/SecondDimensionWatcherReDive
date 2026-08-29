@@ -19,6 +19,7 @@ using SecondDimensionWatcherReDive.Framework.Feed;
 using SecondDimensionWatcherReDive.Framework.FileDownload;
 using SecondDimensionWatcherReDive.Framework.FileStore;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
+using SecondDimensionWatcherReDive.Framework.Authorization;
 using SecondDimensionWatcherReDive.Framework.Tasks;
 using SecondDimensionWatcherReDive.Inference.AI;
 using SecondDimensionWatcherReDive.Models;
@@ -120,7 +121,7 @@ var tokenValidationParams = new TokenValidationParameters
     ValidateIssuer = false,
     ValidateAudience = false,
     ValidateLifetime = true,
-    RequireExpirationTime = false
+    RequireExpirationTime = true
 };
 
 builder.Services.AddSingleton(tokenValidationParams);
@@ -134,8 +135,75 @@ builder.Services.AddAuthentication(options =>
 {
     options.SaveToken = true;
     options.TokenValidationParameters = tokenValidationParams;
+    options.Events = new JwtBearerEvents
+    {
+        OnTokenValidated = async context =>
+        {
+            var principal = context.Principal;
+            if (principal is null
+                || !principal.TryGetUserId(out var userId)
+                || !principal.TryGetProfileId(out var profileId)
+                || !principal.TryGetSessionId(out var sessionId))
+            {
+                context.Fail("The access token has no valid session identity.");
+                return;
+            }
+
+            var repository = context.HttpContext.RequestServices
+                .GetRequiredService<IIdentityRepository>();
+            var authenticated = await repository.GetAuthenticatedSessionAsync(
+                sessionId,
+                DateTimeOffset.UtcNow,
+                context.HttpContext.RequestAborted);
+            var authenticatedAt = principal.FindFirst(
+                IdentityClaimTypes.AuthenticatedAt)?.Value;
+            if (authenticated is null
+                || authenticated.User.Id != userId
+                || authenticated.Profile.Id != profileId
+                || !string.Equals(
+                    principal.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value,
+                    authenticated.User.Role.ToString(),
+                    StringComparison.Ordinal)
+                || authenticatedAt != authenticated.Session.AuthenticatedAt
+                    .ToUnixTimeSeconds()
+                    .ToString(System.Globalization.CultureInfo.InvariantCulture))
+            {
+                context.Fail("The login session is no longer active.");
+            }
+        }
+    };
 }).AddScheme<Microsoft.AspNetCore.Authentication.AuthenticationSchemeOptions, BasicAuthenticationHandler>(
     BasicAuthenticationHandler.SchemeName, _ => { });
+
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy(AccessPolicies.ContentWrite,
+        policy => policy.RequireRole(nameof(UserRole.Admin), nameof(UserRole.Member)));
+    options.AddPolicy(AccessPolicies.PlaybackWrite,
+        policy => policy.RequireRole(nameof(UserRole.Admin), nameof(UserRole.Member)));
+    options.AddPolicy(AccessPolicies.ChatWrite,
+        policy => policy.RequireRole(nameof(UserRole.Admin), nameof(UserRole.Member)));
+    options.AddPolicy(AccessPolicies.Administrator,
+        policy => policy.RequireRole(nameof(UserRole.Admin)));
+    static bool HasRecentAuthentication(System.Security.Claims.ClaimsPrincipal principal)
+    {
+        if (!long.TryParse(
+                principal.FindFirst(IdentityClaimTypes.AuthenticatedAt)?.Value,
+                out var unixSeconds))
+            return false;
+        var authenticatedAt = DateTimeOffset.FromUnixTimeSeconds(unixSeconds);
+        var age = DateTimeOffset.UtcNow - authenticatedAt;
+        return age >= TimeSpan.FromMinutes(-1) && age <= TimeSpan.FromMinutes(5);
+    }
+
+    options.AddPolicy(AccessPolicies.RecentAuthentication,
+        policy => policy.RequireAssertion(context => HasRecentAuthentication(context.User)));
+    options.AddPolicy(AccessPolicies.RecentAdministrator, policy =>
+    {
+        policy.RequireRole(nameof(UserRole.Admin));
+        policy.RequireAssertion(context => HasRecentAuthentication(context.User));
+    });
+});
 
 //Add distributed cache (Valkey / Redis or in-memory fallback)
 var valkeyConnection = builder.Configuration["Valkey:ConnectionString"];
@@ -275,6 +343,8 @@ builder.Services.AddScoped<IMetadataReviewRepository, MetadataReviewRepository>(
 builder.Services.AddScoped<IMigrationMarkerRepository, MigrationMarkerRepository>();
 builder.Services.AddScoped<IWebDavTokenRepository, WebDavTokenRepository>();
 builder.Services.AddScoped<IPlaybackRepository, PlaybackRepository>();
+builder.Services.AddScoped<IIdentityRepository, IdentityRepository>();
+builder.Services.AddScoped<SessionTokenIssuer>();
 builder.Services.AddScoped<IIncidentRepository, IncidentRepository>();
 builder.Services.AddScoped<IMediaLibrarySourceRepository, MediaLibrarySourceRepository>();
 builder.Services.AddSingleton<ISeasonScraper, MikananiSeasonScraper>();
@@ -351,6 +421,7 @@ else
     app.MapFallbackToFile("index.html");
 }
 
+app.UseAuthentication();
 app.UseAuthorization();
 
 if (app.Configuration.GetValue<bool?>("DisableCors") is true) app.UseCors("all");

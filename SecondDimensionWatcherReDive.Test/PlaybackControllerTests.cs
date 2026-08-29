@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using Moq;
 using SecondDimensionWatcherReDive.Controllers;
 using SecondDimensionWatcherReDive.Controllers.External;
+using SecondDimensionWatcherReDive.Framework.Authorization;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 using DataAnimationInfo = SecondDimensionWatcherReDive.Framework.DataRepository.AnimationInfo;
 using DataAnimation = SecondDimensionWatcherReDive.Framework.DataRepository.Animation;
@@ -36,7 +37,7 @@ public class PlaybackControllerTests
                 HttpContext = new DefaultHttpContext
                 {
                     User = new ClaimsPrincipal(new ClaimsIdentity(
-                        [new Claim("Id", UserId.ToString())],
+                        [new Claim(IdentityClaimTypes.ProfileId, UserId.ToString())],
                         "test"))
                 }
             }

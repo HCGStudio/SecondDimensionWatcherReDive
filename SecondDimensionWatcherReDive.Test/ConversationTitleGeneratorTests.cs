@@ -11,6 +11,8 @@ namespace SecondDimensionWatcherReDive.Test;
 [TestClass]
 public class ConversationTitleGeneratorTests
 {
+    private static readonly Guid ProfileId = Guid.Parse("10000000-0000-0000-0000-000000000001");
+
     private static IServiceProvider ServicesWith(IAIEngine? engine)
     {
         var services = new ServiceCollection();
@@ -125,15 +127,18 @@ public class ConversationTitleGeneratorTests
         var convId = Guid.NewGuid();
         var engine = EngineReturning("Anime subscription");
         var repo = new Mock<IChatRepository>();
-        repo.Setup(r => r.GetConversationWithMessagesAsync(convId, It.IsAny<CancellationToken>()))
+        repo.Setup(r => r.GetConversationWithMessagesAsync(
+                convId, ProfileId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new ChatConversationDetail(convId, null, DateTimeOffset.Now, DateTimeOffset.Now, []));
 
         var gen = new ConversationTitleGenerator(ServicesWith(engine.Object), repo.Object,
             NullLogger<ConversationTitleGenerator>.Instance);
 
-        await gen.TryAutoTitleAsync(convId, "请订阅新番", "好的", null, CancellationToken.None);
+        await gen.TryAutoTitleAsync(
+            convId, ProfileId, "请订阅新番", "好的", null, CancellationToken.None);
 
-        repo.Verify(r => r.UpdateConversationTitleAsync(convId, "Anime subscription", It.IsAny<CancellationToken>()),
+        repo.Verify(r => r.UpdateConversationTitleAsync(
+                convId, ProfileId, "Anime subscription", It.IsAny<CancellationToken>()),
             Times.Once);
     }
 
@@ -143,15 +148,17 @@ public class ConversationTitleGeneratorTests
         var convId = Guid.NewGuid();
         var engine = EngineReturning("Generated");
         var repo = new Mock<IChatRepository>();
-        repo.Setup(r => r.GetConversationWithMessagesAsync(convId, It.IsAny<CancellationToken>()))
+        repo.Setup(r => r.GetConversationWithMessagesAsync(
+                convId, ProfileId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new ChatConversationDetail(convId, "User chose this", DateTimeOffset.Now, DateTimeOffset.Now, []));
 
         var gen = new ConversationTitleGenerator(ServicesWith(engine.Object), repo.Object,
             NullLogger<ConversationTitleGenerator>.Instance);
 
-        await gen.TryAutoTitleAsync(convId, "u", "a", null, CancellationToken.None);
+        await gen.TryAutoTitleAsync(convId, ProfileId, "u", "a", null, CancellationToken.None);
 
-        repo.Verify(r => r.UpdateConversationTitleAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+        repo.Verify(r => r.UpdateConversationTitleAsync(
+                It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
 
@@ -161,15 +168,17 @@ public class ConversationTitleGeneratorTests
         var convId = Guid.NewGuid();
         var engine = EngineReturning("   ");
         var repo = new Mock<IChatRepository>();
-        repo.Setup(r => r.GetConversationWithMessagesAsync(convId, It.IsAny<CancellationToken>()))
+        repo.Setup(r => r.GetConversationWithMessagesAsync(
+                convId, ProfileId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new ChatConversationDetail(convId, null, DateTimeOffset.Now, DateTimeOffset.Now, []));
 
         var gen = new ConversationTitleGenerator(ServicesWith(engine.Object), repo.Object,
             NullLogger<ConversationTitleGenerator>.Instance);
 
-        await gen.TryAutoTitleAsync(convId, "u", "a", null, CancellationToken.None);
+        await gen.TryAutoTitleAsync(convId, ProfileId, "u", "a", null, CancellationToken.None);
 
-        repo.Verify(r => r.UpdateConversationTitleAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+        repo.Verify(r => r.UpdateConversationTitleAsync(
+                It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
 
@@ -182,15 +191,17 @@ public class ConversationTitleGeneratorTests
             .Returns(Throwing());
 
         var repo = new Mock<IChatRepository>();
-        repo.Setup(r => r.GetConversationWithMessagesAsync(convId, It.IsAny<CancellationToken>()))
+        repo.Setup(r => r.GetConversationWithMessagesAsync(
+                convId, ProfileId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new ChatConversationDetail(convId, null, DateTimeOffset.Now, DateTimeOffset.Now, []));
 
         var gen = new ConversationTitleGenerator(ServicesWith(engine.Object), repo.Object,
             NullLogger<ConversationTitleGenerator>.Instance);
 
-        await gen.TryAutoTitleAsync(convId, "u", "a", null, CancellationToken.None);
+        await gen.TryAutoTitleAsync(convId, ProfileId, "u", "a", null, CancellationToken.None);
 
-        repo.Verify(r => r.UpdateConversationTitleAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+        repo.Verify(r => r.UpdateConversationTitleAsync(
+                It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
             Times.Never);
 
         static async IAsyncEnumerable<IChatUpdate> Throwing()

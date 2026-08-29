@@ -8,6 +8,7 @@ import { setAuthResult } from "../auth/httpClient";
 import { login, register } from "../auth/utils";
 import { Button } from "../components/ui/Button";
 import { FormRow } from "../components/ui/FormRow";
+import { Input } from "../components/ui/Input";
 import { PasswordInput } from "../components/ui/PasswordInput";
 import { PageTemplate } from "./PageTemplate";
 
@@ -16,6 +17,8 @@ export const LoginPage: React.FC = () => {
   const { data: registerInfo } = useAllowRegister();
   const { data: status } = useLoginStatus();
   const [password, setPassword] = React.useState("");
+  const [username, setUsername] = React.useState("admin");
+  const [profileName, setProfileName] = React.useState("Home");
   const [passwordConfirm, setPasswordConfirm] = React.useState("");
   const [loginFailed, setLoginFailed] = React.useState(false);
   const [registerFailed, setRegisterFailed] = React.useState(false);
@@ -39,10 +42,14 @@ export const LoginPage: React.FC = () => {
       setIsSubmitting(true);
       setRegisterFailed(false);
       try {
-        const r = await register(password);
+        const r = await register(password, {
+          username,
+          profileName,
+          deviceName: navigator.userAgent,
+        });
         if (r?.success) {
           setAuthResult(r);
-          await mutate("/api/auth/verify", true, { revalidate: false });
+          await mutate("/api/auth/verify");
           navigate("/");
         } else {
           setRegisterFailed(true);
@@ -53,7 +60,7 @@ export const LoginPage: React.FC = () => {
         setIsSubmitting(false);
       }
     },
-    [password, passwordConfirm, isSubmitting, navigate],
+    [password, passwordConfirm, isSubmitting, navigate, profileName, username],
   );
 
   const onLogin = React.useCallback(
@@ -63,10 +70,13 @@ export const LoginPage: React.FC = () => {
       setIsSubmitting(true);
       setLoginFailed(false);
       try {
-        const r = await login(password);
+        const r = await login(password, {
+          username,
+          deviceName: navigator.userAgent,
+        });
         if (r?.success) {
           setAuthResult(r);
-          await mutate("/api/auth/verify", true, { revalidate: false });
+          await mutate("/api/auth/verify");
           navigate("/");
         } else {
           setLoginFailed(true);
@@ -77,7 +87,7 @@ export const LoginPage: React.FC = () => {
         setIsSubmitting(false);
       }
     },
-    [password, isSubmitting, navigate],
+    [password, username, isSubmitting, navigate],
   );
 
   React.useEffect(() => {
@@ -96,6 +106,19 @@ export const LoginPage: React.FC = () => {
               {t("setupHelp")}
             </p>
             <div className="mt-6 space-y-4">
+              <FormRow label={t("username")}>
+                <Input
+                  autoComplete="username"
+                  value={username}
+                  onChange={(event) => setUsername(event.target.value)}
+                />
+              </FormRow>
+              <FormRow label={t("profileName")}>
+                <Input
+                  value={profileName}
+                  onChange={(event) => setProfileName(event.target.value)}
+                />
+              </FormRow>
               <FormRow label={t("password")}>
                 <PasswordInput
                   placeholder={t("passwordPlaceholder")}
@@ -106,12 +129,11 @@ export const LoginPage: React.FC = () => {
               <FormRow
                 label={t("repeatPassword")}
                 isInvalid={
-                  (password !== passwordConfirm && passwordConfirm.length > 0) ||
+                  (password !== passwordConfirm &&
+                    passwordConfirm.length > 0) ||
                   registerFailed
                 }
-                error={[
-                  registerFailed ? t("registerFailed") : t("mismatch"),
-                ]}
+                error={[registerFailed ? t("registerFailed") : t("mismatch")]}
               >
                 <PasswordInput
                   placeholder={t("repeatPassword")}
@@ -140,6 +162,13 @@ export const LoginPage: React.FC = () => {
               {t("welcomeBack")}
             </h2>
             <div className="mt-6 space-y-4">
+              <FormRow label={t("username")}>
+                <Input
+                  autoComplete="username"
+                  value={username}
+                  onChange={(event) => setUsername(event.target.value)}
+                />
+              </FormRow>
               <FormRow
                 label={t("password")}
                 isInvalid={loginFailed}
