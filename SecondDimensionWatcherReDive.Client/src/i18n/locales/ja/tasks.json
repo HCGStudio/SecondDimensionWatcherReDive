@@ -26,6 +26,37 @@
     "success": "タスク「{{name}}」を完了しました",
     "failure": "タスク「{{name}}」が失敗しました"
   },
+  "deadLetters": {
+    "title": "失敗した永続ジョブ",
+    "description": "自動再試行を使い切ったジョブです。原因を修正して再試行するか、処理済みにしてください。",
+    "empty": "対応が必要な永続ジョブはありません。",
+    "loadFailed": "失敗した永続ジョブを読み込めませんでした。",
+    "retry": "再試行",
+    "resolve": "処理済みにする",
+    "columns": {
+      "type": "ジョブ",
+      "stage": "失敗ステージ",
+      "attempts": "試行回数",
+      "updated": "最終試行",
+      "error": "最終エラー",
+      "actions": "操作"
+    },
+    "types": {
+      "downloadCompletion": "ダウンロード完了処理"
+    },
+    "stages": {
+      "mapFiles": "ファイルのマッピング",
+      "notify": "通知",
+      "invokePlugins": "プラグインの呼び出し",
+      "done": "完了"
+    },
+    "toast": {
+      "retrySuccess": "ジョブを再試行キューに追加しました",
+      "retryFailure": "ジョブを再試行できませんでした",
+      "resolveSuccess": "ジョブを処理済みにしました",
+      "resolveFailure": "ジョブを処理済みにできませんでした"
+    }
+  },
   "metadata": {
     "SyncFeed": {
       "name": "SyncFeed",

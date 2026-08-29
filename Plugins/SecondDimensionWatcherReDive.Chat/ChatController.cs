@@ -190,7 +190,13 @@ internal sealed partial class ChatController(
         string? model,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        var channel = Channel.CreateUnbounded<SseItem<string>>();
+        var channel = Channel.CreateBounded<SseItem<string>>(
+            new BoundedChannelOptions(256)
+            {
+                SingleReader = true,
+                SingleWriter = true,
+                FullMode = BoundedChannelFullMode.Wait
+            });
 
         // Producer: runs AI chat streaming in background, writes SSE items to channel.
         // Keep the task and await it during iterator disposal so a disconnected request cannot

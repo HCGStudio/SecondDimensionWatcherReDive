@@ -226,14 +226,14 @@ public sealed partial class CodexAppServerEngine(
             turnId = GetRequiredNestedString(turnResult, "turn", "id");
             state.SetTurnId(turnId);
 
-            while (state.Updates.TryDequeue(out var bufferedUpdate))
+            while (state.TryDequeueUpdate(out var bufferedUpdate))
                 yield return bufferedUpdate;
 
             while (!state.IsTerminal)
             {
                 var message = await rpc.ReceiveAsync(cancellationToken);
                 await ProcessTurnMessageAsync(rpc, state, message, cancellationToken);
-                while (state.Updates.TryDequeue(out var update))
+                while (state.TryDequeueUpdate(out var update))
                     yield return update;
             }
 
@@ -488,8 +488,8 @@ public sealed partial class CodexAppServerEngine(
         }
 
         var argumentsJson = arguments.GetRawText();
-        state.Updates.Enqueue(new ToolCallBegin(callId, toolName));
-        state.Updates.Enqueue(new ToolCallDelta(callId, argumentsJson));
+        state.TryEnqueueUpdate(new ToolCallBegin(callId, toolName));
+        state.TryEnqueueUpdate(new ToolCallDelta(callId, argumentsJson));
 
         IToolResult toolResult;
         var executionCanceled = false;
@@ -516,7 +516,7 @@ public sealed partial class CodexAppServerEngine(
 
         var serializedResult = JsonSerializer.SerializeToElement(
             toolResult, toolResult.GetType(), ToolJsonOptions.Options);
-        state.Updates.Enqueue(new ToolResultUpdate(callId, serializedResult));
+        state.TryEnqueueUpdate(new ToolResultUpdate(callId, serializedResult));
 
         if (executionCanceled || cancellationToken.IsCancellationRequested)
         {
@@ -827,17 +827,18 @@ public sealed partial class CodexAppServerEngine(
         IToolExecutor? toolExecutor,
         int maxDynamicToolCalls)
     {
+        private const int MaxBufferedUpdates = 1024;
         private readonly Dictionary<string, string> _finalAgentTexts =
             new(StringComparer.Ordinal);
         private readonly HashSet<string> _completedFinalAgentItems =
             new(StringComparer.Ordinal);
         private readonly HashSet<string> _toolCallIds = new(StringComparer.Ordinal);
+        private readonly Queue<IChatUpdate> _updates = new();
         private int _dynamicToolCallCount;
 
         public string ThreadId { get; } = threadId;
         public string? TurnId { get; private set; }
         public IToolExecutor? ToolExecutor { get; } = toolExecutor;
-        public Queue<IChatUpdate> Updates { get; } = new();
         public bool IsTerminal { get; private set; }
         public bool ServerTerminalReceived { get; private set; }
         public string? Status { get; private set; }
@@ -854,7 +855,7 @@ public sealed partial class CodexAppServerEngine(
 
             _finalAgentTexts[itemId] = accumulated + delta;
             if (delta.Length > 0)
-                Updates.Enqueue(new TextDelta(delta));
+                TryEnqueueUpdate(new TextDelta(delta));
         }
 
         public void CompleteFinalAgentItem(string itemId, string authoritativeText)
@@ -870,8 +871,23 @@ public sealed partial class CodexAppServerEngine(
             var suffix = authoritativeText[accumulated.Length..];
             _finalAgentTexts[itemId] = authoritativeText;
             if (suffix.Length > 0)
-                Updates.Enqueue(new TextDelta(suffix));
+                TryEnqueueUpdate(new TextDelta(suffix));
         }
+
+        public bool TryEnqueueUpdate(IChatUpdate update)
+        {
+            if (_updates.Count < MaxBufferedUpdates)
+            {
+                _updates.Enqueue(update);
+                return true;
+            }
+
+            Fail($"Codex app-server buffered update limit ({MaxBufferedUpdates}) was exceeded.");
+            return false;
+        }
+
+        public bool TryDequeueUpdate(out IChatUpdate update) =>
+            _updates.TryDequeue(out update!);
 
         public bool TryBeginToolCall(string callId, out string rejectionReason)
         {

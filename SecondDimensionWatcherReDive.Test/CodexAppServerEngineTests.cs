@@ -254,6 +254,32 @@ public sealed class CodexAppServerEngineTests
     }
 
     [TestMethod]
+    public async Task ChatAsync_BufferedUpdateOverflowFailsClosed()
+    {
+        var messages = new List<string>
+        {
+            Response(1, "{}"),
+            Response(2, PermissionProfiles()),
+            Response(3, SafeThread()),
+            """{"method":"item/started","params":{"threadId":"thread-1","turnId":"turn-1","item":{"id":"message-1","type":"agentMessage","phase":"final_answer","text":""}}}"""
+        };
+        messages.AddRange(Enumerable.Range(0, 1025).Select(_ =>
+            """{"method":"item/agentMessage/delta","params":{"threadId":"thread-1","turnId":"turn-1","itemId":"message-1","delta":"x"}}"""));
+        messages.Add(Response(4, """{"turn":{"id":"turn-1"}}"""));
+        var transport = new ScriptedTransport(messages.ToArray());
+        var (engine, _) = CreateEngine(transport);
+
+        var exception = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
+            CollectAsync(engine.ChatAsync(
+                [new UserMessage("overflow")],
+                null,
+                CancellationToken.None)));
+
+        StringAssert.Contains(exception.Message, "buffered update limit (1024)");
+        Assert.IsNotNull(transport.SingleSent("turn/interrupt"));
+    }
+
+    [TestMethod]
     public async Task GetAvailableModelsAsync_FollowsModelListPagination()
     {
         var transport = new ScriptedTransport(

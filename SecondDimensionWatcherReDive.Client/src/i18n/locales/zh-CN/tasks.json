@@ -26,6 +26,37 @@
     "success": "任务「{{name}}」执行完成",
     "failure": "任务「{{name}}」执行失败"
   },
+  "deadLetters": {
+    "title": "失败的持久任务",
+    "description": "这些任务已耗尽自动重试次数。修复原因后可重新执行，或将其标记为已处理。",
+    "empty": "当前没有需要处理的持久任务。",
+    "loadFailed": "无法加载失败的持久任务。",
+    "retry": "重试",
+    "resolve": "标记已处理",
+    "columns": {
+      "type": "任务",
+      "stage": "失败阶段",
+      "attempts": "尝试次数",
+      "updated": "最后尝试",
+      "error": "最后错误",
+      "actions": "操作"
+    },
+    "types": {
+      "downloadCompletion": "下载完成处理"
+    },
+    "stages": {
+      "mapFiles": "建立文件映射",
+      "notify": "发送通知",
+      "invokePlugins": "调用插件",
+      "done": "完成"
+    },
+    "toast": {
+      "retrySuccess": "任务已加入重试队列",
+      "retryFailure": "无法重试该任务",
+      "resolveSuccess": "任务已标记为处理完成",
+      "resolveFailure": "无法标记该任务"
+    }
+  },
   "metadata": {
     "SyncFeed": {
       "name": "SyncFeed",

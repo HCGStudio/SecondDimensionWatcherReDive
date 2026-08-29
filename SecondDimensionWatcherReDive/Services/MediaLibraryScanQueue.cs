@@ -14,8 +14,14 @@ public interface IMediaLibraryScanQueue
 
 public sealed class MediaLibraryScanQueue : IMediaLibraryScanQueue
 {
-    private readonly Channel<Guid> _channel = Channel.CreateUnbounded<Guid>(
-        new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
+    internal const int Capacity = 256;
+    private readonly Channel<Guid> _channel = Channel.CreateBounded<Guid>(
+        new BoundedChannelOptions(Capacity)
+        {
+            SingleReader = true,
+            SingleWriter = false,
+            FullMode = BoundedChannelFullMode.Wait
+        });
     private readonly ConcurrentDictionary<Guid, byte> _pending = new();
 
     public bool Enqueue(Guid sourceId)

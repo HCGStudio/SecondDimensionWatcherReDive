@@ -63,13 +63,31 @@ public partial class FetchRemoteTorrentBackgroundService(
         var reader = remoteTorrentTrackRequest.Reader;
         var tracked = new ConcurrentDictionary<string, RemoteTorrentTrackRequest>();
         var observations = new ConcurrentDictionary<string, DownloadObservation>();
-
-        // Add unfinished to track
-        await foreach (var request in FetchUnfinishedTaskFromDb(cancellationToken))
-            tracked[request.Hash] = request;
+        var nextDatabaseRefreshAt = DateTimeOffset.MinValue;
 
         while (!cancellationToken.IsCancellationRequested)
         {
+            if (DateTimeOffset.UtcNow >= nextDatabaseRefreshAt)
+            {
+                try
+                {
+                    // Periodic refresh recovers requests whose initial channel
+                    // binding happened during a temporary database outage.
+                    await foreach (var request in FetchUnfinishedTaskFromDb(cancellationToken))
+                        tracked[request.Hash] = request;
+                    nextDatabaseRefreshAt = DateTimeOffset.UtcNow.AddSeconds(30);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception exception)
+                {
+                    nextDatabaseRefreshAt = DateTimeOffset.UtcNow.AddSeconds(5);
+                    LogRefreshTrackedDownloadsFailed(logger, exception);
+                }
+            }
+
             // Drain channel messages in the supervised service loop so channel
             // failures/cancellation cannot disappear in an unobserved Task.
             while (reader.TryRead(out var request))
@@ -82,9 +100,23 @@ public partial class FetchRemoteTorrentBackgroundService(
                 }
                 else
                 {
-                    var boundRequest = await BindCurrentAttemptAsync(request, cancellationToken);
-                    if (boundRequest is { } currentRequest)
-                        tracked[request.Hash] = currentRequest;
+                    try
+                    {
+                        var boundRequest = await BindCurrentAttemptAsync(request, cancellationToken);
+                        if (boundRequest is { } currentRequest)
+                            tracked[request.Hash] = currentRequest;
+                    }
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                    {
+                        throw;
+                    }
+                    catch (Exception exception)
+                    {
+                        // The periodic database refresh above will recover this
+                        // unfinished attempt without relying on an unbounded queue.
+                        nextDatabaseRefreshAt = DateTimeOffset.MinValue;
+                        LogBindTrackedDownloadFailed(logger, exception, request.ItemId);
+                    }
                 }
             }
             await Task.Delay(500, cancellationToken);
@@ -145,14 +177,28 @@ public partial class FetchRemoteTorrentBackgroundService(
 
                 if (state != FileDownloadState.Finished) continue;
 
-                //Write complete request and stop tracking.
-                await downloadCompleteRequest.Writer.WriteAsync(
-                    new DownloadCompleteRequest(
-                        request.ItemId,
-                        torrentInfo.SavePath,
-                        FileStores.LocalDiskStore,
-                        request.DownloadAttemptId),
-                    cancellationToken);
+                var completion = new DownloadCompleteRequest(
+                    request.ItemId,
+                    torrentInfo.SavePath,
+                    FileStores.LocalDiskStore,
+                    request.DownloadAttemptId);
+                try
+                {
+                    // The completion transition and its durable workflow are committed
+                    // together. The channel is only a best-effort wake-up signal; the
+                    // durable worker also polls after restart.
+                    await PersistCompletionAsync(completion, cancellationToken);
+                    downloadCompleteRequest.Writer.TryWrite(completion);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception exception)
+                {
+                    LogPersistCompletionFailed(logger, exception, request.ItemId);
+                    continue;
+                }
                 tracked.TryRemove(torrentInfo.Hash, out _);
                 observations.TryRemove(torrentInfo.Hash, out _);
             }
@@ -163,6 +209,21 @@ public partial class FetchRemoteTorrentBackgroundService(
                 returnedHashes,
                 cancellationToken);
         }
+    }
+
+    private async Task PersistCompletionAsync(
+        DownloadCompleteRequest request,
+        CancellationToken cancellationToken)
+    {
+        await using var scope = scopeFactory.CreateAsyncScope();
+        var repository = scope.ServiceProvider.GetRequiredService<IAnimationInfoRepository>();
+        await repository.TryCompleteDownloadAsync(
+            request.ItemId,
+            request.DownloadAttemptId,
+            request.FileStore,
+            request.StorePath,
+            DateTimeOffset.UtcNow,
+            cancellationToken);
     }
 
     private async Task ObserveHealthAsync(
@@ -323,4 +384,24 @@ public partial class FetchRemoteTorrentBackgroundService(
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to fetch torrent status from remote client")]
     private static partial void LogFetchTorrentStatusFailed(ILogger logger, Exception ex);
+
+    [LoggerMessage(Level = LogLevel.Error,
+        Message = "Could not persist durable download completion for {ItemId}; tracking will retry")]
+    private static partial void LogPersistCompletionFailed(
+        ILogger logger,
+        Exception exception,
+        Guid itemId);
+
+    [LoggerMessage(Level = LogLevel.Warning,
+        Message = "Could not refresh unfinished downloads; retrying")]
+    private static partial void LogRefreshTrackedDownloadsFailed(
+        ILogger logger,
+        Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Warning,
+        Message = "Could not bind download attempt {ItemId}; the database refresh will retry")]
+    private static partial void LogBindTrackedDownloadFailed(
+        ILogger logger,
+        Exception exception,
+        Guid itemId);
 }

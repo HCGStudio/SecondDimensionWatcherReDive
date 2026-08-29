@@ -4,10 +4,16 @@ namespace SecondDimensionWatcherReDive.Framework.Tasks;
 
 public abstract class ScheduledTaskBase : IScheduledTask
 {
-    private readonly Channel<TaskCompletionSource> _runQueue =
-        Channel.CreateUnbounded<TaskCompletionSource>(
-            new UnboundedChannelOptions { SingleReader = true });
-
+    private readonly Channel<byte> _runQueue = Channel.CreateBounded<byte>(
+        new BoundedChannelOptions(1)
+        {
+            SingleReader = true,
+            SingleWriter = false,
+            FullMode = BoundedChannelFullMode.DropWrite
+        });
+    private readonly object _sync = new();
+    private TaskCompletionSource<bool>? _pendingRun;
+    private bool _pendingForce;
     private volatile bool _isRunning;
     private DateTimeOffset? _lastRunAt;
 
@@ -19,55 +25,157 @@ public abstract class ScheduledTaskBase : IScheduledTask
 
     public async Task RunNowAsync(CancellationToken cancellationToken)
     {
-        var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        await using var registration = cancellationToken.Register(
-            () => tcs.TrySetCanceled(cancellationToken));
-
-        await _runQueue.Writer.WriteAsync(tcs, cancellationToken);
-        await tcs.Task;
+        var completion = QueueRun(force: true);
+        // Cancelling one HTTP request must not cancel the shared execution that
+        // other callers and the periodic scheduler are awaiting.
+        await completion.WaitAsync(cancellationToken);
     }
 
     /// <summary>
-    ///     Enqueues a run request without waiting for completion.
+    ///     Runs a periodic signal and reports whether this instance acquired the
+    ///     distributed lease. Hosting services use the result to poll quickly
+    ///     while another instance owns an unfinished run.
     /// </summary>
-    public void Enqueue()
-    {
-        var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        _runQueue.Writer.TryWrite(tcs);
-    }
+    public Task<bool> RunScheduledAsync(CancellationToken cancellationToken) =>
+        QueueRun(force: false).WaitAsync(cancellationToken);
 
     /// <summary>
-    ///     Sequentially processes queued run requests. Called by the hosting
-    ///     BackgroundService; runs for the lifetime of the host.
+    ///     Coalesces a run request without waiting for completion. At most one
+    ///     pending signal exists while the current execution is in flight.
     /// </summary>
-    public async Task ProcessQueueAsync(CancellationToken cancellationToken)
+    public void Enqueue() => QueueRun(force: true);
+
+    /// <summary>
+    ///     Sequentially processes coalesced run requests. A PostgreSQL lease
+    ///     ensures only one application instance executes a task at a time.
+    /// </summary>
+    public async Task ProcessQueueAsync(
+        IScheduledTaskLeaseManager leaseManager,
+        CancellationToken cancellationToken)
     {
-        await foreach (var tcs in _runQueue.Reader.ReadAllAsync(cancellationToken))
+        await foreach (var _ in _runQueue.Reader.ReadAllAsync(cancellationToken))
         {
-            if (tcs.Task.IsCanceled) continue;
+            TaskCompletionSource<bool>? completion;
+            bool force;
+            lock (_sync)
+            {
+                completion = _pendingRun;
+                force = _pendingForce;
+            }
+            if (completion is null) continue;
 
-            _isRunning = true;
+            IScheduledTaskExecutionLease? lease;
             try
             {
-                await ExecuteTaskAsync(cancellationToken);
-                _lastRunAt = DateTimeOffset.UtcNow;
-                tcs.TrySetResult();
+                lease = await leaseManager.TryAcquireAsync(
+                    Id,
+                    Interval,
+                    force,
+                    cancellationToken);
             }
-            catch (OperationCanceledException ex)
+            catch (OperationCanceledException exception) when (cancellationToken.IsCancellationRequested)
             {
-                tcs.TrySetCanceled(ex.CancellationToken);
+                completion.TrySetCanceled(exception.CancellationToken);
+                FinishRun(completion);
+                throw;
             }
-            catch (Exception ex)
+            catch (Exception exception)
             {
-                tcs.TrySetException(ex);
+                completion.TrySetException(
+                    new ScheduledTaskLeaseUnavailableException(exception));
+                FinishRun(completion);
+                continue;
             }
-            finally
+
+            if (lease is null)
             {
-                _isRunning = false;
+                // Another instance owns the same periodic task. Its local timer
+                // will drive the execution; this duplicate signal is complete.
+                completion.TrySetResult(false);
+                FinishRun(completion);
+                continue;
+            }
+
+            await using (lease)
+            {
+                using var executionCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+                    cancellationToken,
+                    lease.LeaseLostToken);
+                _isRunning = true;
+                try
+                {
+                    await ExecuteTaskAsync(executionCancellation.Token);
+                    _lastRunAt = DateTimeOffset.UtcNow;
+                    await lease.CompleteAsync(true, null, cancellationToken);
+                    completion.TrySetResult(true);
+                }
+                catch (OperationCanceledException exception)
+                {
+                    // On host shutdown or lease loss, leave the lease to expire so
+                    // another instance can resume without an overlapping run.
+                    completion.TrySetCanceled(exception.CancellationToken);
+                    if (cancellationToken.IsCancellationRequested)
+                        throw;
+                }
+                catch (Exception exception)
+                {
+                    try
+                    {
+                        await lease.CompleteAsync(
+                            false,
+                            exception.GetType().Name,
+                            cancellationToken);
+                    }
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                    {
+                        throw;
+                    }
+                    catch (Exception leaseException)
+                    {
+                        completion.TrySetException(
+                            new ScheduledTaskLeaseUnavailableException(leaseException));
+                        continue;
+                    }
+                    completion.TrySetException(exception);
+                }
+                finally
+                {
+                    _isRunning = false;
+                    FinishRun(completion);
+                }
             }
         }
     }
 
     protected abstract Task ExecuteTaskAsync(CancellationToken cancellationToken);
+
+    private Task<bool> QueueRun(bool force)
+    {
+        lock (_sync)
+        {
+            if (_pendingRun is { Task.IsCompleted: false })
+            {
+                _pendingForce |= force;
+                return _pendingRun.Task;
+            }
+
+            _pendingForce = force;
+            _pendingRun = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            _runQueue.Writer.TryWrite(0);
+            return _pendingRun.Task;
+        }
+    }
+
+    private void FinishRun(TaskCompletionSource<bool> completion)
+    {
+        lock (_sync)
+        {
+            if (ReferenceEquals(_pendingRun, completion))
+            {
+                _pendingRun = null;
+                _pendingForce = false;
+            }
+        }
+    }
 }

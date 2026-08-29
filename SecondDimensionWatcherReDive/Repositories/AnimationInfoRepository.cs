@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Framework.FileDownload;
@@ -490,8 +491,36 @@ public class AnimationInfoRepository(
             if (changed)
             {
                 entity.StateVersion = checked(entity.StateVersion + 1);
-                await writeContext.SaveChangesAsync(cancellationToken);
             }
+
+            // Commit the durable side-effect workflow in the same transaction as
+            // the download completion state. A retry sees the same unique key and
+            // cannot create a second workflow.
+            var deduplicationKey =
+                $"download-completion:{id:N}:{downloadAttemptId?.ToString("N") ?? "legacy"}";
+            if (!await writeContext.DurableJobs.AnyAsync(
+                    job => job.DeduplicationKey == deduplicationKey,
+                    cancellationToken))
+            {
+                writeContext.DurableJobs.Add(new Models.DurableJob
+                {
+                    Id = Guid.NewGuid(),
+                    DeduplicationKey = deduplicationKey,
+                    Type = DurableJobType.DownloadCompletion,
+                    Status = DurableJobStatus.Pending,
+                    Stage = DurableJobStage.MapFiles,
+                    PayloadJson = JsonSerializer.Serialize(new DownloadCompletionJobPayload(
+                        id,
+                        storePath,
+                        fileStore,
+                        downloadAttemptId)),
+                    CreatedAt = completedAt,
+                    UpdatedAt = completedAt,
+                    NextAttemptAt = completedAt
+                });
+            }
+
+            await writeContext.SaveChangesAsync(cancellationToken);
 
             await writeContext.Entry(entity)
                 .Reference(info => info.Animation)

@@ -92,3 +92,14 @@ Nfs:
 # Valkey:
 #   ConnectionString: "localhost:6379"
 #   InstanceName: "sdw-redive:"
+
+# 健康探针：/health/live 不访问外部依赖；/health/ready 始终检查 PostgreSQL
+Health:
+  ValkeyRequired: true
+  QbittorrentRequired: true
+  StorageRequired: true
+  AIRequired: false
+
+# /metrics 始终提供 Prometheus 指标；配置地址后同时向 OTLP Collector 导出
+OpenTelemetry:
+  OtlpEndpoint: ""

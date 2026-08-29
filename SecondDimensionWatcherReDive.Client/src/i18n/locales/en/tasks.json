@@ -29,6 +29,37 @@
     "success": "Task \"{{name}}\" finished",
     "failure": "Task \"{{name}}\" failed"
   },
+  "deadLetters": {
+    "title": "Failed durable jobs",
+    "description": "Jobs that exhausted automatic retries. Retry them after fixing the cause, or mark them handled.",
+    "empty": "No durable jobs require attention.",
+    "loadFailed": "Could not load failed durable jobs.",
+    "retry": "Retry",
+    "resolve": "Mark handled",
+    "columns": {
+      "type": "Job",
+      "stage": "Failed stage",
+      "attempts": "Attempts",
+      "updated": "Last attempt",
+      "error": "Last error",
+      "actions": "Actions"
+    },
+    "types": {
+      "downloadCompletion": "Download completion"
+    },
+    "stages": {
+      "mapFiles": "Map files",
+      "notify": "Notify",
+      "invokePlugins": "Invoke plugins",
+      "done": "Finalize"
+    },
+    "toast": {
+      "retrySuccess": "Job queued for retry",
+      "retryFailure": "Could not retry the job",
+      "resolveSuccess": "Job marked handled",
+      "resolveFailure": "Could not mark the job handled"
+    }
+  },
   "metadata": {
     "SyncFeed": {
       "name": "SyncFeed",

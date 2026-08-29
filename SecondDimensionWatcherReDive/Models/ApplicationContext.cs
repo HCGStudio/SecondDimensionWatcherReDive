@@ -33,9 +33,64 @@ public class ApplicationContext : DbContext
     public DbSet<PlaybackPreference> PlaybackPreferences { get; set; }
     public DbSet<MediaLibrarySource> MediaLibrarySources { get; set; }
     public DbSet<ApplicationSettings> ApplicationSettings { get; set; }
+    public DbSet<DurableJob> DurableJobs { get; set; }
+    public DbSet<ScheduledTaskState> ScheduledTaskStates { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<DurableJob>()
+            .HasIndex(job => job.DeduplicationKey)
+            .IsUnique();
+
+        modelBuilder.Entity<DurableJob>()
+            .HasIndex(job => new { job.Status, job.NextAttemptAt, job.LeaseExpiresAt });
+
+        modelBuilder.Entity<DurableJob>()
+            .Property(job => job.DeduplicationKey)
+            .HasMaxLength(256);
+
+        modelBuilder.Entity<DurableJob>()
+            .Property(job => job.Type)
+            .HasConversion<string>()
+            .HasMaxLength(48);
+
+        modelBuilder.Entity<DurableJob>()
+            .Property(job => job.Status)
+            .HasConversion<string>()
+            .HasMaxLength(24);
+
+        modelBuilder.Entity<DurableJob>()
+            .Property(job => job.Stage)
+            .HasConversion<string>()
+            .HasMaxLength(32);
+
+        modelBuilder.Entity<DurableJob>()
+            .Property(job => job.PayloadJson)
+            .HasColumnType("jsonb");
+
+        modelBuilder.Entity<DurableJob>()
+            .Property(job => job.LeaseOwner)
+            .HasMaxLength(128);
+
+        modelBuilder.Entity<DurableJob>()
+            .Property(job => job.LastError)
+            .HasMaxLength(512);
+
+        modelBuilder.Entity<ScheduledTaskState>()
+            .HasKey(state => state.TaskId);
+
+        modelBuilder.Entity<ScheduledTaskState>()
+            .Property(state => state.TaskId)
+            .HasMaxLength(128);
+
+        modelBuilder.Entity<ScheduledTaskState>()
+            .Property(state => state.LeaseOwner)
+            .HasMaxLength(128);
+
+        modelBuilder.Entity<ScheduledTaskState>()
+            .Property(state => state.LastError)
+            .HasMaxLength(256);
+
         modelBuilder.Entity<ApplicationSettings>()
             .Property(settings => settings.Id)
             .ValueGeneratedNever();
