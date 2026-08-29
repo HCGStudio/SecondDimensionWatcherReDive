@@ -36,7 +36,7 @@
 - [x] 按动画分组的主页展示（卡片 + 剧集列表）
 - [x] 当季番组发现（mikanani.me 爬取）+ 一键订阅
 - [x] 后台任务仪表盘（查看状态、手动触发）
-- [x] 一次性数据迁移框架（`MigrationMarkers` 表幂等记录）
+- [x] 可串行、可恢复的数据迁移（PostgreSQL advisory lock、版本状态、批次 checkpoint）
 - [x] 插件事件系统（下载前 / 下载完成后钩子）
 - [x] 多语言界面（简体中文 / English / 日本語）
 - [x] Podman / Docker Compose 一键部署
@@ -89,6 +89,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/HCGStudio/SecondDimensionWat
 | 配置项 | 说明 |
 |--------|------|
 | `ConnectionStrings:sdw` | PostgreSQL 连接字符串 |
+| `Migration:BackupExecutable` / `BackupArguments` / `BackupTimeout` / `RequireBackup` | schema/data migration 前的可选备份钩子与强制策略；详见[迁移运维手册](docs/migrations.md) |
 | `JwtSecret` | JWT 签名密钥 |
 | `Password:Value` | 登录密码的 BCrypt 哈希；为空时允许首次注册写入 `password.json` |
 | `DataProtection:KeyRingPath` | 网页保存的 API key/密码所用加密密钥环；必须位于持久化目录 |
@@ -109,6 +110,8 @@ bash <(curl -fsSL https://raw.githubusercontent.com/HCGStudio/SecondDimensionWat
 > 使用现有媒体库导入前，必须至少配置一个 `MediaLibrary:AllowedRoots`。导入源必须位于白名单内，且不能与 `FileStore:Local` 管理的下载目录相同、互为父目录或以其他方式重叠。导入与后续对账只会修改数据库中的媒体记录和虚拟路径映射；系统绝不会移动、重命名或删除原文件。短暂缺失的条目会先撤下映射并保留观看/审核记录，超过 `MissingGracePeriod`（默认 24 小时）后才清理数据库记录。
 
 > 从 v2.2 之前升级：旧的 `Inference:ApiKey/Provider/Model` 已迁移到 `AI:` 前缀。运行 `deployments/migrate-config.sh` 自动迁移；包管理器安装时 `postinstall.sh` 会自动执行。
+
+升级前的备份、失败诊断、checkpoint 恢复和多副本发布流程见 **[数据库迁移运维手册](docs/migrations.md)**。
 
 ### 网页运行时设置
 
