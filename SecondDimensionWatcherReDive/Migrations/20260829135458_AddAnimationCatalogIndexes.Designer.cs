@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using SecondDimensionWatcherReDive.Models;
@@ -11,9 +12,11 @@ using SecondDimensionWatcherReDive.Models;
 namespace SecondDimensionWatcherReDive.Migrations
 {
     [DbContext(typeof(ApplicationContext))]
-    partial class ApplicationContextModelSnapshot : ModelSnapshot
+    [Migration("20260829135458_AddAnimationCatalogIndexes")]
+    partial class AddAnimationCatalogIndexes
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -434,8 +437,7 @@ namespace SecondDimensionWatcherReDive.Migrations
                         .IsUnique()
                         .HasFilter("\"FileMappingId\" IS NOT NULL");
 
-                    b.HasIndex("ParentPath", "IsDirectory", "Name")
-                        .IsDescending(false, true, false);
+                    b.HasIndex("ParentPath", "IsDirectory", "Name");
 
                     b.ToTable("FileSystemEntries", t =>
                         {

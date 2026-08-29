@@ -137,6 +137,7 @@ internal sealed class WebDavWebApplicationFactory : WebApplicationFactory<Migrat
     {
         lock (_mappingsLock) Mappings.Clear();
         MappingRepository.PrefixCalls.Clear();
+        MappingRepository.ImmediateChildrenCalls.Clear();
         FileStoreMock.Reset();
         FileStoreMock.SetupGet(s => s.Name).Returns("local");
         FileStoreProviderMock.Reset();

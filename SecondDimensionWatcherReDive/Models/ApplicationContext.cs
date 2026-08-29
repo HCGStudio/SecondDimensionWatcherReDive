@@ -22,6 +22,7 @@ public class ApplicationContext : DbContext
     public DbSet<ChatConversation> ChatConversations { get; set; }
     public DbSet<ChatMessage> ChatMessages { get; set; }
     public DbSet<FileMapping> FileMappings { get; set; }
+    public DbSet<FileSystemEntry> FileSystemEntries { get; set; }
     public DbSet<FileNameRegexRule> FileNameRegexRules { get; set; }
     public DbSet<SubscriptionAutomationPolicy> SubscriptionAutomationPolicies { get; set; }
     public DbSet<MigrationMarker> MigrationMarkers { get; set; }
@@ -82,6 +83,12 @@ public class ApplicationContext : DbContext
 
         modelBuilder.Entity<AnimationInfo>()
             .HasIndex(info => new { info.MetadataStatus, info.PublishTime });
+
+        modelBuilder.Entity<AnimationInfo>()
+            .HasIndex("AnimationId", "PublishTime", "Id");
+
+        modelBuilder.Entity<AnimationInfo>()
+            .HasIndex(info => new { info.MediaLibraryMissingSince, info.PublishTime, info.Id });
 
         modelBuilder.Entity<AnimationInfo>()
             .HasIndex(info => info.CurrentMetadataReviewOperationId)
@@ -233,6 +240,30 @@ public class ApplicationContext : DbContext
 
         modelBuilder.Entity<FileMapping>()
             .HasIndex(m => m.AnimationInfoId);
+
+        modelBuilder.Entity<FileSystemEntry>()
+            .HasKey(entry => entry.Path);
+
+        modelBuilder.Entity<FileSystemEntry>()
+            .HasIndex(entry => new { entry.ParentPath, entry.IsDirectory, entry.Name })
+            .IsDescending(false, true, false);
+
+        modelBuilder.Entity<FileSystemEntry>()
+            .HasIndex(entry => entry.FileMappingId)
+            .IsUnique()
+            .HasFilter("\"FileMappingId\" IS NOT NULL");
+
+        modelBuilder.Entity<FileSystemEntry>()
+            .HasOne(entry => entry.FileMapping)
+            .WithOne()
+            .HasForeignKey<FileSystemEntry>(entry => entry.FileMappingId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<FileSystemEntry>()
+            .ToTable(table => table.HasCheckConstraint(
+                "CK_FileSystemEntries_NodeShape",
+                "(\"IsDirectory\" AND \"FileMappingId\" IS NULL AND \"DescendantFileCount\" > 0) OR " +
+                "(NOT \"IsDirectory\" AND \"FileMappingId\" IS NOT NULL AND \"DescendantFileCount\" = 1)"));
 
         modelBuilder.Entity<FileNameRegexRule>()
             .HasIndex(rule => new { rule.AnimationId, rule.Pattern })

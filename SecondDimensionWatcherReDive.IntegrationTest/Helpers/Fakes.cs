@@ -14,6 +14,7 @@ internal sealed class FakeFileMappingRepository : IFileMappingRepository
 
     public List<string> PrefixCalls { get; } = new();
     public int RootEntriesCalls { get; private set; }
+    public List<string> ImmediateChildrenCalls { get; } = new();
 
     private List<FileMapping> Snapshot() => _mappings.ToList();
 
@@ -41,6 +42,54 @@ internal sealed class FakeFileMappingRepository : IFileMappingRepository
 
     public Task<FileMapping?> FindByVirtualPathAsync(string virtualPath, CancellationToken cancellationToken)
         => Task.FromResult(Snapshot().FirstOrDefault(m => m.VirtualPath == virtualPath));
+
+    public Task<FileSystemEntry?> FindFileSystemEntryAsync(
+        string virtualPath,
+        CancellationToken cancellationToken)
+    {
+        var normalized = virtualPath == "/" ? "/" : virtualPath.TrimEnd('/');
+        var mapping = Snapshot().FirstOrDefault(item => item.VirtualPath == normalized);
+        if (mapping is not null)
+            return Task.FromResult<FileSystemEntry?>(new FileSystemEntry(
+                normalized,
+                ParentPath(normalized),
+                Path.GetFileName(normalized),
+                IsDirectory: false,
+                mapping));
+
+        var prefix = normalized + "/";
+        return Task.FromResult(Snapshot().Any(item => item.VirtualPath.StartsWith(prefix, StringComparison.Ordinal))
+            ? new FileSystemEntry(
+                normalized,
+                ParentPath(normalized),
+                Path.GetFileName(normalized),
+                IsDirectory: true,
+                Mapping: null)
+            : null);
+    }
+
+    public Task<IReadOnlyList<FileSystemEntry>> GetImmediateChildrenAsync(
+        string parentPath,
+        CancellationToken cancellationToken)
+    {
+        ImmediateChildrenCalls.Add(parentPath);
+        var prefix = parentPath == "/" ? "/" : parentPath.TrimEnd('/') + "/";
+        var children = new Dictionary<string, FileSystemEntry>(StringComparer.Ordinal);
+        foreach (var mapping in Snapshot())
+        {
+            if (!mapping.VirtualPath.StartsWith(prefix, StringComparison.Ordinal)) continue;
+            var remainder = mapping.VirtualPath[prefix.Length..];
+            if (remainder.Length == 0) continue;
+            var slash = remainder.IndexOf('/');
+            var name = slash < 0 ? remainder : remainder[..slash];
+            var path = prefix == "/" ? "/" + name : prefix + name;
+            children[path] = slash < 0
+                ? new FileSystemEntry(path, parentPath, name, IsDirectory: false, mapping)
+                : new FileSystemEntry(path, parentPath, name, IsDirectory: true, Mapping: null);
+        }
+
+        return Task.FromResult<IReadOnlyList<FileSystemEntry>>(children.Values.ToList());
+    }
 
     public Task<IReadOnlyList<FileMapping>> GetByVirtualPathPrefixAsync(string virtualPathPrefix, CancellationToken cancellationToken)
     {
@@ -87,6 +136,12 @@ internal sealed class FakeFileMappingRepository : IFileMappingRepository
 
     public Task RemoveByAnimationInfoAsync(Guid animationInfoId, CancellationToken cancellationToken)
         => throw new NotSupportedException();
+
+    private static string ParentPath(string path)
+    {
+        var slash = path.LastIndexOf('/');
+        return slash <= 0 ? "/" : path[..slash];
+    }
 }
 
 internal sealed class FakeFileExplorer : IFileExplorer
@@ -140,6 +195,30 @@ internal sealed class FakeFileExplorer : IFileExplorer
         }
 
         return direct.Values.ToList();
+    }
+
+    public async Task<IReadOnlyList<FileExploreEntry>> GetDirectoryEntriesAsync(
+        DirectoryToken token,
+        CancellationToken cancellationToken)
+    {
+        var nodes = await _repository.GetImmediateChildrenAsync(
+            token.Path == "/" ? "/" : token.Path.TrimEnd('/'),
+            cancellationToken);
+        var results = new List<FileExploreEntry>(nodes.Count);
+        foreach (var node in nodes)
+        {
+            FileStoreInfo? info = null;
+            if (node.Mapping is not null)
+                info = await _store.FileInfoAsync(node.Mapping.PhysicalPath, cancellationToken);
+            results.Add(new FileExploreEntry(
+                node.Path,
+                node.Name,
+                node.IsDirectory,
+                node.Mapping,
+                info));
+        }
+
+        return results;
     }
 
     public Task<Stream> OpenReadStreamAsync(FileToken token, CancellationToken cancellationToken)

@@ -34,6 +34,14 @@ public interface IFileMappingRepository
 
     Task<FileMapping?> FindByVirtualPathAsync(string virtualPath, CancellationToken cancellationToken);
 
+    Task<FileSystemEntry?> FindFileSystemEntryAsync(
+        string virtualPath,
+        CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<FileSystemEntry>> GetImmediateChildrenAsync(
+        string parentPath,
+        CancellationToken cancellationToken);
+
     Task<IReadOnlyList<FileMapping>> GetByVirtualPathPrefixAsync(string virtualPathPrefix, CancellationToken cancellationToken);
 
     Task<IReadOnlyList<RootEntry>> GetRootEntriesAsync(CancellationToken cancellationToken);

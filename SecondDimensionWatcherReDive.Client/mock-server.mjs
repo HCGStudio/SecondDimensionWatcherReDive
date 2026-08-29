@@ -692,50 +692,147 @@ let feeds = [
 // Per-feed subscription automation policies and historical releases.
 const POLICY_CREATED_AT = new Date(Date.now() - 86400_000).toISOString();
 const subscriptionPolicies = new Map([
-  [feeds[0].id, {
-    feedId: feeds[0].id,
-    subtitleGroups: ["LoliHouse", "喵萌奶茶屋"],
-    resolutions: ["1080p"],
-    codecs: ["HEVC"],
-    languages: ["简中", "繁中"],
-    minSizeBytes: 300 * 1024 * 1024,
-    maxSizeBytes: 1600 * 1024 * 1024,
-    excludedKeywords: ["合集", "NCOP"],
-    mode: "ManualConfirm",
-    createdAt: POLICY_CREATED_AT,
-    updatedAt: new Date(Date.now() - 3600_000 * 8).toISOString(),
-  }],
-  [feeds[1].id, {
-    feedId: feeds[1].id,
-    subtitleGroups: ["ANi", "SubsPlease"],
-    resolutions: ["1080p"],
-    codecs: [],
-    languages: ["繁中"],
-    minSizeBytes: null,
-    maxSizeBytes: 1400 * 1024 * 1024,
-    excludedKeywords: ["预告"],
-    mode: "AutoDownload",
-    createdAt: POLICY_CREATED_AT,
-    updatedAt: new Date(Date.now() - 3600_000 * 3).toISOString(),
-  }],
+  [
+    feeds[0].id,
+    {
+      feedId: feeds[0].id,
+      subtitleGroups: ["LoliHouse", "喵萌奶茶屋"],
+      resolutions: ["1080p"],
+      codecs: ["HEVC"],
+      languages: ["简中", "繁中"],
+      minSizeBytes: 300 * 1024 * 1024,
+      maxSizeBytes: 1600 * 1024 * 1024,
+      excludedKeywords: ["合集", "NCOP"],
+      mode: "ManualConfirm",
+      createdAt: POLICY_CREATED_AT,
+      updatedAt: new Date(Date.now() - 3600_000 * 8).toISOString(),
+    },
+  ],
+  [
+    feeds[1].id,
+    {
+      feedId: feeds[1].id,
+      subtitleGroups: ["ANi", "SubsPlease"],
+      resolutions: ["1080p"],
+      codecs: [],
+      languages: ["繁中"],
+      minSizeBytes: null,
+      maxSizeBytes: 1400 * 1024 * 1024,
+      excludedKeywords: ["预告"],
+      mode: "AutoDownload",
+      createdAt: POLICY_CREATED_AT,
+      updatedAt: new Date(Date.now() - 3600_000 * 3).toISOString(),
+    },
+  ],
 ]);
 
 const RELEASE_HISTORY_BY_FEED = new Map([
-  [feeds[0].id, [
-    { id: randomUUID(), title: "[LoliHouse] 葬送的芙莉莲 - 28 [WebRip 1080p HEVC-10bit AAC][简繁内封]", publishedAt: new Date(Date.now() - 3600_000 * 5).toISOString(), sizeBytes: 824 * 1024 * 1024, subtitleGroup: "LoliHouse", resolution: "1080p", codec: "HEVC", languages: ["简中", "繁中"] },
-    { id: randomUUID(), title: "[ANi] 葬送的芙莉莲 - 28 [1080P][繁日双语]", publishedAt: new Date(Date.now() - 3600_000 * 12).toISOString(), sizeBytes: 516 * 1024 * 1024, subtitleGroup: "ANi", resolution: "1080p", codec: "AVC", languages: ["繁中", "日语"] },
-    { id: randomUUID(), title: "[喵萌奶茶屋] 葬送的芙莉莲 01-28 合集 [1080p HEVC][简繁]", publishedAt: new Date(Date.now() - 86400_000).toISOString(), sizeBytes: 18.4 * 1024 * 1024 * 1024, subtitleGroup: "喵萌奶茶屋", resolution: "1080p", codec: "HEVC", languages: ["简中", "繁中"] },
-    { id: randomUUID(), title: "[LoliHouse] 葬送的芙莉莲 - 27 [2160p HEVC][简繁]", publishedAt: new Date(Date.now() - 86400_000 * 2).toISOString(), sizeBytes: 2250 * 1024 * 1024, subtitleGroup: "LoliHouse", resolution: "2160p", codec: "HEVC", languages: ["简中", "繁中"] },
-  ]],
-  [feeds[1].id, [
-    { id: randomUUID(), title: "[ANi] 迷宫饭 - 24 [1080P][繁日双语]", publishedAt: new Date(Date.now() - 3600_000 * 7).toISOString(), sizeBytes: 612 * 1024 * 1024, subtitleGroup: "ANi", resolution: "1080p", codec: "AVC", languages: ["繁中", "日语"] },
-    { id: randomUUID(), title: "[SubsPlease] Dungeon Meshi - 24 (1080p) [English]", publishedAt: new Date(Date.now() - 3600_000 * 18).toISOString(), sizeBytes: 1380 * 1024 * 1024, subtitleGroup: "SubsPlease", resolution: "1080p", codec: "AVC", languages: ["English"] },
-    { id: randomUUID(), title: "[ANi] 迷宫饭 完结纪念预告 [1080P][繁中]", publishedAt: new Date(Date.now() - 86400_000 * 2).toISOString(), sizeBytes: 92 * 1024 * 1024, subtitleGroup: "ANi", resolution: "1080p", codec: "AVC", languages: ["繁中"] },
-  ]],
-  [feeds[2].id, [
-    { id: randomUUID(), title: "[LoliHouse] 药屋少女的呢喃 - 24 [WebRip 1080p HEVC][简繁]", publishedAt: new Date(Date.now() - 3600_000 * 10).toISOString(), sizeBytes: 745 * 1024 * 1024, subtitleGroup: "LoliHouse", resolution: "1080p", codec: "HEVC", languages: ["简中", "繁中"] },
-    { id: randomUUID(), title: "[ANi] 药屋少女的呢喃 - 24 [720P][繁中]", publishedAt: new Date(Date.now() - 86400_000).toISOString(), sizeBytes: 324 * 1024 * 1024, subtitleGroup: "ANi", resolution: "720p", codec: "AVC", languages: ["繁中"] },
-  ]],
+  [
+    feeds[0].id,
+    [
+      {
+        id: randomUUID(),
+        title:
+          "[LoliHouse] 葬送的芙莉莲 - 28 [WebRip 1080p HEVC-10bit AAC][简繁内封]",
+        publishedAt: new Date(Date.now() - 3600_000 * 5).toISOString(),
+        sizeBytes: 824 * 1024 * 1024,
+        subtitleGroup: "LoliHouse",
+        resolution: "1080p",
+        codec: "HEVC",
+        languages: ["简中", "繁中"],
+      },
+      {
+        id: randomUUID(),
+        title: "[ANi] 葬送的芙莉莲 - 28 [1080P][繁日双语]",
+        publishedAt: new Date(Date.now() - 3600_000 * 12).toISOString(),
+        sizeBytes: 516 * 1024 * 1024,
+        subtitleGroup: "ANi",
+        resolution: "1080p",
+        codec: "AVC",
+        languages: ["繁中", "日语"],
+      },
+      {
+        id: randomUUID(),
+        title: "[喵萌奶茶屋] 葬送的芙莉莲 01-28 合集 [1080p HEVC][简繁]",
+        publishedAt: new Date(Date.now() - 86400_000).toISOString(),
+        sizeBytes: 18.4 * 1024 * 1024 * 1024,
+        subtitleGroup: "喵萌奶茶屋",
+        resolution: "1080p",
+        codec: "HEVC",
+        languages: ["简中", "繁中"],
+      },
+      {
+        id: randomUUID(),
+        title: "[LoliHouse] 葬送的芙莉莲 - 27 [2160p HEVC][简繁]",
+        publishedAt: new Date(Date.now() - 86400_000 * 2).toISOString(),
+        sizeBytes: 2250 * 1024 * 1024,
+        subtitleGroup: "LoliHouse",
+        resolution: "2160p",
+        codec: "HEVC",
+        languages: ["简中", "繁中"],
+      },
+    ],
+  ],
+  [
+    feeds[1].id,
+    [
+      {
+        id: randomUUID(),
+        title: "[ANi] 迷宫饭 - 24 [1080P][繁日双语]",
+        publishedAt: new Date(Date.now() - 3600_000 * 7).toISOString(),
+        sizeBytes: 612 * 1024 * 1024,
+        subtitleGroup: "ANi",
+        resolution: "1080p",
+        codec: "AVC",
+        languages: ["繁中", "日语"],
+      },
+      {
+        id: randomUUID(),
+        title: "[SubsPlease] Dungeon Meshi - 24 (1080p) [English]",
+        publishedAt: new Date(Date.now() - 3600_000 * 18).toISOString(),
+        sizeBytes: 1380 * 1024 * 1024,
+        subtitleGroup: "SubsPlease",
+        resolution: "1080p",
+        codec: "AVC",
+        languages: ["English"],
+      },
+      {
+        id: randomUUID(),
+        title: "[ANi] 迷宫饭 完结纪念预告 [1080P][繁中]",
+        publishedAt: new Date(Date.now() - 86400_000 * 2).toISOString(),
+        sizeBytes: 92 * 1024 * 1024,
+        subtitleGroup: "ANi",
+        resolution: "1080p",
+        codec: "AVC",
+        languages: ["繁中"],
+      },
+    ],
+  ],
+  [
+    feeds[2].id,
+    [
+      {
+        id: randomUUID(),
+        title: "[LoliHouse] 药屋少女的呢喃 - 24 [WebRip 1080p HEVC][简繁]",
+        publishedAt: new Date(Date.now() - 3600_000 * 10).toISOString(),
+        sizeBytes: 745 * 1024 * 1024,
+        subtitleGroup: "LoliHouse",
+        resolution: "1080p",
+        codec: "HEVC",
+        languages: ["简中", "繁中"],
+      },
+      {
+        id: randomUUID(),
+        title: "[ANi] 药屋少女的呢喃 - 24 [720P][繁中]",
+        publishedAt: new Date(Date.now() - 86400_000).toISOString(),
+        sizeBytes: 324 * 1024 * 1024,
+        subtitleGroup: "ANi",
+        resolution: "720p",
+        codec: "AVC",
+        languages: ["繁中"],
+      },
+    ],
+  ],
 ]);
 
 function simulatePolicy(feedId, policy) {
@@ -755,28 +852,59 @@ function simulatePolicy(feedId, policy) {
     if (field === "resolution") {
       normalized = normalized.replace(/\s/g, "");
       const aliases = {
-        "4K": "2160P", UHD: "2160P", "2160": "2160P",
-        "1440": "1440P", FHD: "1080P", "1080": "1080P",
-        HD: "720P", "720": "720P", "576": "576P", "480": "480P",
+        "4K": "2160P",
+        UHD: "2160P",
+        2160: "2160P",
+        1440: "1440P",
+        FHD: "1080P",
+        1080: "1080P",
+        HD: "720P",
+        720: "720P",
+        576: "576P",
+        480: "480P",
       };
       return aliases[normalized] ?? normalized;
     }
     if (field === "codec") {
       normalized = normalized.replace(/[.\-\s]/g, "");
       const aliases = {
-        H265: "HEVC", X265: "HEVC", H264: "AVC", X264: "AVC",
+        H265: "HEVC",
+        X265: "HEVC",
+        H264: "AVC",
+        X264: "AVC",
       };
       return aliases[normalized] ?? normalized;
     }
     if (field === "languages") {
       normalized = normalized.replace(/[_\-\s]/g, "");
       const aliases = {
-        CHS: "ZHHANS", SC: "ZHHANS", GB: "ZHHANS", ZHCN: "ZHHANS",
-        "简体": "ZHHANS", "简中": "ZHHANS", "簡中": "ZHHANS", "简体中文": "ZHHANS",
-        CHT: "ZHHANT", TC: "ZHHANT", BIG5: "ZHHANT", ZHTW: "ZHHANT", ZHHK: "ZHHANT",
-        "繁体": "ZHHANT", "繁體": "ZHHANT", "繁中": "ZHHANT", "繁體中文": "ZHHANT",
-        JPN: "JA", JAP: "JA", "日语": "JA", "日語": "JA", "日本語": "JA", JAPANESE: "JA",
-        ENG: "EN", "英语": "EN", "英語": "EN", ENGLISH: "EN",
+        CHS: "ZHHANS",
+        SC: "ZHHANS",
+        GB: "ZHHANS",
+        ZHCN: "ZHHANS",
+        简体: "ZHHANS",
+        简中: "ZHHANS",
+        簡中: "ZHHANS",
+        简体中文: "ZHHANS",
+        CHT: "ZHHANT",
+        TC: "ZHHANT",
+        BIG5: "ZHHANT",
+        ZHTW: "ZHHANT",
+        ZHHK: "ZHHANT",
+        繁体: "ZHHANT",
+        繁體: "ZHHANT",
+        繁中: "ZHHANT",
+        繁體中文: "ZHHANT",
+        JPN: "JA",
+        JAP: "JA",
+        日语: "JA",
+        日語: "JA",
+        日本語: "JA",
+        JAPANESE: "JA",
+        ENG: "EN",
+        英语: "EN",
+        英語: "EN",
+        ENGLISH: "EN",
       };
       return aliases[normalized] ?? normalized;
     }
@@ -786,7 +914,13 @@ function simulatePolicy(feedId, policy) {
     const actual = actualValues.filter(Boolean);
     const expected = (expectedValues ?? []).filter(Boolean);
     if (expected.length === 0) {
-      return { field, passed: true, actual: actual.join(", ") || null, expected: null, message: "anyValueAllowed" };
+      return {
+        field,
+        passed: true,
+        actual: actual.join(", ") || null,
+        expected: null,
+        message: "anyValueAllowed",
+      };
     }
     const normalizedExpected = new Set(
       expected.map((value) => normalizeAllowedValue(field, value)),
@@ -794,28 +928,47 @@ function simulatePolicy(feedId, policy) {
     const passed = actual.some((value) =>
       normalizedExpected.has(normalizeAllowedValue(field, value)),
     );
-    return { field, passed, actual: actual.join(", ") || null, expected: expected.join(", "), message: passed ? "allowedValueMatched" : "allowedValueMissed" };
+    return {
+      field,
+      passed,
+      actual: actual.join(", ") || null,
+      expected: expected.join(", "),
+      message: passed ? "allowedValueMatched" : "allowedValueMissed",
+    };
   };
 
   const entries = history.map((item) => {
     const explanations = [
-      checkAllowed("subtitleGroup", [item.subtitleGroup], policy.subtitleGroups),
+      checkAllowed(
+        "subtitleGroup",
+        [item.subtitleGroup],
+        policy.subtitleGroups,
+      ),
       checkAllowed("resolution", [item.resolution], policy.resolutions),
       checkAllowed("codec", [item.codec], policy.codecs),
       checkAllowed("languages", item.languages, policy.languages),
     ];
-    const min = typeof policy.minSizeBytes === "number" ? policy.minSizeBytes : null;
-    const max = typeof policy.maxSizeBytes === "number" ? policy.maxSizeBytes : null;
-    const sizePassed = (min == null || item.sizeBytes >= min) && (max == null || item.sizeBytes <= max);
+    const min =
+      typeof policy.minSizeBytes === "number" ? policy.minSizeBytes : null;
+    const max =
+      typeof policy.maxSizeBytes === "number" ? policy.maxSizeBytes : null;
+    const sizePassed =
+      (min == null || item.sizeBytes >= min) &&
+      (max == null || item.sizeBytes <= max);
     explanations.push({
       field: "size",
       passed: sizePassed,
       actual: formatBytes(item.sizeBytes),
-      expected: min == null && max == null ? null : `${min == null ? "0 B" : formatBytes(min)} – ${max == null ? "∞" : formatBytes(max)}`,
+      expected:
+        min == null && max == null
+          ? null
+          : `${min == null ? "0 B" : formatBytes(min)} – ${max == null ? "∞" : formatBytes(max)}`,
       message: sizePassed ? "withinSizeRange" : "outsideSizeRange",
     });
     const excluded = (policy.excludedKeywords ?? []).filter(Boolean);
-    const found = excluded.find((keyword) => item.title.toLowerCase().includes(keyword.toLowerCase()));
+    const found = excluded.find((keyword) =>
+      item.title.toLowerCase().includes(keyword.toLowerCase()),
+    );
     explanations.push({
       field: "excludedKeywords",
       passed: !found,
@@ -823,10 +976,21 @@ function simulatePolicy(feedId, policy) {
       expected: excluded.length > 0 ? excluded.join(", ") : null,
       message: found ? "excludedKeywordFound" : "noExcludedKeyword",
     });
-    return { id: item.id, title: item.title, publishedAt: item.publishedAt, sizeBytes: item.sizeBytes, matched: explanations.every((reason) => reason.passed), explanations };
+    return {
+      id: item.id,
+      title: item.title,
+      publishedAt: item.publishedAt,
+      sizeBytes: item.sizeBytes,
+      matched: explanations.every((reason) => reason.passed),
+      explanations,
+    };
   });
 
-  return { total: entries.length, matched: entries.filter((entry) => entry.matched).length, entries };
+  return {
+    total: entries.length,
+    matched: entries.filter((entry) => entry.matched).length,
+    entries,
+  };
 }
 
 // WebDAV access tokens
@@ -1052,7 +1216,9 @@ function playablePaths() {
         !entry.isDirectory &&
         /\.(mkv|mp4|webm|avi|flv|wmv|mov|m4v|ts|m2ts)$/i.test(entry.fileName)
       ) {
-        paths.push(directory ? `${directory}/${entry.fileName}` : entry.fileName);
+        paths.push(
+          directory ? `${directory}/${entry.fileName}` : entry.fileName,
+        );
       }
     }
   }
@@ -1122,7 +1288,9 @@ function associatedSubtitles(animation, videoPath) {
         entry.fileName.toLowerCase().startsWith(stem.toLowerCase()),
     )
     .map((entry) => {
-      const path = directory ? `${directory}/${entry.fileName}` : entry.fileName;
+      const path = directory
+        ? `${directory}/${entry.fileName}`
+        : entry.fileName;
       const language = entry.fileName.includes("zh-Hans")
         ? "zh-Hans"
         : entry.fileName.includes(".en.")
@@ -1153,7 +1321,8 @@ if (finishedForPlayback[0]) {
   });
 }
 const previousEpisode = finishedForPlayback.find(
-  (animation) => animation.animation?.tmdbId === "209867" && animation.episode === 27,
+  (animation) =>
+    animation.animation?.tmdbId === "209867" && animation.episode === 27,
 );
 if (previousEpisode) {
   const path = "Season 1/EP01.mp4";
@@ -1172,7 +1341,8 @@ let mockIncidents = [
     type: "feedFailure",
     severity: "error",
     title: "Mikan RSS returned HTTP 503",
-    detail: "The feed could not be refreshed during the last three sync attempts.",
+    detail:
+      "The feed could not be refreshed during the last three sync attempts.",
     sourceId: feeds[0]?.id ?? null,
     detectedAt: new Date(Date.now() - 42 * 60_000).toISOString(),
     updatedAt: new Date(Date.now() - 12 * 60_000).toISOString(),
@@ -1187,7 +1357,8 @@ let mockIncidents = [
     type: "downloadStalled",
     severity: "warning",
     title: "Download has not progressed for 20 minutes",
-    detail: "No peers are currently available. Retry will reannounce the torrent.",
+    detail:
+      "No peers are currently available. Retry will reannounce the torrent.",
     sourceId: finishedForPlayback[1]?.id ?? null,
     detectedAt: new Date(Date.now() - 25 * 60_000).toISOString(),
     updatedAt: new Date(Date.now() - 5 * 60_000).toISOString(),
@@ -1217,7 +1388,8 @@ let mockIncidents = [
     type: "fileMappingFailure",
     severity: "error",
     title: "Downloaded files could not be mapped",
-    detail: "The download completed, but no playable video mapping was produced.",
+    detail:
+      "The download completed, but no playable video mapping was produced.",
     sourceId: finishedForPlayback[2]?.id ?? null,
     detectedAt: new Date(Date.now() - 2 * 3600_000).toISOString(),
     updatedAt: new Date(Date.now() - 2 * 3600_000).toISOString(),
@@ -1555,7 +1727,11 @@ async function route(method, pathname, searchParams, req, res) {
   if (method === "GET" && pathname === "/api/playback/context") {
     const animation = animations.get(searchParams.get("animationInfoId"));
     const path = searchParams.get("path");
-    if (!animation || !animation.isDownloadFinished || !playablePaths().includes(path)) {
+    if (
+      !animation ||
+      !animation.isDownloadFinished ||
+      !playablePaths().includes(path)
+    ) {
       return empty(res, 404);
     }
     return json(res, {
@@ -1576,7 +1752,8 @@ async function route(method, pathname, searchParams, req, res) {
   if (method === "PUT" && pathname === "/api/playback/progress") {
     const body = await readBody(req);
     const animation = animations.get(body.animationInfoId);
-    if (!animation || !playablePaths().includes(body.path)) return empty(res, 404);
+    if (!animation || !playablePaths().includes(body.path))
+      return empty(res, 404);
     const positionSeconds = Math.max(0, Number(body.positionSeconds) || 0);
     const durationSeconds = Math.max(0, Number(body.durationSeconds) || 0);
     const key = playbackKey(animation.id, body.path);
@@ -1586,7 +1763,10 @@ async function route(method, pathname, searchParams, req, res) {
       (durationSeconds > 0 && positionSeconds / durationSeconds >= 0.9);
     const updatedAt = new Date().toISOString();
     const stored = {
-      positionSeconds: Math.min(positionSeconds, durationSeconds || positionSeconds),
+      positionSeconds: Math.min(
+        positionSeconds,
+        durationSeconds || positionSeconds,
+      ),
       durationSeconds,
       isWatched,
       updatedAt,
@@ -1599,7 +1779,8 @@ async function route(method, pathname, searchParams, req, res) {
   if (method === "PUT" && pathname === "/api/playback/watched") {
     const body = await readBody(req);
     const animation = animations.get(body.animationInfoId);
-    if (!animation || !playablePaths().includes(body.path)) return empty(res, 404);
+    if (!animation || !playablePaths().includes(body.path))
+      return empty(res, 404);
     const key = playbackKey(animation.id, body.path);
     const previous = playbackProgress.get(key) ?? {
       positionSeconds: 0,
@@ -1638,7 +1819,10 @@ async function route(method, pathname, searchParams, req, res) {
   if (method === "GET" && pathname === "/api/incidents") {
     const type = searchParams.get("type");
     const includeResolved = searchParams.get("includeResolved") === "true";
-    const skip = Math.max(0, parseInt(searchParams.get("skip") ?? "0", 10) || 0);
+    const skip = Math.max(
+      0,
+      parseInt(searchParams.get("skip") ?? "0", 10) || 0,
+    );
     const take = Math.min(
       200,
       Math.max(1, parseInt(searchParams.get("take") ?? "50", 10) || 50),
@@ -1680,7 +1864,8 @@ async function route(method, pathname, searchParams, req, res) {
         incident.lastRetryError = null;
         incident.canRetry = false;
       } else {
-        incident.lastRetryError = "Free space is still below the configured threshold";
+        incident.lastRetryError =
+          "Free space is still below the configured threshold";
       }
       results.push({
         incidentId: incident.id,
@@ -1701,15 +1886,21 @@ async function route(method, pathname, searchParams, req, res) {
     if (method === "POST" && match) {
       const incident = mockIncidents.find((item) => item.id === match[1]);
       if (!incident) return empty(res, 404);
-      if (incident.resolvedAt) return json(res, { error: "Already resolved" }, 409);
+      if (incident.resolvedAt)
+        return json(res, { error: "Already resolved" }, 409);
       incident.retryCount += 1;
       incident.lastRetryAt = new Date().toISOString();
       incident.updatedAt = incident.lastRetryAt;
       if (incident.type === "diskSpaceLow") {
-        incident.lastRetryError = "Free space is still below the configured threshold";
+        incident.lastRetryError =
+          "Free space is still below the configured threshold";
         return json(
           res,
-          { incidentId: incident.id, success: false, error: incident.lastRetryError },
+          {
+            incidentId: incident.id,
+            success: false,
+            error: incident.lastRetryError,
+          },
           422,
         );
       }
@@ -2003,7 +2194,6 @@ async function route(method, pathname, searchParams, req, res) {
   if (method === "GET" && pathname === "/api/animationinfo/grouped") {
     const all = [...animations.values()];
     const grouped = new Map();
-    const uncategorized = [];
     for (const item of all) {
       if (item.animation && item.animation.tmdbId) {
         const key = item.animation.tmdbId;
@@ -2017,31 +2207,102 @@ async function route(method, pathname, searchParams, req, res) {
           });
         }
         grouped.get(key).episodes.push(item);
-      } else {
-        uncategorized.push(item);
       }
     }
-    const animationsList = [...grouped.values()]
+    const items = [...grouped.values()]
       .map((g) => {
         g.episodes.sort(
           (a, b) =>
             new Date(b.publishTime).getTime() -
-              new Date(a.publishTime).getTime() ||
-            b.id.localeCompare(a.id),
+              new Date(a.publishTime).getTime() || b.id.localeCompare(a.id),
         );
-        g.episodeCount = g.episodes.length;
-        return g;
+        const episodeCount = new Set(
+          g.episodes
+            .filter((episode) => episode.episode != null)
+            .map((episode) => `${episode.season ?? ""}:${episode.episode}`),
+        ).size;
+        return {
+          tmdbId: g.tmdbId,
+          name: g.name,
+          originalName: g.originalName,
+          posterPath: g.posterPath,
+          episodeCount,
+          releaseCount: g.episodes.length,
+          automationAttentionCount: g.episodes.filter((episode) =>
+            ["Notified", "PendingConfirmation", "AutoDownloadFailed"].includes(
+              episode.automationDisposition ?? "",
+            ),
+          ).length,
+          latestPublishTime: g.episodes[0].publishTime,
+        };
       })
-      .sort((a, b) => {
-        const aMax = Math.max(
-          ...a.episodes.map((e) => new Date(e.publishTime).getTime()),
-        );
-        const bMax = Math.max(
-          ...b.episodes.map((e) => new Date(e.publishTime).getTime()),
-        );
-        return bMax - aMax;
-      });
-    return json(res, { animations: animationsList, uncategorized });
+      .sort(
+        (a, b) =>
+          new Date(b.latestPublishTime).getTime() -
+            new Date(a.latestPublishTime).getTime() ||
+          b.tmdbId.localeCompare(a.tmdbId),
+      );
+    const take = parseInt(searchParams.get("take") ?? "24", 10);
+    const offset = parseInt(searchParams.get("cursor") ?? "0", 10);
+    return json(res, {
+      items: items.slice(offset, offset + take),
+      nextCursor: offset + take < items.length ? String(offset + take) : null,
+    });
+  }
+
+  if (method === "GET" && pathname === "/api/animationinfo/uncategorized") {
+    const items = [...animations.values()]
+      .filter((item) => !item.animation?.tmdbId)
+      .sort(
+        (a, b) =>
+          new Date(b.publishTime).getTime() -
+            new Date(a.publishTime).getTime() || b.id.localeCompare(a.id),
+      );
+    const take = parseInt(searchParams.get("take") ?? "24", 10);
+    const offset = parseInt(searchParams.get("cursor") ?? "0", 10);
+    return json(res, {
+      items: items.slice(offset, offset + take),
+      nextCursor: offset + take < items.length ? String(offset + take) : null,
+    });
+  }
+
+  const episodeCatalogMatch = pathname.match(
+    /^\/api\/animationinfo\/grouped\/([^/]+)\/episodes$/,
+  );
+  if (method === "GET" && episodeCatalogMatch) {
+    const tmdbId = decodeURIComponent(episodeCatalogMatch[1]);
+    const episodes = [...animations.values()]
+      .filter((item) => item.animation?.tmdbId === tmdbId)
+      .sort(
+        (a, b) =>
+          new Date(b.publishTime).getTime() -
+            new Date(a.publishTime).getTime() || b.id.localeCompare(a.id),
+      );
+    if (episodes.length === 0) return json(res, {}, 404);
+    const take = parseInt(searchParams.get("take") ?? "50", 10);
+    const offset = parseInt(searchParams.get("cursor") ?? "0", 10);
+    const episodeCount = new Set(
+      episodes
+        .filter((episode) => episode.episode != null)
+        .map((episode) => `${episode.season ?? ""}:${episode.episode}`),
+    ).size;
+    const first = episodes[0];
+    return json(res, {
+      animation: {
+        ...first.animation,
+        episodeCount,
+        releaseCount: episodes.length,
+        automationAttentionCount: episodes.filter((episode) =>
+          ["Notified", "PendingConfirmation", "AutoDownloadFailed"].includes(
+            episode.automationDisposition ?? "",
+          ),
+        ).length,
+        latestPublishTime: first.publishTime,
+      },
+      episodes: episodes.slice(offset, offset + take),
+      nextCursor:
+        offset + take < episodes.length ? String(offset + take) : null,
+    });
   }
 
   if (method === "GET" && pathname === "/api/animationinfo/downloading") {
@@ -2324,11 +2585,15 @@ async function route(method, pathname, searchParams, req, res) {
 
   // POST /api/subscription-policies/:feedId/simulate
   {
-    const m = pathname.match(/^\/api\/subscription-policies\/([^/]+)\/simulate$/);
+    const m = pathname.match(
+      /^\/api\/subscription-policies\/([^/]+)\/simulate$/,
+    );
     if (method === "POST" && m) {
       const feedId = decodeURIComponent(m[1]);
       if (!feeds.some((feed) => feed.id === feedId)) return empty(res, 404);
-      return readBody(req).then((body) => json(res, simulatePolicy(feedId, body)));
+      return readBody(req).then((body) =>
+        json(res, simulatePolicy(feedId, body)),
+      );
     }
   }
 
@@ -2349,18 +2614,34 @@ async function route(method, pathname, searchParams, req, res) {
           const existing = subscriptionPolicies.get(feedId);
           const policy = {
             feedId,
-            subtitleGroups: Array.isArray(body.subtitleGroups) ? body.subtitleGroups : [],
-            resolutions: Array.isArray(body.resolutions) ? body.resolutions : [],
+            subtitleGroups: Array.isArray(body.subtitleGroups)
+              ? body.subtitleGroups
+              : [],
+            resolutions: Array.isArray(body.resolutions)
+              ? body.resolutions
+              : [],
             codecs: Array.isArray(body.codecs) ? body.codecs : [],
             languages: Array.isArray(body.languages) ? body.languages : [],
-            minSizeBytes: typeof body.minSizeBytes === "number" ? body.minSizeBytes : null,
-            maxSizeBytes: typeof body.maxSizeBytes === "number" ? body.maxSizeBytes : null,
-            excludedKeywords: Array.isArray(body.excludedKeywords) ? body.excludedKeywords : [],
-            mode: ["NotifyOnly", "ManualConfirm", "AutoDownload"].includes(body.mode) ? body.mode : "ManualConfirm",
+            minSizeBytes:
+              typeof body.minSizeBytes === "number" ? body.minSizeBytes : null,
+            maxSizeBytes:
+              typeof body.maxSizeBytes === "number" ? body.maxSizeBytes : null,
+            excludedKeywords: Array.isArray(body.excludedKeywords)
+              ? body.excludedKeywords
+              : [],
+            mode: ["NotifyOnly", "ManualConfirm", "AutoDownload"].includes(
+              body.mode,
+            )
+              ? body.mode
+              : "ManualConfirm",
             createdAt: existing?.createdAt ?? new Date().toISOString(),
             updatedAt: new Date().toISOString(),
           };
-          if (policy.minSizeBytes != null && policy.maxSizeBytes != null && policy.minSizeBytes > policy.maxSizeBytes) {
+          if (
+            policy.minSizeBytes != null &&
+            policy.maxSizeBytes != null &&
+            policy.minSizeBytes > policy.maxSizeBytes
+          ) {
             return json(res, { error: "Invalid size range" }, 400);
           }
           subscriptionPolicies.set(feedId, policy);
@@ -2903,8 +3184,7 @@ server.listen(PORT, () => {
     (animation) => animation.isDownloadFinished,
   ).length;
   const downloadingCount = [...animations.values()].filter(
-    (animation) =>
-      animation.isDownloadTracked && !animation.isDownloadFinished,
+    (animation) => animation.isDownloadTracked && !animation.isDownloadFinished,
   ).length;
   console.log(
     `  ${animations.size} anime entries (${finishedCount} finished, ${downloadingCount} active downloads, rest untracked)`,

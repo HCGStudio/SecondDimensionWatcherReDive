@@ -29,12 +29,14 @@ internal sealed class NfsVfsAdapter(
         if (handle.Kind == NfsHandleKind.Root)
             return new NfsResolvedNode(NfsHandleKind.Root, "/", 0, DateTimeOffset.UnixEpoch);
 
-        if (handle.Kind == NfsHandleKind.File)
-        {
-            var mapping = await mappingRepository.FindByVirtualPathAsync(handle.VirtualPath, cancellationToken);
-            if (mapping is null)
-                return null;
+        var entry = await mappingRepository.FindFileSystemEntryAsync(
+            handle.VirtualPath,
+            cancellationToken);
+        if (entry is null)
+            return null;
 
+        if (!entry.IsDirectory && entry.Mapping is { } mapping)
+        {
             var store = storeProvider.GetClient(mapping.FileStore);
             if (store is null)
                 return null;
@@ -49,11 +51,6 @@ internal sealed class NfsVfsAdapter(
                 mapping.PhysicalPath);
         }
 
-        // Directory: probe by enumerating; a dir exists if it has any children
-        // (or it is the root, handled above).
-        var children = await ListAsync(handle.VirtualPath, cancellationToken);
-        if (children.Count == 0)
-            return null;
         return new NfsResolvedNode(NfsHandleKind.Directory, handle.VirtualPath, 0, DateTimeOffset.UnixEpoch);
     }
 
@@ -65,30 +62,16 @@ internal sealed class NfsVfsAdapter(
         if (string.IsNullOrEmpty(name) || name.Contains('/'))
             return null;
 
-        var children = await ListAsync(parentVirtualPath, cancellationToken);
-        var match = children.FirstOrDefault(c => string.Equals(c.Name, name, StringComparison.Ordinal));
-        if (match is null)
+        var parent = parentVirtualPath == "/" ? string.Empty : parentVirtualPath.TrimEnd('/');
+        var childPath = parent + "/" + name;
+        var entry = await mappingRepository.FindFileSystemEntryAsync(childPath, cancellationToken);
+        if (entry is null)
             return null;
-
-        if (match.Kind == NfsHandleKind.File)
-        {
-            var mapping = await mappingRepository.FindByVirtualPathAsync(match.VirtualPath, cancellationToken);
-            if (mapping is null)
-                return null;
-            var store = storeProvider.GetClient(mapping.FileStore);
-            if (store is null)
-                return null;
-            var info = await store.FileInfoAsync(mapping.PhysicalPath, cancellationToken);
-            return new NfsResolvedNode(
-                NfsHandleKind.File,
-                match.VirtualPath,
-                info.Length ?? 0,
-                info.LastModifiedUtc ?? DateTimeOffset.UnixEpoch,
-                mapping.FileStore,
-                mapping.PhysicalPath);
-        }
-
-        return new NfsResolvedNode(NfsHandleKind.Directory, match.VirtualPath, 0, DateTimeOffset.UnixEpoch);
+        return await ResolveAsync(
+            new NfsFileHandle(
+                entry.IsDirectory ? NfsHandleKind.Directory : NfsHandleKind.File,
+                childPath),
+            cancellationToken);
     }
 
     public async Task<IReadOnlyList<NfsDirectoryChild>> ListAsync(
@@ -96,35 +79,17 @@ internal sealed class NfsVfsAdapter(
         CancellationToken cancellationToken)
     {
         var token = new DirectoryToken(virtualPath, NameFromPath(virtualPath));
-        var raw = await explorer.EnumerateDirectoryAsync(token, cancellationToken);
+        var raw = await explorer.GetDirectoryEntriesAsync(token, cancellationToken);
 
         var result = new List<NfsDirectoryChild>(raw.Count);
         foreach (var entry in raw)
         {
-            switch (entry)
-            {
-                case FileToken file:
-                {
-                    var mapping = await mappingRepository.FindByVirtualPathAsync(file.Path, cancellationToken);
-                    long size = 0;
-                    var mtime = DateTimeOffset.UnixEpoch;
-                    if (mapping is not null)
-                    {
-                        var store = storeProvider.GetClient(mapping.FileStore);
-                        if (store is not null)
-                        {
-                            var info = await store.FileInfoAsync(mapping.PhysicalPath, cancellationToken);
-                            size = info.Length ?? 0;
-                            mtime = info.LastModifiedUtc ?? DateTimeOffset.UnixEpoch;
-                        }
-                    }
-                    result.Add(new NfsDirectoryChild(file.FileName, NfsHandleKind.File, file.Path, size, mtime));
-                    break;
-                }
-                case DirectoryToken dir:
-                    result.Add(new NfsDirectoryChild(dir.FileName, NfsHandleKind.Directory, dir.Path, 0, DateTimeOffset.UnixEpoch));
-                    break;
-            }
+            result.Add(new NfsDirectoryChild(
+                entry.FileName,
+                entry.IsDirectory ? NfsHandleKind.Directory : NfsHandleKind.File,
+                entry.Path,
+                entry.FileInfo?.Length ?? 0,
+                entry.FileInfo?.LastModifiedUtc ?? DateTimeOffset.UnixEpoch));
         }
 
         result.Sort((a, b) => string.CompareOrdinal(a.Name, b.Name));

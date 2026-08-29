@@ -105,17 +105,15 @@ public sealed class WebDavPropFindTests
     [TestMethod]
     public async Task Root_Depth1_Should_Not_Load_Every_Mapping()
     {
-        // Listing the root must use the bounded GetRootEntriesAsync query, not the unbounded
-        // prefix scan (which loads every FileMapping for "/"). Asserts on FakeFileMappingRepository
-        // counters, so cannot be expressed through WebDav.Client.
+        // Listing the root must use the indexed immediate-child query, not an
+        // unbounded prefix scan that loads every FileMapping for "/".
         SeedDefaultMappings();
         using var req = NewPropFind("/webdav/", depth: "1");
 
         using var response = await _client.SendAsync(req);
 
         Assert.AreEqual((HttpStatusCode)207, response.StatusCode);
-        Assert.IsTrue(_factory.MappingRepository.RootEntriesCalls > 0,
-            "Root listing should consult GetRootEntriesAsync.");
+        CollectionAssert.Contains(_factory.MappingRepository.ImmediateChildrenCalls, "/");
         CollectionAssert.DoesNotContain(_factory.MappingRepository.PrefixCalls, "/");
     }
 }

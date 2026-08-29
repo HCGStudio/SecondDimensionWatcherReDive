@@ -1,7 +1,12 @@
 import useSWR from "swr";
+import useSWRInfinite from "swr/infinite";
 
 import fetcher from "../auth/httpClient";
-import { IAnimationGroupedResponse } from "./IAnimationGrouped";
+import {
+  IAnimationCatalogResponse,
+  IAnimationEpisodeResponse,
+  IAnimationInfoSummaryResponse,
+} from "./IAnimationCatalog";
 import { IAnimationInfo } from "./IAnimationInfo";
 import { IFileDownloadStatus } from "./IFileDownloadStatus";
 import { IResponseArrayData } from "./IResponseArrayData";
@@ -13,10 +18,44 @@ export const useAnimationInfo = (skip: number, take: number) =>
     { refreshInterval: 5000 },
   );
 
-export const useGroupedAnimations = () =>
-  useSWR<IAnimationGroupedResponse>("/api/animationinfo/grouped", fetcher, {
-    refreshInterval: 5000,
-  });
+const cursorUrl = (path: string, cursor: string | null, take: number) =>
+  `${path}?take=${take}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
+
+export const useAnimationCatalog = () =>
+  useSWRInfinite<IAnimationCatalogResponse>(
+    (_pageIndex, previousPage) =>
+      previousPage && !previousPage.nextCursor
+        ? null
+        : cursorUrl(
+            "/api/animationinfo/grouped",
+            previousPage?.nextCursor ?? null,
+            24,
+          ),
+    fetcher,
+  );
+
+export const useUncategorizedAnimations = () =>
+  useSWRInfinite<IAnimationInfoSummaryResponse>(
+    (_pageIndex, previousPage) =>
+      previousPage && !previousPage.nextCursor
+        ? null
+        : cursorUrl(
+            "/api/animationinfo/uncategorized",
+            previousPage?.nextCursor ?? null,
+            24,
+          ),
+    fetcher,
+  );
+
+export const useAnimationEpisodes = (tmdbId?: string) =>
+  useSWRInfinite<IAnimationEpisodeResponse>((_pageIndex, previousPage) => {
+    if (!tmdbId || (previousPage && !previousPage.nextCursor)) return null;
+    return cursorUrl(
+      `/api/animationinfo/grouped/${encodeURIComponent(tmdbId)}/episodes`,
+      previousPage?.nextCursor ?? null,
+      50,
+    );
+  }, fetcher);
 
 export const useDownloadingAnimations = (skip: number, take: number) =>
   useSWR<IResponseArrayData<IAnimationInfo>>(

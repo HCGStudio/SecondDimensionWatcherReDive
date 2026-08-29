@@ -11,44 +11,65 @@ public class FileExplorer(
         DirectoryToken token,
         CancellationToken cancellationToken)
     {
-        var prefix = NormalizeDirectory(token.Path);
+        var parentPath = NormalizeParentPath(token.Path);
+        var nodes = await fileMappingRepository.GetImmediateChildrenAsync(
+            parentPath,
+            cancellationToken);
+        return nodes.Select<FileSystemEntry, IFileExploreToken>(node => node.IsDirectory
+            ? new DirectoryToken(node.Path, node.Name)
+            : new FileToken(node.Path, node.Name)).ToList();
+    }
 
-        if (prefix == "/")
+    public async Task<IReadOnlyList<FileExploreEntry>> GetDirectoryEntriesAsync(
+        DirectoryToken token,
+        CancellationToken cancellationToken)
+    {
+        var parentPath = NormalizeParentPath(token.Path);
+
+        var nodes = await fileMappingRepository.GetImmediateChildrenAsync(
+            parentPath,
+            cancellationToken);
+        var infoByPath = new Dictionary<string, FileStoreInfo>(StringComparer.Ordinal);
+
+        var statTasks = nodes
+            .Where(node => !node.IsDirectory && node.Mapping is not null)
+            .GroupBy(node => node.Mapping!.FileStore, StringComparer.Ordinal)
+            .Select(async group =>
+            {
+                var store = fileStoreProvider.GetRequiredClient(group.Key);
+                try
+                {
+                    return await store.GetFileInfosAsync(
+                        group.Select(node => node.Mapping!.PhysicalPath).ToArray(),
+                        cancellationToken);
+                }
+                catch (Exception) when (!cancellationToken.IsCancellationRequested)
+                {
+                    // A stale physical file must not make the virtual directory
+                    // unreadable. Callers expose null stat fields for this batch.
+                    return (IReadOnlyDictionary<string, FileStoreInfo>)
+                        new Dictionary<string, FileStoreInfo>(StringComparer.Ordinal);
+                }
+            })
+            .ToArray();
+
+        if (statTasks.Length > 0)
         {
-            var roots = await fileMappingRepository.GetRootEntriesAsync(cancellationToken);
-            return roots
-                .Select<RootEntry, IFileExploreToken>(r => r.IsDirectory
-                    ? new DirectoryToken("/" + r.Name, r.Name)
-                    : new FileToken("/" + r.Name, r.Name))
-                .ToList();
+            var batches = await Task.WhenAll(statTasks);
+            foreach (var batch in batches)
+                foreach (var pair in batch)
+                    infoByPath[pair.Key] = pair.Value;
         }
 
-        var mappings = await fileMappingRepository.GetByVirtualPathPrefixAsync(prefix, cancellationToken);
-
-        var results = new List<IFileExploreToken>();
-        var seenDirectories = new HashSet<string>(StringComparer.Ordinal);
-
-        foreach (var mapping in mappings)
-        {
-            if (!mapping.VirtualPath.StartsWith(prefix, StringComparison.Ordinal)) continue;
-            var remainder = mapping.VirtualPath[prefix.Length..];
-            if (remainder.Length == 0) continue;
-
-            var slashIndex = remainder.IndexOf('/');
-            if (slashIndex < 0)
-            {
-                results.Add(new FileToken(mapping.VirtualPath, remainder));
-            }
-            else
-            {
-                var dirName = remainder[..slashIndex];
-                var dirPath = prefix + dirName;
-                if (seenDirectories.Add(dirPath))
-                    results.Add(new DirectoryToken(dirPath, dirName));
-            }
-        }
-
-        return results;
+        return nodes.Select(node => new FileExploreEntry(
+            node.Path,
+            node.Name,
+            node.IsDirectory,
+            node.Mapping,
+            node.Mapping is not null
+                && infoByPath.TryGetValue(node.Mapping.PhysicalPath, out var info)
+                    ? info
+                    : null)).ToList();
     }
 
     public async Task<Stream> OpenReadStreamAsync(FileToken token, CancellationToken cancellationToken)
@@ -63,5 +84,11 @@ public class FileExplorer(
     {
         if (string.IsNullOrEmpty(path)) return "/";
         return path.EndsWith('/') ? path : path + "/";
+    }
+
+    private static string NormalizeParentPath(string path)
+    {
+        var parentPath = NormalizeDirectory(path).TrimEnd('/');
+        return parentPath.Length == 0 ? "/" : parentPath;
     }
 }

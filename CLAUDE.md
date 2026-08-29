@@ -70,7 +70,8 @@ Downloaded files are never renamed on disk. Instead, a `FileMapping` DB table re
 
 - **`IFileMapper`** (`Utils/FileStore/FileMapper.cs`) — invoked by `CompleteDownloadBackgroundService` after each completed download. Walks `StorePath` via `IFileStore`, computes virtual paths, resolves collisions, and persists rows via `IFileMappingRepository`. Uses `IInferenceEngine` for multi-episode torrents.
 - **`IFileExplorer`** (`Framework/FileStore/IFileExplorer.cs`, impl in `Utils/FileStore/FileExplorer.cs`) — virtual-FS navigator. `EnumerateDirectoryAsync(DirectoryToken)` queries mappings by virtual-path prefix and emits `FileToken`/`DirectoryToken` children. `OpenReadStreamAsync(FileToken)` resolves the mapping and reads via `IFileStore`. Used by `FileController` and the Chat `QueryFilesTool`.
-- **`IFileMappingRepository`** — CRUD + prefix query over `FileMapping` rows. Unique index on `VirtualPath`.
+- **`IFileMappingRepository`** — CRUD over `FileMapping` rows plus exact-node and indexed direct-child hierarchy queries. Unique index on `VirtualPath`.
+- **`FileSystemEntry` read model** — materialized file and synthetic-directory nodes keyed by virtual path. `(ParentPath, IsDirectory, Name)` serves direct-child listings; exact-path probes use the primary key. PostgreSQL triggers update directory reference counts atomically with mapping inserts/deletes, and the migration performs a transactional set-based backfill.
 
 **Virtual path rules** (applied by `FileMapper`):
 - Known single-episode (`Animation`, `Season`, `Episode` all present on `AnimationInfo`): largest video → `/{animeName}/{subGroup}/{animeName} S{season:D2}E{episode:D2}{ext}`. Matching subtitles inherit the same base with their language suffix preserved (e.g. `.zh.srt`). Other files fall through to the unknown rule.
@@ -85,7 +86,7 @@ The codebase uses a three-tier model architecture with repository interfaces for
 
 **1. EF Entity Classes** (`Models/`): Mutable classes mapped by EF Core (`ApplicationContext`). Only accessed inside `Repositories/`, `Program.cs`, and migrations.
 
-**2. Domain Records** (`Framework/DataRepository/`): `AnimationInfo`, `Animation`, `AnimationGroup`, `Feed`, `SeasonBangumi`, `BangumiSubgroup`, `FileMapping`, `WebDavToken`, `ChatConversationSummary`, `ChatConversationDetail`, `ChatMessageRecord` — immutable `sealed record` types with no EF Core dependency. Used by controllers, services, and plugin code. Result types: `PagedResult<T>`, `AnimationGroupedResult`, `AnimationWithEpisodesResult`. Also includes `AnimeSeason` enum (Spring, Summer, Autumn, Winter).
+**2. Domain Records** (`Framework/DataRepository/`): `AnimationInfo`, `AnimationInfoSummary`, `AnimationCatalogItem`, `Animation`, `AnimationGroup`, `Feed`, `SeasonBangumi`, `BangumiSubgroup`, `FileMapping`, `FileSystemEntry`, `WebDavToken`, `ChatConversationSummary`, `ChatConversationDetail`, `ChatMessageRecord` — immutable `sealed record` types with no EF Core dependency. Used by controllers, services, and plugin code. Catalog and episode results use stable cursor pages; `AnimationInfoSummary` intentionally excludes torrent payloads. Also includes `AnimeSeason` enum (Spring, Summer, Autumn, Winter).
 
 **3. External DTOs** (`Controllers/External/`): API response types serialized to JSON. Separate from domain records to control the API surface. Converted from domain records via `Controllers/Converter.cs` extension methods (`ToExternal()`, `ToExternalResponseData()`).
 
@@ -94,14 +95,14 @@ The codebase uses a three-tier model architecture with repository interfaces for
 - `Controllers/Converter.cs` — domain record -> external DTO (`ToExternal()`)
 
 **Repository interfaces** (`Framework/DataRepository/`):
-- `IAnimationInfoRepository` — paged queries, grouped view, find by ID/title, add, update, pending inference, unfinished downloads
+- `IAnimationInfoRepository` — paged queries, cursor-paged catalog summaries and lazy episodes, find by ID/title, add, update, pending inference, unfinished downloads
 - `IAnimationRepository` — find by TMDB ID, add
 - `IAnimationGroupRepository` — find by name, add
 - `IFeedRepository` — ordered listing, URL queries, existence check, add, remove
 - `ISeasonBangumiRepository` — ordered queries, find by MikanId, add/remove batch, save
 - `IBangumiSubgroupRepository` — query by season bangumi, find by composite key, add, save
 - `IChatRepository` — conversation CRUD (create, list, delete, update title), message persistence (add single/batch, list, count), full conversation retrieval with messages
-- `IFileMappingRepository` — add batch of mappings, find by virtual path, prefix query, existence check (per-path and per-`AnimationInfoId`), remove by `AnimationInfoId`
+- `IFileMappingRepository` — add/replace/remove mappings, exact hierarchy lookup, indexed direct-child query, existence checks, and compatibility prefix queries
 - `IWebDavTokenRepository` — list all tokens (newest first), find by username, existence check by username, add, remove by id. Backs the per-device WebDAV Basic-auth flow
 - `IMigrationMarkerRepository` — `ExistsAsync(key)` / `SetAsync(key)` over the `MigrationMarkers` table; one-shot data migrations gate themselves on this
 
@@ -179,8 +180,8 @@ All controllers are `internal` (discovered via `InternalControllerFeatureProvide
 - `SeasonController` (`/api/season`) — current season anime discovery from mikanani.me, subgroup browsing, one-click subscribe, supports browsing other seasons. Season scraping delegated to `ISeasonScraper`. Depends on `ISeasonBangumiRepository`, `IBangumiSubgroupRepository`, `IFeedRepository`, `ISeasonScraper`.
 - `TasksController` (`/api/tasks`) — list background tasks with status, enqueue manual execution
 - `ChatController` (`/api/chat`, in `SecondDimensionWatcherReDive.Chat` plugin) — AI chat with conversation CRUD and SSE-streamed message responses. Supports tool execution (7 tools for querying animations, managing feeds, browsing seasons, controlling downloads, etc.). Depends on `IChatRepository`, `IAIEngine`.
-- `WebDavController` (`/webdav/{*path}`) — read-only WebDAV gateway over the virtual filesystem. Implements `OPTIONS` (advertises DAV class 1, `Allow: OPTIONS, PROPFIND, HEAD, GET`), `PROPFIND` (Depth: 0/1; infinite-depth on collections returns 403 to avoid full-table scans; empty body treated as allprop), and `GET`/`HEAD` with range support. Write methods (`PROPPATCH`, `MKCOL`, `COPY`, `MOVE`, `LOCK`, `UNLOCK`, `PUT`, `DELETE`) return 405. Resource resolution: exact `FileMapping` match → file; prefix match → synthetic collection; root `/` is always a collection. `getcontentlength`/`getlastmodified`/`getetag`/`creationdate` come from `IFileStore.FileInfoAsync` (`FileStoreInfo.Length` + `LastModifiedUtc`). Authenticated with the `Basic` scheme only — does NOT use JWT. Excluded from the dev-mode SPA proxy. Depends on `IFileExplorer`, `IFileMappingRepository`, `IFileStoreProvider`, `IContentTypeProvider`.
-- `VfsController` (`/api/vfs`) — flat read-only REST surface over the same virtual filesystem. Three endpoints: `GET /api/vfs/stat?path=/...` returns `VfsEntry { name, isDirectory, size?, lastModifiedUtc? }` (or 404), `GET /api/vfs/list?path=/...` returns `VfsEntry[]` of immediate children (404 on missing, 400 on a file path), `GET /api/vfs/read?path=/...` streams bytes with `Range` support. Resolution mirrors `WebDavController` (FileMapping hit → file; prefix match → synthetic directory; root `/` is always a directory). Path traversal (`..`) and missing leading `/` are rejected with 400. Accepts both `Basic` (used by FUSE/WebDAV-style clients) and `Bearer` (used by the SPA's logged-in JWT session); the `Basic` scheme is listed first so the 401 challenge still emits `WWW-Authenticate: Basic`. Designed to back the FUSE client (`SecondDimensionWatcherReDive.FUSE`) and the SPA's `/files` page. Depends on `IFileExplorer`, `IFileMappingRepository`, `IFileStoreProvider`, `IContentTypeProvider`.
+- `WebDavController` (`/webdav/{*path}`) — read-only WebDAV gateway over the virtual filesystem. Implements `OPTIONS` (advertises DAV class 1, `Allow: OPTIONS, PROPFIND, HEAD, GET`), `PROPFIND` (Depth: 0/1; infinite-depth on collections returns 403; empty body treated as allprop), and `GET`/`HEAD` with range support. Write methods return 405. Resource resolution and Depth:1 listings use the exact/direct-child `FileSystemEntry` read model; file stats are batched per store for a listing. Authenticated with the `Basic` scheme only.
+- `VfsController` (`/api/vfs`) — flat read-only REST surface over the same virtual filesystem. `stat`, `list`, and `read` use exact/direct-child hierarchy queries; list metadata is fetched in storage batches. Path traversal (`..`) and missing leading `/` are rejected with 400. Accepts both Basic and Bearer authentication and backs the FUSE client and SPA files page.
 - `WebDavTokenController` (`/api/webdav-tokens`, JWT-protected) — manages per-device Basic-auth credentials for WebDAV. `GET` lists tokens (no plaintext), `POST` issues a new `(username, plaintext token)` pair (auto-generates `sdw-XXXXXXXX` username if not supplied; usernames must match `^[A-Za-z0-9._-]{3,32}$`; plaintext is a 32-byte URL-safe base64 string returned ONCE), `DELETE /{id}` revokes. Plaintext is BCrypt-hashed before persisting. Depends on `IWebDavTokenRepository`.
 
 ### Feed Management

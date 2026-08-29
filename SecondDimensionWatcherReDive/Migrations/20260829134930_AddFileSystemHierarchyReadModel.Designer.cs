@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using SecondDimensionWatcherReDive.Models;
@@ -11,9 +12,11 @@ using SecondDimensionWatcherReDive.Models;
 namespace SecondDimensionWatcherReDive.Migrations
 {
     [DbContext(typeof(ApplicationContext))]
-    partial class ApplicationContextModelSnapshot : ModelSnapshot
+    [Migration("20260829134930_AddFileSystemHierarchyReadModel")]
+    partial class AddFileSystemHierarchyReadModel
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -185,6 +188,8 @@ namespace SecondDimensionWatcherReDive.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("AnimationId");
+
                     b.HasIndex("CurrentMetadataReviewOperationId")
                         .IsUnique();
 
@@ -199,10 +204,6 @@ namespace SecondDimensionWatcherReDive.Migrations
                         .HasFilter("\"DownloadType\" = 'http://schemas.hcgstudio.com/ws/2023/06/sdw/downloadtype/media-library-import'");
 
                     b.HasIndex("MetadataStatus", "PublishTime");
-
-                    b.HasIndex("AnimationId", "PublishTime", "Id");
-
-                    b.HasIndex("MediaLibraryMissingSince", "PublishTime", "Id");
 
                     b.ToTable("AnimationInfo", t =>
                         {
@@ -434,8 +435,7 @@ namespace SecondDimensionWatcherReDive.Migrations
                         .IsUnique()
                         .HasFilter("\"FileMappingId\" IS NOT NULL");
 
-                    b.HasIndex("ParentPath", "IsDirectory", "Name")
-                        .IsDescending(false, true, false);
+                    b.HasIndex("ParentPath", "IsDirectory", "Name");
 
                     b.ToTable("FileSystemEntries", t =>
                         {

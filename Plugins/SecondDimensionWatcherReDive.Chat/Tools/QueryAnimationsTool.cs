@@ -19,7 +19,7 @@ internal sealed partial class QueryAnimationsTool(
             QueryAnimationsAction.List => new ToolSuccessResult<AnimationPagedResult>(
                 await QueryListAsync(param, cancellationToken)),
             QueryAnimationsAction.Grouped => new ToolSuccessResult<AnimationGroupedToolResult>(
-                await QueryGroupedAsync(cancellationToken)),
+                await QueryGroupedAsync(param, cancellationToken)),
             QueryAnimationsAction.Downloading => new ToolSuccessResult<AnimationPagedResult>(
                 await QueryDownloadingAsync(param, cancellationToken)),
             QueryAnimationsAction.Downloaded => new ToolSuccessResult<AnimationPagedResult>(
@@ -38,15 +38,30 @@ internal sealed partial class QueryAnimationsTool(
         return new AnimationPagedResult(result.TotalCount, result.Data.Select(ToSummary));
     }
 
-    private async Task<AnimationGroupedToolResult> QueryGroupedAsync(CancellationToken cancellationToken)
+    private async Task<AnimationGroupedToolResult> QueryGroupedAsync(
+        QueryAnimationsParams param,
+        CancellationToken cancellationToken)
     {
-        var result = await animationInfoRepository.GetGroupedAsync(cancellationToken);
+        var take = Math.Clamp(param.Take ?? 20, 1, 50);
+        var result = await animationInfoRepository.GetAnimationCatalogPageAsync(
+            cursor: null,
+            take,
+            cancellationToken);
+        var uncategorized = await animationInfoRepository.GetUncategorizedPageAsync(
+            cursor: null,
+            take,
+            cancellationToken);
         return new AnimationGroupedToolResult(
-            result.Animations.Select(a => new AnimationGroupItem(
-                a.TmdbId, a.Name, a.OriginalName, a.PosterPath, a.EpisodeCount,
-                a.Episodes.Select(ToSummary))),
-            result.Uncategorized.Count,
-            result.Uncategorized.Select(ToSummary));
+            result.Items.Select(item => new AnimationGroupItem(
+                item.TmdbId,
+                item.Name,
+                item.OriginalName,
+                item.PosterPath,
+                item.EpisodeCount,
+                item.ReleaseCount,
+                item.AutomationAttentionCount)),
+            uncategorized.Items.Count,
+            uncategorized.Items.Select(ToSummary));
     }
 
     private async Task<AnimationPagedResult> QueryDownloadingAsync(QueryAnimationsParams param, CancellationToken cancellationToken)
@@ -91,6 +106,11 @@ internal sealed partial class QueryAnimationsTool(
         info.Id, info.Title, info.Season, info.Episode,
         info.IsDownloadTracked, info.IsDownloadFinished, info.IsAiProcessed,
         info.Animation?.Name, info.Group?.Name, info.PublishTime);
+
+    private static AnimationSummary ToSummary(AnimationInfoSummary info) => new(
+        info.Id, info.Title, info.Season, info.Episode,
+        info.IsDownloadTracked, info.IsDownloadFinished, info.IsAiProcessed,
+        info.AnimationName, info.GroupName, info.PublishTime);
 }
 
 internal enum QueryAnimationsAction
@@ -124,6 +144,6 @@ internal sealed record AnimationGroupedToolResult(
 
 internal sealed record AnimationGroupItem(
     string TmdbId, string Name, string OriginalName, string? PosterPath,
-    int EpisodeCount, IEnumerable<AnimationSummary> Episodes);
+    int EpisodeCount, int ReleaseCount, int AutomationAttentionCount);
 
 internal sealed record AnimationSearchResult(bool Found, AnimationSummary? Item = null);

@@ -36,24 +36,36 @@ public class NfsCompoundDispatcherTests
         _storeProvider = new Mock<IFileStoreProvider>();
         _store = new Mock<IFileStore>();
 
-        _explorer.Setup(e => e.EnumerateDirectoryAsync(
+        _explorer.Setup(e => e.GetDirectoryEntriesAsync(
                 It.Is<DirectoryToken>(t => t.Path == "/"),
                 It.IsAny<CancellationToken>()))
-            .ReturnsAsync((IReadOnlyList<IFileExploreToken>)
-                [new DirectoryToken("/anime-a", "anime-a")]);
+            .ReturnsAsync((IReadOnlyList<FileExploreEntry>)
+                [new FileExploreEntry("/anime-a", "anime-a", true, null, null)]);
 
-        _explorer.Setup(e => e.EnumerateDirectoryAsync(
+        _explorer.Setup(e => e.GetDirectoryEntriesAsync(
                 It.Is<DirectoryToken>(t => t.Path == "/anime-a"),
                 It.IsAny<CancellationToken>()))
-            .ReturnsAsync((IReadOnlyList<IFileExploreToken>)
+            .ReturnsAsync((IReadOnlyList<FileExploreEntry>)
             [
-                new FileToken("/anime-a/01.mkv", "01.mkv"),
-                new DirectoryToken("/anime-a/sub", "sub"),
+                new FileExploreEntry(
+                    "/anime-a/01.mkv",
+                    "01.mkv",
+                    false,
+                    s_mapping,
+                    new FileStoreInfo(false, "/disk/01.mkv", "01.mkv", s_fileBytes.Length, s_modified)),
+                new FileExploreEntry("/anime-a/sub", "sub", true, null, null),
             ]);
 
-        _mappingRepo.Setup(r => r.FindByVirtualPathAsync(
-                "/anime-a/01.mkv", It.IsAny<CancellationToken>()))
-            .ReturnsAsync(s_mapping);
+        _mappingRepo.Setup(r => r.FindFileSystemEntryAsync(
+                It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string path, CancellationToken _) => path switch
+            {
+                "/anime-a" => new FileSystemEntry("/anime-a", "/", "anime-a", true, null),
+                "/anime-a/01.mkv" => new FileSystemEntry(
+                    "/anime-a/01.mkv", "/anime-a", "01.mkv", false, s_mapping),
+                "/anime-a/sub" => new FileSystemEntry("/anime-a/sub", "/anime-a", "sub", true, null),
+                _ => null
+            });
 
         _storeProvider.Setup(p => p.GetClient("local")).Returns(_store.Object);
 

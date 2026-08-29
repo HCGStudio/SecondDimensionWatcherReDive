@@ -126,6 +126,41 @@ public class LocalFileStore(IOptionsMonitor<MediaLibraryOptions> options) : IFil
             new DateTimeOffset(fileSystemInfo.LastWriteTimeUtc, TimeSpan.Zero)));
     }
 
+    public Task<IReadOnlyDictionary<string, FileStoreInfo>> GetFileInfosAsync(
+        IReadOnlyCollection<string> paths,
+        CancellationToken cancellationToken)
+    {
+        var results = new Dictionary<string, FileStoreInfo>(StringComparer.Ordinal);
+        foreach (var path in paths.Distinct(StringComparer.Ordinal))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                var safePath = ResolveSafePath(path);
+                var fileAttributes = File.GetAttributes(safePath);
+                var isDirectory = (fileAttributes & FileAttributes.Directory) != 0;
+                FileSystemInfo fileSystemInfo = isDirectory
+                    ? new DirectoryInfo(safePath)
+                    : new FileInfo(safePath);
+                long? length = !isDirectory && fileSystemInfo is FileInfo fileInfo
+                    ? fileInfo.Length
+                    : null;
+                results[path] = new FileStoreInfo(
+                    isDirectory,
+                    fileSystemInfo.FullName,
+                    fileSystemInfo.Name,
+                    length,
+                    new DateTimeOffset(fileSystemInfo.LastWriteTimeUtc, TimeSpan.Zero));
+            }
+            catch (Exception) when (!cancellationToken.IsCancellationRequested)
+            {
+                // Preserve the rest of the batch when one physical file is stale.
+            }
+        }
+
+        return Task.FromResult<IReadOnlyDictionary<string, FileStoreInfo>>(results);
+    }
+
     public Task<bool> ExistAsync(string path, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();

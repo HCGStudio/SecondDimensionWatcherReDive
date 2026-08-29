@@ -4,7 +4,21 @@ public interface IAnimationInfoRepository
 {
     Task<PagedResult<AnimationInfo>> GetPagedAsync(int skip, int take, CancellationToken cancellationToken);
 
-    Task<AnimationGroupedResult> GetGroupedAsync(CancellationToken cancellationToken);
+    Task<AnimationCatalogPage> GetAnimationCatalogPageAsync(
+        AnimationCatalogCursor? cursor,
+        int take,
+        CancellationToken cancellationToken);
+
+    Task<AnimationInfoSummaryPage> GetUncategorizedPageAsync(
+        AnimationInfoCursor? cursor,
+        int take,
+        CancellationToken cancellationToken);
+
+    Task<AnimationEpisodePage?> GetAnimationEpisodesPageAsync(
+        string tmdbId,
+        AnimationInfoCursor? cursor,
+        int take,
+        CancellationToken cancellationToken);
 
     Task<PagedResult<AnimationInfo>> GetDownloadingPagedAsync(int skip, int take, CancellationToken cancellationToken);
 

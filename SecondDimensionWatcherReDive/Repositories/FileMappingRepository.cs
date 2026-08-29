@@ -150,6 +150,28 @@ public class FileMappingRepository(
         return entity?.ToRecord();
     }
 
+    public async Task<FileSystemEntry?> FindFileSystemEntryAsync(
+        string virtualPath,
+        CancellationToken cancellationToken)
+    {
+        return await ProjectFileSystemEntries(context.FileSystemEntries
+                .AsNoTracking()
+                .Where(entry => entry.Path == virtualPath))
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<FileSystemEntry>> GetImmediateChildrenAsync(
+        string parentPath,
+        CancellationToken cancellationToken)
+    {
+        return await ProjectFileSystemEntries(context.FileSystemEntries
+                .AsNoTracking()
+                .Where(entry => entry.ParentPath == parentPath)
+                .OrderByDescending(entry => entry.IsDirectory)
+                .ThenBy(entry => entry.Name))
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<IReadOnlyList<FileMapping>> GetByVirtualPathPrefixAsync(string virtualPathPrefix, CancellationToken cancellationToken)
     {
         var pattern = EscapeLikePattern(virtualPathPrefix) + "%";
@@ -162,25 +184,14 @@ public class FileMappingRepository(
 
     public async Task<IReadOnlyList<RootEntry>> GetRootEntriesAsync(CancellationToken cancellationToken)
     {
-        // Raw SQL: the chained .Select(...).Select(...).Distinct() over IndexOf/Substring
-        // does not dedupe under Npgsql 10 — three mappings under the same root produced
-        // three duplicate rows at the WebDAV root. split_part is unambiguous and runs
-        // server-side so we don't load every mapping.
-        var rows = await context.Database
-            .SqlQueryRaw<RootEntryRow>(
-                """
-                SELECT DISTINCT
-                    split_part("VirtualPath", '/', 2) AS "Name",
-                    position('/' IN substring("VirtualPath" FROM 2)) > 0 AS "IsDirectory"
-                FROM "FileMappings"
-                WHERE length("VirtualPath") > 1 AND "VirtualPath" LIKE '/%'
-                """)
+        return await context.FileSystemEntries
+            .AsNoTracking()
+            .Where(entry => entry.ParentPath == "/")
+            .OrderByDescending(entry => entry.IsDirectory)
+            .ThenBy(entry => entry.Name)
+            .Select(entry => new RootEntry(entry.Name, entry.IsDirectory))
             .ToListAsync(cancellationToken);
-
-        return rows.Select(r => new RootEntry(r.Name, r.IsDirectory)).ToList();
     }
-
-    private sealed record RootEntryRow(string Name, bool IsDirectory);
 
     private static string EscapeLikePattern(string value)
     {
@@ -192,10 +203,27 @@ public class FileMappingRepository(
 
     public async Task<bool> VirtualPathExistsAsync(string virtualPath, CancellationToken cancellationToken)
     {
-        return await context.FileMappings
+        return await context.FileSystemEntries
             .AsNoTracking()
-            .AnyAsync(m => m.VirtualPath == virtualPath, cancellationToken);
+            .AnyAsync(entry => entry.Path == virtualPath, cancellationToken);
     }
+
+    private static IQueryable<FileSystemEntry> ProjectFileSystemEntries(
+        IQueryable<Models.FileSystemEntry> query) =>
+        query
+            .Select(entry => new FileSystemEntry(
+                entry.Path,
+                entry.ParentPath,
+                entry.Name,
+                entry.IsDirectory,
+                entry.FileMapping == null
+                    ? null
+                    : new FileMapping(
+                        entry.FileMapping.Id,
+                        entry.FileMapping.AnimationInfoId,
+                        entry.FileMapping.VirtualPath,
+                        entry.FileMapping.PhysicalPath,
+                        entry.FileMapping.FileStore)));
 
     public async Task<bool> ExistsForAnimationInfoAsync(Guid animationInfoId, CancellationToken cancellationToken)
     {

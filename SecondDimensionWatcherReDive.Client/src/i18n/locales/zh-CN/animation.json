@@ -5,6 +5,7 @@
   "automationAttention": "{{count}} 条策略提醒",
   "episodeSummary": "{{episodeCount}} 集 · {{releaseCount}} 个版本",
   "back": "返回",
+  "loadMore": "加载更多",
   "episodeList": {
     "controlsLabel": "剧集筛选与排序",
     "episodeFilter": "集数",

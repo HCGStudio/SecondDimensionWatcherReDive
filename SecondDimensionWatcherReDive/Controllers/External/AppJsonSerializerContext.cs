@@ -4,7 +4,9 @@ namespace SecondDimensionWatcherReDive.Controllers.External;
 
 [JsonSerializable(typeof(ResponseData<IEnumerable<AnimationInfo>>))]
 [JsonSerializable(typeof(ResponseData<List<AnimationInfo>>))]
-[JsonSerializable(typeof(AnimationGroupedResponse))]
+[JsonSerializable(typeof(AnimationCatalogResponse))]
+[JsonSerializable(typeof(AnimationInfoSummaryResponse))]
+[JsonSerializable(typeof(AnimationEpisodeResponse))]
 [JsonSerializable(typeof(FileDownloadStatus))]
 [JsonSerializable(typeof(List<Feed>))]
 [JsonSerializable(typeof(IReadOnlyList<Feed>))]
