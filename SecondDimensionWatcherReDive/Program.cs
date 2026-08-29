@@ -26,6 +26,7 @@ using SecondDimensionWatcherReDive.NFS;
 using SecondDimensionWatcherReDive.Repositories;
 using SecondDimensionWatcherReDive.Chat;
 using SecondDimensionWatcherReDive.Plugin;
+using SecondDimensionWatcherReDive.PluginPlatform;
 using SecondDimensionWatcherReDive.Services;
 using SecondDimensionWatcherReDive.MigrationTasks;
 using SecondDimensionWatcherReDive.Utils.Feed;
@@ -34,6 +35,12 @@ using SecondDimensionWatcherReDive.Utils.FileStore;
 using SecondDimensionWatcherReDive.Utils.MetadataReview;
 using SecondDimensionWatcherReDive.Utils.Incidents;
 using SecondDimensionWatcherReDive.Utils.Scraper;
+
+if (PluginWorkerHost.IsWorkerInvocation(args))
+{
+    Environment.ExitCode = await PluginWorkerHost.RunAsync(CancellationToken.None);
+    return;
+}
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -84,6 +91,7 @@ builder.Services.AddDataProtection()
     .SetApplicationName("SecondDimensionWatcherReDive")
     .PersistKeysToFileSystem(new DirectoryInfo(dataProtectionKeyRingPath));
 builder.Services.AddApplicationRuntimeSettings(runtimeSettingsProvider);
+builder.Services.AddPluginPlatform(builder.Configuration);
 
 builder.Services.Configure<MediaLibraryOptions>(
     builder.Configuration.GetSection(MediaLibraryOptions.SectionName));
@@ -371,5 +379,7 @@ await app.Services.GetRequiredService<IRuntimeSettingsInitializer>()
 // services, scheduled tasks, and request handlers never observe a
 // half-migrated database.
 await app.Services.GetRequiredService<MigrationTaskRunner>().RunAsync(CancellationToken.None);
+
+await app.Services.GetRequiredService<IPluginManager>().InitializeAsync(CancellationToken.None);
 
 await app.RunAsync();

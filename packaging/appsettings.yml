@@ -20,6 +20,29 @@ Torrent:
 FileStore:
   Local: /var/lib/sdw-redive/downloads
 
+# 受控 JavaScript 插件。生产环境默认拒绝未签名包；公钥值为 PEM 编码 RSA 公钥。
+PluginPlatform:
+  RootPath: /var/lib/sdw-redive/plugins
+  AllowUnsignedLocalPackages: false
+  MaximumPackageBytes: 4194304
+  MaximumExpandedBytes: 16777216
+  MaximumPackageFiles: 128
+  MaximumStagedPackages: 32
+  MaximumStagedPackageBytes: 67108864
+  InvocationTimeoutMilliseconds: 5000
+  MaximumWorkerCpuMilliseconds: 4000
+  MaximumWorkerMemoryMegabytes: 256
+  MaximumConcurrentWorkers: 4
+  MaximumConcurrentWorkersPerPlugin: 1
+  MaximumResponseBytes: 2097152
+  MaximumPluginDataBytes: 67108864
+  MaximumPluginDataFiles: 1000
+  MaximumPluginDataPathDepth: 8
+  CircuitBreakerFailures: 3
+  CircuitBreakerSeconds: 60
+  PreviewLifetimeMinutes: 30
+  TrustedPublisherPublicKeys: {}
+
 # 现有媒体库扫描（目录在网页「设置」中添加，不会移动或删除原文件）
 # 缺失条目先撤下虚拟映射，超过 MissingGracePeriod 后才清理数据库记录
 MediaLibrary:

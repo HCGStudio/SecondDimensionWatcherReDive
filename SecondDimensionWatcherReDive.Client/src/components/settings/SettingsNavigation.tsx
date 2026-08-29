@@ -1,7 +1,14 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
 
-import { Activity, Bot, Database, Download, Network } from "lucide-react";
+import {
+  Activity,
+  Bot,
+  Database,
+  Download,
+  Network,
+  Puzzle,
+} from "lucide-react";
 
 import { cn } from "../../lib/cn";
 import { Select } from "./SettingsControls";
@@ -12,6 +19,7 @@ export const settingsSectionIds = [
   "media",
   "health",
   "access",
+  "plugins",
 ] as const;
 
 export type SettingsSectionId = (typeof settingsSectionIds)[number];
@@ -22,6 +30,7 @@ const sectionIcons: Record<SettingsSectionId, React.ReactNode> = {
   media: <Database size={17} />,
   health: <Activity size={17} />,
   access: <Network size={17} />,
+  plugins: <Puzzle size={17} />,
 };
 
 export interface SettingsNavigationProps {

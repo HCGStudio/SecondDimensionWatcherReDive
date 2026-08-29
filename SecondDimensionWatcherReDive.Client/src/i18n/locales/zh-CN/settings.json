@@ -10,7 +10,8 @@
       "downloads": "下载与存储",
       "media": "媒体与元数据",
       "health": "健康监控",
-      "access": "访问协议"
+      "access": "访问协议",
+      "plugins": "插件"
     },
     "pendingRestart": {
       "title": "存在等待重启生效的设置",
@@ -181,6 +182,52 @@
         "leaseSeconds": "租约时长（秒）",
         "maxConnections": "最大连接数",
         "restartHelp": "NFS 在应用启动时绑定监听端口。本区更改会被保存，但需要重启应用后才会使用。"
+      }
+    },
+    "plugins": {
+      "eyebrow": "受控扩展",
+      "title": "插件平台",
+      "description": "本地版本化插件包必须经过校验和、签名、兼容性和显式权限审查。JavaScript 在短生命周期隔离进程中执行，无法获取 .NET 服务。",
+      "loadFailed": "无法加载已安装插件。",
+      "previewFailed": "插件包检查失败",
+      "operationFailed": "插件操作失败",
+      "enabled": "插件已启用",
+      "disabled": "插件已停用",
+      "uninstalled": "插件已卸载，配置和数据已保留",
+      "deleted": "插件、配置和数据已永久删除",
+      "install": {
+        "title": "检查本地插件包",
+        "description": "远程 URL 安装已禁用。请从可信管理渠道取得 .sdwpkg 或 .zip 后上传；检查和安装阶段不会执行代码。",
+        "inspect": "检查插件包",
+        "approve": "我已审阅并批准上方列出的全部权限。插件包或 manifest 发生变化后必须重新批准。",
+        "install": "安装（默认停用）",
+        "upgrade": "升级（默认停用）",
+        "installed": "插件已安装但尚未启用，请完成兼容性复核后启用",
+        "upgraded": "插件已升级但尚未启用；配置已保留，并已应用声明的数据策略"
+      },
+      "installed": {
+        "title": "已安装插件",
+        "empty": "尚未安装插件包。",
+        "enable": "启用",
+        "disable": "停用",
+        "uninstall": "卸载",
+        "uninstallConfirm": "卸载 {{name}}？配置和插件数据会保留，供以后重新安装。",
+        "deleteData": "全部删除",
+        "deleteConfirm": "永久删除 {{name}}、其配置和所有插件数据？此操作无法撤销。",
+        "dataPolicy": "卸载默认保留配置和数据；“全部删除”无法撤销。数据版本变化必须显式声明 reset 策略。",
+        "api": "API {{version}}",
+        "health": "健康：{{status}}",
+        "failures": "连续失败：{{count}}"
+      },
+      "capabilities": {
+        "title": "申请的权限",
+        "none": "无特权能力",
+        "network": "网络：{{value}}",
+        "files": "文件：{{value}}",
+        "notifications": "发布通知",
+        "downloads": "控制下载",
+        "storage": "插件专属存储",
+        "background": "后台任务"
       }
     }
   },

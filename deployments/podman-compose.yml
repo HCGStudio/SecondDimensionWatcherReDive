@@ -57,6 +57,7 @@ services:
       MediaLibrary__MissingGracePeriod: "1.00:00:00"
       PasswordFile: "/app/data/password.json"
       DataProtection__KeyRingPath: "/app/data/data-protection-keys"
+      PluginPlatform__RootPath: "/app/data/plugins"
       Torrent__Remote__Url: "http://qbittorrent:8080"
       Torrent__Remote__UserName: ""
       Torrent__Remote__Password: ""

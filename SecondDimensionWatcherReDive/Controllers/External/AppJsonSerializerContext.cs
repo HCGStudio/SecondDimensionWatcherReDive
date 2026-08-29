@@ -65,4 +65,12 @@ namespace SecondDimensionWatcherReDive.Controllers.External;
 [JsonSerializable(typeof(QueueMediaLibraryScanResponse))]
 [JsonSerializable(typeof(ApplicationSettingsResponse))]
 [JsonSerializable(typeof(PatchApplicationSettingsRequest))]
+[JsonSerializable(typeof(PluginPackagePreview))]
+[JsonSerializable(typeof(PluginInstallResult))]
+[JsonSerializable(typeof(InstalledPlugin))]
+[JsonSerializable(typeof(IReadOnlyList<InstalledPlugin>))]
+[JsonSerializable(typeof(InstallPluginRequest))]
+[JsonSerializable(typeof(UpdatePluginConfigurationRequest))]
+[JsonSerializable(typeof(RemotePluginInstallRequest))]
+[JsonSerializable(typeof(PluginOperationError))]
 internal partial class AppJsonSerializerContext : JsonSerializerContext;

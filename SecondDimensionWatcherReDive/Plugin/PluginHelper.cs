@@ -14,9 +14,9 @@ public static class PluginHelper
         webApplicationBuilder.Services.AddSingleton<IPluginEventTrigger<FileDownloadStartParam>>(beforeDownloadStarted);
         webApplicationBuilder.Services.AddSingleton<IPluginEventTrigger<FileDownloadCompleteParam>>(onFileDownloadCompleted);
 
-        webApplicationBuilder.Services.AddSingleton<IPluginServices>(sp =>
+        webApplicationBuilder.Services.AddSingleton<IPluginServices>(_ =>
         {
-            var services = new PluginServices(sp);
+            var services = new PluginServices();
             services.AddEvent(PluginEventName.BeforeDownloadStarted, beforeDownloadStarted);
             services.AddEvent(PluginEventName.OnFileDownloadCompleted, onFileDownloadCompleted);
             return services;

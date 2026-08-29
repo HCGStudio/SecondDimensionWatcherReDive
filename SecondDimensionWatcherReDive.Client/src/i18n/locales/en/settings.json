@@ -10,7 +10,8 @@
       "downloads": "Downloads & storage",
       "media": "Media & metadata",
       "health": "Health monitoring",
-      "access": "Access protocols"
+      "access": "Access protocols",
+      "plugins": "Plugins"
     },
     "pendingRestart": {
       "title": "Some settings are waiting for a restart",
@@ -181,6 +182,52 @@
         "leaseSeconds": "Lease duration (seconds)",
         "maxConnections": "Maximum connections",
         "restartHelp": "NFS binds its listening port when the application starts. Changes are saved now and used after a restart."
+      }
+    },
+    "plugins": {
+      "eyebrow": "Controlled extensions",
+      "title": "Plugin platform",
+      "description": "Install local, versioned packages through checksum, signature, compatibility, and explicit capability review. JavaScript runs in a short-lived isolated worker and never receives .NET services.",
+      "loadFailed": "Could not load installed plugins.",
+      "previewFailed": "Package inspection failed",
+      "operationFailed": "Plugin operation failed",
+      "enabled": "Plugin enabled",
+      "disabled": "Plugin disabled",
+      "uninstalled": "Plugin uninstalled; configuration and data were retained",
+      "deleted": "Plugin, configuration, and data permanently deleted",
+      "install": {
+        "title": "Inspect a local package",
+        "description": "Remote URL installation is disabled. Upload a .sdwpkg or .zip obtained through a trusted administrative channel; no code runs during inspection or installation.",
+        "inspect": "Inspect package",
+        "approve": "I reviewed and approve every capability shown above. Any changed package or manifest requires a new approval.",
+        "install": "Install disabled",
+        "upgrade": "Upgrade disabled",
+        "installed": "Plugin installed disabled; enable it after compatibility review",
+        "upgraded": "Plugin upgraded disabled; configuration was preserved and the declared data strategy was applied"
+      },
+      "installed": {
+        "title": "Installed plugins",
+        "empty": "No plugin packages are installed.",
+        "enable": "Enable",
+        "disable": "Disable",
+        "uninstall": "Uninstall",
+        "uninstallConfirm": "Uninstall {{name}}? Its configuration and plugin data will be retained for a future reinstall.",
+        "deleteData": "Delete all",
+        "deleteConfirm": "Permanently delete {{name}}, its configuration, and all plugin data? This cannot be undone.",
+        "dataPolicy": "Uninstall preserves configuration and data by default. Delete all is irreversible. Data-version changes require an explicit reset strategy.",
+        "api": "API {{version}}",
+        "health": "Health: {{status}}",
+        "failures": "Consecutive failures: {{count}}"
+      },
+      "capabilities": {
+        "title": "Requested capabilities",
+        "none": "No privileged capabilities",
+        "network": "Network: {{value}}",
+        "files": "Files: {{value}}",
+        "notifications": "Publish notifications",
+        "downloads": "Control downloads",
+        "storage": "Plugin-scoped storage",
+        "background": "Background tasks"
       }
     }
   },

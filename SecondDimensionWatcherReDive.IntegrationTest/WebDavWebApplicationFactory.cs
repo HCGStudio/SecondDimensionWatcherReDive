@@ -46,6 +46,9 @@ internal sealed class WebDavWebApplicationFactory : WebApplicationFactory<Migrat
         Environment.SetEnvironmentVariable("AI__Anthropic__ApiKey", string.Empty);
         Environment.SetEnvironmentVariable("TmdbApiKey", string.Empty);
         Environment.SetEnvironmentVariable("Valkey__ConnectionString", string.Empty);
+        Environment.SetEnvironmentVariable("PluginPlatform__RootPath",
+            Path.Combine(Path.GetTempPath(), $"sdw-plugin-api-tests-{Environment.ProcessId}"));
+        Environment.SetEnvironmentVariable("PluginPlatform__AllowUnsignedLocalPackages", "true");
     }
 
     public List<FileMapping> Mappings { get; } = new();

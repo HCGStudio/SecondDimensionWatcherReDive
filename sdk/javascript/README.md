@@ -1,0 +1,13 @@
+# SDW JavaScript plugin SDK 1.0
+
+A plugin package is a ZIP archive (normally named `.sdwpkg`) containing `manifest.json` at its root and one JavaScript entry point. The entry point assigns synchronous handlers to `globalThis.sdwPlugin.handlers`. There is no `require`, `fetch`, filesystem API, .NET reflection, or service container. Privileged work goes through `sdw.request`, whose broker checks the installed manifest's approved capabilities on every call.
+
+Use `plugin-api.d.ts` while authoring. Compute SHA-256 after the final edit of every regular archive file except `manifest.json`, and place the exact path-to-digest map in `integrity.files`. Unlisted and missing files are rejected. Production installations require an RSA-SHA256 signature from a publisher configured in `PluginPlatform:TrustedPublisherPublicKeys`. Generate the bytes with the public .NET helper `PluginSignaturePayload.Create(manifest)`, then sign them with RSA PKCS#1 v1.5 and SHA-256. The versioned, base64-tagged canonical payload covers identity, description, API and plugin versions, the complete file list and digests, every capability, platform, dependency, provider/handler declaration, and data-migration field; changing any execution-relevant manifest value or package file invalidates the signature.
+
+Use strict `major.minor.patch` SemVer for `version` and dependency minimum versions. Optional prerelease/build identifiers follow the SemVer ASCII grammar; path separators, empty identifiers, leading-zero numeric identifiers, controls, and non-ASCII forms are rejected. Publisher, provider, provider-operation, and handler names are 1-64 character ASCII identifiers beginning with a letter.
+
+Publisher ownership is continuous across upgrades and retained-data reinstalls. The host persists the trusted public-key fingerprint, not merely the publisher label, and rejects a package signed by a different key. Transferring ownership requires first uninstalling with retained data deletion.
+
+The local upload API is deliberately two-stage: `POST /api/plugins/preview` returns the checksum, signature status, compatibility result, and required capabilities; `POST /api/plugins/install` must echo that checksum and the exact capability object. New installs and upgrades remain disabled until explicitly enabled. URL-based remote installation always returns 403.
+
+Compatibility rules and lifecycle guarantees are documented in [plugin-platform.md](../../docs/plugin-platform.md). The examples under `examples/plugins` are executable fixtures for the compatibility suite. They are intentionally unsigned; production operators should copy and sign them under their own trusted publisher key.
