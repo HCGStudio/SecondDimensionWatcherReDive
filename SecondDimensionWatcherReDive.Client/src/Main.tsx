@@ -17,6 +17,7 @@ import { MetadataReviewPage } from "./pages/MetadataReviewPage";
 import { PlayerPage } from "./pages/PlayerPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { TasksPage } from "./pages/TasksPage";
+import { TodoPage } from "./pages/TodoPage";
 
 const router = createBrowserRouter([
   {
@@ -78,6 +79,15 @@ const router = createBrowserRouter([
     element: (
       <ProtectedRoute>
         <PlayerPage />
+      </ProtectedRoute>
+    ),
+    errorElement: <ErrorPage />,
+  },
+  {
+    path: "/todo",
+    element: (
+      <ProtectedRoute>
+        <TodoPage />
       </ProtectedRoute>
     ),
     errorElement: <ErrorPage />,

@@ -2,6 +2,7 @@
   "appName": "二次元观测器",
   "nav": {
     "home": "主页",
+    "todo": "待办中心",
     "downloading": "下载列表",
     "downloaded": "已下载",
     "files": "文件浏览",

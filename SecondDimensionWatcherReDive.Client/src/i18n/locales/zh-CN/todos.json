@@ -1,0 +1,50 @@
+{
+  "eyebrow": "关注队列",
+  "title": "统一待办中心",
+  "subtitle": "按风险顺序处理订阅命中、下载确认、异常、元数据审查和磁盘预警。",
+  "unread": "{{count}} 个未读待办",
+  "listLabel": "当前待办事项",
+  "filters": {
+    "includeRead": "显示已读",
+    "includeSnoozed": "显示已稍后提醒"
+  },
+  "actions": {
+    "selectAll": "全选",
+    "selectItem": "选择 {{title}}",
+    "readSelected": "将所选标为已读",
+    "snoozeSelected": "所选稍后 1 小时提醒",
+    "markRead": "标为已读",
+    "markUnread": "标为未读",
+    "snooze": "稍后 1 小时提醒",
+    "download": "下载 / 重试",
+    "open": "查看详情"
+  },
+  "types": {
+    "ReleaseMatched": "订阅命中",
+    "DownloadPendingConfirmation": "等待确认",
+    "DownloadFailed": "下载失败",
+    "Incident": "异常",
+    "MetadataReview": "元数据审查",
+    "DiskSpaceLow": "磁盘空间不足"
+  },
+  "details": {
+    "ReleaseMatched": "仅通知订阅命中了此发布。",
+    "DownloadPendingConfirmation": "此匹配发布正在等待下载确认。",
+    "DownloadFailed": "自动下载未能启动，请检查后重试。"
+  },
+  "priorities": {
+    "Normal": "普通",
+    "High": "高优先级",
+    "Critical": "紧急"
+  },
+  "empty": {
+    "title": "待办已清空",
+    "body": "当前没有需要关注的可见事项。"
+  },
+  "errors": { "loadFailed": "无法加载待办队列。" },
+  "toast": {
+    "updateFailed": "无法更新所选待办",
+    "downloadStarted": "已开始下载并将待办标为已读",
+    "downloadFailed": "无法开始下载"
+  }
+}

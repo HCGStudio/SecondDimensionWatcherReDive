@@ -1,6 +1,7 @@
 import dayjs from "dayjs";
 import React from "react";
 import { useTranslation } from "react-i18next";
+import { useSearchParams } from "react-router";
 
 import {
   AlertTriangle,
@@ -47,16 +48,20 @@ const severityClasses: Record<IncidentSeverity, string> = {
 const IncidentCard: React.FC<{
   incident: Incident;
   retrying: boolean;
+  focused: boolean;
   onRetry: () => void;
-}> = ({ incident, retrying, onRetry }) => {
+}> = ({ incident, retrying, focused, onRetry }) => {
   const { t } = useTranslation("incidents");
   const isResolved = incident.resolvedAt != null;
 
   return (
     <article
+      id={`incident-${incident.id}`}
+      tabIndex={focused ? -1 : undefined}
       className={cn(
-        "rounded-xl border bg-surface p-4 shadow-whisper",
+        "rounded-xl border bg-surface p-4 shadow-whisper focus:outline-hidden focus:ring-2 focus:ring-focus",
         isResolved ? "border-border-light opacity-75" : "border-border",
+        focused && "ring-2 ring-focus",
       )}
     >
       <div className="flex items-start gap-3">
@@ -138,7 +143,13 @@ const IncidentCard: React.FC<{
 export const IncidentsPage: React.FC = () => {
   const { t } = useTranslation(["incidents", "errors"]);
   const { addToast } = useToast();
-  const [type, setType] = React.useState<IncidentType | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedType = searchParams.get("type");
+  const initialType = incidentTypes.includes(requestedType as IncidentType)
+    ? (requestedType as IncidentType)
+    : null;
+  const focus = searchParams.get("focus");
+  const [type, setType] = React.useState<IncidentType | null>(initialType);
   const [includeResolved, setIncludeResolved] = React.useState(false);
   const [page, setPage] = React.useState(0);
   const [retryingIds, setRetryingIds] = React.useState<Set<string>>(new Set());
@@ -153,6 +164,30 @@ export const IncidentsPage: React.FC = () => {
   React.useEffect(() => {
     setPage(0);
   }, [includeResolved, type]);
+
+  React.useEffect(() => {
+    setType(initialType);
+  }, [initialType]);
+
+  React.useEffect(() => {
+    if (!focus || !data) return;
+    document.getElementById(`incident-${focus}`)?.scrollIntoView({
+      behavior: "smooth",
+      block: "center",
+    });
+  }, [data, focus]);
+
+  const selectType = React.useCallback(
+    (nextType: IncidentType | null) => {
+      setType(nextType);
+      const next = new URLSearchParams(searchParams);
+      if (nextType) next.set("type", nextType);
+      else next.delete("type");
+      next.delete("focus");
+      setSearchParams(next, { replace: true });
+    },
+    [searchParams, setSearchParams],
+  );
 
   React.useEffect(() => {
     if (!data || page === 0 || page * 50 < data.totalCount) return;
@@ -241,7 +276,7 @@ export const IncidentsPage: React.FC = () => {
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
-            onClick={() => setType(null)}
+            onClick={() => selectType(null)}
             aria-pressed={type == null}
             className={cn(
               "rounded-full px-3 py-1.5 text-xs font-medium transition-colors",
@@ -257,7 +292,7 @@ export const IncidentsPage: React.FC = () => {
             <button
               key={incidentType}
               type="button"
-              onClick={() => setType(incidentType)}
+              onClick={() => selectType(incidentType)}
               aria-pressed={type === incidentType}
               className={cn(
                 "rounded-full px-3 py-1.5 text-xs font-medium transition-colors",
@@ -306,6 +341,7 @@ export const IncidentsPage: React.FC = () => {
             <IncidentCard
               key={incident.id}
               incident={incident}
+              focused={focus === incident.id}
               retrying={retryingAll || retryingIds.has(incident.id)}
               onRetry={() => void onRetry(incident)}
             />

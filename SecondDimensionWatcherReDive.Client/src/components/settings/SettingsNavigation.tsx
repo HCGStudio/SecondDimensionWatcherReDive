@@ -1,7 +1,14 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
 
-import { Activity, Bot, Database, Download, Network } from "lucide-react";
+import {
+  Activity,
+  BellRing,
+  Bot,
+  Database,
+  Download,
+  Network,
+} from "lucide-react";
 
 import { cn } from "../../lib/cn";
 import { Select } from "./SettingsControls";
@@ -11,6 +18,7 @@ export const settingsSectionIds = [
   "downloads",
   "media",
   "health",
+  "notifications",
   "access",
 ] as const;
 
@@ -21,6 +29,7 @@ const sectionIcons: Record<SettingsSectionId, React.ReactNode> = {
   downloads: <Download size={17} />,
   media: <Database size={17} />,
   health: <Activity size={17} />,
+  notifications: <BellRing size={17} />,
   access: <Network size={17} />,
 };
 

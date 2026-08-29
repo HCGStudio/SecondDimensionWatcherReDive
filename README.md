@@ -104,6 +104,8 @@ bash <(curl -fsSL https://raw.githubusercontent.com/HCGStudio/SecondDimensionWat
 | `AI:Anthropic:ApiKey` / `BaseUrl` / `Model` / `MaxTokens` / `ApiVersion` | Anthropic 端点 |
 | `AI:CodexAppServer:Endpoint` / `BearerToken` / `Model` / `PermissionProfile` / `TimeoutSeconds` | Codex app-server WebSocket 端点；空模型使用服务端默认模型；权限配置默认 `:read-only`，也可填写管理员定义的 profile id |
 | `Inference:RateLimitDelayMs` | 推断 API 调用最小间隔（毫秒，默认 1000） |
+| `Notifications:Webhook:Enabled` / `Url` | 通用 Webhook 通知渠道；完整 URL 按敏感配置处理，建议从网页设置中保存 |
+| `Notifications:Events` / `QuietHours` | 允许投递的领域事件与可选免打扰时段；事件先写入持久化 Outbox，再异步重试投递 |
 | `Valkey:ConnectionString` | Valkey / Redis 连接（可选；为空则使用内存缓存） |
 
 > 使用现有媒体库导入前，必须至少配置一个 `MediaLibrary:AllowedRoots`。导入源必须位于白名单内，且不能与 `FileStore:Local` 管理的下载目录相同、互为父目录或以其他方式重叠。导入与后续对账只会修改数据库中的媒体记录和虚拟路径映射；系统绝不会移动、重命名或删除原文件。短暂缺失的条目会先撤下映射并保留观看/审核记录，超过 `MissingGracePeriod`（默认 24 小时）后才清理数据库记录。
@@ -112,7 +114,9 @@ bash <(curl -fsSL https://raw.githubusercontent.com/HCGStudio/SecondDimensionWat
 
 ### 网页运行时设置
 
-登录后打开「设置」，可修改 AI 执行模式与 Provider、AI/TMDB 密钥、qBittorrent、媒体库扫描、异常检测和 NFS。保存值存入 PostgreSQL，并覆盖部署文件或环境变量中的默认值；密钥和密码使用持久化 Data Protection 密钥环加密，API 不会回显明文。可对单个敏感项选择保留、替换、清除或恢复部署默认值。
+登录后打开「设置」，可修改 AI 执行模式与 Provider、AI/TMDB 密钥、qBittorrent、媒体库扫描、异常检测、通知和 NFS。保存值存入 PostgreSQL，并覆盖部署文件或环境变量中的默认值；密钥、密码和 Webhook URL 使用持久化 Data Protection 密钥环加密，API 不会回显明文。可对单个敏感项选择保留、替换、清除或恢复部署默认值。
+
+通知先以唯一去重键写入 PostgreSQL Outbox，再由后台服务投递。Webhook 请求带有稳定的 `X-SDW-Event-Id`，接收端应以此做幂等；5xx、408、429 和网络错误会指数退避重试，永久失败可在「设置 → 通知」查看，且任何投递失败都不会回滚订阅、下载、推断或异常处理。顶栏「待办中心」会按风险汇总待确认下载、异常、低置信度/失败元数据和磁盘预警，并支持已读、稍后提醒及无副作用批量操作。
 
 数据库连接、JWT、下载存储根目录、登录密码文件、CORS 和 Valkey 仍属于启动/基础设施配置，不允许从网页修改。NFS 监听地址、端口和启用状态会保存，但需要重启应用才能切换；其余上述设置对后续请求和新任务热生效。后台定时任务的间隔变更不会中断已经开始的等待，最迟会在当前等待周期结束后采用新值。
 

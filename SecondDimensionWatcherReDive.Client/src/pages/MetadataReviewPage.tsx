@@ -120,16 +120,28 @@ function confidenceLabel(confidence: number | null): string | null {
 
 interface ReviewItemRowProps {
   item: MetadataReviewItem;
+  focused: boolean;
   onEdit: () => void;
 }
 
-const ReviewItemRow: React.FC<ReviewItemRowProps> = ({ item, onEdit }) => {
+const ReviewItemRow: React.FC<ReviewItemRowProps> = ({
+  item,
+  focused,
+  onEdit,
+}) => {
   const { t } = useTranslation("metadataReview");
   const poster = tmdbImageUrl(item.metadata.posterPath, "w185");
   const confidence = confidenceLabel(item.confidence);
 
   return (
-    <article className="group p-4 sm:p-5">
+    <article
+      id={`metadata-review-${item.id}`}
+      tabIndex={focused ? -1 : undefined}
+      className={cn(
+        "group p-4 focus:outline-hidden focus:ring-2 focus:ring-inset focus:ring-focus sm:p-5",
+        focused && "ring-2 ring-inset ring-focus",
+      )}
+    >
       <div className="flex items-start gap-4">
         <div className="hidden h-24 w-16 shrink-0 overflow-hidden rounded-lg bg-canvas sm:block">
           {poster ? (
@@ -336,6 +348,7 @@ export const MetadataReviewPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const status = parseStatus(searchParams.get("status"));
   const page = parsePage(searchParams.get("page"));
+  const focus = searchParams.get("focus");
   const { data, error, isLoading, mutate } = useMetadataReview(status, page);
   const { addToast } = useToast();
   const [selectedItem, setSelectedItem] =
@@ -362,6 +375,14 @@ export const MetadataReviewPage: React.FC = () => {
     );
     if (page > lastPage) updateLocation(status, lastPage);
   }, [data, page, status, updateLocation]);
+
+  React.useEffect(() => {
+    if (!focus || !data) return;
+    document.getElementById(`metadata-review-${focus}`)?.scrollIntoView({
+      behavior: "smooth",
+      block: "center",
+    });
+  }, [data, focus]);
 
   const changeStatus = React.useCallback(
     (nextStatus: MetadataReviewStatus) => {
@@ -503,6 +524,7 @@ export const MetadataReviewPage: React.FC = () => {
                 <ReviewItemRow
                   key={item.id}
                   item={item}
+                  focused={focus === item.id}
                   onEdit={() => setSelectedItem(item)}
                 />
               ))}

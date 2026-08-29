@@ -10,6 +10,7 @@
       "downloads": "Downloads & storage",
       "media": "Media & metadata",
       "health": "Health monitoring",
+      "notifications": "Notifications",
       "access": "Access protocols"
     },
     "pendingRestart": {
@@ -163,6 +164,57 @@
         "description": "Available space must satisfy both the capacity and percentage thresholds.",
         "minimumBytes": "Minimum available space (GiB)",
         "minimumPercent": "Minimum available percentage (%)"
+      }
+    },
+    "notifications": {
+      "eyebrow": "Outbound alerts",
+      "title": "Notifications",
+      "description": "Deliver selected domain events without delaying downloads, inference, or incident handling.",
+      "saved": "Notification settings saved",
+      "validationFailed": "Configure a webhook, at least one event, and valid quiet hours",
+      "testQueued": "Test notification queued",
+      "testFailed": "Test notification could not be queued",
+      "webhook": {
+        "title": "Generic webhook",
+        "description": "POST a stable event envelope. X-SDW-Event-Id can be used by the receiver for idempotency.",
+        "enabled": "Enable webhook delivery",
+        "enabledHelp": "Failures are retried in the background and never fail the originating operation.",
+        "url": "Webhook URL",
+        "secretHelp": "The complete URL is encrypted at rest and is never returned to the browser or written to logs.",
+        "test": "Send test",
+        "testing": "Queuing test…"
+      },
+      "events": {
+        "title": "Event subscriptions",
+        "description": "Choose which events may create an outbound delivery.",
+        "items": {
+          "releaseMatched": "Notify-only release matched",
+          "downloadPendingConfirmation": "Download needs confirmation",
+          "downloadCompleted": "Download completed",
+          "downloadFailed": "Download failed",
+          "incidentOpened": "Incident opened",
+          "metadataNeedsReview": "Metadata needs review",
+          "diskSpaceLow": "Disk space is low",
+          "test": "Test notification"
+        }
+      },
+      "quiet": {
+        "title": "Quiet hours",
+        "description": "Leave both times blank to deliver immediately. During quiet hours, queued events remain pending.",
+        "start": "Start (hh:mm:ss)",
+        "end": "End (hh:mm:ss)",
+        "timeZone": "IANA time zone"
+      },
+      "delivery": {
+        "title": "Recent delivery records",
+        "description": "Inspect queued, successful, retried, and permanently failed deliveries without exposing the destination.",
+        "empty": "No delivery attempts yet.",
+        "status": {
+          "Pending": "Pending",
+          "Processing": "Delivering",
+          "Delivered": "Delivered",
+          "Failed": "Failed"
+        }
       }
     },
     "access": {

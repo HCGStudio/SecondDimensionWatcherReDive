@@ -7,6 +7,7 @@ using SecondDimensionWatcherReDive.Exceptions;
 using SecondDimensionWatcherReDive.Framework.Feed;
 using SecondDimensionWatcherReDive.Framework.FileDownload;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
+using SecondDimensionWatcherReDive.Framework.Notifications;
 using SecondDimensionWatcherReDive.Services;
 using SecondDimensionWatcherReDive.Utils.Feed;
 
@@ -19,6 +20,7 @@ public class SyncFeedTests
     private Mock<ISubscriptionAutomationPolicyRepository> _mockPolicyRepo = null!;
     private Mock<IFileDownloadClientProvider> _mockDownloadProvider = null!;
     private Mock<IFileDownloadClient> _mockDownloadClient = null!;
+    private Mock<INotificationPublisher> _mockNotificationPublisher = null!;
     private SyncFeed _syncFeed = null!;
     private MethodInfo _processSingleMethod = null!;
 
@@ -29,6 +31,7 @@ public class SyncFeedTests
         _mockPolicyRepo = new Mock<ISubscriptionAutomationPolicyRepository>();
         _mockDownloadProvider = new Mock<IFileDownloadClientProvider>();
         _mockDownloadClient = new Mock<IFileDownloadClient>();
+        _mockNotificationPublisher = new Mock<INotificationPublisher>();
         _mockRepo.Setup(repository => repository.AddAsync(
                 It.IsAny<AnimationInfo>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
@@ -61,7 +64,8 @@ public class SyncFeedTests
             Mock.Of<ILogger<SyncFeed>>(),
             mockHttpClientFactory.Object,
             mockScopeFactory.Object,
-            new SubscriptionAutomationMatcher(new SubscriptionReleaseMetadataExtractor()));
+            new SubscriptionAutomationMatcher(new SubscriptionReleaseMetadataExtractor()),
+            notificationPublisher: _mockNotificationPublisher.Object);
 
         _processSingleMethod = typeof(SyncFeed)
             .GetMethod("ProcessSingle", BindingFlags.NonPublic | BindingFlags.Instance)!;
@@ -171,6 +175,12 @@ public class SyncFeedTests
         StringAssert.Contains(added.AutomationExplanationJson!, "\"passed\":true");
         _mockRepo.Verify(repository => repository.UpdateAsync(
             It.IsAny<AnimationInfo>(), It.IsAny<CancellationToken>()), Times.Never);
+        _mockNotificationPublisher.Verify(publisher => publisher.PublishAsync(
+            It.Is<NotificationEvent>(notification =>
+                notification.Type == NotificationEventType.ReleaseMatched
+                && notification.DeduplicationKey == $"release-matched:{added.Id}"
+                && notification.DeepLink.Contains(added.Id.ToString(), StringComparison.Ordinal)),
+            It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [TestMethod]
@@ -190,6 +200,10 @@ public class SyncFeedTests
         _mockDownloadClient.Verify(client => client.SubmitDownloadTaskAsync(
             It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<byte[]>(), It.IsAny<string>(),
             It.IsAny<CancellationToken>()), Times.Never);
+        _mockNotificationPublisher.Verify(publisher => publisher.PublishAsync(
+            It.Is<NotificationEvent>(notification =>
+                notification.Type == NotificationEventType.DownloadPendingConfirmation),
+            It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [TestMethod]
@@ -256,6 +270,11 @@ public class SyncFeedTests
             SubscriptionAutomationDisposition.AutoDownloadFailed,
             It.Is<CancellationToken>(token =>
                 token.CanBeCanceled && !token.IsCancellationRequested)), Times.Once);
+        _mockNotificationPublisher.Verify(publisher => publisher.PublishAsync(
+            It.Is<NotificationEvent>(notification =>
+                notification.Type == NotificationEventType.DownloadFailed
+                && notification.DeduplicationKey.StartsWith("auto-download-failed:", StringComparison.Ordinal)),
+            It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [TestMethod]

@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using SecondDimensionWatcherReDive.Configuration;
+using SecondDimensionWatcherReDive.Framework.Notifications;
 
 namespace SecondDimensionWatcherReDive.Controllers.External;
 
@@ -71,6 +72,14 @@ internal sealed record NfsSettingsResponse(
     bool RestartRequired,
     bool PendingRestart);
 
+internal sealed record NotificationSettingsResponse(
+    bool WebhookEnabled,
+    IReadOnlyList<NotificationEventType> Events,
+    TimeSpan? QuietHoursStart,
+    TimeSpan? QuietHoursEnd,
+    string TimeZoneId,
+    SecretStateResponse WebhookUrl);
+
 internal sealed record ApplicationSettingsResponse(
     long Revision,
     bool PendingRestart,
@@ -79,7 +88,8 @@ internal sealed record ApplicationSettingsResponse(
     TorrentSettingsResponse Torrent,
     MediaLibrarySettingsResponse MediaLibrary,
     IncidentSettingsResponse Incidents,
-    NfsSettingsResponse Nfs);
+    NfsSettingsResponse Nfs,
+    NotificationSettingsResponse Notifications);
 
 internal sealed record SecretMutationRequest(
     [property: Required] SecretMutationOperation? Operation,
@@ -148,6 +158,14 @@ internal sealed record NfsSettingsPatchRequest(
     [property: Required] int? LeaseSeconds,
     [property: Required] int? MaxConnections);
 
+internal sealed record NotificationSettingsPatchRequest(
+    [property: Required] bool? WebhookEnabled,
+    [property: Required] IReadOnlyList<NotificationEventType>? Events,
+    TimeSpan? QuietHoursStart,
+    TimeSpan? QuietHoursEnd,
+    [property: Required] string? TimeZoneId,
+    SecretMutationRequest? WebhookUrl);
+
 internal sealed record PatchApplicationSettingsRequest(
     long ExpectedRevision,
     AiSettingsPatchRequest? Ai,
@@ -155,4 +173,5 @@ internal sealed record PatchApplicationSettingsRequest(
     TorrentSettingsPatchRequest? Torrent,
     MediaLibrarySettingsPatchRequest? MediaLibrary,
     IncidentSettingsPatchRequest? Incidents,
-    NfsSettingsPatchRequest? Nfs);
+    NfsSettingsPatchRequest? Nfs,
+    NotificationSettingsPatchRequest? Notifications = null);

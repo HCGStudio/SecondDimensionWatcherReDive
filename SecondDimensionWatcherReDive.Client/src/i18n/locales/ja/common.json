@@ -2,6 +2,7 @@
   "appName": "SDW Re:Dive",
   "nav": {
     "home": "ホーム",
+    "todo": "TODO センター",
     "downloading": "ダウンロード中",
     "downloaded": "ダウンロード済み",
     "files": "ファイル一覧",

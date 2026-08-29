@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Caching.Distributed;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Framework.FileDownload;
+using SecondDimensionWatcherReDive.Framework.Notifications;
 using SecondDimensionWatcherReDive.Utils.FileStore;
 using SecondDimensionWatcherReDive.Utils.Incidents;
 
@@ -19,7 +20,8 @@ internal class AnimationInfoController(
     IDistributedCache distributedCache,
     IFileDownloadClientProvider fileDownloadClientProvider,
     IFileMapper fileMapper,
-    IIncidentReporter? incidentReporter = null)
+    IIncidentReporter? incidentReporter = null,
+    INotificationPublisher? notificationPublisher = null)
     : ControllerBase
 {
     [HttpGet]
@@ -104,6 +106,7 @@ internal class AnimationInfoController(
                     downloadClient,
                     downloadAttemptId,
                     remoteMayHaveAccepted: false);
+                await PublishDownloadFailureAsync(info, downloadAttemptId, cancellationToken);
                 return BadRequest();
             }
         }
@@ -122,11 +125,24 @@ internal class AnimationInfoController(
                 // Preserve the initiating exception. A conditional cleanup can
                 // be retried safely by the tracker or a later cancellation.
             }
+            await PublishDownloadFailureAsync(info, downloadAttemptId, cancellationToken);
             throw;
         }
 
         return Ok();
     }
+
+    private Task PublishDownloadFailureAsync(
+        Framework.DataRepository.AnimationInfo info,
+        Guid downloadAttemptId,
+        CancellationToken cancellationToken) =>
+        notificationPublisher?.PublishAsync(new NotificationEvent(
+            NotificationEventType.DownloadFailed,
+            $"download-failed:{info.Id}:{downloadAttemptId}",
+            "Download failed to start",
+            info.Title,
+            info.Animation is null ? "/" : $"/anime/{info.Animation.TmdbId}"), cancellationToken)
+        ?? Task.CompletedTask;
 
     [HttpPost("pause/{id:guid}")]
     public async Task<IActionResult> PauseDownload([FromRoute] Guid id, CancellationToken cancellationToken)

@@ -2,6 +2,7 @@
   "appName": "SDW Re:Dive",
   "nav": {
     "home": "Home",
+    "todo": "To-do center",
     "downloading": "Downloading",
     "downloaded": "Downloaded",
     "files": "Files",

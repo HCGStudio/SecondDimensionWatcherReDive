@@ -316,7 +316,8 @@ public sealed partial class RuntimeSettingsService : IRuntimeSettingsInitializer
             Torrent = patch.Torrent?.Values ?? current.Torrent,
             MediaLibrary = patch.MediaLibrary ?? current.MediaLibrary,
             Incidents = patch.Incidents ?? current.Incidents,
-            Nfs = patch.Nfs ?? current.Nfs
+            Nfs = patch.Nfs ?? current.Nfs,
+            Notifications = patch.Notifications?.Values ?? current.Notifications
         };
 
     private static RuntimeSecretOverrides ApplySecrets(
@@ -329,6 +330,7 @@ public sealed partial class RuntimeSettingsService : IRuntimeSettingsInitializer
         ApplySecret(values, RuntimeSecretKeys.CodexToken, patch.Ai?.CodexToken);
         ApplySecret(values, RuntimeSecretKeys.TmdbApiKey, patch.Tmdb?.ApiKey);
         ApplySecret(values, RuntimeSecretKeys.TorrentPassword, patch.Torrent?.Password);
+        ApplySecret(values, RuntimeSecretKeys.NotificationWebhookUrl, patch.Notifications?.WebhookUrl);
         return new RuntimeSecretOverrides { Values = values };
     }
 
@@ -423,6 +425,7 @@ public sealed partial class RuntimeSettingsService : IRuntimeSettingsInitializer
         ValidateSecretMutation(errors, "ai.codexAppServer.token", patch.Ai?.CodexToken);
         ValidateSecretMutation(errors, "tmdb.apiKey", patch.Tmdb?.ApiKey);
         ValidateSecretMutation(errors, "torrent.password", patch.Torrent?.Password);
+        ValidateSecretMutation(errors, "notifications.webhook.url", patch.Notifications?.WebhookUrl);
         return errors;
     }
 
@@ -657,7 +660,8 @@ public sealed partial class RuntimeSettingsService : IRuntimeSettingsInitializer
             overrides.Torrent ?? deployment.Torrent,
             overrides.MediaLibrary ?? deployment.MediaLibrary,
             overrides.Incidents ?? deployment.Incidents,
-            overrides.Nfs ?? deployment.Nfs);
+            overrides.Nfs ?? deployment.Nfs,
+            overrides.Notifications ?? deployment.Notifications);
 
     private void EnsureInitialized()
     {

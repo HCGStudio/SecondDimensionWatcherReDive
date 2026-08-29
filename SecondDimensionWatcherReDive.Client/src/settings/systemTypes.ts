@@ -90,6 +90,24 @@ export interface NfsSettings {
   pendingRestart: boolean;
 }
 
+export type NotificationEventType =
+  | "releaseMatched"
+  | "downloadPendingConfirmation"
+  | "downloadCompleted"
+  | "downloadFailed"
+  | "incidentOpened"
+  | "metadataNeedsReview"
+  | "diskSpaceLow";
+
+export interface NotificationSettings {
+  webhookEnabled: boolean;
+  events: NotificationEventType[];
+  quietHoursStart: string | null;
+  quietHoursEnd: string | null;
+  timeZoneId: string;
+  webhookUrl: SecretState;
+}
+
 export interface SystemSettings {
   revision: number;
   pendingRestart: boolean;
@@ -99,6 +117,7 @@ export interface SystemSettings {
   mediaLibrary: MediaLibrarySettings;
   incidents: IncidentSettings;
   nfs: NfsSettings;
+  notifications: NotificationSettings;
 }
 
 export interface OpenAiSettingsPatch extends Omit<OpenAiSettings, "apiKey"> {
@@ -144,6 +163,13 @@ export type NfsSettingsPatch = Omit<
   "restartRequired" | "pendingRestart"
 >;
 
+export interface NotificationSettingsPatch extends Omit<
+  NotificationSettings,
+  "webhookUrl"
+> {
+  webhookUrl?: SecretMutation | null;
+}
+
 export interface SystemSettingsPatch {
   expectedRevision: number;
   ai?: AiSettingsPatch;
@@ -152,6 +178,7 @@ export interface SystemSettingsPatch {
   mediaLibrary?: MediaLibrarySettings;
   incidents?: IncidentSettings;
   nfs?: NfsSettingsPatch;
+  notifications?: NotificationSettingsPatch;
 }
 
 export const createSecretDraft = (): SecretDraft => ({

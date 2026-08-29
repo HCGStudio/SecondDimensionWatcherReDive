@@ -20,6 +20,7 @@ using SecondDimensionWatcherReDive.Framework.FileDownload;
 using SecondDimensionWatcherReDive.Framework.FileStore;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Framework.Tasks;
+using SecondDimensionWatcherReDive.Framework.Notifications;
 using SecondDimensionWatcherReDive.Inference.AI;
 using SecondDimensionWatcherReDive.Models;
 using SecondDimensionWatcherReDive.NFS;
@@ -33,6 +34,7 @@ using SecondDimensionWatcherReDive.Utils.FileDownload;
 using SecondDimensionWatcherReDive.Utils.FileStore;
 using SecondDimensionWatcherReDive.Utils.MetadataReview;
 using SecondDimensionWatcherReDive.Utils.Incidents;
+using SecondDimensionWatcherReDive.Utils.Notifications;
 using SecondDimensionWatcherReDive.Utils.Scraper;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -204,6 +206,16 @@ builder.Services.AddHttpClient("Feed", client =>
     }
 });
 
+builder.Services.AddHttpClient("NotificationWebhook")
+    // The destination URL can contain a token. Disable the factory's default
+    // request logger because it includes the complete request URI.
+    .RemoveAllLoggers()
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+    {
+        // A redirect must not forward a secret-bearing webhook URL to another origin.
+        AllowAutoRedirect = false
+    });
+
 var contentTypeProvider = new FileExtensionContentTypeProvider();
 contentTypeProvider.Mappings.Add(".mkv", "video/x-matroska");
 builder.Services.AddSingleton<IContentTypeProvider>(contentTypeProvider);
@@ -216,12 +228,14 @@ builder.Services.AddSingleton(Channel.CreateUnbounded<DownloadCompleteRequest>()
 // Persistent incident inbox and health probes.
 builder.Services.AddSingleton<IIncidentReporter, IncidentReporter>();
 builder.Services.AddSingleton<IIncidentDiskProbe, IncidentDiskProbe>();
+builder.Services.AddSingleton<INotificationPublisher, NotificationPublisher>();
 
 //Add hosting services
 builder.Services.AddHostedService<CompleteDownloadBackgroundService>();
 builder.Services.AddHostedService<FetchRemoteTorrentBackgroundService>();
 builder.Services.AddHostedService<UpdateDownloadStatusBackgroundService>();
 builder.Services.AddHostedService<IncidentReconciliationBackgroundService>();
+builder.Services.AddHostedService<NotificationDeliveryBackgroundService>();
 builder.Services.AddSingleton<MediaLibraryScanQueue>();
 builder.Services.AddSingleton<IMediaLibraryScanQueue>(sp =>
     sp.GetRequiredService<MediaLibraryScanQueue>());
@@ -277,6 +291,8 @@ builder.Services.AddScoped<IWebDavTokenRepository, WebDavTokenRepository>();
 builder.Services.AddScoped<IPlaybackRepository, PlaybackRepository>();
 builder.Services.AddScoped<IIncidentRepository, IncidentRepository>();
 builder.Services.AddScoped<IMediaLibrarySourceRepository, MediaLibrarySourceRepository>();
+builder.Services.AddScoped<INotificationOutboxRepository, NotificationOutboxRepository>();
+builder.Services.AddScoped<ITodoRepository, TodoRepository>();
 builder.Services.AddSingleton<ISeasonScraper, MikananiSeasonScraper>();
 builder.Services.AddScoped<IMetadataReviewService, MetadataReviewService>();
 builder.Services.AddScoped<IIncidentRetryService, IncidentRetryService>();

@@ -33,9 +33,59 @@ public class ApplicationContext : DbContext
     public DbSet<PlaybackPreference> PlaybackPreferences { get; set; }
     public DbSet<MediaLibrarySource> MediaLibrarySources { get; set; }
     public DbSet<ApplicationSettings> ApplicationSettings { get; set; }
+    public DbSet<NotificationOutboxMessage> NotificationOutboxMessages { get; set; }
+    public DbSet<TodoItemState> TodoItemStates { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<NotificationOutboxMessage>()
+            .HasIndex(message => message.DeduplicationKey)
+            .IsUnique();
+
+        modelBuilder.Entity<NotificationOutboxMessage>()
+            .HasIndex(message => new { message.Status, message.NextAttemptAt });
+
+        modelBuilder.Entity<NotificationOutboxMessage>()
+            .Property(message => message.DeduplicationKey)
+            .HasMaxLength(256);
+
+        modelBuilder.Entity<NotificationOutboxMessage>()
+            .Property(message => message.Type)
+            .HasConversion<string>()
+            .HasMaxLength(48);
+
+        modelBuilder.Entity<NotificationOutboxMessage>()
+            .Property(message => message.Status)
+            .HasConversion<string>()
+            .HasMaxLength(24);
+
+        modelBuilder.Entity<NotificationOutboxMessage>()
+            .Property(message => message.Title)
+            .HasMaxLength(256);
+
+        modelBuilder.Entity<NotificationOutboxMessage>()
+            .Property(message => message.Body)
+            .HasMaxLength(2048);
+
+        modelBuilder.Entity<NotificationOutboxMessage>()
+            .Property(message => message.DeepLink)
+            .HasMaxLength(2048);
+
+        modelBuilder.Entity<NotificationOutboxMessage>()
+            .Property(message => message.PayloadJson)
+            .HasColumnType("jsonb");
+
+        modelBuilder.Entity<NotificationOutboxMessage>()
+            .Property(message => message.LastError)
+            .HasMaxLength(2048);
+
+        modelBuilder.Entity<TodoItemState>()
+            .HasKey(state => state.Key);
+
+        modelBuilder.Entity<TodoItemState>()
+            .Property(state => state.Key)
+            .HasMaxLength(128);
+
         modelBuilder.Entity<ApplicationSettings>()
             .Property(settings => settings.Id)
             .ValueGeneratedNever();

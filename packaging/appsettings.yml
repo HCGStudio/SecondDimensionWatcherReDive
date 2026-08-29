@@ -78,6 +78,18 @@ Incidents:
     MinimumAvailableBytes: 5368709120 # 5 GiB
     MinimumAvailablePercent: 5
 
+# 通知 Outbox（默认关闭）。Webhook URL 可能包含访问令牌，建议在网页设置中填写，
+# 服务端会使用 Data Protection 加密保存且 API 不会回显明文。
+Notifications:
+  Webhook:
+    Enabled: false
+    Url: ""
+  Events: "ReleaseMatched,DownloadPendingConfirmation,DownloadCompleted,DownloadFailed,IncidentOpened,MetadataNeedsReview,DiskSpaceLow"
+  QuietHours:
+    Start:
+    End:
+    TimeZone: "UTC"
+
 # NFSv4 只读导出（可选，默认关闭）
 # 客户端示例: sudo mount -t nfs4 -o vers=4,nolock,port=2049 host:/ /mnt
 # Linux 上 2049 为特权端口，容器中需显式发布或改为非特权端口

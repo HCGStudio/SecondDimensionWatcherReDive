@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Net;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Configuration;
+using SecondDimensionWatcherReDive.Framework.Notifications;
 
 namespace SecondDimensionWatcherReDive.Configuration;
 
@@ -130,12 +131,20 @@ internal sealed record NfsSettingsValues(
     int LeaseSeconds,
     int MaxConnections);
 
+internal sealed record NotificationSettingsValues(
+    bool WebhookEnabled,
+    IReadOnlyList<NotificationEventType> Events,
+    TimeSpan? QuietHoursStart,
+    TimeSpan? QuietHoursEnd,
+    string TimeZoneId);
+
 internal sealed record RuntimeSettingsValues(
     AiSettingsValues Ai,
     TorrentSettingsValues Torrent,
     MediaLibrarySettingsValues MediaLibrary,
     IncidentSettingsValues Incidents,
-    NfsSettingsValues Nfs);
+    NfsSettingsValues Nfs,
+    NotificationSettingsValues Notifications);
 
 internal sealed record RuntimeSettingsOverrides
 {
@@ -148,6 +157,8 @@ internal sealed record RuntimeSettingsOverrides
     public IncidentSettingsValues? Incidents { get; init; }
 
     public NfsSettingsValues? Nfs { get; init; }
+
+    public NotificationSettingsValues? Notifications { get; init; }
 }
 
 internal sealed record PersistedSecret(PersistedSecretMode Mode, string? Value);
@@ -174,6 +185,10 @@ internal sealed record TorrentSettingsUpdate(
     TorrentSettingsValues Values,
     SecretMutation? Password);
 
+internal sealed record NotificationSettingsUpdate(
+    NotificationSettingsValues Values,
+    SecretMutation? WebhookUrl);
+
 internal sealed record RuntimeSettingsPatch(
     long ExpectedRevision,
     AiSettingsUpdate? Ai,
@@ -181,7 +196,8 @@ internal sealed record RuntimeSettingsPatch(
     TorrentSettingsUpdate? Torrent,
     MediaLibrarySettingsValues? MediaLibrary,
     IncidentSettingsValues? Incidents,
-    NfsSettingsValues? Nfs);
+    NfsSettingsValues? Nfs,
+    NotificationSettingsUpdate? Notifications = null);
 
 internal sealed record ResolvedSecret(
     string? Value,
@@ -213,6 +229,7 @@ internal static class RuntimeSecretKeys
     public const string CodexToken = "AI:CodexAppServer:BearerToken";
     public const string TmdbApiKey = "TmdbApiKey";
     public const string TorrentPassword = "Torrent:Remote:Password";
+    public const string NotificationWebhookUrl = "Notifications:Webhook:Url";
 
     public static readonly string[] All =
     [
@@ -220,7 +237,8 @@ internal static class RuntimeSecretKeys
         AnthropicApiKey,
         CodexToken,
         TmdbApiKey,
-        TorrentPassword
+        TorrentPassword,
+        NotificationWebhookUrl
     ];
 }
 
@@ -251,7 +269,13 @@ internal static class RuntimeSettingsDefaults
                 configuration.GetValue<int?>("Nfs:Port") ?? 2049,
                 configuration["Nfs:BindAddress"] ?? "0.0.0.0",
                 configuration.GetValue<int?>("Nfs:LeaseSeconds") ?? 90,
-                configuration.GetValue<int?>("Nfs:MaxConnections") ?? 32));
+                configuration.GetValue<int?>("Nfs:MaxConnections") ?? 32),
+            new NotificationSettingsValues(
+                configuration.GetValue<bool?>("Notifications:Webhook:Enabled") ?? false,
+                ReadNotificationEvents(configuration["Notifications:Events"]),
+                configuration.GetValue<TimeSpan?>("Notifications:QuietHours:Start"),
+                configuration.GetValue<TimeSpan?>("Notifications:QuietHours:End"),
+                configuration["Notifications:QuietHours:TimeZone"] ?? "UTC"));
 
     public static IReadOnlyDictionary<string, string?> ReadDeploymentSecrets(
         IConfiguration configuration) =>
@@ -287,6 +311,20 @@ internal static class RuntimeSettingsDefaults
         string key,
         TimeSpan fallback) =>
         configuration.GetValue<TimeSpan?>(key) ?? fallback;
+
+    private static IReadOnlyList<NotificationEventType> ReadNotificationEvents(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return Enum.GetValues<NotificationEventType>()
+                .Where(type => type != NotificationEventType.Test)
+                .ToArray();
+
+        return value.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+            .Select(item => Enum.TryParse<NotificationEventType>(item, true, out var parsed)
+                ? parsed
+                : (NotificationEventType)(-1))
+            .ToArray();
+    }
 
     private static TEnum ParseEnum<TEnum>(string? value, TEnum fallback)
         where TEnum : struct, Enum
@@ -391,6 +429,36 @@ internal static class RuntimeSettingsValidator
         RequireRange(errors, "nfs.leaseSeconds", values.Nfs.LeaseSeconds, 1, int.MaxValue);
         RequireRange(errors, "nfs.maxConnections", values.Nfs.MaxConnections, 1, int.MaxValue);
 
+        if (values.Notifications.Events.Count == 0)
+            Add(errors, "notifications.events", "Select at least one notification event.");
+        if (values.Notifications.Events.Any(type => !Enum.IsDefined(type) || type == NotificationEventType.Test))
+            Add(errors, "notifications.events", "The notification event selection is invalid.");
+        if (values.Notifications.QuietHoursStart.HasValue != values.Notifications.QuietHoursEnd.HasValue)
+            Add(errors, "notifications.quietHours", "Both quiet-hour boundaries are required.");
+        if (values.Notifications.QuietHoursStart is { } start
+            && (start < TimeSpan.Zero || start >= TimeSpan.FromDays(1)))
+            Add(errors, "notifications.quietHours.start", "The time must be within one day.");
+        if (values.Notifications.QuietHoursEnd is { } end
+            && (end < TimeSpan.Zero || end >= TimeSpan.FromDays(1)))
+            Add(errors, "notifications.quietHours.end", "The time must be within one day.");
+        try
+        {
+            _ = TimeZoneInfo.FindSystemTimeZoneById(values.Notifications.TimeZoneId);
+        }
+        catch (TimeZoneNotFoundException)
+        {
+            Add(errors, "notifications.quietHours.timeZoneId", "The time zone is unknown to the server.");
+        }
+        catch (InvalidTimeZoneException)
+        {
+            Add(errors, "notifications.quietHours.timeZoneId", "The time zone is invalid.");
+        }
+        if (values.Notifications.WebhookEnabled
+            && !secrets[RuntimeSecretKeys.NotificationWebhookUrl].IsConfigured)
+            Add(errors, "notifications.webhook.url", "A webhook URL is required when the channel is enabled.");
+        if (secrets[RuntimeSecretKeys.NotificationWebhookUrl] is { IsConfigured: true, Value: { } webhookUrl })
+            ValidateWebhookUri(errors, "notifications.webhook.url", webhookUrl);
+
         foreach (var key in RuntimeSecretKeys.All)
         {
             if (secrets.TryGetValue(key, out var secret)
@@ -435,6 +503,19 @@ internal static class RuntimeSettingsValidator
         if (uri.Scheme == "ws" && !uri.IsLoopback)
             Add(errors, key,
                 "Plain ws is allowed only for loopback app-server endpoints; use wss for remote endpoints.");
+    }
+
+    private static void ValidateWebhookUri(
+        Dictionary<string, List<string>> errors,
+        string key,
+        string value)
+    {
+        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri)
+            || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)
+            || !string.IsNullOrEmpty(uri.UserInfo)
+            || !string.IsNullOrEmpty(uri.Fragment))
+            Add(errors, key,
+                "The webhook must be an absolute HTTP or HTTPS URL without user information or a fragment.");
     }
 
     private static void ValidateUserAgent(
@@ -494,6 +575,7 @@ internal static class RuntimeSettingsValidator
         RuntimeSecretKeys.CodexToken => "ai.codexAppServer.token",
         RuntimeSecretKeys.TmdbApiKey => "tmdb.apiKey",
         RuntimeSecretKeys.TorrentPassword => "torrent.password",
+        RuntimeSecretKeys.NotificationWebhookUrl => "notifications.webhook.url",
         _ => key
     };
 
@@ -570,6 +652,15 @@ internal static class RuntimeSettingsFlattener
         flattened["Nfs:BindAddress"] = values.Nfs.BindAddress;
         flattened["Nfs:LeaseSeconds"] = values.Nfs.LeaseSeconds.ToString(CultureInfo.InvariantCulture);
         flattened["Nfs:MaxConnections"] = values.Nfs.MaxConnections.ToString(CultureInfo.InvariantCulture);
+
+        flattened["Notifications:Webhook:Enabled"] =
+            values.Notifications.WebhookEnabled.ToString(CultureInfo.InvariantCulture);
+        flattened["Notifications:Events"] = string.Join(',', values.Notifications.Events);
+        flattened["Notifications:QuietHours:Start"] =
+            values.Notifications.QuietHoursStart?.ToString("c", CultureInfo.InvariantCulture);
+        flattened["Notifications:QuietHours:End"] =
+            values.Notifications.QuietHoursEnd?.ToString("c", CultureInfo.InvariantCulture);
+        flattened["Notifications:QuietHours:TimeZone"] = values.Notifications.TimeZoneId;
 
         foreach (var key in RuntimeSecretKeys.All)
             flattened[key] = secrets.TryGetValue(key, out var secret) && secret.IsConfigured

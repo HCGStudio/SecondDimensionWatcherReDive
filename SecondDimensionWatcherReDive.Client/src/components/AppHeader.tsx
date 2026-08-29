@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router";
 
 import {
+  BellRing,
   Check,
   Clapperboard,
   Cog,
@@ -27,6 +28,7 @@ import i18n, {
 } from "../i18n";
 import { useIncidents } from "../incidents/hooks";
 import { cn } from "../lib/cn";
+import { useTodos } from "../todos/hooks";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -42,8 +44,17 @@ interface NavItem {
   badge?: number;
 }
 
-const createNavItems = (incidentCount?: number): NavItem[] => [
+const createNavItems = (
+  incidentCount?: number,
+  todoCount?: number,
+): NavItem[] => [
   { icon: <Home size={16} />, labelKey: "nav.home", path: "/" },
+  {
+    icon: <BellRing size={16} />,
+    labelKey: "nav.todo",
+    path: "/todo",
+    badge: todoCount,
+  },
   {
     icon: <Download size={16} />,
     labelKey: "nav.downloading",
@@ -221,8 +232,9 @@ export const AppHeader: React.FC = () => {
   const { t } = useTranslation();
   const { data: status } = useLoginStatus();
   const { data: incidents } = useIncidents({ take: 1 });
+  const { data: todos } = useTodos();
   const navigate = useNavigate();
-  const items = createNavItems(incidents?.openCount);
+  const items = createNavItems(incidents?.openCount, todos?.unreadCount);
 
   return (
     <header className="sticky top-0 z-30 border-b border-border bg-surface/95 backdrop-blur">

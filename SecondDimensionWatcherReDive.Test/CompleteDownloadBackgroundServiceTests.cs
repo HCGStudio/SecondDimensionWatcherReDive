@@ -5,6 +5,7 @@ using Moq;
 using SecondDimensionWatcherReDive.Data;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Framework.PluginParams;
+using SecondDimensionWatcherReDive.Framework.Notifications;
 using SecondDimensionWatcherReDive.Plugin;
 using SecondDimensionWatcherReDive.Services;
 using SecondDimensionWatcherReDive.Utils.FileStore;
@@ -80,11 +81,13 @@ public sealed class CompleteDownloadBackgroundServiceTests
                 CancellationToken.None))
             .Returns(Task.CompletedTask);
         using var provider = CreateProvider(repository.Object, mapper.Object, plugin.Object);
+        var notifications = new Mock<INotificationPublisher>();
         var service = new CompleteDownloadBackgroundService(
             Channel.CreateUnbounded<DownloadCompleteRequest>(),
             provider.GetRequiredService<IServiceScopeFactory>(),
             Mock.Of<ILogger<CompleteDownloadBackgroundService>>(),
-            Mock.Of<IIncidentReporter>());
+            Mock.Of<IIncidentReporter>(),
+            notifications.Object);
 
         await service.ProcessRequestAsync(request, CancellationToken.None);
 
@@ -95,6 +98,11 @@ public sealed class CompleteDownloadBackgroundServiceTests
                 parameter.ItemId == request.ItemId
                 && parameter.StorePath == request.StorePath
                 && parameter.FileStore == request.FileStore),
+            CancellationToken.None), Times.Once);
+        notifications.Verify(candidate => candidate.PublishAsync(
+            It.Is<NotificationEvent>(notification =>
+                notification.Type == NotificationEventType.DownloadCompleted
+                && notification.DeduplicationKey.Contains(request.ItemId.ToString(), StringComparison.Ordinal)),
             CancellationToken.None), Times.Once);
     }
 
