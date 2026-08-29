@@ -19,5 +19,31 @@
     "executing": "Running...",
     "arguments": "Arguments",
     "result": "Result"
+  },
+  "approval": {
+    "title": "Your approval is required",
+    "loading": "Loading approval details...",
+    "loadFailed": "Could not load approval details",
+    "decisionFailed": "The action changed or the request failed. Please try again.",
+    "risk": "Risk: {{risk}}",
+    "risks": {
+      "ReadOnly": "Read only",
+      "Mutating": "Changes data",
+      "Destructive": "High risk"
+    },
+    "reversible": "Reversible",
+    "notReversible": "Not automatically reversible",
+    "reject": "Reject",
+    "approve": "Approve",
+    "confirmExecute": "Confirm and run",
+    "destructiveConfirm": "This is a high-risk action. Review the impact and confirm again; the server also enforces this second confirmation.",
+    "states": {
+      "Pending": "Pending",
+      "Executing": "Running",
+      "Succeeded": "Completed",
+      "Failed": "Failed",
+      "Rejected": "Rejected",
+      "Expired": "Expired"
+    }
   }
 }

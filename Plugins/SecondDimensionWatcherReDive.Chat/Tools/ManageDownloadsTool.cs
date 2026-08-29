@@ -8,7 +8,8 @@ namespace SecondDimensionWatcherReDive.Chat.Tools;
 
 [Tool<ManageDownloadsParams>(
     "manage_downloads",
-    "Control download tasks. Start, pause, resume, or cancel downloads for a specified animation.")]
+    "Control download tasks. Start, pause, resume, or cancel downloads for a specified animation.",
+    ToolRiskLevel.Destructive)]
 internal sealed partial class ManageDownloadsTool(
     IAnimationInfoRepository animationInfoRepository,
     IFileMappingRepository fileMappingRepository,

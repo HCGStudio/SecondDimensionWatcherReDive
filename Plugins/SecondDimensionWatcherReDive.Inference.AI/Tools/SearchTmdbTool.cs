@@ -7,7 +7,8 @@ namespace SecondDimensionWatcherReDive.Inference.AI.Tools;
 
 [Tool<SearchTmdbParams>(
     "search_tmdb",
-    "Search TMDB (The Movie Database) for an anime by name to get its TMDB ID and metadata.")]
+    "Search TMDB (The Movie Database) for an anime by name to get its TMDB ID and metadata.",
+    ToolRiskLevel.ReadOnly)]
 internal sealed partial class SearchTmdbTool(TmdbTool tmdbTool) : ITool
 {
     public async Task<IToolResult> ExecuteCoreAsync(

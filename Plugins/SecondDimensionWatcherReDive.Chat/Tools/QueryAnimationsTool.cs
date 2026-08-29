@@ -7,7 +7,8 @@ namespace SecondDimensionWatcherReDive.Chat.Tools;
 
 [Tool<QueryAnimationsParams>(
     "query_animations",
-    "Query animation info list. Supports multiple query modes: paged list, grouped by TMDB, downloading, downloaded, search by title, and get by ID.")]
+    "Query animation info list. Supports multiple query modes: paged list, grouped by TMDB, downloading, downloaded, search by title, and get by ID.",
+    ToolRiskLevel.ReadOnly)]
 internal sealed partial class QueryAnimationsTool(
     IAnimationInfoRepository animationInfoRepository) : ITool
 {

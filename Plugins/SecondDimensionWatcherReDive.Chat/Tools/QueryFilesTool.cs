@@ -8,7 +8,8 @@ namespace SecondDimensionWatcherReDive.Chat.Tools;
 
 [Tool<QueryFilesParams>(
     "query_files",
-    "Query the file list of downloaded animations. Supports browsing subdirectories.")]
+    "Query the file list of downloaded animations. Supports browsing subdirectories.",
+    ToolRiskLevel.ReadOnly)]
 internal sealed partial class QueryFilesTool(
     IAnimationInfoRepository animationInfoRepository,
     IFileExplorer fileExplorer) : ITool

@@ -9,7 +9,8 @@ namespace SecondDimensionWatcherReDive.Inference.AI.Tools;
 
 [Tool<SaveFileNameRegexRuleParams>(
     "save_filename_regex_rule",
-    "Validate and save a .NET regex for the current anime, then return every current file it matches with the extracted season and episode. The regex must use a named 'episode' capture group and may use a named 'season' capture group.")]
+    "Validate and save a .NET regex for the current anime, then return every current file it matches with the extracted season and episode. The regex must use a named 'episode' capture group and may use a named 'season' capture group.",
+    ToolRiskLevel.Mutating)]
 internal sealed partial class SaveFileNameRegexRuleTool(
     IFileNameRegexRuleRepository ruleRepository,
     FileNameInferenceContext context) : ITool

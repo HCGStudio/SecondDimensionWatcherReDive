@@ -41,6 +41,36 @@ export interface ChatStatus {
   provider: string | null;
 }
 
+export type ChatActionRisk = "ReadOnly" | "Mutating" | "Destructive";
+export type ChatActionState =
+  "Pending" | "Executing" | "Succeeded" | "Failed" | "Rejected" | "Expired";
+
+export interface ChatAction {
+  id: string;
+  conversationId: string;
+  toolCallId: string;
+  toolName: string;
+  riskLevel: ChatActionRisk;
+  state: ChatActionState;
+  parameterHash: string;
+  parameterSummary: string;
+  impactSummary: string;
+  isReversible: boolean;
+  createdAt: string;
+  expiresAt: string;
+  decidedAt: string | null;
+  completedAt: string | null;
+  resultSummary: string | null;
+  errorSummary: string | null;
+  approvalToken: string | null;
+  toolResult: string | null;
+}
+
+export interface ChatActionDecision {
+  outcome: string;
+  action: ChatAction | null;
+}
+
 export function parseToolCalls(json: string | null): ToolCallInfo[] {
   if (!json) return [];
   try {
