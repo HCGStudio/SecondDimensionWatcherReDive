@@ -1,11 +1,13 @@
 using System.Net;
 using System.Net.Http.Headers;
+using System.IO.Compression;
 using System.Reflection;
 using System.Text;
 using System.Threading.Channels;
 using AspSpaService;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -34,6 +36,7 @@ using SecondDimensionWatcherReDive.Utils.FileStore;
 using SecondDimensionWatcherReDive.Utils.MetadataReview;
 using SecondDimensionWatcherReDive.Utils.Incidents;
 using SecondDimensionWatcherReDive.Utils.Scraper;
+using SecondDimensionWatcherReDive.Utils.Spa;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -300,6 +303,17 @@ builder.Services.AddNfs();
 
 //Add SPA Hosting
 builder.Services.AddSpaStaticFiles(options => { options.RootPath = "wwwroot"; });
+builder.Services.AddResponseCompression(options =>
+{
+    options.EnableForHttps = true;
+    options.MimeTypes = ResponseCompressionDefaults.MimeTypes.Concat(["application/wasm"]);
+    options.Providers.Add<BrotliCompressionProvider>();
+    options.Providers.Add<GzipCompressionProvider>();
+});
+builder.Services.Configure<BrotliCompressionProviderOptions>(options =>
+    options.Level = CompressionLevel.Fastest);
+builder.Services.Configure<GzipCompressionProviderOptions>(options =>
+    options.Level = CompressionLevel.Fastest);
 
 //Initialize Plugin
 builder.InitializePlugin();
@@ -317,6 +331,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+app.UseResponseCompression();
 
 app.UseRouting();
 
@@ -347,8 +362,12 @@ if (app.Environment.IsDevelopment())
 }
 else
 {
-    app.UseSpaStaticFiles();
-    app.MapFallbackToFile("index.html");
+    var staticFileOptions = new StaticFileOptions
+    {
+        OnPrepareResponse = SpaStaticAssetPolicy.Apply
+    };
+    app.UseSpaStaticFiles(staticFileOptions);
+    app.MapFallbackToFile("index.html", staticFileOptions);
 }
 
 app.UseAuthorization();

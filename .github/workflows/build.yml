@@ -43,7 +43,6 @@ jobs:
             **/TestResults/**/coverage.cobertura.xml
 
   build-frontend:
-    if: github.event_name != 'pull_request'
     needs: test
     runs-on: ubuntu-latest
     steps:
@@ -57,11 +56,12 @@ jobs:
       - name: Enable Corepack
         run: corepack enable
 
-      - name: Build Frontend
+      - name: Build Frontend and enforce bundle budgets
         working-directory: SecondDimensionWatcherReDive.Client
         run: |
           yarn install --immutable
-          yarn build
+          yarn build:budget
+          cat dist/bundle-report.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload frontend artifact
         uses: actions/upload-artifact@v7

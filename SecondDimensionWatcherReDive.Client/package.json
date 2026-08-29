@@ -50,6 +50,8 @@
   "scripts": {
     "start": "parcel --no-cache",
     "build": "rimraf dist && parcel build --no-source-maps",
+    "build:budget": "yarn build && yarn bundle:check",
+    "bundle:check": "node scripts/check-bundle-budget.mjs",
     "mock": "node mock-server.mjs",
     "dev": "node mock-server.mjs & parcel --no-cache",
     "test": "tsx --test src/playback/mkv/*.test.ts"
