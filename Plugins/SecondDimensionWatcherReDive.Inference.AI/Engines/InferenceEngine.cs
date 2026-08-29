@@ -14,7 +14,7 @@ namespace SecondDimensionWatcherReDive.Inference.AI.Engines;
 public sealed partial class InferenceEngine(
     IAIEngine aiEngine,
     IServiceProvider serviceProvider,
-    IOptions<InferenceOptions> options,
+    IOptionsMonitor<InferenceOptions> options,
     FileNameInferenceContext fileNameInferenceContext,
     ILogger<InferenceEngine> logger) : IInferenceEngine
 {
@@ -70,6 +70,46 @@ public sealed partial class InferenceEngine(
 
     private const int MaxToolRounds = 8;
 
+    private static readonly JsonElement MetadataOutputSchema =
+        JsonSerializer.Deserialize<JsonElement>("""
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "tmdb_id": { "type": ["string", "null"] },
+                "group_name": { "type": ["string", "null"] },
+                "season": { "type": ["integer", "null"] },
+                "episode": { "type": ["integer", "null"] },
+                "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+              },
+              "required": ["tmdb_id", "group_name", "season", "episode", "confidence"]
+            }
+            """);
+
+    private static readonly JsonElement FileNameOutputSchema =
+        JsonSerializer.Deserialize<JsonElement>("""
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "files": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "file_path": { "type": "string" },
+                      "season": { "type": ["integer", "null"] },
+                      "episode": { "type": ["integer", "null"] }
+                    },
+                    "required": ["file_path", "season", "episode"]
+                  }
+                }
+              },
+              "required": ["files"]
+            }
+            """);
+
     private static readonly SemaphoreSlim RateLimitSemaphore = new(1, 1);
     private static DateTime _lastCallTime = DateTime.MinValue;
 
@@ -82,7 +122,7 @@ public sealed partial class InferenceEngine(
         try
         {
             var elapsed = DateTime.UtcNow - _lastCallTime;
-            var minInterval = TimeSpan.FromMilliseconds(options.Value.RateLimitDelayMs);
+            var minInterval = TimeSpan.FromMilliseconds(options.CurrentValue.RateLimitDelayMs);
             if (elapsed < minInterval)
             {
                 var delay = minInterval - elapsed;
@@ -99,7 +139,7 @@ public sealed partial class InferenceEngine(
                 LogInferenceNoResult(logger, title);
             return result;
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw;
         }
@@ -126,7 +166,7 @@ public sealed partial class InferenceEngine(
         try
         {
             var elapsed = DateTime.UtcNow - _lastCallTime;
-            var minInterval = TimeSpan.FromMilliseconds(options.Value.RateLimitDelayMs);
+            var minInterval = TimeSpan.FromMilliseconds(options.CurrentValue.RateLimitDelayMs);
             if (elapsed < minInterval)
             {
                 var delay = minInterval - elapsed;
@@ -139,7 +179,11 @@ public sealed partial class InferenceEngine(
             LogFileNameInferenceSucceeded(logger, result.Count, request.Files.Count);
             return result;
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
         {
             LogFileNameInferenceFailed(logger, ex, request.Context);
             return [];
@@ -168,7 +212,8 @@ public sealed partial class InferenceEngine(
         var chatOptions = new ChatOptions
         {
             ToolExecutor = toolExecutor,
-            MaxToolRounds = MaxToolRounds
+            MaxToolRounds = MaxToolRounds,
+            OutputSchema = MetadataOutputSchema
         };
 
         var fullText = new StringBuilder();
@@ -218,7 +263,8 @@ public sealed partial class InferenceEngine(
         var chatOptions = new ChatOptions
         {
             ToolExecutor = toolExecutor,
-            MaxToolRounds = MaxToolRounds
+            MaxToolRounds = MaxToolRounds,
+            OutputSchema = FileNameOutputSchema
         };
 
         var fullText = new StringBuilder();

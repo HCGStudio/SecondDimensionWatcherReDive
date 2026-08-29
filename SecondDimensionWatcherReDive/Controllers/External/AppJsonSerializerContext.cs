@@ -63,4 +63,6 @@ namespace SecondDimensionWatcherReDive.Controllers.External;
 [JsonSerializable(typeof(CreateMediaLibrarySourceRequest))]
 [JsonSerializable(typeof(UpdateMediaLibrarySourceRequest))]
 [JsonSerializable(typeof(QueueMediaLibraryScanResponse))]
+[JsonSerializable(typeof(ApplicationSettingsResponse))]
+[JsonSerializable(typeof(PatchApplicationSettingsRequest))]
 internal partial class AppJsonSerializerContext : JsonSerializerContext;

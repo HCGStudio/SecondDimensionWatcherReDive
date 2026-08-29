@@ -33,6 +33,10 @@ contents:
   - src: ./packaging/appsettings.yml
     dst: /etc/sdw-redive/appsettings.yml
     type: config|noreplace
+    file_info:
+      mode: 0640
+      owner: root
+      group: sdw-redive
 
   - src: ./deployments/migrate-config.sh
     dst: /usr/lib/sdw-redive/migrate-config.sh
@@ -63,6 +67,13 @@ contents:
     type: dir
     file_info:
       mode: 0755
+      owner: sdw-redive
+      group: sdw-redive
+
+  - dst: /var/lib/sdw-redive/data-protection-keys
+    type: dir
+    file_info:
+      mode: 0700
       owner: sdw-redive
       group: sdw-redive
 

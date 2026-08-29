@@ -19,6 +19,7 @@
 - `downloads` — sdw-redive 和 qbittorrent **共享**，用于下载文件的读写
 - `pgdata` — PostgreSQL 数据持久化
 - `valkeydata` — Valkey 缓存数据持久化
+- `appdata` — 登录密码文件与运行时敏感配置的 Data Protection 密钥环
 
 ## 快速开始
 
@@ -54,7 +55,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/HCGStudio/SecondDimensionWat
 - 交互式配置 AI 推断（可选）
 - 启动所有服务
 
-运行完成后会打印生成的密码，请妥善保存。
+脚本会把随机数据库密码和 JwtSecret 写入 `podman-compose.yml`，不会在终端回显，并将该文件权限设为 `0600`。请像保护密钥一样保护与备份它。
 
 ### 2b. 手动配置（可选）
 
@@ -63,6 +64,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/HCGStudio/SecondDimensionWat
 ```bash
 mkdir -p ~/sdw-redive && cd ~/sdw-redive
 curl -O https://raw.githubusercontent.com/HCGStudio/SecondDimensionWatcherReDive/main/deployments/podman-compose.yml
+chmod 0600 podman-compose.yml
 ```
 
 编辑 `podman-compose.yml`，**必须修改以下内容**：
@@ -75,6 +77,8 @@ POSTGRES_PASSWORD: sdw_password    # ← 修改为强密码
 ConnectionStrings__sdw: "Host=db;Username=sdw;Password=sdw_password;Database=sdw"  # ← 密码与上面一致
 JwtSecret: "CHANGE_ME_TO_A_32_CHAR_RANDOM_STRING"  # ← 修改为随机字符串（至少 32 位）
 ```
+
+Compose 文件包含数据库、JWT 和可能的上游凭据，因此应在写入任何秘密之前按上例将权限限制为 `0600`。
 
 生成随机 JwtSecret：
 
@@ -110,6 +114,7 @@ podman logs qbittorrent 2>&1 | grep "temporary password"
 |----------|------|--------|
 | `ConnectionStrings__sdw` | PostgreSQL 连接字符串 | 必填 |
 | `JwtSecret` | JWT 签名密钥（>=32 字符） | 必填 |
+| `DataProtection__KeyRingPath` | 网页保存密钥/密码所用的持久化加密密钥环 | `/app/data/data-protection-keys` |
 | `FileStore__Local` | 下载文件存储路径 | `/downloads` |
 | `MediaLibrary__ScanInterval` | 持续监控目录的轮询间隔 | `00:05:00` |
 | `MediaLibrary__SettlingPeriod` | 新文件写入完成后的稳定等待时间 | `00:00:30` |
@@ -121,10 +126,24 @@ podman logs qbittorrent 2>&1 | grep "temporary password"
 | `DisableCors` | 允许跨域 | `true` |
 | `MikananiFeeds__0`, `__1`, ... | RSS 订阅源 URL | 空 |
 | `AI__Provider` | AI 推断提供商 (`OpenAI` / `Anthropic`) | `OpenAI` |
+| `AI__Engine` | `BuiltIn` 或 `CodexAppServer` | `BuiltIn` |
 | `AI__OpenAI__ApiKey` | OpenAI API 密钥 | 空（禁用推断） |
 | `AI__OpenAI__Model` | OpenAI 模型名称 | `gpt-4o-mini` |
 | `AI__OpenAI__BaseUrl` | OpenAI API 端点 | `https://api.openai.com/v1` |
 | `AI__OpenAI__ApiMode` | `Responses`；Ollama/vLLM 等旧兼容端点使用 `ChatCompletions` | 随附配置为 `Responses`；旧配置缺省为 `ChatCompletions` |
+| `AI__CodexAppServer__Endpoint` | 本地 Agent 的 WebSocket 地址 | 空 |
+| `AI__CodexAppServer__BearerToken` | app-server / 反向代理要求的 Bearer token | 空 |
+| `AI__CodexAppServer__PermissionProfile` | `:read-only` 或管理员定义的 permission profile id | `:read-only` |
+
+### 网页运行时设置
+
+首次登录后可在「设置」中修改 AI/TMDB、qBittorrent、媒体库扫描、异常阈值和 NFS。网页值保存在 PostgreSQL，优先于上表的环境变量；敏感值加密后存储且不会通过 API 回显。`appdata` 卷中的 Data Protection 密钥环必须保留，否则重启后的应用无法解密已保存的密钥。
+
+如果运行多个应用副本并让它们连接同一个 PostgreSQL 数据库，必须把 `DataProtection__KeyRingPath` 指向所有副本共享的同一持久化密钥环（且都使用内置 application name `SecondDimensionWatcherReDive`）。实例各自使用本地密钥环会导致其他副本无法解密数据库中的运行时密钥和密码。
+
+数据库、JWT、`FileStore__Local`、Valkey 和 CORS 仍只能由部署环境配置。NFS 监听配置保存后需要重启容器，其他支持项对后续请求和新任务热生效。后台定时任务的间隔变更不会中断已经开始的等待，最迟会在当前等待周期结束后采用新值。
+
+设置页提交的 API key 和密码会经过浏览器与服务端之间的连接；除严格的本机访问外，必须为网页入口配置 HTTPS。带凭据的 AI 与 qBittorrent 上游也应使用 TLS，或只在受信任的隔离容器网络中使用明文 HTTP。
 
 ### 导入现有媒体库
 
@@ -153,6 +172,16 @@ AI__OpenAI__ApiMode: "Responses"
 AI__OpenAI__Model: "gpt-4o-mini"
 TmdbApiKey: "your-tmdb-api-key"
 ```
+
+也可以不在 Compose 文件中写入密钥，启动后从网页「设置 → AI / 媒体」配置。
+
+### 使用 Codex app-server
+
+本地 Agent 使用 Codex app-server 的实验性 WebSocket 协议，需要 0.144.5 或兼容版本提供 `permissionProfile/list` 与 `permissions`。应用默认选择 `:read-only`，并核验服务端实际启用的 profile、`readOnly` sandbox 和 `networkAccess=false`；不满足时会失败关闭。当前 `:read-only` 仍能读取 app-server 操作系统账号可读的主机文件，agent 网络开关也不阻止 app-server 自身访问模型 API，因此必须使用独立低权限账号、隔离的 `HOME`/`CODEX_HOME` 和空工作目录，不要挂载媒体库、应用配置、Data Protection 密钥环或其他秘密。也不要在隔离配置中启用个人 MCP、skills 或 plugins。可配置管理员定义的更严格 profile，但应用仍要求最终结果只读且 agent 网络关闭。详见 [OpenAI Codex app-server 文档](https://learn.chatgpt.com/docs/app-server)。
+
+app-server 必须运行在独立低权限宿主机用户下，从不含业务文件或密钥的空目录启动，并使用仅含专用登录与最小配置的隔离 `HOME`/`CODEX_HOME`。不要复用容器服务账户、管理员或开发者账户，也不要在该配置目录启用个人 MCP servers、skills 或 plugins。只读 sandbox 不是完整信任边界：提示词注入仍可能读取该 profile 与操作系统账户权限允许的内容或调用能力，转接的 dynamic tools 也可能修改应用数据；聊天、RSS、种子名和媒体元数据均应视为不受信任输入。
+
+容器中的 `127.0.0.1` 指向容器自身，通常不能直接连接宿主机 loopback app-server。跨网络连接时，请为宿主机 app-server 配置带 TLS 与认证的反向代理，并在网页填写 `wss://...` 与 Bearer token；不能把无认证端点暴露到公网。只有 app-server 与应用确实位于同一网络命名空间时才可使用 loopback `ws://`。参见 [Codex App Server 官方文档](https://learn.chatgpt.com/docs/app-server)。
 
 ### 启用 TMDB 海报
 

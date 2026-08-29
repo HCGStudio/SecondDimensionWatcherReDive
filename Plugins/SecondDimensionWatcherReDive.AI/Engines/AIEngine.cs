@@ -2,23 +2,67 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using SecondDimensionWatcherReDive.AI.Abstractions;
+using SecondDimensionWatcherReDive.AI.Configuration;
 using SecondDimensionWatcherReDive.AI.Models;
 
 namespace SecondDimensionWatcherReDive.AI.Engines;
 
-public sealed partial class AIEngine(
-    IAIProvider provider,
-    ILogger<AIEngine> logger) : IAIEngine
+public sealed partial class AIEngine : IAIEngineBackend
 {
+    private readonly IReadOnlyDictionary<string, IAIProvider> _providers;
+    private readonly IOptionsMonitor<AIOptions>? _options;
+    private readonly ILogger<AIEngine> _logger;
+
+    public AIEngine(
+        IEnumerable<IAIProvider> providers,
+        IOptionsMonitor<AIOptions> options,
+        ILogger<AIEngine> logger)
+    {
+        _providers = providers.ToDictionary(provider => provider.ProviderName,
+            StringComparer.OrdinalIgnoreCase);
+        _options = options;
+        _logger = logger;
+    }
+
+    public AIEngine(IAIProvider provider, ILogger<AIEngine> logger)
+    {
+        _providers = new Dictionary<string, IAIProvider>(StringComparer.OrdinalIgnoreCase)
+        {
+            [provider.ProviderName] = provider
+        };
+        _logger = logger;
+    }
+
+    public AIEngineKind Kind => AIEngineKind.BuiltIn;
+
+    public string Name => $"BuiltIn/{GetCurrentProvider().ProviderName}";
+
+    public bool IsConfigured
+    {
+        get
+        {
+            try
+            {
+                return GetCurrentProvider().IsConfigured;
+            }
+            catch (InvalidOperationException)
+            {
+                return false;
+            }
+        }
+    }
+
     public Task<IReadOnlyList<AIModel>> GetAvailableModelsAsync(CancellationToken cancellationToken)
-        => provider.GetAvailableModelsAsync(cancellationToken);
+        => GetConfiguredProvider().GetAvailableModelsAsync(cancellationToken);
 
     public async IAsyncEnumerable<IChatUpdate> ChatAsync(
         IReadOnlyList<IMessage> messages,
         ChatOptions? options,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
+        var provider = GetConfiguredProvider();
         var maxToolRounds = options?.MaxToolRounds ?? 8;
         if (maxToolRounds < 0)
             throw new ArgumentOutOfRangeException(
@@ -32,7 +76,7 @@ public sealed partial class AIEngine(
         // One initial model round plus, at most, one follow-up round for each executed tool round.
         for (var round = 0; round <= maxToolRounds; round++)
         {
-            LogInferenceRound(logger, provider.ProviderName, round + 1, maxToolRounds + 1);
+            LogInferenceRound(_logger, provider.ProviderName, round + 1, maxToolRounds + 1);
 
             var textContent = new StringBuilder();
             var toolCallBuilders = new Dictionary<string, (string Name, StringBuilder Args)>();
@@ -74,7 +118,7 @@ public sealed partial class AIEngine(
 
             continuation = nextContinuation;
 
-            LogStreamComplete(logger, provider.ProviderName, finishReason, toolCallBuilders.Count);
+            LogStreamComplete(_logger, provider.ProviderName, finishReason, toolCallBuilders.Count);
 
             if (toolCallBuilders.Count == 0) break;
 
@@ -100,7 +144,7 @@ public sealed partial class AIEngine(
             {
                 foreach (var toolCall in completedCalls)
                 {
-                    LogToolCall(logger, provider.ProviderName, toolCall.Name, toolCall.Arguments);
+                    LogToolCall(_logger, provider.ProviderName, toolCall.Name, toolCall.Arguments);
                     var toolResult = await executor.ExecuteAsync(toolCall, cancellationToken);
                     var json = JsonSerializer.SerializeToElement(
                         toolResult, toolResult.GetType(), ToolJsonOptions.Options);
@@ -112,6 +156,27 @@ public sealed partial class AIEngine(
         }
 
         yield return new Finished(finishReason);
+    }
+
+    private IAIProvider GetConfiguredProvider()
+    {
+        var provider = GetCurrentProvider();
+        if (!provider.IsConfigured)
+            throw new InvalidOperationException($"AI provider '{provider.ProviderName}' is not configured.");
+        return provider;
+    }
+
+    private IAIProvider GetCurrentProvider()
+    {
+        if (_options is null)
+            return _providers.Values.Single();
+
+        var providerName = _options.CurrentValue.Provider;
+        if (_providers.TryGetValue(providerName, out var provider))
+            return provider;
+
+        throw new InvalidOperationException(
+            $"Unknown AI provider '{providerName}'. Expected one of: {string.Join(", ", _providers.Keys)}.");
     }
 
     [LoggerMessage(Level = LogLevel.Debug,

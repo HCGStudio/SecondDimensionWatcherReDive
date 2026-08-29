@@ -1,6 +1,7 @@
 {
   "aiNotConfigured": "AI is not configured",
-  "aiNotConfiguredHelp": "Set the AI Provider and API Key on the server to use this feature. See the AI section in appsettings.example.json.",
+  "aiNotConfiguredHelp": "Configure a built-in model service or local Codex app-server in System settings.",
+  "openAiSettings": "Open AI settings",
   "selectOrCreate": "Select or create a conversation",
   "createHint": "Click + on the left to start a new conversation",
   "newConversation": "New conversation",

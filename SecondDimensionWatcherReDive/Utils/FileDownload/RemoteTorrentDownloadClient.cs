@@ -14,8 +14,6 @@ public class RemoteTorrentDownloadClient(
     Channel<RemoteTorrentTrackRequest> remoteTorrentTrackRequest)
     : TorrentDownloadClient
 {
-    private readonly HttpClient _httpClient = httpClientFactory.CreateClient(nameof(RemoteTorrentDownloadClient));
-
     public override string Name => FileDownloads.RemoteTorrentDownload;
     public override string SupportedFileStoreType => FileStores.LocalDiskStore;
 
@@ -32,7 +30,8 @@ public class RemoteTorrentDownloadClient(
         var savePath = Path.Combine(basePath, additionalDownloadInfo);
         content.Add(new StringContent(savePath), "savepath");
 
-        using var response = await _httpClient.PostAsync(
+        using var client = httpClientFactory.CreateClient(nameof(RemoteTorrentDownloadClient));
+        using var response = await client.PostAsync(
             "/api/v2/torrents/add",
             content,
             cancellationToken);
@@ -64,7 +63,8 @@ public class RemoteTorrentDownloadClient(
     {
         using var content =
             new FormUrlEncodedContent([new("hashes", additionalDownloadInfo)]);
-        using var response = await _httpClient.PostAsync(
+        using var client = httpClientFactory.CreateClient(nameof(RemoteTorrentDownloadClient));
+        using var response = await client.PostAsync(
             "/api/v2/torrents/stop",
             content,
             cancellationToken);
@@ -80,7 +80,8 @@ public class RemoteTorrentDownloadClient(
     {
         using var content =
             new FormUrlEncodedContent([new("hashes", additionalDownloadInfo)]);
-        using var response = await _httpClient.PostAsync(
+        using var client = httpClientFactory.CreateClient(nameof(RemoteTorrentDownloadClient));
+        using var response = await client.PostAsync(
             "/api/v2/torrents/start",
             content,
             cancellationToken);
@@ -100,7 +101,8 @@ public class RemoteTorrentDownloadClient(
             new("hashes", additionalDownloadInfo),
             new("deleteFiles", deleteFiles)
         ]);
-        using var response = await _httpClient.PostAsync(
+        using var client = httpClientFactory.CreateClient(nameof(RemoteTorrentDownloadClient));
+        using var response = await client.PostAsync(
             $"/api/v2/torrents/delete",
             content,
             cancellationToken);

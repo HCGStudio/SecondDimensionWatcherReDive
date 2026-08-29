@@ -32,16 +32,20 @@ MediaLibrary:
 # 密码文件路径
 PasswordFile: /var/lib/sdw-redive/password.json
 
+# 前端保存的敏感配置使用 ASP.NET Data Protection 加密；此密钥环必须持久化
+DataProtection:
+  KeyRingPath: /var/lib/sdw-redive/data-protection-keys
+
 # TMDB API 密钥（用于海报和元数据）
 TmdbApiKey: ""
 
 # RSS 订阅源 URL 数组
 MikananiFeeds: []
 
-# AI 推断配置（可选，留空 ApiKey 则禁用）
-# Provider: OpenAI 或 Anthropic；Ollama/vLLM 等兼容端点请使用 ChatCompletions
-# 不设置 Provider 时默认为 OpenAI
+# AI 推断与对话配置（可选）。这里是部署默认值，登录后可在网页「设置」中覆盖。
+# Engine: BuiltIn 或 CodexAppServer；内置 Provider 支持 OpenAI / Anthropic。
 AI:
+  Engine: "BuiltIn"
   Provider: "OpenAI"
   OpenAI:
     BaseUrl: https://api.openai.com/v1
@@ -55,6 +59,12 @@ AI:
     Model: claude-sonnet-4-20250514
     MaxTokens: 1024
     ApiVersion: "2023-06-01"
+  CodexAppServer:
+    Endpoint: ""
+    BearerToken: ""
+    Model: ""
+    PermissionProfile: ":read-only"
+    TimeoutSeconds: 300
 
 Inference:
   RateLimitDelayMs: 1000

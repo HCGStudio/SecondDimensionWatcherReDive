@@ -2,6 +2,7 @@ using System.Net.ServerSentEvents;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using SecondDimensionWatcherReDive.AI.Abstractions;
@@ -12,19 +13,48 @@ using SecondDimensionWatcherReDive.Framework.AI;
 
 namespace SecondDimensionWatcherReDive.AI.Providers;
 
-public sealed partial class AnthropicProvider(
-    IHttpClientFactory httpClientFactory,
-    IOptions<AnthropicOptions> options,
-    ILogger<AnthropicProvider> logger) : IAIProvider
+public sealed partial class AnthropicProvider : IAIProvider
 {
     private const string HttpClientName = "AnthropicAI";
+    private readonly Func<AnthropicOptions> _getOptions;
+    private readonly IHttpClientFactory _httpClientFactory;
+    private readonly ILogger<AnthropicProvider> _logger;
+
+    [ActivatorUtilitiesConstructor]
+    public AnthropicProvider(
+        IHttpClientFactory httpClientFactory,
+        IOptionsMonitor<AnthropicOptions> options,
+        ILogger<AnthropicProvider> logger)
+    {
+        _httpClientFactory = httpClientFactory;
+        _getOptions = () => options.CurrentValue;
+        _logger = logger;
+    }
+
+    /// <summary>
+    ///     Preserves the original snapshot-options constructor for direct callers. Runtime DI uses
+    ///     the monitor overload so saved settings apply to subsequent requests.
+    /// </summary>
+    public AnthropicProvider(
+        IHttpClientFactory httpClientFactory,
+        IOptions<AnthropicOptions> options,
+        ILogger<AnthropicProvider> logger)
+    {
+        _httpClientFactory = httpClientFactory;
+        _getOptions = () => options.Value;
+        _logger = logger;
+    }
 
     public string ProviderName => "Anthropic";
 
+    public bool IsConfigured => IsValidConfiguration(_getOptions());
+
     public async Task<IReadOnlyList<AIModel>> GetAvailableModelsAsync(CancellationToken cancellationToken)
     {
-        var client = httpClientFactory.CreateClient(HttpClientName);
-        using var response = await client.GetAsync("v1/models", cancellationToken);
+        var opts = Snapshot(GetConfiguredOptions());
+        var client = _httpClientFactory.CreateClient(HttpClientName);
+        using var request = CreateRequest(HttpMethod.Get, opts, "v1/models");
+        using var response = await client.SendAsync(request, cancellationToken);
         response.EnsureSuccessStatusCode();
 
         var json = await response.Content.ReadAsStreamAsync(cancellationToken);
@@ -47,7 +77,14 @@ public sealed partial class AnthropicProvider(
         IAIProviderContinuation? continuation,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        var opts = options.Value;
+        // Pin the endpoint and credential for every round of one conversation.
+        var opts = continuation switch
+        {
+            null => Snapshot(GetConfiguredOptions()),
+            AnthropicContinuation state => state.Options,
+            _ => throw new InvalidOperationException(
+                $"Unsupported Anthropic continuation state: {continuation.GetType().Name}")
+        };
 
         // Extract system message and build conversation messages
         string? systemPrompt = null;
@@ -88,7 +125,7 @@ public sealed partial class AnthropicProvider(
         var toolCallBuilders = new Dictionary<int, (string Id, string Name, StringBuilder Args)>();
         string? finishReason = null;
 
-        await foreach (var (eventType, data) in StreamRawAsync(request, cancellationToken))
+        await foreach (var (eventType, data) in StreamRawAsync(request, opts, cancellationToken))
         {
             switch (eventType)
             {
@@ -137,22 +174,24 @@ public sealed partial class AnthropicProvider(
             }
         }
 
-        LogStreamComplete(logger, finishReason, toolCallBuilders.Count);
-        yield return new Finished(finishReason);
+        LogStreamComplete(_logger, finishReason, toolCallBuilders.Count);
+        yield return new Finished(finishReason)
+        {
+            Continuation = new AnthropicContinuation(opts)
+        };
     }
 
     private async IAsyncEnumerable<(string EventType, string Data)> StreamRawAsync(
         AnthropicMessagesRequest request,
+        AnthropicOptions requestOptions,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        var client = httpClientFactory.CreateClient(HttpClientName);
+        var client = _httpClientFactory.CreateClient(HttpClientName);
 
         var jsonContent = JsonSerializer.SerializeToUtf8Bytes(request,
             AnthropicJsonContext.Default.AnthropicMessagesRequest);
-        using var httpRequest = new HttpRequestMessage(HttpMethod.Post, "v1/messages")
-        {
-            Content = new ByteArrayContent(jsonContent)
-        };
+        using var httpRequest = CreateRequest(HttpMethod.Post, requestOptions, "v1/messages");
+        httpRequest.Content = new ByteArrayContent(jsonContent);
         httpRequest.Content.Headers.ContentType = new("application/json");
 
         using var response = await client.SendAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead,
@@ -235,6 +274,48 @@ public sealed partial class AnthropicProvider(
             Description = t.Description,
             InputSchema = t.ParametersSchema
         }).ToList();
+    }
+
+    private sealed record AnthropicContinuation(AnthropicOptions Options) : IAIProviderContinuation;
+
+    private static AnthropicOptions Snapshot(AnthropicOptions options) => new()
+    {
+        BaseUrl = options.BaseUrl,
+        ApiKey = options.ApiKey,
+        Model = options.Model,
+        MaxTokens = options.MaxTokens,
+        ApiVersion = options.ApiVersion
+    };
+
+    private AnthropicOptions GetConfiguredOptions()
+    {
+        var current = _getOptions();
+        if (!IsValidConfiguration(current))
+            throw new InvalidOperationException("Anthropic is not configured.");
+        return current;
+    }
+
+    private static bool IsValidConfiguration(AnthropicOptions options)
+        => Uri.TryCreate(options.BaseUrl, UriKind.Absolute, out var baseUri)
+           && baseUri.Scheme is "http" or "https"
+           && string.IsNullOrEmpty(baseUri.UserInfo)
+           && string.IsNullOrEmpty(baseUri.Query)
+           && string.IsNullOrEmpty(baseUri.Fragment)
+           && !string.IsNullOrWhiteSpace(options.ApiKey)
+           && !string.IsNullOrWhiteSpace(options.Model)
+           && !string.IsNullOrWhiteSpace(options.ApiVersion)
+           && options.MaxTokens > 0;
+
+    private static HttpRequestMessage CreateRequest(
+        HttpMethod method,
+        AnthropicOptions options,
+        string relativePath)
+    {
+        var baseUri = new Uri(options.BaseUrl.TrimEnd('/') + "/", UriKind.Absolute);
+        var request = new HttpRequestMessage(method, new Uri(baseUri, relativePath));
+        request.Headers.Add("x-api-key", options.ApiKey);
+        request.Headers.Add("anthropic-version", options.ApiVersion);
+        return request;
     }
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "[Anthropic] Stream complete. stop_reason: {StopReason}, tool_calls: {ToolCallCount}")]

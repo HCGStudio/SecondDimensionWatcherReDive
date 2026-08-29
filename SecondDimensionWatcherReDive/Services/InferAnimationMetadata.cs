@@ -1,6 +1,7 @@
 using SecondDimensionWatcherReDive.Framework.Inference;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Framework.Tasks;
+using SecondDimensionWatcherReDive.AI.Abstractions;
 using SecondDimensionWatcherReDive.Inference.AI.Tools;
 using SecondDimensionWatcherReDive.Utils.FileStore;
 using SecondDimensionWatcherReDive.Utils.Incidents;
@@ -15,7 +16,8 @@ public partial class InferAnimationMetadata(
     IServiceScopeFactory scopeFactory,
     TmdbTool tmdbTool,
     ILogger<InferAnimationMetadata> logger,
-    IIncidentReporter? incidentReporter = null)
+    IIncidentReporter? incidentReporter = null,
+    IAIEngineStatus? aiEngineStatus = null)
     : ScheduledTaskBase
 {
     private const int MaxRetryCount = 3;
@@ -24,9 +26,11 @@ public partial class InferAnimationMetadata(
 
     public override string Id => "InferAnimationMetadata";
     public override TimeSpan Interval => TimeSpan.FromMinutes(30);
+    public override bool IsEnabled => aiEngineStatus?.IsConfigured ?? true;
 
     protected override Task ExecuteTaskAsync(CancellationToken cancellationToken)
     {
+        if (!IsEnabled) return Task.CompletedTask;
         return ProcessPendingItems(cancellationToken);
     }
 
@@ -181,7 +185,7 @@ public partial class InferAnimationMetadata(
                 }
             }
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw;
         }

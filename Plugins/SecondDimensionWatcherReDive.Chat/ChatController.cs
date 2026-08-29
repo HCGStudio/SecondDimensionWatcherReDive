@@ -32,16 +32,20 @@ internal sealed partial class ChatController(
     public ChatStatusResponse GetStatus()
     {
         var aiEngine = serviceProvider.GetService<IAIEngine>();
-        var provider = serviceProvider.GetService<IConfiguration>()?["AI:Provider"];
-        LogStatusCheck(provider, aiEngine is not null);
-        return new ChatStatusResponse(aiEngine is not null, provider);
+        var status = serviceProvider.GetService<IAIEngineStatus>();
+        var provider = status?.Name
+                       ?? serviceProvider.GetService<IConfiguration>()?["AI:Provider"];
+        var enabled = status?.IsConfigured ?? aiEngine is not null;
+        LogStatusCheck(provider, enabled);
+        return new ChatStatusResponse(enabled, provider);
     }
 
     [HttpGet("models")]
     public async Task<IActionResult> GetModels(CancellationToken cancellationToken)
     {
         var aiEngine = serviceProvider.GetService<IAIEngine>();
-        if (aiEngine is null)
+        var status = serviceProvider.GetService<IAIEngineStatus>();
+        if (aiEngine is null || status is { IsConfigured: false })
             return StatusCode(503);
 
         try
@@ -49,6 +53,10 @@ internal sealed partial class ChatController(
             var models = await aiEngine.GetAvailableModelsAsync(cancellationToken);
             LogModelsFetched(models.Count);
             return Ok(models);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -114,7 +122,8 @@ internal sealed partial class ChatController(
         CancellationToken cancellationToken)
     {
         var aiEngine = serviceProvider.GetService<IAIEngine>();
-        if (aiEngine is null)
+        var status = serviceProvider.GetService<IAIEngineStatus>();
+        if (aiEngine is null || status is { IsConfigured: false })
             return TypedResults.StatusCode(503);
 
         var conversation = await chatRepository.GetConversationWithMessagesAsync(id, cancellationToken);
@@ -183,16 +192,25 @@ internal sealed partial class ChatController(
     {
         var channel = Channel.CreateUnbounded<SseItem<string>>();
 
-        // Producer: runs AI chat streaming in background, writes SSE items to channel
-        _ = ProduceChatEventsAsync(
+        // Producer: runs AI chat streaming in background, writes SSE items to channel.
+        // Keep the task and await it during iterator disposal so a disconnected request cannot
+        // release this controller's scoped repository before tool-call audit records are saved.
+        var producer = ProduceChatEventsAsync(
             aiEngine, messages, chatOptions, conversationId, messageOrder,
             firstUserMessage, autoTitleEligible, model,
             channel.Writer, cancellationToken);
 
-        // Consumer: yield items from channel as SSE events
-        await foreach (var item in channel.Reader.ReadAllAsync(cancellationToken))
+        try
         {
-            yield return item;
+            // Consumer: yield items from channel as SSE events
+            await foreach (var item in channel.Reader.ReadAllAsync(cancellationToken))
+                yield return item;
+        }
+        finally
+        {
+            // Do not use the canceled request token here. The producer receives it directly,
+            // performs bounded engine cleanup, and persists accumulated messages before returning.
+            await producer;
         }
     }
 
@@ -253,7 +271,7 @@ internal sealed partial class ChatController(
 
                         LogToolCallBegin(conversationId, toolCallBegin.Name, toolCallBegin.Id);
                         currentToolCalls[toolCallBegin.Id] = (toolCallBegin.Name, new StringBuilder());
-                        await writer.WriteAsync(
+                        await WriteToolAuditEventAsync(writer,
                             new SseItem<string>(
                                 JsonSerializer.Serialize(new SseToolCallBegin(toolCallBegin.Id, toolCallBegin.Name),
                                     ChatJsonSerializerContext.Default.SseToolCallBegin),
@@ -264,7 +282,7 @@ internal sealed partial class ChatController(
                     case ToolCallDelta toolCallDelta:
                         if (currentToolCalls.TryGetValue(toolCallDelta.Id, out var builder))
                             builder.Args.Append(toolCallDelta.ArgumentsDelta);
-                        await writer.WriteAsync(
+                        await WriteToolAuditEventAsync(writer,
                             new SseItem<string>(
                                 JsonSerializer.Serialize(new SseToolCallDelta(toolCallDelta.Id, toolCallDelta.ArgumentsDelta),
                                     ChatJsonSerializerContext.Default.SseToolCallDelta),
@@ -283,7 +301,7 @@ internal sealed partial class ChatController(
                             toolResult.ToolCallId, toolName,
                             0, DateTimeOffset.Now)); // Order assigned during flush
                         hasToolResults = true;
-                        await writer.WriteAsync(
+                        await WriteToolAuditEventAsync(writer,
                             new SseItem<string>(
                                 JsonSerializer.Serialize(new SseToolResult(toolResult.ToolCallId, toolName ?? "", resultText),
                                     ChatJsonSerializerContext.Default.SseToolResult),
@@ -303,7 +321,7 @@ internal sealed partial class ChatController(
                 }
             }
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             LogClientDisconnected(conversationId);
         }
@@ -355,6 +373,23 @@ internal sealed partial class ChatController(
         if (firstAssistantContentForTitle is not null)
         {
             _ = RunAutoTitleAsync(conversationId, firstUserMessage, firstAssistantContentForTitle, model);
+        }
+    }
+
+    private static async Task WriteToolAuditEventAsync(
+        ChannelWriter<SseItem<string>> writer,
+        SseItem<string> item,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await writer.WriteAsync(item, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Continue consuming tool audit updates after the client disconnects. The in-memory
+            // call/result records are flushed to the repository when the engine propagates the
+            // cancellation; only delivery to the disconnected SSE client is skipped.
         }
     }
 

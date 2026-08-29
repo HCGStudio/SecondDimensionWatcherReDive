@@ -121,6 +121,7 @@ internal sealed class WebDavWebApplicationFactory : WebApplicationFactory<Migrat
             services.RemoveAll<IFileMappingRepository>();
             services.RemoveAll<IFileExplorer>();
             services.RemoveAll<IWebDavTokenRepository>();
+            services.RemoveAll<IApplicationSettingsRepository>();
 
             services.AddSingleton(FileStoreMock.Object);
             services.AddSingleton(FileStoreProviderMock.Object);
@@ -128,6 +129,7 @@ internal sealed class WebDavWebApplicationFactory : WebApplicationFactory<Migrat
             services.AddSingleton<IFileExplorer>(_ => new FakeFileExplorer(Mappings, FileStoreMock.Object, MappingRepository));
             services.AddSingleton<IWebDavTokenRepository>(_ =>
                 new FakeWebDavTokenRepository(TestUserName, BCrypt.Net.BCrypt.HashPassword(TestPassword)));
+            services.AddSingleton<IApplicationSettingsRepository, FakeApplicationSettingsRepository>();
         });
     }
 
@@ -186,5 +188,40 @@ internal sealed class WebDavWebApplicationFactory : WebApplicationFactory<Migrat
             => string.Empty;
 
         public bool HasPendingModelChanges() => false;
+    }
+
+    private sealed class FakeApplicationSettingsRepository : IApplicationSettingsRepository
+    {
+        private readonly object _gate = new();
+        private ApplicationSettings? _settings;
+
+        public Task<ApplicationSettings?> GetAsync(CancellationToken cancellationToken)
+        {
+            lock (_gate)
+                return Task.FromResult(_settings);
+        }
+
+        public Task<ApplicationSettings?> TrySaveAsync(
+            string valuesJson,
+            string? protectedSecrets,
+            long expectedRevision,
+            DateTimeOffset updatedAt,
+            CancellationToken cancellationToken)
+        {
+            lock (_gate)
+            {
+                var currentRevision = _settings?.Revision ?? 0;
+                if (currentRevision != expectedRevision)
+                    return Task.FromResult<ApplicationSettings?>(null);
+
+                _settings = new ApplicationSettings(
+                    1,
+                    valuesJson,
+                    protectedSecrets,
+                    checked(currentRevision + 1),
+                    updatedAt);
+                return Task.FromResult<ApplicationSettings?>(_settings);
+            }
+        }
     }
 }

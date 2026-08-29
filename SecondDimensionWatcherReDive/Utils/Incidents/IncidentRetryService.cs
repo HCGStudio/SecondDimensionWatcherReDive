@@ -134,7 +134,7 @@ public sealed partial class IncidentRetryService(
         // Validate task availability before changing persistent retry state.
         var task = scheduledTasks.FirstOrDefault(candidate =>
             string.Equals(candidate.Id, "InferAnimationMetadata", StringComparison.OrdinalIgnoreCase));
-        if (task is null)
+        if (task is null || !task.IsEnabled)
             throw new InvalidOperationException("AI inference is not configured.");
 
         await using var scope = scopeFactory.CreateAsyncScope();

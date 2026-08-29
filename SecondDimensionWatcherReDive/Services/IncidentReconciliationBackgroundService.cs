@@ -16,12 +16,14 @@ public sealed partial class IncidentReconciliationBackgroundService(
     {
         await ReconcileSafelyAsync(stoppingToken);
 
-        var interval = configuration.GetValue<TimeSpan?>("Incidents:ReconciliationInterval")
-                       ?? DefaultInterval;
-        if (interval < TimeSpan.FromSeconds(10)) interval = TimeSpan.FromSeconds(10);
-        using var timer = new PeriodicTimer(interval);
-        while (await timer.WaitForNextTickAsync(stoppingToken))
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            var interval = configuration.GetValue<TimeSpan?>("Incidents:ReconciliationInterval")
+                           ?? DefaultInterval;
+            if (interval < TimeSpan.FromSeconds(10)) interval = TimeSpan.FromSeconds(10);
+            await Task.Delay(interval, stoppingToken);
             await ReconcileSafelyAsync(stoppingToken);
+        }
     }
 
     internal async Task ReconcileAsync(CancellationToken cancellationToken)

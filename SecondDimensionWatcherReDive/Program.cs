@@ -5,12 +5,14 @@ using System.Text;
 using System.Threading.Channels;
 using AspSpaService;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.Net.Http.Headers;
 using SecondDimensionWatcherReDive;
 using SecondDimensionWatcherReDive.Auth;
+using SecondDimensionWatcherReDive.Configuration;
 using SecondDimensionWatcherReDive.Data;
 using SecondDimensionWatcherReDive.WebDav;
 using SecondDimensionWatcherReDive.Framework.Feed;
@@ -63,6 +65,26 @@ if (builder.Configuration["Config"] is { } configPath)
     builder.Configuration.AddYamlFile(configPath, optional: false, reloadOnChange: true);
 var passwordFile = builder.Configuration["PasswordFile"] ?? "password.json";
 builder.Configuration.AddJsonFile(passwordFile, optional: true, reloadOnChange: true);
+// Runtime settings are the highest-priority configuration source. The provider is populated
+// from PostgreSQL after EF migrations and before hosted services start.
+var runtimeSettingsProvider = builder.Configuration.AddRuntimeSettingsConfigurationProvider();
+
+// Persist the key ring beside the password file by default so runtime secrets remain
+// decryptable after restarts and container upgrades. Deployments may select another path.
+var dataProtectionKeyRingPath = builder.Configuration["DataProtection:KeyRingPath"]
+                                ?? Path.Combine(
+                                    Path.GetDirectoryName(Path.GetFullPath(passwordFile))!,
+                                    "data-protection-keys");
+Directory.CreateDirectory(dataProtectionKeyRingPath);
+if (!OperatingSystem.IsWindows())
+    File.SetUnixFileMode(
+        dataProtectionKeyRingPath,
+        UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+builder.Services.AddDataProtection()
+    .SetApplicationName("SecondDimensionWatcherReDive")
+    .PersistKeysToFileSystem(new DirectoryInfo(dataProtectionKeyRingPath));
+builder.Services.AddApplicationRuntimeSettings(runtimeSettingsProvider);
+
 builder.Services.Configure<MediaLibraryOptions>(
     builder.Configuration.GetSection(MediaLibraryOptions.SectionName));
 builder.Services.PostConfigure<MediaLibraryOptions>(options =>
@@ -131,11 +153,17 @@ else
 }
 
 //Configure HTTP client
+builder.Services.AddOptions<QBittorrentRemoteOptions>()
+    .BindConfiguration(QBittorrentRemoteOptions.SectionName);
+builder.Services.AddScoped<QBittorrentCookieStore>();
 builder.Services.AddTransient<QBittorrentAuthHandler>();
-builder.Services.AddHttpClient("RemoteTorrentDownloadClient", client =>
+builder.Services.AddHttpClient("RemoteTorrentDownloadClient", (serviceProvider, client) =>
 {
-    client.BaseAddress = new Uri(builder.Configuration["Torrent:Remote:Url"]!);
-    var overrideUserAgent = builder.Configuration["Torrent:Remote:UserAgent"];
+    var options = serviceProvider
+        .GetRequiredService<Microsoft.Extensions.Options.IOptionsMonitor<QBittorrentRemoteOptions>>()
+        .CurrentValue;
+    client.BaseAddress = new Uri(options.Url, UriKind.Absolute);
+    var overrideUserAgent = options.UserAgent;
     if (overrideUserAgent != null)
     {
         client.DefaultRequestHeaders.Add(HeaderNames.UserAgent, overrideUserAgent);
@@ -147,10 +175,17 @@ builder.Services.AddHttpClient("RemoteTorrentDownloadClient", client =>
             Assembly.GetCallingAssembly().GetName().Version?.ToString() ?? "2.0"));
     }
 })
-.ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+.ConfigurePrimaryHttpMessageHandler(serviceProvider =>
 {
-    CookieContainer = new CookieContainer(),
-    UseCookies = true
+    var cookieStore = serviceProvider.GetRequiredService<QBittorrentCookieStore>();
+    return new HttpClientHandler
+    {
+        // Do not let a 307/308 replay qBittorrent credentials to another origin. Redirects are
+        // intentionally surfaced to the caller so the configured endpoint can be corrected.
+        AllowAutoRedirect = false,
+        CookieContainer = cookieStore.Container,
+        UseCookies = true
+    };
 })
 .AddHttpMessageHandler<QBittorrentAuthHandler>();
 
@@ -247,30 +282,21 @@ builder.Services.AddScoped<IMetadataReviewService, MetadataReviewService>();
 builder.Services.AddScoped<IIncidentRetryService, IncidentRetryService>();
 
 //Add AI Inference
-builder.Services.AddTmdbMetadata(builder.Configuration);
-var aiProvider = builder.Configuration["AI:Provider"]
-    is { Length: > 0 } p
-    ? p
-    : "OpenAI";
-var aiApiKey = string.Equals(aiProvider, "Anthropic", StringComparison.OrdinalIgnoreCase)
-    ? builder.Configuration["AI:Anthropic:ApiKey"]
-    : builder.Configuration["AI:OpenAI:ApiKey"];
-if (!string.IsNullOrEmpty(aiApiKey))
-{
-    builder.Services.AddAIInference(builder.Configuration);
-    builder.Services.AddSingleton<InferAnimationMetadata>();
-    builder.Services.AddSingleton<IScheduledTask>(sp => sp.GetRequiredService<InferAnimationMetadata>());
-    builder.Services.AddHostedService<ScheduledTaskBackgroundService<InferAnimationMetadata>>();
-}
+// Register all engines even when initially unconfigured. Runtime settings can then enable or
+// switch an engine without rebuilding the service graph; the scheduled task reports disabled
+// until the selected engine has the required endpoint/credential.
+builder.Services.AddAIInference(builder.Configuration);
+builder.Services.AddSingleton<InferAnimationMetadata>();
+builder.Services.AddSingleton<IScheduledTask>(sp => sp.GetRequiredService<InferAnimationMetadata>());
+builder.Services.AddHostedService<ScheduledTaskBackgroundService<InferAnimationMetadata>>();
 
 //Add Chat
 builder.Services.AddChat();
 
 //Add NFS (read-only NFSv4 export over the virtual filesystem)
-if (builder.Configuration.GetValue<bool?>("Nfs:Enabled") ?? false)
-{
-    builder.Services.AddNfs();
-}
+// Always register NFS so a persisted setting can enable it before the host starts. Listener
+// changes made while running are deliberately marked as requiring a restart.
+builder.Services.AddNfs();
 
 //Add SPA Hosting
 builder.Services.AddSpaStaticFiles(options => { options.RootPath = "wwwroot"; });
@@ -335,6 +361,11 @@ await using (var scope = app.Services.CreateAsyncScope())
     await using var context = scope.ServiceProvider.GetRequiredService<ApplicationContext>();
     await context.Database.MigrateAsync();
 }
+
+// Database-backed configuration must be loaded before migration tasks and hosted services
+// resolve their options.
+await app.Services.GetRequiredService<IRuntimeSettingsInitializer>()
+    .InitializeAsync(CancellationToken.None);
 
 // Run data migrations to completion before the host starts so that hosted
 // services, scheduled tasks, and request handlers never observe a

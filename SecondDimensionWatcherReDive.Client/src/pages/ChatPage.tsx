@@ -1,7 +1,8 @@
-import { MessageSquare } from "lucide-react";
 import React, { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useParams } from "react-router";
+
+import { MessageSquare } from "lucide-react";
 
 import { createConversation, deleteConversation } from "../chat/api";
 import {
@@ -56,11 +57,16 @@ export const ChatPage: React.FC = () => {
     }
   }, [conversationId]);
 
-  // Auto-select first model
+  // Auto-select the first model and recover when a settings change removes
+  // the previously selected model.
   useEffect(() => {
-    if (models && models.length > 0 && !selectedModel) {
+    if (!models) return;
+    if (models.length === 0) setSelectedModel(null);
+    else if (
+      !selectedModel ||
+      !models.some((model) => model.id === selectedModel)
+    )
       setSelectedModel(models[0].id);
-    }
   }, [models, selectedModel]);
 
   const handleCreateConversation = useCallback(async () => {
@@ -134,6 +140,14 @@ export const ChatPage: React.FC = () => {
             icon={<MessageSquare size={48} className="text-subtle" />}
             title={t("aiNotConfigured")}
             body={t("aiNotConfiguredHelp")}
+            actions={
+              <Button
+                variant="outline"
+                onClick={() => navigate("/settings?section=ai")}
+              >
+                {t("openAiSettings")}
+              </Button>
+            }
           />
         </main>
       </div>
@@ -189,14 +203,11 @@ export const ChatPage: React.FC = () => {
           ) : (
             <div className="flex flex-1 items-center justify-center">
               <div className="text-center">
-                <MessageSquare
-                  size={48}
-                  className="mx-auto mb-4 text-subtle"
-                />
-                <p className="font-serif text-lg text-muted">{t("selectOrCreate")}</p>
-                <p className="text-sm text-subtle mt-1">
-                  {t("createHint")}
+                <MessageSquare size={48} className="mx-auto mb-4 text-subtle" />
+                <p className="font-serif text-lg text-muted">
+                  {t("selectOrCreate")}
                 </p>
+                <p className="text-sm text-subtle mt-1">{t("createHint")}</p>
                 <Button
                   variant="solid"
                   size="sm"

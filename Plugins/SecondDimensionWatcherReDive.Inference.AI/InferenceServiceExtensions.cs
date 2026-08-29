@@ -6,7 +6,6 @@ using SecondDimensionWatcherReDive.Framework.Inference;
 using SecondDimensionWatcherReDive.Inference.AI.Configuration;
 using SecondDimensionWatcherReDive.Inference.AI.Engines;
 using SecondDimensionWatcherReDive.Inference.AI.Tools;
-using TMDbLib.Client;
 
 namespace SecondDimensionWatcherReDive.Inference.AI;
 
@@ -16,14 +15,9 @@ public static class InferenceServiceExtensions
         this IServiceCollection services,
         IConfiguration configuration)
     {
-        var tmdbApiKey = configuration["TmdbApiKey"];
-        var isConfigured = !string.IsNullOrWhiteSpace(tmdbApiKey);
-        services.TryAddSingleton(_ => new TMDbClient(
-            isConfigured ? tmdbApiKey! : "tmdb-api-key-not-configured"));
         services.TryAddSingleton(serviceProvider => new TmdbTool(
-            serviceProvider.GetRequiredService<TMDbClient>(),
-            serviceProvider.GetRequiredService<Microsoft.Extensions.Logging.ILogger<TmdbTool>>(),
-            isConfigured));
+            configuration,
+            serviceProvider.GetRequiredService<Microsoft.Extensions.Logging.ILogger<TmdbTool>>()));
         return services;
     }
 
@@ -37,7 +31,7 @@ public static class InferenceServiceExtensions
         services.AddAIEngine(configuration);
 
         // Register inference-specific options
-        services.AddOptionsWithValidateOnStart<InferenceOptions, ValidateInferenceOptions>()
+        services.AddOptions<InferenceOptions>()
             .BindConfiguration(InferenceOptions.SectionName);
 
         // Register TMDB tool and individual tool classes

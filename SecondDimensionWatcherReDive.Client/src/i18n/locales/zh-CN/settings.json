@@ -1,5 +1,189 @@
 {
-  "pageTitle": "设置",
+  "pageTitle": "系统设置",
+  "system": {
+    "pageDescription": "配置 AI 执行引擎、外部服务、媒体处理、健康监控和访问协议。敏感值不会回显，未填写新值时会保留当前配置。",
+    "loadFailed": "无法加载系统设置，请检查服务状态后重试。",
+    "retry": "重新加载",
+    "navigation": {
+      "label": "设置分类",
+      "ai": "AI 与 Agent",
+      "downloads": "下载与存储",
+      "media": "媒体与元数据",
+      "health": "健康监控",
+      "access": "访问协议"
+    },
+    "pendingRestart": {
+      "title": "存在等待重启生效的设置",
+      "description": "NFS 等启动期服务已保存新配置，请在方便时重启应用。"
+    },
+    "restartNotice": "此配置保存后需要重启应用才能生效。",
+    "save": {
+      "unsaved": "有尚未保存的更改",
+      "noChanges": "当前分区没有更改",
+      "saved": "设置已保存并生效",
+      "requiresRestart": "设置已保存，等待重启生效",
+      "reset": "撤销更改",
+      "submit": "保存设置",
+      "failed": "保存设置失败",
+      "conflict": "设置已被其他会话更新，已重新加载最新值"
+    },
+    "secret": {
+      "configured": "已配置",
+      "configuredPlaceholder": "已配置；留空保持不变",
+      "emptyPlaceholder": "输入新的敏感值",
+      "keepHelp": "服务端不会返回当前明文。留空会保留现有值，输入内容则替换。",
+      "operationLabel": "{{label}} 的保存方式",
+      "keep": "保留当前值",
+      "set": "使用输入的新值",
+      "clear": "清空实际生效值",
+      "reset": "恢复部署配置",
+      "source": {
+        "runtime": "来源：网页设置",
+        "deployment": "来源：部署配置",
+        "none": "尚未配置"
+      }
+    },
+    "ai": {
+      "eyebrow": "智能执行",
+      "title": "AI 与本地 Agent",
+      "description": "选择由内置模型客户端或本地 Codex app-server 执行聊天、元数据推断和文件名推断。",
+      "saved": "AI 设置已保存",
+      "validationFailed": "请检查 AI 端点、模型、权限配置和数值设置",
+      "originCredentialRequired": "端点来源已改变，请同时输入新的凭据或明确清空凭据。",
+      "engine": {
+        "title": "默认执行引擎",
+        "scope": "此选择同时作用于 AI 助手、动画元数据推断和文件名推断。",
+        "builtIn": {
+          "title": "内置 Agent",
+          "description": "通过 OpenAI、Anthropic 或兼容 HTTP API 直接调用模型。"
+        },
+        "codex": {
+          "title": "本地 Codex app-server",
+          "description": "通过 WebSocket 将 AI 操作交给服务端可访问的本地 Codex 实例。"
+        }
+      },
+      "builtIn": {
+        "title": "内置模型服务",
+        "description": "配置当前 provider 的连接与默认模型；切换 provider 不会删除另一组配置。",
+        "provider": "Provider",
+        "apiMode": "OpenAI API 模式",
+        "apiVersion": "Anthropic API 版本",
+        "baseUrl": "Base URL",
+        "model": "默认模型",
+        "maxTokens": "最大输出 Token",
+        "apiKey": "API Key"
+      },
+      "codex": {
+        "title": "Codex app-server 连接",
+        "description": "仅连接已由管理员启动的 app-server，不会从网页启动进程或执行命令。",
+        "endpoint": "WebSocket Endpoint",
+        "endpointError": "远程 Endpoint 必须使用 wss://；ws:// 仅允许 localhost 或其他 loopback 地址。",
+        "model": "默认模型",
+        "modelPlaceholder": "留空使用 app-server 默认值",
+        "modelHelp": "可选。留空时由 Codex app-server 选择默认模型。",
+        "permissionProfile": "权限配置（Permission Profile）",
+        "permissionProfileHelp": "必填。可使用 :read-only 或管理员定义的配置。后端会验证最终 sandbox 为只读且 Agent 网络访问已关闭；该配置仍可能允许读取文件。",
+        "timeout": "超时时间（秒）",
+        "token": "访问 Token",
+        "remoteTokenRequired": "远程 wss:// Endpoint 必须配置 Bearer Token。",
+        "serverAddressHelp": "该地址由后端服务器访问。容器部署时，127.0.0.1 指应用容器自身，而不是宿主机或当前浏览器设备。"
+      },
+      "inference": {
+        "title": "推断节流",
+        "rateLimitDelay": "AI 请求最小间隔（毫秒）"
+      }
+    },
+    "downloads": {
+      "eyebrow": "下载服务",
+      "title": "下载与存储",
+      "description": "配置 qBittorrent Web API 连接。下载根目录涉及已有物理路径，本页面不会直接迁移它。",
+      "saved": "下载设置已保存",
+      "invalidUrl": "请输入有效的 HTTP 或 HTTPS 地址",
+      "originCredentialRequired": "端点来源已改变，请重新输入密码或明确清空密码。",
+      "qbittorrent": {
+        "title": "qBittorrent",
+        "description": "用于提交、跟踪、暂停和取消远程种子任务。",
+        "url": "Web API 地址",
+        "userName": "用户名（可选）",
+        "password": "密码",
+        "userAgent": "自定义 User-Agent（可选）"
+      },
+      "storage": {
+        "title": "下载存储根目录",
+        "description": "存储路径仍由部署配置管理。",
+        "readOnlyHelp": "更改下载根目录会影响运行中的任务、磁盘探测和已记录的物理路径，因此需要通过部署配置和迁移流程完成。"
+      }
+    },
+    "media": {
+      "eyebrow": "内容识别",
+      "title": "媒体与元数据",
+      "description": "配置 TMDB 元数据访问、媒体导入白名单与自动扫描时间。",
+      "saved": "媒体设置已保存",
+      "validationFailed": "请检查目录白名单和时间格式",
+      "tmdb": {
+        "title": "TMDB 元数据",
+        "description": "用于动画名称、简介、海报和季度信息归一化。",
+        "apiKey": "TMDB API Key"
+      },
+      "allowedRoots": {
+        "title": "允许导入的根目录",
+        "description": "只有这些服务端绝对路径下的目录才能被添加为媒体源。",
+        "itemLabel": "允许根目录 {{index}}",
+        "add": "添加根目录",
+        "remove": "移除根目录"
+      },
+      "timing": {
+        "title": "扫描与文件稳定性",
+        "description": "控制监控源的扫描频率、文件写入等待和缺失记录保留期。",
+        "scanInterval": "扫描间隔",
+        "settlingPeriod": "文件稳定等待",
+        "missingGracePeriod": "缺失保留期",
+        "help": "使用 TimeSpan 格式 hh:mm:ss 或 d.hh:mm:ss，例如 00:05:00、1.00:00:00。"
+      }
+    },
+    "health": {
+      "eyebrow": "可靠性",
+      "title": "健康监控",
+      "description": "调整下载卡住、重复上报、后台对账和磁盘空间告警阈值。",
+      "saved": "健康监控设置已保存",
+      "validationFailed": "请检查时间、空间和百分比阈值",
+      "download": {
+        "title": "下载异常",
+        "description": "当下载长期没有进度时创建异常，并限制重复报告频率。",
+        "stalledAfter": "无进度判定时间",
+        "reportThrottle": "重复报告间隔"
+      },
+      "reconciliation": {
+        "title": "后台对账",
+        "description": "定期核对推断、文件映射、下载与磁盘异常。",
+        "interval": "对账间隔"
+      },
+      "disk": {
+        "title": "磁盘空间",
+        "description": "可用空间必须同时达到容量和百分比阈值。",
+        "minimumBytes": "最小可用空间（GiB）",
+        "minimumPercent": "最小可用比例（%）"
+      }
+    },
+    "access": {
+      "eyebrow": "设备接入",
+      "title": "访问协议",
+      "description": "管理只读 NFS 导出以及每台设备独立的 WebDAV 凭据。",
+      "saved": "NFS 设置已保存",
+      "validationFailed": "请检查 NFS 地址、端口和数值设置",
+      "nfs": {
+        "title": "NFSv4 只读导出",
+        "description": "通过网络挂载访问同一虚拟文件系统。",
+        "enabled": "启用 NFS 服务",
+        "enabledHelp": "只读导出；安全边界仍由部署网络与防火墙提供。",
+        "bindAddress": "监听地址",
+        "port": "端口",
+        "leaseSeconds": "租约时长（秒）",
+        "maxConnections": "最大连接数",
+        "restartHelp": "NFS 在应用启动时绑定监听端口。本区更改会被保存，但需要重启应用后才会使用。"
+      }
+    }
+  },
   "mediaLibrary": {
     "title": "现有媒体库导入",
     "intro": "扫描服务器上的已有媒体目录，复用当前的正则、AI 元数据推断和虚拟路径映射能力，将文件纳入媒体库。",
