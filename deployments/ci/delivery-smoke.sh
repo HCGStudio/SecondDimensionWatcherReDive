@@ -82,13 +82,29 @@ docker run --detach --name "$database_container" --network "$network" \
     --env POSTGRES_DB=sdw_container \
     --publish 127.0.0.1::5432 \
     postgres:17-alpine >/dev/null
+database_ready=0
 for _ in {1..120}; do
-    if docker exec "$database_container" pg_isready --username postgres --dbname sdw_container >/dev/null 2>&1; then
+    # The official image briefly starts a temporary postmaster while initializing
+    # PGDATA. Waiting for PID 1 to become postgres avoids treating that transient
+    # server as ready immediately before it shuts down.
+    if docker exec "$database_container" sh -c \
+        'test "$(cat /proc/1/comm)" = postgres' >/dev/null 2>&1 &&
+        docker exec "$database_container" pg_isready \
+            --username postgres --dbname sdw_container >/dev/null 2>&1; then
+        database_ready=1
         break
+    fi
+    if ! docker inspect --format '{{.State.Running}}' "$database_container" 2>/dev/null | grep -q true; then
+        docker logs "$database_container" >&2 || true
+        exit 1
     fi
     sleep 0.25
 done
-docker exec "$database_container" pg_isready --username postgres --dbname sdw_container >/dev/null
+if [[ "$database_ready" != "1" ]]; then
+    docker logs "$database_container" >&2 || true
+    echo "timed out waiting for the final PostgreSQL server" >&2
+    exit 1
+fi
 docker exec "$database_container" createdb --username postgres sdw_package
 database_port="$(docker port "$database_container" 5432/tcp | sed -n 's/.*://p')"
 
