@@ -1,0 +1,605 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+umask 077
+
+readonly BACKUP_FORMAT_VERSION=1
+backup_temp_dir=""
+backup_partial_archive=""
+backup_partial_checksum=""
+
+cleanup() {
+    case "${backup_temp_dir}" in
+        "${TMPDIR:-/tmp}"/sdw-backup.*)
+            [[ -d "${backup_temp_dir}" ]] && rm -rf -- "${backup_temp_dir}"
+            ;;
+    esac
+    if [[ "${backup_partial_archive}" == *sdw-backup-*.partial ]]; then
+        rm -f -- "${backup_partial_archive}"
+    fi
+    if [[ "${backup_partial_checksum}" == *sdw-backup-*.sha256.partial ]]; then
+        rm -f -- "${backup_partial_checksum}"
+    fi
+}
+
+notify_failure() {
+    local status=$?
+    if [[ ${status} -ne 0 && -n "${SDW_BACKUP_FAILURE_WEBHOOK:-}" ]] && command -v curl >/dev/null 2>&1; then
+        curl --silent --show-error --fail --max-time 10 \
+            --header 'Content-Type: application/json' \
+            --data '{"event":"sdw_backup_failed"}' \
+            "${SDW_BACKUP_FAILURE_WEBHOOK}" >/dev/null 2>&1 || true
+    fi
+    return "${status}"
+}
+
+trap notify_failure ERR
+trap cleanup EXIT
+
+usage() {
+    cat <<'EOF'
+Usage:
+  sdw-backup create [options]
+  sdw-backup list [--output DIR]
+  sdw-backup verify ARCHIVE [--age-identity FILE]
+  sdw-backup restore ARCHIVE --confirm-replace [options]
+
+Create options:
+  --output DIR              Local backup target
+  --config FILE             Deployment config to include
+  --password-file FILE      password.json to include
+  --key-ring DIR            Data Protection key ring to include
+  --plugin-dir DIR          Plugin directory; manifest files are included
+  --retention-days DAYS     Delete completed backups older than DAYS
+  --app-version VERSION     Application version written to non-secret metadata
+  --age-recipient RECIPIENT Encrypt the final archive with age
+
+Restore options:
+  --config-destination FILE
+  --password-destination FILE
+  --key-ring-destination DIR
+  --plugin-destination DIR
+  --expected-version VERSION
+  --expected-schema MIGRATION
+  --age-identity FILE
+  --safety-directory DIR    Write a pre-restore database dump here
+
+PostgreSQL is read from PGHOST/PGPORT/PGUSER/PGPASSWORD/PGDATABASE. If those
+are absent, ConnectionStrings__sdw may contain an ASP.NET semicolon connection
+string. Secrets are never printed.
+EOF
+}
+
+die() {
+    printf 'sdw-backup: %s\n' "$1" >&2
+    exit 1
+}
+
+require_command() {
+    command -v "$1" >/dev/null 2>&1 || die "required command is missing: $1"
+}
+
+new_temp_dir() {
+    backup_temp_dir=$(mktemp -d "${TMPDIR:-/tmp}/sdw-backup.XXXXXX")
+}
+
+parse_connection_string() {
+    if [[ -n "${PGHOST:-}" && -n "${PGUSER:-}" && -n "${PGDATABASE:-}" ]]; then
+        export PGHOST PGUSER PGDATABASE
+        export PGPORT="${PGPORT:-5432}"
+        return
+    fi
+
+    local connection="${ConnectionStrings__sdw:-}"
+    [[ -n "${connection}" ]] || die "PostgreSQL connection environment is not configured"
+    local pair key value
+    local -a pairs
+    IFS=';' read -r -a pairs <<<"${connection}"
+    for pair in "${pairs[@]}"; do
+        key=${pair%%=*}
+        value=${pair#*=}
+        key=${key//[[:space:]]/}
+        case "${key,,}" in
+            host) PGHOST=${value} ;;
+            port) PGPORT=${value} ;;
+            username|userid) PGUSER=${value} ;;
+            password) PGPASSWORD=${value} ;;
+            database|initial\ catalog) PGDATABASE=${value} ;;
+        esac
+    done
+    [[ -n "${PGHOST:-}" && -n "${PGUSER:-}" && -n "${PGDATABASE:-}" ]] ||
+        die "the ASP.NET connection string is missing Host, Username, or Database"
+    export PGHOST PGPORT="${PGPORT:-5432}" PGUSER PGPASSWORD="${PGPASSWORD:-}" PGDATABASE
+}
+
+validate_output_directory() {
+    local directory=$1
+    [[ -n "${directory}" && "${directory}" != "/" ]] || die "refusing unsafe backup output directory"
+    mkdir -p -- "${directory}"
+    chmod 0700 "${directory}"
+}
+
+validate_file_destination() {
+    local destination=$1
+    [[ -n "${destination}" && "${destination}" != "/" &&
+       ! -d "${destination}" && ! -L "${destination}" ]] ||
+        die "refusing unsafe restore file destination"
+}
+
+validate_directory_destination() {
+    local destination=$1 normalized
+    [[ -n "${destination}" ]] || die "refusing empty restore directory destination"
+    [[ ! -L "${destination}" ]] || die "refusing symlink restore directory destination"
+    normalized=$(realpath --canonicalize-missing -- "${destination}")
+    case "${normalized}" in
+        /|/etc|/usr|/var|/var/lib|/home|/root|/app)
+            die "refusing unsafe restore directory destination"
+            ;;
+    esac
+}
+
+safe_token() {
+    [[ "$1" =~ ^[A-Za-z0-9._:+/@-]+$ ]]
+}
+
+database_schema_version() {
+    local schema
+    schema=$(psql --no-psqlrc --tuples-only --no-align --command \
+        'SELECT "MigrationId" FROM "__EFMigrationsHistory" ORDER BY "MigrationId" DESC LIMIT 1' \
+        2>/dev/null || true)
+    schema=${schema//$'\n'/}
+    if [[ -z "${schema}" ]]; then
+        printf 'uninitialized'
+    else
+        safe_token "${schema}" || die "database returned an unsafe schema version"
+        printf '%s' "${schema}"
+    fi
+}
+
+copy_plugin_manifests() {
+    local plugin_dir=$1 destination=$2
+    mkdir -p "${destination}"
+    if [[ ! -d "${plugin_dir}" ]]; then
+        : >"${destination}/none"
+        return
+    fi
+
+    local source relative target count=0
+    while IFS= read -r -d '' source; do
+        relative=${source#"${plugin_dir}"/}
+        target="${destination}/${relative}"
+        mkdir -p -- "$(dirname "${target}")"
+        install -m 0600 -- "${source}" "${target}"
+        count=$((count + 1))
+    done < <(find "${plugin_dir}" -type f \( -name 'plugin.json' -o -name 'manifest.json' \) -print0)
+    if [[ ${count} -eq 0 ]]; then
+        : >"${destination}/none"
+    fi
+}
+
+validate_stage_paths() {
+    local stage=$1 relative
+    if find "${stage}" -mindepth 1 ! -type f ! -type d -print -quit | grep -q .; then
+        die "backup source contains a link or special file"
+    fi
+    while IFS= read -r -d '' relative; do
+        relative=${relative#"${stage}"/}
+        [[ "${relative}" =~ ^[A-Za-z0-9._+@:/{}-]+$ ]] ||
+            die "backup source contains an unsupported file name"
+        [[ "${relative}" != */../* && "${relative}" != ../* ]] ||
+            die "backup source contains an unsafe path"
+    done < <(find "${stage}" -mindepth 1 -print0)
+}
+
+create_backup() {
+    local output="${SDW_BACKUP_DIRECTORY:-/var/lib/sdw-redive/backups}"
+    local config="${SDW_CONFIG_PATH:-/etc/sdw-redive/appsettings.yml}"
+    local password_file="${SDW_PASSWORD_FILE:-/var/lib/sdw-redive/password.json}"
+    local key_ring="${SDW_KEY_RING_PATH:-/var/lib/sdw-redive/data-protection-keys}"
+    local plugin_dir="${SDW_PLUGIN_DIRECTORY:-/var/lib/sdw-redive/plugins}"
+    local retention_days="${SDW_BACKUP_RETENTION_DAYS:-14}"
+    local app_version="${SDW_APP_VERSION:-}"
+    local age_recipient="${SDW_BACKUP_AGE_RECIPIENT:-}"
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --output) output=$2; shift 2 ;;
+            --config) config=$2; shift 2 ;;
+            --password-file) password_file=$2; shift 2 ;;
+            --key-ring) key_ring=$2; shift 2 ;;
+            --plugin-dir) plugin_dir=$2; shift 2 ;;
+            --retention-days) retention_days=$2; shift 2 ;;
+            --app-version) app_version=$2; shift 2 ;;
+            --age-recipient) age_recipient=$2; shift 2 ;;
+            *) die "unknown create option: $1" ;;
+        esac
+    done
+
+    if [[ -z "${app_version}" && -f /usr/lib/sdw-redive/VERSION ]]; then
+        app_version=$(tr -d '[:space:]' </usr/lib/sdw-redive/VERSION)
+    fi
+    app_version=${app_version:-unknown}
+    [[ "${retention_days}" =~ ^[0-9]+$ ]] || die "retention days must be a non-negative integer"
+    safe_token "${app_version}" || die "application version contains unsupported characters"
+    [[ -f "${config}" ]] || die "configuration file is missing"
+    [[ -f "${password_file}" ]] || die "password file is missing; register the application before backup"
+    [[ -d "${key_ring}" ]] || die "Data Protection key ring is missing"
+    validate_output_directory "${output}"
+    require_command pg_dump
+    require_command pg_restore
+    require_command psql
+    require_command tar
+    require_command gzip
+    require_command sha256sum
+    parse_connection_string
+    new_temp_dir
+
+    local stage="${backup_temp_dir}/stage"
+    mkdir -p "${stage}/state/config" "${stage}/state/data-protection-keys"
+    install -m 0600 -- "${config}" "${stage}/state/config/appsettings.yml"
+    install -m 0600 -- "${password_file}" "${stage}/state/password.json"
+    cp -a -- "${key_ring}/." "${stage}/state/data-protection-keys/"
+    find "${stage}/state/data-protection-keys" -type d -exec chmod 0700 {} +
+    find "${stage}/state/data-protection-keys" -type f -exec chmod 0600 {} +
+    copy_plugin_manifests "${plugin_dir}" "${stage}/state/plugin-manifests"
+    validate_stage_paths "${stage}"
+
+    pg_dump --format=custom --compress=6 --no-owner --no-acl --file "${stage}/database.dump"
+    pg_restore --list "${stage}/database.dump" >/dev/null
+    local created schema stage_bytes required_bytes
+    created=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    schema=$(database_schema_version)
+    stage_bytes=$(du -sb "${stage}" | awk '{print $1}')
+    required_bytes=$((stage_bytes * 2 + 67108864))
+    {
+        printf 'format_version=%s\n' "${BACKUP_FORMAT_VERSION}"
+        printf 'created_utc=%s\n' "${created}"
+        printf 'application_version=%s\n' "${app_version}"
+        printf 'schema_version=%s\n' "${schema}"
+        printf 'required_free_bytes=%s\n' "${required_bytes}"
+        printf 'media_files_included=false\n'
+    } >"${stage}/manifest.env"
+    (
+        cd "${stage}"
+        find . -type f ! -path ./checksums.sha256 -print0 |
+            LC_ALL=C sort -z |
+            xargs -0 sha256sum >checksums.sha256
+    )
+
+    local timestamp archive_name plain_archive final_archive
+    timestamp=$(date -u +%Y%m%dT%H%M%SZ)
+    archive_name="sdw-backup-${timestamp}-$$.tar.gz"
+    plain_archive="${backup_temp_dir}/${archive_name}"
+    tar --create --gzip --file "${plain_archive}" --directory "${stage}" .
+    gzip --test "${plain_archive}"
+    if [[ -n "${age_recipient}" ]]; then
+        require_command age
+        final_archive="${output}/${archive_name}.age"
+    else
+        final_archive="${output}/${archive_name}"
+    fi
+    [[ ! -e "${final_archive}" && ! -e "${final_archive}.sha256" ]] ||
+        die "refusing to overwrite an existing backup"
+    backup_partial_archive="${final_archive}.partial"
+    backup_partial_checksum="${final_archive}.sha256.partial"
+    if [[ -n "${age_recipient}" ]]; then
+        age --recipient "${age_recipient}" --output "${backup_partial_archive}" "${plain_archive}"
+    else
+        cp -- "${plain_archive}" "${backup_partial_archive}"
+        printf 'sdw-backup: warning: archive is not encrypted; protect it as a secret\n' >&2
+    fi
+    chmod 0600 "${backup_partial_archive}"
+    local archive_digest
+    archive_digest=$(sha256sum "${backup_partial_archive}" | awk '{print $1}')
+    printf '%s  %s\n' "${archive_digest}" "$(basename "${final_archive}")" \
+        >"${backup_partial_checksum}"
+    chmod 0600 "${backup_partial_checksum}"
+    mv -- "${backup_partial_archive}" "${final_archive}"
+    backup_partial_archive=""
+    mv -- "${backup_partial_checksum}" "${final_archive}.sha256"
+    backup_partial_checksum=""
+
+    if [[ ${retention_days} -gt 0 ]]; then
+        find "${output}" -maxdepth 1 -type f \
+            \( -name 'sdw-backup-*.tar.gz' -o -name 'sdw-backup-*.tar.gz.age' -o \
+               -name 'sdw-backup-*.tar.gz.sha256' -o -name 'sdw-backup-*.tar.gz.age.sha256' \) \
+            -mtime "+${retention_days}" -delete
+    fi
+    printf '%s\n' "${final_archive}"
+}
+
+list_backups() {
+    local output="${SDW_BACKUP_DIRECTORY:-/var/lib/sdw-redive/backups}"
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --output) output=$2; shift 2 ;;
+            *) die "unknown list option: $1" ;;
+        esac
+    done
+    [[ -d "${output}" ]] || return 0
+    TZ=UTC find "${output}" -maxdepth 1 -type f \
+        \( -name 'sdw-backup-*.tar.gz' -o -name 'sdw-backup-*.tar.gz.age' \) \
+        -printf '%TY-%Tm-%TdT%TH:%TM:%TSZ %s %f\n' | LC_ALL=C sort -r
+}
+
+validate_archive_members() {
+    local archive=$1
+    if LC_ALL=C tar --list --gzip --file "${archive}" |
+        grep -Eq '(^/|(^|/)\.\.(/|$))'; then
+        die "archive contains an unsafe path"
+    fi
+    if LC_ALL=C tar --list --gzip --file "${archive}" |
+        grep -Eqv '^(\./)?([A-Za-z0-9._+@:{}-]+/)*[A-Za-z0-9._+@:{}-]*/?$'; then
+        die "archive contains an unsupported path"
+    fi
+    if LC_ALL=C tar --list --verbose --gzip --file "${archive}" |
+        awk 'substr($1, 1, 1) !~ /^[-d]$/ { found=1 } END { exit(found ? 0 : 1) }'; then
+        die "archive contains a link or special file"
+    fi
+}
+
+archive_unpacked_bytes() {
+    LC_ALL=C tar --list --verbose --numeric-owner --full-time --gzip --file "$1" |
+        awk '
+            $3 !~ /^[0-9]+$/ { exit 2 }
+            { total += $3; if (total > 900000000000000000) exit 2 }
+            END { if (NR > 0) printf "%.0f\n", total; else exit 2 }
+        '
+}
+
+available_bytes() {
+    df -Pk "$1" | awk 'NR==2 {printf "%.0f\n", $4 * 1024}'
+}
+
+manifest_value() {
+    local manifest=$1 key=$2
+    awk -F= -v wanted="${key}" '$1 == wanted { sub(/^[^=]*=/, ""); print; exit }' "${manifest}"
+}
+
+verify_outer_checksum() {
+    local archive=$1 sidecar="${1}.sha256" line expected expected_name actual
+    [[ -f "${sidecar}" ]] || return 0
+    IFS= read -r line <"${sidecar}" || die "backup archive checksum is unreadable"
+    expected=${line:0:64}
+    expected_name=${line:66}
+    [[ "${expected}" =~ ^[0-9a-f]{64}$ && "${line:64:2}" == "  " &&
+       "${expected_name}" == "$(basename "${archive}")" ]] ||
+        die "backup archive checksum is malformed"
+    actual=$(sha256sum "${archive}" | awk '{print $1}')
+    [[ "${actual}" == "${expected}" ]] || die "backup archive checksum verification failed"
+}
+
+validate_checksum_manifest() {
+    local root=$1 manifest="${1}/checksums.sha256" line digest path
+    local listed=()
+    while IFS= read -r line; do
+        digest=${line:0:64}
+        path=${line:66}
+        [[ "${digest}" =~ ^[0-9a-f]{64}$ && "${line:64:2}" == "  " ]] ||
+            die "backup checksum manifest is malformed"
+        [[ "${path}" == ./* && "${path}" != */../* && "${path}" != ../* ]] ||
+            die "backup checksum manifest contains an unsafe path"
+        [[ "${path}" =~ ^\./[A-Za-z0-9._+@:/{}-]+$ ]] ||
+            die "backup checksum manifest contains an unsupported path"
+        listed+=("${path}")
+    done <"${manifest}"
+
+    local actual
+    actual=$(find "${root}" -type f ! -path "${root}/checksums.sha256" \
+        -printf './%P\n' | LC_ALL=C sort)
+    [[ "$(printf '%s\n' "${listed[@]}" | LC_ALL=C sort)" == "${actual}" ]] ||
+        die "backup checksum manifest does not cover every file"
+}
+
+prepare_archive() {
+    local archive=$1 identity=$2
+    [[ -f "${archive}" ]] || die "backup archive does not exist"
+    require_command tar
+    require_command sha256sum
+    require_command pg_restore
+    verify_outer_checksum "${archive}"
+    new_temp_dir
+    local plain="${archive}"
+    if [[ "${archive}" == *.age ]]; then
+        [[ -n "${identity}" ]] || die "an age identity is required for this archive"
+        require_command age
+        plain="${backup_temp_dir}/backup.tar.gz"
+        local encrypted_bytes decrypt_free_bytes
+        encrypted_bytes=$(wc -c <"${archive}")
+        decrypt_free_bytes=$(available_bytes "${backup_temp_dir}")
+        [[ ${decrypt_free_bytes%.*} -gt $((encrypted_bytes * 3 + 67108864)) ]] ||
+            die "insufficient temporary disk space to decrypt backup"
+        age --decrypt --identity "${identity}" --output "${plain}" "${archive}"
+    fi
+
+    validate_archive_members "${plain}"
+    local archive_bytes unpacked_bytes free_bytes
+    archive_bytes=$(wc -c <"${plain}")
+    unpacked_bytes=$(archive_unpacked_bytes "${plain}") || die "archive has invalid size metadata"
+    free_bytes=$(available_bytes "${backup_temp_dir}")
+    [[ ${free_bytes%.*} -gt $((archive_bytes + unpacked_bytes + 67108864)) ]] ||
+        die "insufficient temporary disk space to validate backup"
+    mkdir "${backup_temp_dir}/extracted"
+    tar --extract --gzip --no-same-owner --no-same-permissions \
+        --file "${plain}" --directory "${backup_temp_dir}/extracted"
+    [[ -f "${backup_temp_dir}/extracted/manifest.env" &&
+       -f "${backup_temp_dir}/extracted/checksums.sha256" &&
+       -f "${backup_temp_dir}/extracted/database.dump" ]] ||
+        die "backup is missing required files"
+    validate_checksum_manifest "${backup_temp_dir}/extracted"
+    (
+        cd "${backup_temp_dir}/extracted"
+        sha256sum --check --strict checksums.sha256 >/dev/null
+    ) || die "backup checksum verification failed"
+    pg_restore --list "${backup_temp_dir}/extracted/database.dump" >/dev/null ||
+        die "PostgreSQL dump verification failed"
+    local format required created application schema media_scope
+    format=$(manifest_value "${backup_temp_dir}/extracted/manifest.env" format_version)
+    [[ "${format}" == "${BACKUP_FORMAT_VERSION}" ]] || die "unsupported backup format"
+    required=$(manifest_value "${backup_temp_dir}/extracted/manifest.env" required_free_bytes)
+    created=$(manifest_value "${backup_temp_dir}/extracted/manifest.env" created_utc)
+    application=$(manifest_value "${backup_temp_dir}/extracted/manifest.env" application_version)
+    schema=$(manifest_value "${backup_temp_dir}/extracted/manifest.env" schema_version)
+    media_scope=$(manifest_value "${backup_temp_dir}/extracted/manifest.env" media_files_included)
+    [[ "${required}" =~ ^[0-9]+$ && ${#required} -le 18 ]] ||
+        die "backup has invalid space metadata"
+    [[ "${created}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] ||
+        die "backup has invalid timestamp metadata"
+    safe_token "${application}" && safe_token "${schema}" ||
+        die "backup has invalid version metadata"
+    [[ "${media_scope}" == false ]] || die "backup has an unsupported media scope"
+    free_bytes=$(available_bytes "${backup_temp_dir}")
+    [[ ${free_bytes%.*} -gt ${required} ]] || die "insufficient disk space for restore"
+}
+
+verify_backup() {
+    [[ $# -ge 1 ]] || die "verify requires an archive"
+    local archive=$1 identity="${SDW_BACKUP_AGE_IDENTITY:-}"
+    shift
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --age-identity) identity=$2; shift 2 ;;
+            *) die "unknown verify option: $1" ;;
+        esac
+    done
+    prepare_archive "${archive}" "${identity}"
+    local manifest="${backup_temp_dir}/extracted/manifest.env"
+    printf 'verified format=%s created=%s application=%s schema=%s media_files_included=false\n' \
+        "$(manifest_value "${manifest}" format_version)" \
+        "$(manifest_value "${manifest}" created_utc)" \
+        "$(manifest_value "${manifest}" application_version)" \
+        "$(manifest_value "${manifest}" schema_version)"
+}
+
+major_version() {
+    local value=${1%%+*}
+    value=${value%%-*}
+    [[ "${value}" =~ ^[0-9]+(\.[0-9]+){0,3}$ ]] || return 1
+    printf '%s' "${value%%.*}"
+}
+
+restore_backup() {
+    [[ $# -ge 1 ]] || die "restore requires an archive"
+    local archive=$1
+    shift
+    local config_destination="${SDW_CONFIG_PATH:-/etc/sdw-redive/appsettings.yml}"
+    local password_destination="${SDW_PASSWORD_FILE:-/var/lib/sdw-redive/password.json}"
+    local key_ring_destination="${SDW_KEY_RING_PATH:-/var/lib/sdw-redive/data-protection-keys}"
+    local plugin_destination="${SDW_PLUGIN_DIRECTORY:-/var/lib/sdw-redive/plugins}"
+    local expected_version="${SDW_APP_VERSION:-}"
+    local expected_schema="${SDW_EXPECTED_SCHEMA_VERSION:-}"
+    local identity="${SDW_BACKUP_AGE_IDENTITY:-}"
+    local safety_directory="${SDW_BACKUP_DIRECTORY:-/var/lib/sdw-redive/backups}"
+    local confirmed=false allow_version_mismatch=false
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --config-destination) config_destination=$2; shift 2 ;;
+            --password-destination) password_destination=$2; shift 2 ;;
+            --key-ring-destination) key_ring_destination=$2; shift 2 ;;
+            --plugin-destination) plugin_destination=$2; shift 2 ;;
+            --expected-version) expected_version=$2; shift 2 ;;
+            --expected-schema) expected_schema=$2; shift 2 ;;
+            --age-identity) identity=$2; shift 2 ;;
+            --safety-directory) safety_directory=$2; shift 2 ;;
+            --allow-version-mismatch) allow_version_mismatch=true; shift ;;
+            --confirm-replace) confirmed=true; shift ;;
+            *) die "unknown restore option: $1" ;;
+        esac
+    done
+    [[ "${confirmed}" == true ]] || die "restore requires --confirm-replace"
+    require_command realpath
+    validate_file_destination "${config_destination}"
+    validate_file_destination "${password_destination}"
+    validate_directory_destination "${key_ring_destination}"
+    validate_directory_destination "${plugin_destination}"
+    parse_connection_string
+    require_command psql
+    require_command pg_dump
+    prepare_archive "${archive}" "${identity}"
+
+    local extracted="${backup_temp_dir}/extracted"
+    local manifest="${extracted}/manifest.env"
+    local backup_version backup_schema
+    backup_version=$(manifest_value "${manifest}" application_version)
+    backup_schema=$(manifest_value "${manifest}" schema_version)
+    if [[ "${allow_version_mismatch}" != true ]]; then
+        [[ -n "${expected_version}" ]] ||
+            die "--expected-version is required unless --allow-version-mismatch is explicit"
+        [[ "$(major_version "${backup_version}")" == "$(major_version "${expected_version}")" ]] ||
+            die "backup application major version is incompatible"
+    fi
+    if [[ -n "${expected_schema}" && "${backup_schema}" != "${expected_schema}" ]]; then
+        die "backup schema is incompatible with the requested schema"
+    fi
+
+    local restored_config required_bytes destination_parent probe
+    restored_config=$(find "${extracted}/state/config" -maxdepth 1 -type f -print -quit)
+    [[ -n "${restored_config}" && -f "${extracted}/state/password.json" &&
+       -d "${extracted}/state/data-protection-keys" ]] ||
+        die "backup state files are incomplete"
+    required_bytes=$(manifest_value "${manifest}" required_free_bytes)
+    for destination_parent in \
+        "$(dirname "${config_destination}")" \
+        "$(dirname "${password_destination}")" \
+        "$(dirname "${key_ring_destination}")" \
+        "$(dirname "${plugin_destination}")"; do
+        mkdir -p -- "${destination_parent}"
+        [[ $(available_bytes "${destination_parent}") -gt ${required_bytes} ]] ||
+            die "insufficient destination disk space for restore"
+        probe="${destination_parent}/.sdw-restore-write-test-$$"
+        : >"${probe}" || die "restore destination is not writable"
+        rm -f -- "${probe}"
+    done
+
+    validate_output_directory "${safety_directory}"
+    local timestamp safety_dump
+    timestamp=$(date -u +%Y%m%dT%H%M%SZ)
+    safety_dump="${safety_directory}/pre-restore-${timestamp}-$$.dump"
+    pg_dump --format=custom --compress=6 --no-owner --no-acl --file "${safety_dump}.partial"
+    chmod 0600 "${safety_dump}.partial"
+    mv "${safety_dump}.partial" "${safety_dump}"
+
+    pg_restore --clean --if-exists --exit-on-error --no-owner --no-acl \
+        --dbname "${PGDATABASE}" "${extracted}/database.dump"
+    [[ "$(database_schema_version)" == "${backup_schema}" ]] ||
+        die "restored database schema does not match the backup"
+
+    if [[ -f "${config_destination}" ]]; then
+        install -m 0600 "${config_destination}" "${config_destination}.pre-restore-${timestamp}"
+    fi
+    if [[ -f "${password_destination}" ]]; then
+        install -m 0600 "${password_destination}" "${password_destination}.pre-restore-${timestamp}"
+    fi
+    install -m 0600 "${restored_config}" "${config_destination}.partial"
+    mv "${config_destination}.partial" "${config_destination}"
+    install -m 0600 "${extracted}/state/password.json" "${password_destination}.partial"
+    mv "${password_destination}.partial" "${password_destination}"
+
+    if [[ -d "${key_ring_destination}" ]]; then
+        mv "${key_ring_destination}" "${key_ring_destination}.pre-restore-${timestamp}"
+    fi
+    mkdir -p "${key_ring_destination}"
+    chmod 0700 "${key_ring_destination}"
+    cp -a "${extracted}/state/data-protection-keys/." "${key_ring_destination}/"
+    find "${key_ring_destination}" -type f -exec chmod 0600 {} +
+
+    if [[ -d "${extracted}/state/plugin-manifests" &&
+          ! -f "${extracted}/state/plugin-manifests/none" ]]; then
+        mkdir -p "${plugin_destination}"
+        cp -a "${extracted}/state/plugin-manifests/." "${plugin_destination}/"
+    fi
+    printf 'restore completed; restart the application and run its health check\n'
+}
+
+command=${1:-}
+[[ -n "${command}" ]] || { usage; exit 1; }
+shift
+case "${command}" in
+    create) create_backup "$@" ;;
+    list) list_backups "$@" ;;
+    verify) verify_backup "$@" ;;
+    restore) restore_backup "$@" ;;
+    help|-h|--help) usage ;;
+    *) usage; die "unknown command: ${command}" ;;
+esac

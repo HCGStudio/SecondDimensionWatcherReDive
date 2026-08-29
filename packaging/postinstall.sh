@@ -19,6 +19,10 @@ if [ -f "$CONFIG" ]; then
     chown root:sdw-redive "$CONFIG"
     chmod 0640 "$CONFIG"
 fi
+if [ -f /etc/sdw-redive/backup.env ]; then
+    chown root:sdw-redive /etc/sdw-redive/backup.env
+    chmod 0640 /etc/sdw-redive/backup.env
+fi
 
 # Add sdw-redive to valkey group if it exists (for Unix socket access)
 if getent group valkey >/dev/null 2>&1; then
@@ -43,7 +47,8 @@ chown -R sdw-redive:sdw-redive /var/lib/sdw-redive
 # Data Protection keys and the password hash are service-owned secrets. The
 # private directory also protects keys created by future application runs.
 install -d -m 0700 -o sdw-redive -g sdw-redive \
-    /var/lib/sdw-redive/data-protection-keys
+    /var/lib/sdw-redive/data-protection-keys \
+    /var/lib/sdw-redive/backups
 if [ -f /var/lib/sdw-redive/password.json ]; then
     chown sdw-redive:sdw-redive /var/lib/sdw-redive/password.json
     chmod 0600 /var/lib/sdw-redive/password.json
