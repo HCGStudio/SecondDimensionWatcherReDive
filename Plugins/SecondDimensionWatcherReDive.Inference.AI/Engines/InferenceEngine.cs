@@ -139,7 +139,7 @@ public sealed partial class InferenceEngine(
                 LogInferenceNoResult(logger, title);
             return result;
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw;
         }
@@ -179,7 +179,11 @@ public sealed partial class InferenceEngine(
             LogFileNameInferenceSucceeded(logger, result.Count, request.Files.Count);
             return result;
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
         {
             LogFileNameInferenceFailed(logger, ex, request.Context);
             return [];

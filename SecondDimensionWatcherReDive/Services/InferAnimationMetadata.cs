@@ -185,7 +185,7 @@ public partial class InferAnimationMetadata(
                 }
             }
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw;
         }

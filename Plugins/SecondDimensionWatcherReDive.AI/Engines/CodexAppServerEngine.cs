@@ -38,11 +38,27 @@ public sealed partial class CodexAppServerEngine(
     {
         var settings = GetConfiguredSettings();
         using var timeout = CreateTimeout(settings.Timeout, cancellationToken);
+        try
+        {
+            return await GetAvailableModelsCoreAsync(settings, timeout.Token);
+        }
+        catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw timeout.IsCancellationRequested
+                ? CreateTimeoutException(settings.Timeout, ex)
+                : CreateUnexpectedCancellationException(ex);
+        }
+    }
+
+    private async Task<IReadOnlyList<AIModel>> GetAvailableModelsCoreAsync(
+        CodexConnectionSettings settings,
+        CancellationToken cancellationToken)
+    {
         await using var transport = await transportFactory.ConnectAsync(
-            settings.Endpoint, settings.BearerToken, timeout.Token);
+            settings.Endpoint, settings.BearerToken, cancellationToken);
         LogConnected(logger, settings.Endpoint);
         var rpc = new RpcConnection(transport);
-        await InitializeAsync(rpc, timeout.Token);
+        await InitializeAsync(rpc, cancellationToken);
 
         var models = new List<AIModel>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -62,7 +78,7 @@ public sealed partial class CodexAppServerEngine(
                 "model/list",
                 parameters,
                 (message, token) => RejectServerRequestAsync(rpc, message, token),
-                timeout.Token);
+                cancellationToken);
 
             if (result.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Array)
             {
@@ -98,13 +114,47 @@ public sealed partial class CodexAppServerEngine(
         var request = BuildChatRequest(messages, chatOptions, maxDynamicToolCalls > 0);
         var settings = GetConfiguredSettings();
         using var timeout = CreateTimeout(settings.Timeout, cancellationToken);
+        await using var enumerator = ChatCoreAsync(
+                request,
+                chatOptions,
+                maxDynamicToolCalls,
+                settings,
+                timeout.Token)
+            .GetAsyncEnumerator();
+
+        while (true)
+        {
+            bool hasNext;
+            try
+            {
+                hasNext = await enumerator.MoveNextAsync();
+            }
+            catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+            {
+                throw timeout.IsCancellationRequested
+                    ? CreateTimeoutException(settings.Timeout, ex)
+                    : CreateUnexpectedCancellationException(ex);
+            }
+
+            if (!hasNext) yield break;
+            yield return enumerator.Current;
+        }
+    }
+
+    private async IAsyncEnumerable<IChatUpdate> ChatCoreAsync(
+        BuiltChatRequest request,
+        ChatOptions? chatOptions,
+        int maxDynamicToolCalls,
+        CodexConnectionSettings settings,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
         await using var transport = await transportFactory.ConnectAsync(
-            settings.Endpoint, settings.BearerToken, timeout.Token);
+            settings.Endpoint, settings.BearerToken, cancellationToken);
         LogConnected(logger, settings.Endpoint);
         var rpc = new RpcConnection(transport);
-        await InitializeAsync(rpc, timeout.Token);
+        await InitializeAsync(rpc, cancellationToken);
         await EnsurePermissionProfileAvailableAsync(
-            rpc, settings.PermissionProfile, timeout.Token);
+            rpc, settings.PermissionProfile, cancellationToken);
 
         string? threadId = null;
         string? turnId = null;
@@ -133,7 +183,7 @@ public sealed partial class CodexAppServerEngine(
                 "thread/start",
                 threadStartParams,
                 (message, token) => RejectServerRequestAsync(rpc, message, token),
-                timeout.Token);
+                cancellationToken);
             threadId = GetRequiredNestedString(threadResult, "thread", "id");
             ValidateActivePermissionProfile(threadResult, settings.PermissionProfile);
 
@@ -147,7 +197,7 @@ public sealed partial class CodexAppServerEngine(
                         ["items"] = request.History
                     },
                     (message, token) => RejectServerRequestAsync(rpc, message, token),
-                    timeout.Token);
+                    cancellationToken);
             }
 
             var turnStartParams = new JsonObject
@@ -172,7 +222,7 @@ public sealed partial class CodexAppServerEngine(
                 "turn/start",
                 turnStartParams,
                 (message, token) => ProcessTurnMessageAsync(rpc, state, message, token),
-                timeout.Token);
+                cancellationToken);
             turnId = GetRequiredNestedString(turnResult, "turn", "id");
             state.SetTurnId(turnId);
 
@@ -181,8 +231,8 @@ public sealed partial class CodexAppServerEngine(
 
             while (!state.IsTerminal)
             {
-                var message = await rpc.ReceiveAsync(timeout.Token);
-                await ProcessTurnMessageAsync(rpc, state, message, timeout.Token);
+                var message = await rpc.ReceiveAsync(cancellationToken);
+                await ProcessTurnMessageAsync(rpc, state, message, cancellationToken);
                 while (state.Updates.TryDequeue(out var update))
                     yield return update;
             }
@@ -714,6 +764,18 @@ public sealed partial class CodexAppServerEngine(
         source.CancelAfter(timeout);
         return source;
     }
+
+    private static TimeoutException CreateTimeoutException(
+        TimeSpan timeout,
+        OperationCanceledException innerException) =>
+        new(FormattableString.Invariant(
+            $"The Codex app-server operation timed out after {timeout.TotalSeconds:g} seconds."),
+            innerException);
+
+    private static InvalidOperationException CreateUnexpectedCancellationException(
+        OperationCanceledException innerException) =>
+        new("The Codex app-server operation was canceled without a caller cancellation.",
+            innerException);
 
     private static bool IsExpectedThread(TurnState state, JsonElement parameters)
         => string.Equals(GetString(parameters, "threadId"), state.ThreadId, StringComparison.Ordinal);

@@ -54,7 +54,7 @@ internal sealed partial class ChatController(
             LogModelsFetched(models.Count);
             return Ok(models);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw;
         }
@@ -321,7 +321,7 @@ internal sealed partial class ChatController(
                 }
             }
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             LogClientDisconnected(conversationId);
         }

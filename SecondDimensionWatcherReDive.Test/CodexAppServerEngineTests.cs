@@ -372,6 +372,51 @@ public sealed class CodexAppServerEngineTests
     }
 
     [TestMethod]
+    public async Task ChatAsync_EngineTimeoutThrowsTimeoutExceptionWhileCallerRemainsActive()
+    {
+        var transport = StandardTurn();
+        transport.AutoRespondToInterrupt = true;
+        var (engine, _) = CreateEngine(transport, timeoutSeconds: 1);
+        using var callerCancellation = new CancellationTokenSource();
+
+        var exception = await Assert.ThrowsExactlyAsync<TimeoutException>(() => CollectAsync(
+            engine.ChatAsync([new UserMessage("wait")], null, callerCancellation.Token)));
+
+        Assert.IsInstanceOfType<OperationCanceledException>(exception.InnerException);
+        Assert.IsFalse(callerCancellation.IsCancellationRequested);
+        Assert.IsNotNull(transport.SingleSent("turn/interrupt"));
+        Assert.IsNotNull(transport.SingleSent("thread/unsubscribe"));
+    }
+
+    [TestMethod]
+    public async Task GetAvailableModelsAsync_EngineTimeoutThrowsTimeoutExceptionWhileCallerRemainsActive()
+    {
+        var transport = new ScriptedTransport(Response(1, "{}"));
+        var (engine, _) = CreateEngine(transport, timeoutSeconds: 1);
+        using var callerCancellation = new CancellationTokenSource();
+
+        var exception = await Assert.ThrowsExactlyAsync<TimeoutException>(() =>
+            engine.GetAvailableModelsAsync(callerCancellation.Token));
+
+        Assert.IsInstanceOfType<OperationCanceledException>(exception.InnerException);
+        Assert.IsFalse(callerCancellation.IsCancellationRequested);
+    }
+
+    [TestMethod]
+    public async Task ChatAsync_ServerInterruptionWithoutCallerCancellationIsNormalFailure()
+    {
+        var transport = StandardTurn(
+            """{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-1","status":"interrupted"}}}""");
+        var (engine, _) = CreateEngine(transport);
+
+        var exception = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => CollectAsync(
+            engine.ChatAsync([new UserMessage("wait")], null, CancellationToken.None)));
+
+        Assert.IsInstanceOfType<OperationCanceledException>(exception.InnerException);
+        Assert.IsNotNull(transport.SingleSent("thread/unsubscribe"));
+    }
+
+    [TestMethod]
     public async Task ChatAsync_EarlyTurnStartedAllowsCancellationToInterruptAnnouncedTurn()
     {
         var transport = new ScriptedTransport(
@@ -534,7 +579,8 @@ public sealed class CodexAppServerEngineTests
     }
 
     private static (CodexAppServerEngine Engine, ScriptedTransportFactory Factory) CreateEngine(
-        ScriptedTransport transport)
+        ScriptedTransport transport,
+        int timeoutSeconds = 30)
     {
         var factory = new ScriptedTransportFactory(transport);
         var engine = new CodexAppServerEngine(
@@ -545,7 +591,7 @@ public sealed class CodexAppServerEngineTests
                 BearerToken = "secret",
                 Model = "configured-model",
                 PermissionProfile = ":read-only",
-                TimeoutSeconds = 30
+                TimeoutSeconds = timeoutSeconds
             }),
             NullLogger<CodexAppServerEngine>.Instance);
         return (engine, factory);
@@ -658,6 +704,8 @@ public sealed class CodexAppServerEngineTests
 
         public CancellationTokenSource? CancelWhenFailingResponse { get; set; }
 
+        public bool AutoRespondToInterrupt { get; set; }
+
         public ValueTask SendAsync(string message, CancellationToken cancellationToken)
         {
             JsonDocument parsed;
@@ -681,6 +729,13 @@ public sealed class CodexAppServerEngineTests
 
                 throw new IOException("simulated transport failure");
             }
+
+            if (AutoRespondToInterrupt
+                && parsed.RootElement.TryGetProperty("method", out var method)
+                && string.Equals(method.GetString(), "turn/interrupt", StringComparison.Ordinal)
+                && parsed.RootElement.TryGetProperty("id", out var requestId)
+                && requestId.TryGetInt64(out var numericRequestId))
+                _received.Enqueue(Response(numericRequestId, "{}"));
 
             return ValueTask.CompletedTask;
         }
