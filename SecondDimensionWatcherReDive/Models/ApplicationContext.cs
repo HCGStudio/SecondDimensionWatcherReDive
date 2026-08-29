@@ -33,6 +33,8 @@ public class ApplicationContext : DbContext
     public DbSet<PlaybackPreference> PlaybackPreferences { get; set; }
     public DbSet<MediaLibrarySource> MediaLibrarySources { get; set; }
     public DbSet<ApplicationSettings> ApplicationSettings { get; set; }
+    public DbSet<ReleaseUpgradeOperation> ReleaseUpgradeOperations { get; set; }
+    public DbSet<ReleaseUpgradeMappingSnapshot> ReleaseUpgradeMappingSnapshots { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -72,6 +74,10 @@ public class ApplicationContext : DbContext
             .IsConcurrencyToken();
 
         modelBuilder.Entity<AnimationInfo>()
+            .Property(info => info.IngestedAt)
+            .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+        modelBuilder.Entity<AnimationInfo>()
             .Property(info => info.MetadataLastError)
             .HasMaxLength(1024);
 
@@ -82,6 +88,54 @@ public class ApplicationContext : DbContext
 
         modelBuilder.Entity<AnimationInfo>()
             .HasIndex(info => new { info.MetadataStatus, info.PublishTime });
+
+        modelBuilder.Entity<AnimationInfo>()
+            .HasIndex(info => info.ReleaseIdentity)
+            .IsUnique()
+            .HasFilter("\"ReleaseIdentity\" IS NOT NULL")
+            .HasDatabaseName("UX_AnimationInfo_ReleaseIdentity");
+
+        modelBuilder.Entity<AnimationInfo>()
+            .HasIndex(info => new { info.Season, info.Episode, info.ReleaseScore });
+
+        modelBuilder.Entity<AnimationInfo>()
+            .Property(info => info.ReleaseIdentity)
+            .HasMaxLength(192);
+
+        modelBuilder.Entity<AnimationInfo>()
+            .Property(info => info.FeedItemGuid)
+            .HasMaxLength(1024);
+
+        modelBuilder.Entity<AnimationInfo>()
+            .Property(info => info.EnclosureId)
+            .HasMaxLength(2048);
+
+        modelBuilder.Entity<AnimationInfo>()
+            .Property(info => info.TorrentInfoHash)
+            .HasMaxLength(64);
+
+        modelBuilder.Entity<AnimationInfo>()
+            .Property(info => info.ReleaseSubtitleGroup)
+            .HasMaxLength(256);
+
+        modelBuilder.Entity<AnimationInfo>()
+            .Property(info => info.ReleaseResolution)
+            .HasMaxLength(32);
+
+        modelBuilder.Entity<AnimationInfo>()
+            .Property(info => info.ReleaseCodec)
+            .HasMaxLength(32);
+
+        modelBuilder.Entity<AnimationInfo>()
+            .ToTable(table =>
+            {
+                table.HasCheckConstraint(
+                    "CK_AnimationInfo_ReleaseScore_NonNegative",
+                    "\"ReleaseScore\" >= 0");
+                table.HasCheckConstraint(
+                    "CK_AnimationInfo_ExpectedEpisodeCount_Positive",
+                    "\"ExpectedEpisodeCount\" IS NULL OR \"ExpectedEpisodeCount\" > 0");
+            });
 
         modelBuilder.Entity<AnimationInfo>()
             .HasIndex(info => info.CurrentMetadataReviewOperationId)
@@ -281,6 +335,75 @@ public class ApplicationContext : DbContext
 
         modelBuilder.Entity<SubscriptionAutomationPolicy>()
             .HasIndex(policy => policy.UpdatedAt);
+
+        modelBuilder.Entity<SubscriptionAutomationPolicy>()
+            .ToTable(table =>
+            {
+                table.HasCheckConstraint(
+                    "CK_SubscriptionAutomationPolicies_MinimumUpgradeScore",
+                    "\"MinimumUpgradeScore\" >= 1 AND \"MinimumUpgradeScore\" <= 1000");
+                table.HasCheckConstraint(
+                    "CK_SubscriptionAutomationPolicies_UpgradeRollbackHours",
+                    "\"UpgradeRollbackHours\" >= 1 AND \"UpgradeRollbackHours\" <= 720");
+            });
+
+        modelBuilder.Entity<ReleaseUpgradeOperation>()
+            .Property(operation => operation.Status)
+            .HasConversion<string>()
+            .HasMaxLength(32);
+
+        modelBuilder.Entity<ReleaseUpgradeOperation>()
+            .Property(operation => operation.FailureSummary)
+            .HasMaxLength(2048);
+
+        modelBuilder.Entity<ReleaseUpgradeOperation>()
+            .HasOne(operation => operation.CurrentRelease)
+            .WithMany()
+            .HasForeignKey(operation => operation.CurrentReleaseId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        modelBuilder.Entity<ReleaseUpgradeOperation>()
+            .HasOne(operation => operation.CandidateRelease)
+            .WithMany()
+            .HasForeignKey(operation => operation.CandidateReleaseId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        modelBuilder.Entity<ReleaseUpgradeOperation>()
+            .HasIndex(operation => operation.CandidateReleaseId)
+            .IsUnique();
+
+        modelBuilder.Entity<ReleaseUpgradeOperation>()
+            .HasIndex(operation => operation.CurrentReleaseId)
+            .IsUnique()
+            .HasFilter("\"Status\" IN ('Downloading', 'Verifying', 'Applied')")
+            .HasDatabaseName("UX_ReleaseUpgradeOperations_ActiveCurrentRelease");
+
+        modelBuilder.Entity<ReleaseUpgradeOperation>()
+            .HasIndex(operation => new { operation.Status, operation.CreatedAt });
+
+        modelBuilder.Entity<ReleaseUpgradeOperation>()
+            .ToTable(table => table.HasCheckConstraint(
+                "CK_ReleaseUpgradeOperations_ScoreIncrease",
+                "\"CandidateScore\" > \"CurrentScore\""));
+
+        modelBuilder.Entity<ReleaseUpgradeMappingSnapshot>()
+            .Property(snapshot => snapshot.Kind)
+            .HasConversion<string>()
+            .HasMaxLength(32);
+
+        modelBuilder.Entity<ReleaseUpgradeMappingSnapshot>()
+            .Property(snapshot => snapshot.VirtualPath)
+            .HasMaxLength(2048);
+
+        modelBuilder.Entity<ReleaseUpgradeMappingSnapshot>()
+            .HasOne(snapshot => snapshot.Operation)
+            .WithMany(operation => operation.MappingSnapshots)
+            .HasForeignKey(snapshot => snapshot.OperationId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<ReleaseUpgradeMappingSnapshot>()
+            .HasIndex(snapshot => new { snapshot.OperationId, snapshot.Kind, snapshot.OriginalMappingId })
+            .IsUnique();
 
         modelBuilder.Entity<BangumiSubgroup>()
             .HasIndex(s => new { s.SeasonBangumiId, s.MikanSubgroupId })

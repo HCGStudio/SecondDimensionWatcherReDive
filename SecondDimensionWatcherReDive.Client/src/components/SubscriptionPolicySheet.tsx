@@ -130,6 +130,13 @@ export const SubscriptionPolicySheet: React.FC<
     draft.minSizeBytes != null &&
     draft.maxSizeBytes != null &&
     draft.minSizeBytes > draft.maxSizeBytes;
+  const upgradePolicyIsInvalid =
+    !Number.isInteger(draft.minimumUpgradeScore) ||
+    draft.minimumUpgradeScore < 1 ||
+    draft.minimumUpgradeScore > 1000 ||
+    !Number.isInteger(draft.upgradeRollbackHours) ||
+    draft.upgradeRollbackHours < 1 ||
+    draft.upgradeRollbackHours > 720;
 
   const updateDraft = React.useCallback(
     (update: React.SetStateAction<ISubscriptionPolicyDraft>) => {
@@ -153,7 +160,7 @@ export const SubscriptionPolicySheet: React.FC<
   );
 
   const handleSave = React.useCallback(async () => {
-    if (!feed || saving || sizeRangeIsInvalid) return;
+    if (!feed || saving || sizeRangeIsInvalid || upgradePolicyIsInvalid) return;
     setSaving(true);
     try {
       const saved = await saveSubscriptionPolicy(feed.id, draft);
@@ -172,7 +179,16 @@ export const SubscriptionPolicySheet: React.FC<
     } finally {
       setSaving(false);
     }
-  }, [feed, saving, sizeRangeIsInvalid, draft, onPolicyChanged, addToast, t]);
+  }, [
+    feed,
+    saving,
+    sizeRangeIsInvalid,
+    upgradePolicyIsInvalid,
+    draft,
+    onPolicyChanged,
+    addToast,
+    t,
+  ]);
 
   const handleDelete = React.useCallback(async () => {
     if (!feed || !hasSavedPolicy) return;
@@ -397,9 +413,84 @@ export const SubscriptionPolicySheet: React.FC<
               </section>
 
               <section className="px-6 py-5">
+                <SectionHeading
+                  number="03"
+                  title={t("automation.upgrades.title")}
+                  description={t("automation.upgrades.description")}
+                />
+                <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-canvas/60 p-4">
+                  <input
+                    type="checkbox"
+                    checked={draft.enableVersionUpgrade}
+                    onChange={(event) =>
+                      updateDraft((current) => ({
+                        ...current,
+                        enableVersionUpgrade: event.target.checked,
+                      }))
+                    }
+                    className="mt-1 h-4 w-4 accent-brand"
+                  />
+                  <span>
+                    <span className="block text-sm font-medium text-foreground">
+                      {t("automation.upgrades.enable")}
+                    </span>
+                    <span className="mt-0.5 block text-xs leading-body text-muted">
+                      {t("automation.upgrades.enableHelp")}
+                    </span>
+                  </span>
+                </label>
+                <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                  <label className="text-sm font-medium text-foreground">
+                    {t("automation.upgrades.minimumScore")}
+                    <Input
+                      className="mt-1.5"
+                      type="number"
+                      min="1"
+                      max="1000"
+                      value={draft.minimumUpgradeScore}
+                      onChange={(event) =>
+                        updateDraft((current) => ({
+                          ...current,
+                          minimumUpgradeScore: Number(event.target.value),
+                        }))
+                      }
+                    />
+                    <span className="mt-1 block text-xs font-normal text-subtle">
+                      {t("automation.upgrades.minimumScoreHelp")}
+                    </span>
+                  </label>
+                  <label className="text-sm font-medium text-foreground">
+                    {t("automation.upgrades.rollbackHours")}
+                    <Input
+                      className="mt-1.5"
+                      type="number"
+                      min="1"
+                      max="720"
+                      value={draft.upgradeRollbackHours}
+                      onChange={(event) =>
+                        updateDraft((current) => ({
+                          ...current,
+                          upgradeRollbackHours: Number(event.target.value),
+                        }))
+                      }
+                    />
+                    <span className="mt-1 block text-xs font-normal text-subtle">
+                      {t("automation.upgrades.rollbackHoursHelp")}
+                    </span>
+                  </label>
+                </div>
+                {upgradePolicyIsInvalid ? (
+                  <p className="mt-2 flex items-center gap-1.5 text-xs text-error">
+                    <CircleAlert size={13} />
+                    {t("automation.upgrades.rangeError")}
+                  </p>
+                ) : null}
+              </section>
+
+              <section className="px-6 py-5">
                 <div className="flex flex-wrap items-start justify-between gap-4">
                   <SectionHeading
-                    number="03"
+                    number="04"
                     title={t("automation.simulation.title")}
                     description={t("automation.simulation.description")}
                   />
@@ -457,7 +548,12 @@ export const SubscriptionPolicySheet: React.FC<
             </Button>
             <Button
               onClick={handleSave}
-              disabled={saving || loading || sizeRangeIsInvalid}
+              disabled={
+                saving ||
+                loading ||
+                sizeRangeIsInvalid ||
+                upgradePolicyIsInvalid
+              }
             >
               {saving ? <Spinner className="h-4 w-4" /> : <Save size={16} />}
               {t("automation.actions.save")}

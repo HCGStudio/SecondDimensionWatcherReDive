@@ -128,6 +128,20 @@ internal sealed class SubscriptionPoliciesController(
             return false;
         }
 
+        var minimumUpgradeScore = request.MinimumUpgradeScore ?? 25;
+        if (minimumUpgradeScore is < 1 or > 1000)
+        {
+            error = "minimumUpgradeScore must be between 1 and 1000.";
+            return false;
+        }
+
+        var rollbackHours = request.UpgradeRollbackHours ?? 72;
+        if (rollbackHours is < 1 or > 720)
+        {
+            error = "upgradeRollbackHours must be between 1 and 720.";
+            return false;
+        }
+
         policy = new SubscriptionAutomationPolicy(
             feedId,
             subtitleGroups,
@@ -139,7 +153,10 @@ internal sealed class SubscriptionPoliciesController(
             excludedKeywords,
             mode,
             timestamp,
-            timestamp);
+            timestamp,
+            request.EnableVersionUpgrade,
+            minimumUpgradeScore,
+            rollbackHours);
         error = null;
         return true;
     }

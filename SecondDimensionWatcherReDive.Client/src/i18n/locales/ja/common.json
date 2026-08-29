@@ -2,6 +2,8 @@
   "appName": "SDW Re:Dive",
   "nav": {
     "home": "ホーム",
+    "search": "検索",
+    "searchPlaceholder": "ライブラリを検索…",
     "downloading": "ダウンロード中",
     "downloaded": "ダウンロード済み",
     "files": "ファイル一覧",

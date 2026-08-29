@@ -20,7 +20,9 @@ public partial class SyncFeed(
     IHttpClientFactory httpClientFactory,
     IServiceScopeFactory scopeFactory,
     ISubscriptionAutomationMatcher automationMatcher,
-    IIncidentReporter? incidentReporter = null)
+    IIncidentReporter? incidentReporter = null,
+    ISubscriptionReleaseMetadataExtractor? metadataExtractor = null,
+    IReleaseScoringService? releaseScoringService = null)
     : ScheduledTaskBase
 {
     private readonly HttpClient _httpClient = httpClientFactory.CreateClient("Feed");
@@ -106,41 +108,44 @@ public partial class SyncFeed(
         await using var scope = scopeFactory.CreateAsyncScope();
         var animationInfoRepository = scope.ServiceProvider.GetRequiredService<IAnimationInfoRepository>();
 
-        //Only process non-exist items
-        if (await animationInfoRepository.FindByTitleAsync(request.Title, cancellationToken) == null)
+        try
         {
-            try
+            SubscriptionAutomationPolicy? policy = null;
+            if (request.FeedId is { } feedId)
             {
-                SubscriptionAutomationPolicy? policy = null;
-                if (request.FeedId is { } feedId)
-                {
-                    var policyRepository = scope.ServiceProvider
-                        .GetRequiredService<ISubscriptionAutomationPolicyRepository>();
-                    policy = await policyRepository.FindByFeedIdAsync(feedId, cancellationToken);
-                }
+                var policyRepository = scope.ServiceProvider
+                    .GetRequiredService<ISubscriptionAutomationPolicyRepository>();
+                policy = await policyRepository.FindByFeedIdAsync(feedId, cancellationToken);
+            }
 
-                var torrentData = request.DownloadType switch
-                {
-                    FileDownloadTypes.TorrentDownload => await DownloadTorrentData(request, cancellationToken),
-                    _ => new TorrentData(Array.Empty<byte>(), request.AdditionalDownloadInfo, request.ContentLength)
-                };
+            var torrentData = request.DownloadType switch
+            {
+                FileDownloadTypes.TorrentDownload => await DownloadTorrentData(request, cancellationToken),
+                _ => new TorrentData(Array.Empty<byte>(), request.AdditionalDownloadInfo, request.ContentLength)
+            };
 
-                if (request.DownloadType == FileDownloadTypes.TorrentDownload &&
-                    request.ContentLength is { } advertisedSize &&
-                    advertisedSize != torrentData.PayloadSizeBytes)
-                    throw new InvalidTorrentDataException(request.DownloadUrl, "advertised and declared payload sizes differ");
+            if (request.DownloadType == FileDownloadTypes.TorrentDownload &&
+                request.ContentLength is { } advertisedSize &&
+                advertisedSize != torrentData.PayloadSizeBytes)
+                throw new InvalidTorrentDataException(request.DownloadUrl, "advertised and declared payload sizes differ");
 
-                SubscriptionAutomationEvaluation? evaluation = null;
-                if (policy is not null)
-                {
-                    evaluation = automationMatcher.Evaluate(
-                        policy,
-                        request with { ContentLength = torrentData.PayloadSizeBytes });
-                    if (!evaluation.Matched)
-                        return;
-                }
+            var releaseWithSize = request with { ContentLength = torrentData.PayloadSizeBytes };
+            SubscriptionAutomationEvaluation? evaluation = null;
+            if (policy is not null)
+            {
+                evaluation = automationMatcher.Evaluate(policy, releaseWithSize);
+                if (!evaluation.Matched)
+                    return;
+            }
 
-                var info = new AnimationInfo(
+            var metadata = evaluation?.Metadata ?? metadataExtractor?.Extract(releaseWithSize) ??
+                new SubscriptionReleaseMetadata(null, null, null, [], torrentData.PayloadSizeBytes);
+            var score = releaseScoringService?.Score(metadata, policy) ?? new ReleaseScore(0, []);
+            var torrentInfoHash = request.DownloadType == FileDownloadTypes.TorrentDownload
+                ? torrentData.Hash
+                : null;
+
+            var info = new AnimationInfo(
                     Guid.NewGuid(),
                     request.Title,
                     request.Description,
@@ -174,35 +179,50 @@ public partial class SyncFeed(
                     },
                     AutomationExplanationJson: evaluation is null
                         ? null
-                        : JsonSerializer.Serialize(evaluation.Explanations, ExplanationJsonOptions));
-                await animationInfoRepository.AddAsync(info, cancellationToken);
+                        : JsonSerializer.Serialize(evaluation.Explanations, ExplanationJsonOptions),
+                    ReleaseIdentity: ReleaseIdentity.Create(
+                        request.FeedId,
+                        request.FeedItemGuid,
+                        request.EnclosureId,
+                        torrentInfoHash,
+                        request.DownloadUrl),
+                    FeedItemGuid: request.FeedItemGuid,
+                    EnclosureId: request.EnclosureId,
+                    TorrentInfoHash: torrentInfoHash,
+                    ReleaseSubtitleGroup: metadata.SubtitleGroup,
+                    ReleaseResolution: metadata.Resolution,
+                    ReleaseCodec: metadata.Codec,
+                    ReleaseLanguages: metadata.Languages,
+                    ReleaseScore: score.Value,
+                    ReleaseScoreReasonsJson: JsonSerializer.Serialize(score.Reasons, ExplanationJsonOptions));
+            if (!await animationInfoRepository.TryAddReleaseAsync(info, cancellationToken))
+                return;
 
-                if (incidentReporter is not null)
-                    await incidentReporter.ResolveAsync(
-                        IncidentType.FeedFailure,
-                        request.DownloadUrl,
-                        cancellationToken);
+            if (incidentReporter is not null)
+                await incidentReporter.ResolveAsync(
+                    IncidentType.FeedFailure,
+                    request.DownloadUrl,
+                    cancellationToken);
 
-                if (policy?.Mode == SubscriptionAutomationMode.AutoDownload)
-                    await QueueAutomaticDownloadAsync(
-                        info,
-                        animationInfoRepository,
-                        scope.ServiceProvider.GetRequiredService<IFileDownloadClientProvider>(),
-                        cancellationToken);
-            }
-            catch (InvalidTorrentDataException e)
+            if (policy?.Mode == SubscriptionAutomationMode.AutoDownload)
+                await QueueAutomaticDownloadAsync(
+                    info,
+                    animationInfoRepository,
+                    scope.ServiceProvider.GetRequiredService<IFileDownloadClientProvider>(),
+                    cancellationToken);
+        }
+        catch (InvalidTorrentDataException e)
+        {
+            LogSyncFeedWarning(logger, e.Message);
+            if (incidentReporter is not null)
             {
-                LogSyncFeedWarning(logger, e.Message);
-                if (incidentReporter is not null)
-                {
-                    await incidentReporter.ReportAsync(new IncidentReport(
-                            IncidentType.FeedFailure,
-                            IncidentSeverity.Error,
-                            "Feed item contains invalid torrent data",
-                            e.Message,
-                            request.DownloadUrl),
-                        cancellationToken);
-                }
+                await incidentReporter.ReportAsync(new IncidentReport(
+                        IncidentType.FeedFailure,
+                        IncidentSeverity.Error,
+                        "Feed item contains invalid torrent data",
+                        e.Message,
+                        request.DownloadUrl),
+                    cancellationToken);
             }
         }
     }

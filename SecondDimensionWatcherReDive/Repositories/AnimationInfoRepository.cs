@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Framework.FileDownload;
 
@@ -320,6 +321,31 @@ public class AnimationInfoRepository(
     {
         await context.AnimationInfo.AddAsync(info.ToEntity(), cancellationToken);
         await context.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task<bool> TryAddReleaseAsync(
+        AnimationInfo info,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(info.ReleaseIdentity))
+            throw new ArgumentException("A stable release identity is required.", nameof(info));
+
+        var entity = info.ToEntity();
+        await context.AnimationInfo.AddAsync(entity, cancellationToken);
+        try
+        {
+            await context.SaveChangesAsync(cancellationToken);
+            return true;
+        }
+        catch (DbUpdateException exception) when (exception.InnerException is PostgresException
+                                                  {
+                                                      SqlState: PostgresErrorCodes.UniqueViolation,
+                                                      ConstraintName: "UX_AnimationInfo_ReleaseIdentity"
+                                                  })
+        {
+            context.Entry(entity).State = EntityState.Detached;
+            return false;
+        }
     }
 
     public async Task UpdateAsync(AnimationInfo info, CancellationToken cancellationToken)

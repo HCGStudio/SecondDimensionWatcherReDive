@@ -96,6 +96,17 @@
         "placeholder": "For example, batch, NCOP, trailer"
       }
     },
+    "upgrades": {
+      "title": "Version upgrades",
+      "description": "Automatically claim a higher-scoring release, validate every new file, then atomically switch mappings while keeping rollback data.",
+      "enable": "Enable automatic version upgrades",
+      "enableHelp": "Only upgrades that beat the active release by the threshold below are started.",
+      "minimumScore": "Minimum score improvement",
+      "minimumScoreHelp": "Required difference between the candidate and current release (1–1000).",
+      "rollbackHours": "Rollback window (hours)",
+      "rollbackHoursHelp": "Old files and mapping snapshots are retained for this period (1–720 hours).",
+      "rangeError": "Score improvement must be 1–1000 and rollback window must be 1–720 hours."
+    },
     "simulation": {
       "title": "Simulate against history",
       "description": "Replay recent items with the current unsaved settings. This never sends notifications or creates downloads.",

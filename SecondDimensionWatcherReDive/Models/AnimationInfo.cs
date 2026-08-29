@@ -5,6 +5,7 @@ namespace SecondDimensionWatcherReDive.Models;
 public class AnimationInfo
 {
     public Guid Id { get; set; }
+    public DateTimeOffset IngestedAt { get; set; } = DateTimeOffset.UtcNow;
     public string Title { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
 
@@ -69,4 +70,28 @@ public class AnimationInfo
     public Guid? MediaLibrarySourceId { get; set; }
 
     public DateTimeOffset? MediaLibraryMissingSince { get; set; }
+
+    public string? ReleaseIdentity { get; set; }
+
+    public string? FeedItemGuid { get; set; }
+
+    public string? EnclosureId { get; set; }
+
+    public string? TorrentInfoHash { get; set; }
+
+    public string? ReleaseSubtitleGroup { get; set; }
+
+    public string? ReleaseResolution { get; set; }
+
+    public string? ReleaseCodec { get; set; }
+
+    public string[] ReleaseLanguages { get; set; } = [];
+
+    public int ReleaseScore { get; set; }
+
+    public string? ReleaseScoreReasonsJson { get; set; }
+
+    public int? ExpectedEpisodeCount { get; set; }
+
+    public bool IsActiveRelease { get; set; } = true;
 }

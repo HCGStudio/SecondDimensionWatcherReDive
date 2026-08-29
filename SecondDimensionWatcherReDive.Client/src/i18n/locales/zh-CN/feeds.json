@@ -96,6 +96,17 @@
         "placeholder": "例如 合集、NCOP、预告"
       }
     },
+    "upgrades": {
+      "title": "版本升级",
+      "description": "自动认领评分更高的 Release，逐个验证新文件后原子切换映射，并保留回滚数据。",
+      "enable": "启用自动版本升级",
+      "enableHelp": "只有评分提升达到下方阈值的候选版本才会自动开始。",
+      "minimumScore": "最低评分提升",
+      "minimumScoreHelp": "候选版本相对当前版本必须提升的分数（1–1000）。",
+      "rollbackHours": "回滚窗口（小时）",
+      "rollbackHoursHelp": "旧文件和映射快照会保留该时长（1–720 小时）。",
+      "rangeError": "评分提升须为 1–1000，回滚窗口须为 1–720 小时。"
+    },
     "simulation": {
       "title": "用历史条目模拟",
       "description": "以当前尚未保存的配置重放近期条目，不会发送通知或创建下载。",

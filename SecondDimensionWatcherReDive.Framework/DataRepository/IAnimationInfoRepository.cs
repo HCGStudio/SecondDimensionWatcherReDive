@@ -56,6 +56,8 @@ public interface IAnimationInfoRepository
 
     Task AddAsync(AnimationInfo info, CancellationToken cancellationToken);
 
+    Task<bool> TryAddReleaseAsync(AnimationInfo info, CancellationToken cancellationToken);
+
     Task UpdateAsync(AnimationInfo info, CancellationToken cancellationToken);
 
     Task<bool> TryStartDownloadAsync(

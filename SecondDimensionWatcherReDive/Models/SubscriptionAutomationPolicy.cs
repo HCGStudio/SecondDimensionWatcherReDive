@@ -27,4 +27,10 @@ public class SubscriptionAutomationPolicy
     public DateTimeOffset CreatedAt { get; set; }
 
     public DateTimeOffset UpdatedAt { get; set; }
+
+    public bool EnableVersionUpgrade { get; set; }
+
+    public int MinimumUpgradeScore { get; set; } = 25;
+
+    public int UpgradeRollbackHours { get; set; } = 72;
 }

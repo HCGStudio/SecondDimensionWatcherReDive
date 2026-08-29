@@ -1,0 +1,322 @@
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
+using SecondDimensionWatcherReDive.Framework.DataRepository;
+using SecondDimensionWatcherReDive.Framework.FileDownload;
+
+namespace SecondDimensionWatcherReDive.Repositories;
+
+public sealed class LibrarySearchRepository(Models.ApplicationContext context)
+    : ILibrarySearchRepository
+{
+    private sealed record SearchCursor(int Offset, DateTimeOffset SnapshotUtc, string Signature);
+
+    public async Task<LibrarySearchResult> SearchAsync(
+        LibrarySearchRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (request.Take is < 1 or > 100)
+            throw new ArgumentOutOfRangeException(nameof(request), "Take must be between 1 and 100.");
+
+        var signature = Signature(request);
+        var cursor = DecodeCursor(request.Cursor);
+        if (cursor is not null && !string.Equals(cursor.Signature, signature, StringComparison.Ordinal))
+            throw new ArgumentException("The search cursor does not match the active filters.", nameof(request));
+        var snapshot = cursor?.SnapshotUtc ?? DateTimeOffset.UtcNow;
+        var offset = cursor?.Offset ?? 0;
+        if (offset is < 0 or > 1_000_000)
+            throw new ArgumentException("The search cursor is outside the supported range.", nameof(request));
+
+        var query = context.AnimationInfo
+            .AsNoTracking()
+            .Include(info => info.Animation)
+            .Include(info => info.Group)
+            .Where(info => info.MediaLibraryMissingSince == null && info.IngestedAt <= snapshot);
+
+        if (!string.IsNullOrWhiteSpace(request.Query))
+        {
+            var pattern = ContainsPattern(request.Query);
+            query = query.Where(info =>
+                EF.Functions.ILike(info.Title, pattern, "\\") ||
+                EF.Functions.ILike(info.Description, pattern, "\\") ||
+                (info.Animation != null &&
+                 (EF.Functions.ILike(info.Animation.Name, pattern, "\\") ||
+                  EF.Functions.ILike(info.Animation.OriginalName, pattern, "\\") ||
+                  EF.Functions.ILike(info.Animation.TmdbId, pattern, "\\"))) ||
+                (info.Group != null && EF.Functions.ILike(info.Group.Name, pattern, "\\")) ||
+                context.FileMappings.Any(mapping =>
+                    mapping.AnimationInfoId == info.Id &&
+                    EF.Functions.ILike(mapping.VirtualPath, pattern, "\\")));
+        }
+
+        if (request.Season is { } season) query = query.Where(info => info.Season == season);
+        if (request.Episode is { } episode) query = query.Where(info => info.Episode == episode);
+        if (!string.IsNullOrWhiteSpace(request.SubtitleGroup))
+            query = query.Where(info => info.ReleaseSubtitleGroup == request.SubtitleGroup);
+        if (!string.IsNullOrWhiteSpace(request.Resolution))
+            query = query.Where(info => info.ReleaseResolution == request.Resolution);
+        if (!string.IsNullOrWhiteSpace(request.Codec))
+            query = query.Where(info => info.ReleaseCodec == request.Codec);
+        if (!string.IsNullOrWhiteSpace(request.Language))
+            query = query.Where(info => info.ReleaseLanguages.Contains(request.Language));
+        if (!string.IsNullOrWhiteSpace(request.VirtualPath))
+        {
+            var pathPattern = ContainsPattern(request.VirtualPath);
+            query = query.Where(info => context.FileMappings.Any(mapping =>
+                mapping.AnimationInfoId == info.Id &&
+                EF.Functions.ILike(mapping.VirtualPath, pathPattern, "\\")));
+        }
+
+        query = request.DownloadState switch
+        {
+            LibraryDownloadState.NotDownloaded => query.Where(info => !info.IsDownloadTracked),
+            LibraryDownloadState.Downloading => query.Where(info =>
+                info.IsDownloadTracked && !info.IsDownloadFinished),
+            LibraryDownloadState.Downloaded => query.Where(info => info.IsDownloadFinished),
+            _ => query
+        };
+        query = request.Source switch
+        {
+            LibrarySourceKind.Torrent => query.Where(info =>
+                info.DownloadType == FileDownloadTypes.TorrentDownload),
+            LibrarySourceKind.MediaLibraryImport => query.Where(info =>
+                info.DownloadType == FileDownloadTypes.MediaLibraryImport),
+            _ => query
+        };
+        query = request.WatchState switch
+        {
+            LibraryWatchState.Watched => query.Where(info => context.PlaybackProgresses.Any(progress =>
+                progress.UserId == request.UserId && progress.AnimationInfoId == info.Id && progress.IsWatched)),
+            LibraryWatchState.InProgress => query.Where(info => context.PlaybackProgresses.Any(progress =>
+                progress.UserId == request.UserId && progress.AnimationInfoId == info.Id &&
+                !progress.IsWatched && progress.PositionSeconds > 0)),
+            LibraryWatchState.Unwatched => query.Where(info => !context.PlaybackProgresses.Any(progress =>
+                progress.UserId == request.UserId && progress.AnimationInfoId == info.Id &&
+                (progress.IsWatched || progress.PositionSeconds > 0))),
+            _ => query
+        };
+
+        var ordered = request.Sort switch
+        {
+            LibrarySearchSort.TitleAscending => query
+                .OrderBy(info => info.Animation == null ? info.Title : info.Animation.Name)
+                .ThenBy(info => info.Season)
+                .ThenBy(info => info.Episode)
+                .ThenBy(info => info.Id),
+            LibrarySearchSort.EpisodeAscending => query
+                .OrderBy(info => info.Animation == null ? info.Title : info.Animation.Name)
+                .ThenBy(info => info.Season)
+                .ThenBy(info => info.Episode)
+                .ThenBy(info => info.Id),
+            LibrarySearchSort.ScoreDescending => query
+                .OrderByDescending(info => info.ReleaseScore)
+                .ThenByDescending(info => info.PublishTime)
+                .ThenBy(info => info.Id),
+            _ => query
+                .OrderByDescending(info => info.PublishTime)
+                .ThenBy(info => info.Id)
+        };
+
+        var page = await ordered.Skip(offset).Take(request.Take + 1).ToListAsync(cancellationToken);
+        var hasMore = page.Count > request.Take;
+        if (hasMore) page.RemoveAt(page.Count - 1);
+        var ids = page.Select(info => info.Id).ToArray();
+        var mappings = await context.FileMappings.AsNoTracking()
+            .Where(mapping => ids.Contains(mapping.AnimationInfoId))
+            .OrderBy(mapping => mapping.VirtualPath)
+            .ToListAsync(cancellationToken);
+        var mappingsByRelease = mappings
+            .GroupBy(mapping => mapping.AnimationInfoId)
+            .ToDictionary(group => group.Key, group => group.Select(item => item.VirtualPath).ToList());
+        var progressByRelease = (await context.PlaybackProgresses.AsNoTracking()
+                .Where(progress => progress.UserId == request.UserId && ids.Contains(progress.AnimationInfoId))
+                .OrderByDescending(progress => progress.UpdatedAt)
+                .ToListAsync(cancellationToken))
+            .GroupBy(progress => progress.AnimationInfoId)
+            .ToDictionary(group => group.Key, group => group.ToList());
+
+        var items = page.Select(info =>
+        {
+            var progress = progressByRelease.GetValueOrDefault(info.Id) ?? [];
+            return new LibrarySearchItem(
+                info.Id,
+                info.Title,
+                info.Animation?.Name,
+                info.Animation?.OriginalName,
+                info.Animation?.TmdbId,
+                info.Season,
+                info.Episode,
+                info.ReleaseSubtitleGroup ?? info.Group?.Name,
+                info.ReleaseResolution,
+                info.ReleaseCodec,
+                info.ReleaseLanguages,
+                info.IsDownloadTracked,
+                info.IsDownloadFinished,
+                info.DownloadType == FileDownloadTypes.MediaLibraryImport,
+                progress.Any(item => item.IsWatched),
+                progress.Count == 0 ? null : progress.Max(item => item.PositionSeconds),
+                mappingsByRelease.GetValueOrDefault(info.Id) ?? [],
+                info.ReleaseScore,
+                ParseReasons(info.ReleaseScoreReasonsJson),
+                info.PublishTime);
+        }).ToList();
+
+        var nextCursor = hasMore
+            ? EncodeCursor(new SearchCursor(offset + request.Take, snapshot, signature))
+            : null;
+        return new LibrarySearchResult(items, nextCursor);
+    }
+
+    public async Task<IReadOnlyList<LibraryIntegritySummary>> GetIntegrityAsync(
+        string? tmdbId,
+        int? season,
+        CancellationToken cancellationToken)
+    {
+        var query = context.AnimationInfo.AsNoTracking()
+            .Include(info => info.Animation)
+            .Where(info => info.Animation != null && info.MediaLibraryMissingSince == null);
+        if (!string.IsNullOrWhiteSpace(tmdbId))
+            query = query.Where(info => info.Animation!.TmdbId == tmdbId);
+        if (season is not null) query = query.Where(info => info.Season == season);
+
+        var releases = await query.ToListAsync(cancellationToken);
+        var releaseIds = releases.Select(info => info.Id).ToArray();
+        var mappedIds = await context.FileMappings.AsNoTracking()
+            .Where(mapping => releaseIds.Contains(mapping.AnimationInfoId))
+            .Select(mapping => mapping.AnimationInfoId)
+            .Distinct()
+            .ToHashSetAsync(cancellationToken);
+        var policies = await context.SubscriptionAutomationPolicies.AsNoTracking()
+            .ToDictionaryAsync(policy => policy.FeedId, cancellationToken);
+
+        return releases
+            .Where(info => info.Season is > 0)
+            .GroupBy(info => new
+            {
+                info.Animation!.TmdbId,
+                info.Animation.Name,
+                Season = info.Season!.Value
+            })
+            .Select(group => BuildIntegrity(group, mappedIds, policies))
+            .OrderBy(item => item.AnimationName)
+            .ThenBy(item => item.Season)
+            .ToList();
+    }
+
+    private static LibraryIntegritySummary BuildIntegrity(
+        IEnumerable<Models.AnimationInfo> source,
+        IReadOnlySet<Guid> mappedIds,
+        IReadOnlyDictionary<Guid, Models.SubscriptionAutomationPolicy> policies)
+    {
+        var releases = source.ToList();
+        var first = releases[0];
+        var downloaded = releases
+            .Where(info => info.IsDownloadFinished && mappedIds.Contains(info.Id) && info.Episode is > 0)
+            .ToList();
+        var expected = releases.Max(info => info.ExpectedEpisodeCount);
+        var present = downloaded.Select(info => info.Episode!.Value).ToHashSet();
+        var missing = expected is { } count
+            ? Enumerable.Range(1, count).Where(episode => !present.Contains(episode)).ToList()
+            : [];
+        var duplicates = downloaded
+            .GroupBy(info => info.Episode!.Value)
+            .Where(group => group.Count() > 1)
+            .Select(group => new EpisodeDuplicate(
+                group.Key,
+                group.OrderByDescending(item => item.ReleaseScore).Select(item => item.Id).ToList()))
+            .OrderBy(item => item.Episode)
+            .ToList();
+        var candidates = new List<ReleaseUpgradeCandidate>();
+        foreach (var episodeGroup in releases.Where(info => info.Episode is > 0).GroupBy(info => info.Episode!.Value))
+        {
+            var current = episodeGroup
+                .Where(info => info.IsActiveRelease && info.IsDownloadFinished && mappedIds.Contains(info.Id))
+                .OrderByDescending(info => info.ReleaseScore)
+                .ThenByDescending(info => info.PublishTime)
+                .FirstOrDefault();
+            if (current is null) continue;
+            var candidate = episodeGroup
+                .Where(info => info.Id != current.Id && info.ReleaseScore > current.ReleaseScore)
+                .OrderByDescending(info => info.ReleaseScore)
+                .ThenByDescending(info => info.PublishTime)
+                .FirstOrDefault();
+            if (candidate is null) continue;
+            var automatic = candidate.SourceFeedId is { } feedId &&
+                            policies.TryGetValue(feedId, out var policy) &&
+                            policy.EnableVersionUpgrade &&
+                            candidate.ReleaseScore - current.ReleaseScore >= policy.MinimumUpgradeScore;
+            candidates.Add(new ReleaseUpgradeCandidate(
+                current.Id,
+                candidate.Id,
+                first.Animation!.Name,
+                first.Season!.Value,
+                episodeGroup.Key,
+                current.ReleaseScore,
+                candidate.ReleaseScore,
+                ParseReasons(candidate.ReleaseScoreReasonsJson),
+                automatic));
+        }
+
+        return new LibraryIntegritySummary(
+            first.Animation!.TmdbId,
+            first.Animation.Name,
+            first.Season!.Value,
+            expected,
+            missing,
+            duplicates,
+            releases.Count(info => info.Episode is null),
+            candidates.OrderBy(item => item.Episode).ToList());
+    }
+
+    private static string ContainsPattern(string value) =>
+        $"%{value.Trim().Replace("\\", "\\\\", StringComparison.Ordinal)
+            .Replace("%", "\\%", StringComparison.Ordinal)
+            .Replace("_", "\\_", StringComparison.Ordinal)}%";
+
+    private static IReadOnlyList<string> ParseReasons(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return [];
+        try
+        {
+            return JsonSerializer.Deserialize<string[]>(json) ?? [];
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
+    }
+
+    private static string Signature(LibrarySearchRequest request)
+    {
+        var value = string.Join('\n',
+            request.Query?.Trim(), request.Season, request.Episode,
+            request.SubtitleGroup, request.Resolution, request.Codec, request.Language,
+            request.DownloadState, request.WatchState, request.VirtualPath,
+            request.Source, request.Sort, request.Take, request.UserId);
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)))[..24];
+    }
+
+    private static string EncodeCursor(SearchCursor cursor)
+    {
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(cursor);
+        return Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+    }
+
+    private static SearchCursor? DecodeCursor(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        if (value.Length > 512) throw new ArgumentException("The search cursor is too long.");
+        try
+        {
+            var normalized = value.Replace('-', '+').Replace('_', '/');
+            normalized = normalized.PadRight((normalized.Length + 3) / 4 * 4, '=');
+            return JsonSerializer.Deserialize<SearchCursor>(Convert.FromBase64String(normalized))
+                   ?? throw new ArgumentException("The search cursor is invalid.");
+        }
+        catch (Exception exception) when (exception is FormatException or JsonException)
+        {
+            throw new ArgumentException("The search cursor is invalid.", exception);
+        }
+    }
+}

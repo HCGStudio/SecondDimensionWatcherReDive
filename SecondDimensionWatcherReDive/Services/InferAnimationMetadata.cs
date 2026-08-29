@@ -89,6 +89,16 @@ public partial class InferAnimationMetadata(
                 if (details != null && !string.IsNullOrEmpty(details.Overview))
                     item = item with { Description = details.Overview };
 
+                if (result.Season is { } inferredSeason)
+                {
+                    var expectedEpisodeCount = await tmdbTool.GetExpectedEpisodeCountAsync(
+                        tmdbIdInt,
+                        inferredSeason,
+                        cancellationToken);
+                    if (expectedEpisodeCount is not null)
+                        item = item with { ExpectedEpisodeCount = expectedEpisodeCount };
+                }
+
                 var animation = await animationRepository
                     .FindByTmdbIdAsync(result.TmdbId, cancellationToken);
 

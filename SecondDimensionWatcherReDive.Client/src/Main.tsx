@@ -15,6 +15,7 @@ import { LoginPage } from "./pages/LoginPage";
 import { EpisodeListPage, MainPage } from "./pages/MainPage";
 import { MetadataReviewPage } from "./pages/MetadataReviewPage";
 import { PlayerPage } from "./pages/PlayerPage";
+import { SearchPage } from "./pages/SearchPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { TasksPage } from "./pages/TasksPage";
 
@@ -69,6 +70,15 @@ const router = createBrowserRouter([
     element: (
       <ProtectedRoute>
         <FilesPage />
+      </ProtectedRoute>
+    ),
+    errorElement: <ErrorPage />,
+  },
+  {
+    path: "/search",
+    element: (
+      <ProtectedRoute>
+        <SearchPage />
       </ProtectedRoute>
     ),
     errorElement: <ErrorPage />,
