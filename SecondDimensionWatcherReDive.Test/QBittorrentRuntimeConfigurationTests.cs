@@ -146,18 +146,20 @@ public sealed class QBittorrentRuntimeConfigurationTests
     }
 
     [TestMethod]
-    public async Task EndpointChange_LogsOutOldOriginAndAuthenticatesNewOrigin()
+    public async Task EndpointChange_DoesNotRequireOldOriginLogoutAndAuthenticatesNewOrigin()
     {
         var options = CreateOptions(OldEndpoint, "alice", "secret");
+        var cookieStore = new QBittorrentCookieStore();
         var server = new FakeQBittorrentServer();
         server.SetAcceptedPassword(OldEndpoint, "secret");
         server.SetAcceptedPassword(NewEndpoint, "secret");
-        using var client = CreateClient(options, server, OldEndpoint);
+        using var client = CreateClient(options, server, OldEndpoint, cookieStore);
 
         using (var primeResponse = await client.GetAsync("api/v2/torrents/info"))
             Assert.IsTrue(primeResponse.IsSuccessStatusCode);
 
         server.ClearRequests();
+        server.FailLogout = true;
         options.Set(new()
         {
             Url = NewEndpoint.AbsoluteUri,
@@ -167,13 +169,95 @@ public sealed class QBittorrentRuntimeConfigurationTests
         using var response = await client.GetAsync(new Uri(NewEndpoint, "api/v2/torrents/info"));
 
         Assert.IsTrue(response.IsSuccessStatusCode);
-        Assert.AreEqual("/api/v2/auth/logout", server.Requests[0].Path);
-        Assert.AreEqual(OldEndpoint.Host, server.Requests[0].Uri.Host);
-        Assert.AreEqual("/api/v2/auth/login", server.Requests[1].Path);
-        Assert.AreEqual(NewEndpoint.Host, server.Requests[1].Uri.Host);
-        Assert.AreEqual(NewEndpoint.Host, server.Requests[2].Uri.Host);
-        Assert.IsFalse(server.HasActiveSession(OldEndpoint));
+        CollectionAssert.AreEqual(
+            new[] { "/api/v2/auth/login", "/api/v2/torrents/info" },
+            server.Requests.Select(request => request.Path).ToArray());
+        Assert.IsTrue(server.Requests.All(request => request.Uri.Host == NewEndpoint.Host));
+        Assert.IsTrue(server.HasActiveSession(OldEndpoint),
+            "The unavailable old origin may retain its server-side session until it expires.");
         Assert.IsTrue(server.HasActiveSession(NewEndpoint));
+        Assert.AreEqual(string.Empty, cookieStore.Container.GetCookieHeader(OldEndpoint),
+            "Endpoint rotation must discard the pooled handler's old cookies locally.");
+    }
+
+    [TestMethod]
+    public async Task EndpointChange_ClearsCookiesThatWouldOtherwiseCrossPorts()
+    {
+        var oldEndpoint = new Uri("http://qbit.example:8080/");
+        var newEndpoint = new Uri("http://qbit.example:9090/");
+        var options = CreateOptions(oldEndpoint, "alice", "secret");
+        var cookieStore = new QBittorrentCookieStore();
+        var server = new FakeQBittorrentServer();
+        server.SetAcceptedPassword(oldEndpoint, "secret");
+        server.SetAcceptedPassword(newEndpoint, "secret");
+        using var client = CreateClient(options, server, oldEndpoint, cookieStore);
+
+        using (var primeResponse = await client.GetAsync("api/v2/torrents/info"))
+            Assert.IsTrue(primeResponse.IsSuccessStatusCode);
+        var oldCookie = cookieStore.Container.GetCookieHeader(oldEndpoint);
+        Assert.IsFalse(string.IsNullOrEmpty(oldCookie));
+        Assert.AreEqual(oldCookie, cookieStore.Container.GetCookieHeader(newEndpoint),
+            "The regression requires a cookie that CookieContainer would send across ports.");
+        server.ClearRequests();
+
+        options.Set(new()
+        {
+            Url = newEndpoint.AbsoluteUri,
+            UserName = "alice",
+            Password = "secret"
+        });
+        using var response = await client.GetAsync(new Uri(newEndpoint, "api/v2/torrents/info"));
+
+        Assert.IsTrue(response.IsSuccessStatusCode);
+        var newCookie = cookieStore.Container.GetCookieHeader(newEndpoint);
+        Assert.IsFalse(string.IsNullOrEmpty(newCookie));
+        Assert.AreNotEqual(oldCookie, newCookie);
+        CollectionAssert.AreEqual(
+            new[] { "/api/v2/auth/login", "/api/v2/torrents/info" },
+            server.Requests.Select(request => request.Path).ToArray());
+        Assert.IsTrue(server.Requests.All(request => request.Uri.Port == newEndpoint.Port));
+        Assert.AreEqual(string.Empty, server.Requests[0].CookieHeader,
+            "The retired SID must not be attached to the new port's login.");
+        Assert.AreEqual(newCookie, server.Requests[1].CookieHeader,
+            "The action must use only the newly issued SID.");
+    }
+
+    [TestMethod]
+    public async Task EndpointRoundTrip_WithClearedUserName_DoesNotReuseRetiredCookie()
+    {
+        var options = CreateOptions(OldEndpoint, "alice", "secret");
+        var cookieStore = new QBittorrentCookieStore();
+        var server = new FakeQBittorrentServer();
+        server.SetAcceptedPassword(OldEndpoint, "secret");
+        server.SetAcceptedPassword(NewEndpoint, "secret");
+        using var client = CreateClient(options, server, OldEndpoint, cookieStore);
+
+        using (var response = await client.GetAsync("api/v2/torrents/info"))
+            Assert.IsTrue(response.IsSuccessStatusCode);
+
+        options.Set(new()
+        {
+            Url = NewEndpoint.AbsoluteUri,
+            UserName = "alice",
+            Password = "secret"
+        });
+        using (var response = await client.GetAsync(new Uri(NewEndpoint, "api/v2/torrents/info")))
+            Assert.IsTrue(response.IsSuccessStatusCode);
+
+        options.Set(new()
+        {
+            Url = OldEndpoint.AbsoluteUri,
+            UserName = null,
+            Password = null
+        });
+        using var returnedResponse = await client.GetAsync(
+            new Uri(OldEndpoint, "api/v2/torrents/info"));
+
+        Assert.AreEqual(HttpStatusCode.Forbidden, returnedResponse.StatusCode);
+        Assert.AreEqual(string.Empty, cookieStore.Container.GetCookieHeader(OldEndpoint));
+        Assert.AreEqual(string.Empty, cookieStore.Container.GetCookieHeader(NewEndpoint));
+        Assert.AreEqual(string.Empty, server.Requests[^1].CookieHeader,
+            "Returning to the old endpoint must not resend its retired SID.");
     }
 
     [TestMethod]
@@ -198,7 +282,7 @@ public sealed class QBittorrentRuntimeConfigurationTests
     }
 
     [TestMethod]
-    public async Task WaitingOldRequest_CannotRestoreCredentialsAfterNewSessionRotation()
+    public async Task WaitingRequest_UsesCurrentCredentialsAfterSerializedSessionRotation()
     {
         var options = CreateOptions(OldEndpoint, "alice", "old-secret");
         var server = new FakeQBittorrentServer();
@@ -221,9 +305,9 @@ public sealed class QBittorrentRuntimeConfigurationTests
         var newRequest = client.GetAsync("api/v2/torrents/info");
         await gate.WaitUntilEnteredAsync();
 
-        // Capture the old snapshot while the new request owns the session lock, then restore the
-        // current options before releasing that lock. The old waiter must fail instead of rolling
-        // the shared cookie session back.
+        // Queue a request while the first request owns the serialized handler, then restore the
+        // current options before releasing it. The waiter must use the current credentials rather
+        // than rolling the shared cookie session back.
         options.Set(new()
         {
             Url = OldEndpoint.AbsoluteUri,
@@ -241,17 +325,81 @@ public sealed class QBittorrentRuntimeConfigurationTests
 
         using (var response = await newRequest)
             Assert.IsTrue(response.IsSuccessStatusCode);
-        await Assert.ThrowsExactlyAsync<HttpRequestException>(async () =>
-        {
-            using var response = await staleRequest;
-        });
+        using (var response = await staleRequest)
+            Assert.IsTrue(response.IsSuccessStatusCode);
 
         var logins = server.Requests
             .Where(request => request.Path == "/api/v2/auth/login")
             .ToArray();
         Assert.AreEqual(1, logins.Length);
         StringAssert.Contains(logins[0].Body, "password=new-secret");
+        Assert.AreEqual(2, server.Requests.Count(request =>
+            request.Path == "/api/v2/torrents/info" && request.WasAuthorized));
         Assert.IsTrue(server.HasActiveSession(OldEndpoint));
+    }
+
+    [TestMethod]
+    public async Task InFlightOldRequest_CompletesBeforeSameHostPortRotation()
+    {
+        var oldEndpoint = new Uri("http://qbit.example:8080/");
+        var newEndpoint = new Uri("http://qbit.example:9090/");
+        var options = CreateOptions(oldEndpoint, "alice", "secret");
+        var cookieStore = new QBittorrentCookieStore();
+        var server = new FakeQBittorrentServer();
+        server.SetAcceptedPassword(oldEndpoint, "secret");
+        server.SetAcceptedPassword(newEndpoint, "secret");
+        var cookieHandler = new CookieContainerHandler(cookieStore.Container, server);
+        var gate = new GatedPathHandler(
+            cookieHandler,
+            "/api/v2/torrents/info",
+            initiallyArmed: false);
+        var authHandler = new QBittorrentAuthHandler(
+            options,
+            cookieStore,
+            NullLogger<QBittorrentAuthHandler>.Instance)
+        {
+            InnerHandler = gate
+        };
+        using var client = new HttpClient(authHandler) { BaseAddress = oldEndpoint };
+
+        using (var response = await client.GetAsync("api/v2/torrents/info"))
+            Assert.IsTrue(response.IsSuccessStatusCode);
+        var oldCookie = cookieStore.Container.GetCookieHeader(oldEndpoint);
+        server.ClearRequests();
+        gate.Arm();
+
+        var oldRequest = client.GetAsync("api/v2/torrents/info");
+        await gate.WaitUntilEnteredAsync();
+        options.Set(new()
+        {
+            Url = newEndpoint.AbsoluteUri,
+            UserName = "alice",
+            Password = "secret"
+        });
+        var newRequest = client.GetAsync(new Uri(newEndpoint, "api/v2/torrents/info"));
+
+        var requestsBeforeRelease = server.Requests.Count;
+        var newRequestCompletedBeforeRelease = newRequest.IsCompleted;
+        gate.Release();
+
+        using (var response = await oldRequest)
+            Assert.IsTrue(response.IsSuccessStatusCode);
+        using (var response = await newRequest)
+            Assert.IsTrue(response.IsSuccessStatusCode);
+
+        Assert.AreEqual(0, requestsBeforeRelease,
+            "The endpoint rotation must wait until the old cookie-bearing exchange completes.");
+        Assert.IsFalse(newRequestCompletedBeforeRelease);
+        CollectionAssert.AreEqual(
+            new[] { "/api/v2/torrents/info", "/api/v2/auth/login", "/api/v2/torrents/info" },
+            server.Requests.Select(request => request.Path).ToArray());
+        Assert.AreEqual(oldEndpoint.Port, server.Requests[0].Uri.Port);
+        Assert.AreEqual(oldCookie, server.Requests[0].CookieHeader);
+        Assert.AreEqual(newEndpoint.Port, server.Requests[1].Uri.Port);
+        Assert.AreEqual(string.Empty, server.Requests[1].CookieHeader);
+        Assert.AreEqual(newEndpoint.Port, server.Requests[2].Uri.Port);
+        Assert.AreNotEqual(oldCookie, server.Requests[2].CookieHeader);
+        Assert.IsFalse(string.IsNullOrEmpty(server.Requests[2].CookieHeader));
     }
 
     [TestMethod]
@@ -301,13 +449,16 @@ public sealed class QBittorrentRuntimeConfigurationTests
     private static HttpClient CreateClient(
         TestOptionsMonitor<QBittorrentRemoteOptions> options,
         HttpMessageHandler innerHandler,
-        Uri endpoint)
+        Uri endpoint,
+        QBittorrentCookieStore? cookieStore = null)
     {
+        cookieStore ??= new QBittorrentCookieStore();
         var authHandler = new QBittorrentAuthHandler(
             options,
+            cookieStore,
             NullLogger<QBittorrentAuthHandler>.Instance)
         {
-            InnerHandler = innerHandler
+            InnerHandler = new CookieContainerHandler(cookieStore.Container, innerHandler)
         };
         return new(authHandler) { BaseAddress = endpoint };
     }
@@ -317,12 +468,15 @@ public sealed class QBittorrentRuntimeConfigurationTests
         Uri Uri,
         string Path,
         string Body,
-        bool WasAuthorized);
+        bool WasAuthorized,
+        string CookieHeader = "");
 
     private sealed class FakeQBittorrentServer : HttpMessageHandler
     {
         private readonly Dictionary<string, string> _acceptedPasswords = new(StringComparer.OrdinalIgnoreCase);
-        private readonly HashSet<string> _activeSessions = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, string> _activeSessions =
+            new(StringComparer.OrdinalIgnoreCase);
+        private int _nextSessionId;
 
         public List<CapturedRequest> Requests { get; } = [];
 
@@ -333,7 +487,7 @@ public sealed class QBittorrentRuntimeConfigurationTests
 
         public void ExpireSession(Uri endpoint) => _activeSessions.Remove(Origin(endpoint));
 
-        public bool HasActiveSession(Uri endpoint) => _activeSessions.Contains(Origin(endpoint));
+        public bool HasActiveSession(Uri endpoint) => _activeSessions.ContainsKey(Origin(endpoint));
 
         public void ClearRequests() => Requests.Clear();
 
@@ -348,35 +502,57 @@ public sealed class QBittorrentRuntimeConfigurationTests
             var body = request.Content is null
                 ? string.Empty
                 : await ReadWithoutSeekingAsync(request.Content, cancellationToken);
+            var cookieHeader = request.Headers.TryGetValues("Cookie", out var cookieValues)
+                ? string.Join("; ", cookieValues)
+                : string.Empty;
 
             if (uri.AbsolutePath == "/api/v2/auth/login")
             {
                 var password = ReadFormValue(body, "password");
                 var accepted = _acceptedPasswords.TryGetValue(origin, out var expected)
                                && string.Equals(password, expected, StringComparison.Ordinal);
-                if (accepted) _activeSessions.Add(origin);
-                Requests.Add(new(request.Method, uri, uri.AbsolutePath, body, accepted));
-                return new(HttpStatusCode.OK)
+                string? sessionId = null;
+                if (accepted)
+                {
+                    sessionId = $"session-{Interlocked.Increment(ref _nextSessionId)}";
+                    _activeSessions[origin] = sessionId;
+                }
+                Requests.Add(new(request.Method, uri, uri.AbsolutePath, body, accepted, cookieHeader));
+                var response = new HttpResponseMessage(HttpStatusCode.OK)
                 {
                     Content = new StringContent(accepted ? "Ok." : "Fails.")
                 };
+                if (sessionId is not null)
+                    response.Headers.TryAddWithoutValidation(
+                        "Set-Cookie",
+                        $"SID={sessionId}; Path=/; HttpOnly");
+                return response;
             }
 
             if (uri.AbsolutePath == "/api/v2/auth/logout")
             {
                 if (FailLogout)
                 {
-                    Requests.Add(new(request.Method, uri, uri.AbsolutePath, body, false));
+                    Requests.Add(new(request.Method, uri, uri.AbsolutePath, body, false, cookieHeader));
                     return new(HttpStatusCode.InternalServerError);
                 }
 
-                var wasAuthorized = _activeSessions.Remove(origin);
-                Requests.Add(new(request.Method, uri, uri.AbsolutePath, body, wasAuthorized));
-                return new(HttpStatusCode.OK) { Content = new StringContent("Ok.") };
+                var wasAuthorized = HasValidSession(origin, cookieHeader);
+                if (wasAuthorized)
+                    _activeSessions.Remove(origin);
+                Requests.Add(new(request.Method, uri, uri.AbsolutePath, body, wasAuthorized, cookieHeader));
+                var response = new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("Ok.")
+                };
+                response.Headers.TryAddWithoutValidation(
+                    "Set-Cookie",
+                    "SID=; Path=/; Max-Age=0");
+                return response;
             }
 
-            var authorized = _activeSessions.Contains(origin);
-            Requests.Add(new(request.Method, uri, uri.AbsolutePath, body, authorized));
+            var authorized = HasValidSession(origin, cookieHeader);
+            Requests.Add(new(request.Method, uri, uri.AbsolutePath, body, authorized, cookieHeader));
             return new(authorized ? HttpStatusCode.OK : HttpStatusCode.Forbidden);
         }
 
@@ -403,21 +579,56 @@ public sealed class QBittorrentRuntimeConfigurationTests
             return string.Empty;
         }
 
+        private bool HasValidSession(string origin, string cookieHeader) =>
+            _activeSessions.TryGetValue(origin, out var sessionId)
+            && cookieHeader.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+                .Any(value => string.Equals(value, $"SID={sessionId}", StringComparison.Ordinal));
+
         private static string Origin(Uri endpoint) => endpoint.GetLeftPart(UriPartial.Authority);
+    }
+
+    private sealed class CookieContainerHandler(
+        CookieContainer cookieContainer,
+        HttpMessageHandler innerHandler) : DelegatingHandler(innerHandler)
+    {
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            if (request.RequestUri is { } requestUri)
+            {
+                var cookieHeader = cookieContainer.GetCookieHeader(requestUri);
+                if (!string.IsNullOrEmpty(cookieHeader))
+                    request.Headers.TryAddWithoutValidation("Cookie", cookieHeader);
+            }
+
+            var response = await base.SendAsync(request, cancellationToken);
+            if (request.RequestUri is { } responseUri
+                && response.Headers.TryGetValues("Set-Cookie", out var setCookieHeaders))
+            {
+                foreach (var setCookieHeader in setCookieHeaders)
+                    cookieContainer.SetCookies(responseUri, setCookieHeader);
+            }
+
+            return response;
+        }
     }
 
     private sealed class GatedPathHandler(
         HttpMessageHandler innerHandler,
-        string gatedPath) : DelegatingHandler(innerHandler)
+        string gatedPath,
+        bool initiallyArmed = true) : DelegatingHandler(innerHandler)
     {
         private readonly TaskCompletionSource _entered =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource _release =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
-        private int _gateNextRequest = 1;
+        private int _gateNextRequest = initiallyArmed ? 1 : 0;
 
         public Task WaitUntilEnteredAsync() =>
             _entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        public void Arm() => Interlocked.Exchange(ref _gateNextRequest, 1);
 
         public void Release() => _release.TrySetResult();
 

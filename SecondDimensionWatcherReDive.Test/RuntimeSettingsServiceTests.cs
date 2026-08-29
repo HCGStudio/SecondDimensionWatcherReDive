@@ -227,6 +227,43 @@ public sealed class RuntimeSettingsServiceTests
     }
 
     [TestMethod]
+    [DataRow("AI:Engine", "builtInn", "ai.executionMode")]
+    [DataRow("AI:Provider", "anthropicc", "ai.provider")]
+    [DataRow("AI:OpenAI:ApiMode", "responsez", "ai.openAI.apiMode")]
+    public async Task InvalidDeploymentAiEnum_FailsInitialization(
+        string configurationKey,
+        string invalidValue,
+        string errorPath)
+    {
+        var exception = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
+            SettingsTestHost.CreateAsync(
+                configurationOverrides: new Dictionary<string, string?>
+                {
+                    [configurationKey] = invalidValue
+                }));
+
+        StringAssert.Contains(exception.Message, errorPath);
+    }
+
+    [TestMethod]
+    public async Task MissingDeploymentAiEnums_UseDefaults()
+    {
+        await using var host = await SettingsTestHost.CreateAsync(
+            configurationOverrides: new Dictionary<string, string?>
+            {
+                ["AI:Engine"] = null,
+                ["AI:Provider"] = null,
+                ["AI:OpenAI:ApiMode"] = null
+            });
+
+        var state = await host.RuntimeSettings.GetAsync(CancellationToken.None);
+
+        Assert.AreEqual(AiExecutionMode.BuiltIn, state.Desired.Ai.ExecutionMode);
+        Assert.AreEqual(BuiltInAiProvider.OpenAI, state.Desired.Ai.Provider);
+        Assert.AreEqual(OpenAiApiMode.ChatCompletions, state.Desired.Ai.OpenAI.ApiMode);
+    }
+
+    [TestMethod]
     public async Task ChangingCredentialedOrigins_RequiresSetOrClearInSamePatch()
     {
         await using var host = await SettingsTestHost.CreateAsync();
@@ -304,6 +341,32 @@ public sealed class RuntimeSettingsServiceTests
 
         Assert.AreEqual(RuntimeSettingsUpdateStatus.Saved, accepted.Status);
         Assert.AreEqual(1, host.Repository.SaveCalls);
+    }
+
+    [TestMethod]
+    public async Task InvalidTorrentUserAgent_IsRejectedBeforePersistence()
+    {
+        await using var host = await SettingsTestHost.CreateAsync();
+        var initial = await host.RuntimeSettings.GetAsync(CancellationToken.None);
+        var torrent = initial.Desired.Torrent with
+        {
+            UserAgent = "SecondDimensionWatcher/1.0\nInjected: true"
+        };
+
+        var result = await host.RuntimeSettings.UpdateAsync(
+            new RuntimeSettingsPatch(
+                initial.Revision,
+                Ai: null,
+                Tmdb: null,
+                Torrent: new TorrentSettingsUpdate(torrent, Password: null),
+                MediaLibrary: null,
+                Incidents: null,
+                Nfs: null),
+            CancellationToken.None);
+
+        Assert.AreEqual(RuntimeSettingsUpdateStatus.Invalid, result.Status);
+        Assert.IsTrue(result.Errors.ContainsKey("torrent.userAgent"));
+        Assert.AreEqual(0, host.Repository.SaveCalls);
     }
 
     [TestMethod]

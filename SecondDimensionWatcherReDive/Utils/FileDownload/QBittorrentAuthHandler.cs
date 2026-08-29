@@ -5,6 +5,7 @@ namespace SecondDimensionWatcherReDive.Utils.FileDownload;
 
 public sealed partial class QBittorrentAuthHandler(
     IOptionsMonitor<QBittorrentRemoteOptions> options,
+    QBittorrentCookieStore cookieStore,
     ILogger<QBittorrentAuthHandler> logger)
     : DelegatingHandler
 {
@@ -17,10 +18,29 @@ public sealed partial class QBittorrentAuthHandler(
         string? Password);
 
     private readonly SemaphoreSlim _loginLock = new(1, 1);
+    private readonly SemaphoreSlim _requestLock = new(1, 1);
     private SessionSettings? _sessionSettings;
     private bool _hasLoggedIn;
 
     protected override async Task<HttpResponseMessage> SendAsync(
+        HttpRequestMessage request,
+        CancellationToken cancellationToken)
+    {
+        // HttpClientHandler applies response cookies before SendAsync completes. Serializing the
+        // full exchange makes cookie selection and endpoint rotation atomic, preventing an old
+        // same-host request from receiving or sending a new port's SID.
+        await _requestLock.WaitAsync(cancellationToken);
+        try
+        {
+            return await SendSerializedAsync(request, cancellationToken);
+        }
+        finally
+        {
+            _requestLock.Release();
+        }
+    }
+
+    private async Task<HttpResponseMessage> SendSerializedAsync(
         HttpRequestMessage request,
         CancellationToken cancellationToken)
     {
@@ -104,9 +124,14 @@ public sealed partial class QBittorrentAuthHandler(
 
             if (_sessionSettings == settings) return false;
 
-            // Invalidate the cookie issued for the previous credentials before a cleared
-            // username can fall through to an apparently unauthenticated request.
-            if (_hasLoggedIn && _sessionSettings is not null)
+            // An endpoint rotation must not depend on the retired server accepting a logout.
+            // Clear the dedicated local jar instead: cookies do not distinguish ports, and a
+            // retained SID could otherwise cross ports or be reused after an A -> B -> A change.
+            // On the same endpoint, logout remains mandatory so the server-side session is
+            // invalidated before changed or cleared credentials take effect.
+            var endpointChanged = _sessionSettings is not null
+                                  && _sessionSettings.Endpoint != settings.Endpoint;
+            if (_hasLoggedIn && _sessionSettings is not null && !endpointChanged)
             {
                 try
                 {
@@ -129,6 +154,12 @@ public sealed partial class QBittorrentAuthHandler(
                         exception);
                 }
             }
+
+            // The jar is dedicated to this handler pipeline. Clear it after a successful
+            // same-endpoint logout, or immediately when changing endpoints. Also clear cookies
+            // left by a rejected login before attempting a different credential set.
+            if (_sessionSettings is not null)
+                cookieStore.Clear();
 
             _sessionSettings = settings;
             _hasLoggedIn = false;

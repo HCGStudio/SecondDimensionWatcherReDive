@@ -155,6 +155,7 @@ else
 //Configure HTTP client
 builder.Services.AddOptions<QBittorrentRemoteOptions>()
     .BindConfiguration(QBittorrentRemoteOptions.SectionName);
+builder.Services.AddScoped<QBittorrentCookieStore>();
 builder.Services.AddTransient<QBittorrentAuthHandler>();
 builder.Services.AddHttpClient("RemoteTorrentDownloadClient", (serviceProvider, client) =>
 {
@@ -174,13 +175,17 @@ builder.Services.AddHttpClient("RemoteTorrentDownloadClient", (serviceProvider, 
             Assembly.GetCallingAssembly().GetName().Version?.ToString() ?? "2.0"));
     }
 })
-.ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+.ConfigurePrimaryHttpMessageHandler(serviceProvider =>
 {
-    // Do not let a 307/308 replay qBittorrent credentials to another origin. Redirects are
-    // intentionally surfaced to the caller so the configured endpoint can be corrected.
-    AllowAutoRedirect = false,
-    CookieContainer = new CookieContainer(),
-    UseCookies = true
+    var cookieStore = serviceProvider.GetRequiredService<QBittorrentCookieStore>();
+    return new HttpClientHandler
+    {
+        // Do not let a 307/308 replay qBittorrent credentials to another origin. Redirects are
+        // intentionally surfaced to the caller so the configured endpoint can be corrected.
+        AllowAutoRedirect = false,
+        CookieContainer = cookieStore.Container,
+        UseCookies = true
+    };
 })
 .AddHttpMessageHandler<QBittorrentAuthHandler>();
 

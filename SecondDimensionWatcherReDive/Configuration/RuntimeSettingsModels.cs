@@ -289,8 +289,14 @@ internal static class RuntimeSettingsDefaults
         configuration.GetValue<TimeSpan?>(key) ?? fallback;
 
     private static TEnum ParseEnum<TEnum>(string? value, TEnum fallback)
-        where TEnum : struct, Enum =>
-        Enum.TryParse<TEnum>(value, ignoreCase: true, out var parsed) ? parsed : fallback;
+        where TEnum : struct, Enum
+    {
+        if (value is null) return fallback;
+
+        return Enum.TryParse<TEnum>(value, ignoreCase: true, out var parsed)
+            ? parsed
+            : (TEnum)Enum.ToObject(typeof(TEnum), -1);
+    }
 
     private static string? NullIfWhiteSpace(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value;
@@ -336,6 +342,7 @@ internal static class RuntimeSettingsValidator
             values.Ai.Inference.RateLimitDelayMs, 0, int.MaxValue);
 
         ValidateHttpUri(errors, "torrent.url", values.Torrent.Url);
+        ValidateUserAgent(errors, "torrent.userAgent", values.Torrent.UserAgent);
 
         var normalizedRoots = new HashSet<string>(StringComparer.Ordinal);
         for (var index = 0; index < values.MediaLibrary.AllowedRoots.Count; index++)
@@ -428,6 +435,18 @@ internal static class RuntimeSettingsValidator
         if (uri.Scheme == "ws" && !uri.IsLoopback)
             Add(errors, key,
                 "Plain ws is allowed only for loopback app-server endpoints; use wss for remote endpoints.");
+    }
+
+    private static void ValidateUserAgent(
+        Dictionary<string, List<string>> errors,
+        string key,
+        string? value)
+    {
+        if (value is null) return;
+
+        using var request = new HttpRequestMessage();
+        if (!request.Headers.UserAgent.TryParseAdd(value))
+            Add(errors, key, "The value must use valid User-Agent header syntax.");
     }
 
     private static void RequireText(
