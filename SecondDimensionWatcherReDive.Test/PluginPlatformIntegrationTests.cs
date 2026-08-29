@@ -448,6 +448,34 @@ public sealed class PluginPlatformIntegrationTests
     }
 
     [TestMethod]
+    public void WorkerEnvironment_RemovesProfilerAndStartupHookInjection()
+    {
+        var startInfo = new ProcessStartInfo();
+        string[] injectedVariables =
+        [
+            "CORECLR_ENABLE_PROFILING",
+            "CORECLR_PROFILER",
+            "CORECLR_PROFILER_PATH",
+            "CORECLR_PROFILER_PATH_32",
+            "CORECLR_PROFILER_PATH_64",
+            "COR_ENABLE_PROFILING",
+            "COR_PROFILER",
+            "COR_PROFILER_PATH",
+            "COR_PROFILER_PATH_32",
+            "COR_PROFILER_PATH_64",
+            "DOTNET_STARTUP_HOOKS",
+            "DOTNET_ADDITIONAL_DEPS",
+            "DOTNET_SHARED_STORE"
+        ];
+        foreach (var variable in injectedVariables) startInfo.Environment[variable] = "injected";
+
+        PluginProcessExecutor.RemoveRuntimeInjectionEnvironmentVariables(startInfo);
+
+        foreach (var variable in injectedVariables)
+            Assert.IsFalse(startInfo.Environment.ContainsKey(variable), $"{variable} must not reach the worker.");
+    }
+
+    [TestMethod]
     public async Task Worker_ContainsTimeoutCrashAndResourceExhaustion_ThenOpensCircuit()
     {
         const string hostileScript = """
