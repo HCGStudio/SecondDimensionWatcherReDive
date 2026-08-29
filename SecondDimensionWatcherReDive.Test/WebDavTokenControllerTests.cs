@@ -3,6 +3,7 @@ using Moq;
 using SecondDimensionWatcherReDive.Controllers;
 using SecondDimensionWatcherReDive.Controllers.External;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
+using SecondDimensionWatcherReDive.Auth;
 
 namespace SecondDimensionWatcherReDive.Test;
 
@@ -11,14 +12,16 @@ public class WebDavTokenControllerTests
 {
     private Mock<IWebDavTokenRepository> _repo = null!;
     private WebDavTokenController _controller = null!;
+    private IDeviceTokenHasher _tokenHasher = null!;
 
     [TestInitialize]
     public void Setup()
     {
         _repo = new Mock<IWebDavTokenRepository>();
+        _tokenHasher = new DeviceTokenHasher("test-pepper-with-at-least-32-characters");
         _repo.Setup(r => r.ExistsByUsernameAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(false);
-        _controller = new WebDavTokenController(_repo.Object);
+        _controller = new WebDavTokenController(_repo.Object, _tokenHasher);
     }
 
     [TestMethod]
@@ -61,7 +64,7 @@ public class WebDavTokenControllerTests
         Assert.IsNotNull(captured);
         Assert.AreEqual(payload.Username, captured!.Username);
         Assert.AreNotEqual(payload.Token, captured.TokenHash, "TokenHash must not be plaintext.");
-        Assert.IsTrue(BCrypt.Net.BCrypt.Verify(payload.Token, captured.TokenHash));
+        Assert.IsTrue(_tokenHasher.Verify(payload.Token, captured.TokenHash));
         Assert.IsNull(captured.Description);
     }
 

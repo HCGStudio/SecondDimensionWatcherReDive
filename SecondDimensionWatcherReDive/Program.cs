@@ -1,11 +1,14 @@
 using System.Net;
 using System.Net.Http.Headers;
+using System.Net.Sockets;
 using System.Reflection;
 using System.Text;
 using System.Threading.Channels;
+using System.Threading.RateLimiting;
 using AspSpaService;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -33,6 +36,7 @@ using SecondDimensionWatcherReDive.Utils.FileDownload;
 using SecondDimensionWatcherReDive.Utils.FileStore;
 using SecondDimensionWatcherReDive.Utils.MetadataReview;
 using SecondDimensionWatcherReDive.Utils.Incidents;
+using SecondDimensionWatcherReDive.Utils.Http;
 using SecondDimensionWatcherReDive.Utils.Scraper;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -108,19 +112,67 @@ builder.Services.AddCors(options =>
         policy.AllowAnyOrigin();
     });
 });
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy("auth", context => RateLimitPartition.GetFixedWindowLimiter(
+        context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = builder.Configuration.GetValue("RateLimit:AuthPermitLimit", 10),
+            Window = TimeSpan.FromMinutes(1),
+            QueueLimit = 0,
+            AutoReplenishment = true
+        }));
+    options.AddPolicy("basic", context => RateLimitPartition.GetFixedWindowLimiter(
+        context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = builder.Configuration.GetValue("RateLimit:BasicPermitLimit", 600),
+            Window = TimeSpan.FromMinutes(1),
+            QueueLimit = 0,
+            AutoReplenishment = true
+        }));
+    options.AddPolicy("ai", context => RateLimitPartition.GetFixedWindowLimiter(
+        context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = builder.Configuration.GetValue("RateLimit:AiPermitLimit", 30),
+            Window = TimeSpan.FromMinutes(1),
+            QueueLimit = 0,
+            AutoReplenishment = true
+        }));
+});
 
 //Configure JWT
-var key = Encoding.ASCII.GetBytes(builder.Configuration["JwtSecret"] ??
-                                  throw new ApplicationException("JwtSecret must present in the config file."));
+var jwtSecret = builder.Configuration["JwtSecret"] ??
+                throw new ApplicationException("JwtSecret must be present in the config file.");
+if (Encoding.UTF8.GetByteCount(jwtSecret) < 32 ||
+    jwtSecret.StartsWith("<Please fill", StringComparison.OrdinalIgnoreCase) ||
+    jwtSecret.StartsWith("CHANGE_ME", StringComparison.OrdinalIgnoreCase))
+    throw new ApplicationException("JwtSecret must be replaced with at least 32 random bytes.");
+var key = Encoding.UTF8.GetBytes(jwtSecret);
+builder.Services.AddOptions<TokenSecurityOptions>()
+    .BindConfiguration(TokenSecurityOptions.SectionName)
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+var tokenSecurity = builder.Configuration
+    .GetSection(TokenSecurityOptions.SectionName)
+    .Get<TokenSecurityOptions>() ?? new TokenSecurityOptions();
 
 var tokenValidationParams = new TokenValidationParameters
 {
     ValidateIssuerSigningKey = true,
+    RequireSignedTokens = true,
     IssuerSigningKey = new SymmetricSecurityKey(key),
-    ValidateIssuer = false,
-    ValidateAudience = false,
+    ValidAlgorithms = [SecurityAlgorithms.HmacSha256],
+    ValidateIssuer = true,
+    ValidIssuer = tokenSecurity.Issuer,
+    ValidateAudience = true,
+    ValidAudience = tokenSecurity.Audience,
     ValidateLifetime = true,
-    RequireExpirationTime = false
+    RequireExpirationTime = true,
+    ClockSkew = TimeSpan.FromSeconds(30)
 };
 
 builder.Services.AddSingleton(tokenValidationParams);
@@ -151,10 +203,23 @@ else
 {
     builder.Services.AddDistributedMemoryCache();
 }
+builder.Services.AddMemoryCache();
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<RefreshTokenStore>();
+builder.Services.AddSingleton<IDeviceTokenHasher>(_ => new DeviceTokenHasher(
+    builder.Configuration["WebDavTokens:Pepper"] ??
+    builder.Configuration["JwtSecret"]!));
 
 //Configure HTTP client
 builder.Services.AddOptions<QBittorrentRemoteOptions>()
     .BindConfiguration(QBittorrentRemoteOptions.SectionName);
+builder.Services.AddOptions<OutboundHttpOptions>()
+    .BindConfiguration(OutboundHttpOptions.SectionName)
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+builder.Services.AddSingleton<IHostAddressResolver, SystemHostAddressResolver>();
+builder.Services.AddSingleton<OutboundAddressPolicy>();
+builder.Services.AddSingleton<ISafeOutboundHttpFetcher, SafeOutboundHttpFetcher>();
 builder.Services.AddScoped<QBittorrentCookieStore>();
 builder.Services.AddTransient<QBittorrentAuthHandler>();
 builder.Services.AddHttpClient("RemoteTorrentDownloadClient", (serviceProvider, client) =>
@@ -189,7 +254,7 @@ builder.Services.AddHttpClient("RemoteTorrentDownloadClient", (serviceProvider, 
 })
 .AddHttpMessageHandler<QBittorrentAuthHandler>();
 
-builder.Services.AddHttpClient("Feed", client =>
+void ConfigureFeedClient(HttpClient client)
 {
     var overrideUserAgent = builder.Configuration["Feed:UserAgent"];
     if (overrideUserAgent != null)
@@ -202,6 +267,48 @@ builder.Services.AddHttpClient("Feed", client =>
         client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("SecondDimensionWatcherReDive",
             Assembly.GetCallingAssembly().GetName().Version?.ToString() ?? "2.0"));
     }
+}
+
+builder.Services.AddHttpClient("Feed", ConfigureFeedClient);
+builder.Services.AddHttpClient("SafeFeed", client =>
+{
+    ConfigureFeedClient(client);
+    // SafeOutboundHttpFetcher owns the total deadline so it can distinguish the
+    // first-byte phase from bounded body streaming.
+    client.Timeout = Timeout.InfiniteTimeSpan;
+})
+.ConfigurePrimaryHttpMessageHandler(serviceProvider =>
+{
+    var policy = serviceProvider.GetRequiredService<OutboundAddressPolicy>();
+    var options = serviceProvider.GetRequiredService<Microsoft.Extensions.Options.IOptions<OutboundHttpOptions>>().Value;
+    return new SocketsHttpHandler
+    {
+        AllowAutoRedirect = false,
+        AutomaticDecompression = DecompressionMethods.All,
+        ConnectTimeout = TimeSpan.FromSeconds(options.ConnectTimeoutSeconds),
+        MaxConnectionsPerServer = options.MaxConcurrentRequests,
+        PooledConnectionLifetime = TimeSpan.FromMinutes(5),
+        UseProxy = false,
+        ConnectCallback = async (context, cancellationToken) =>
+        {
+            var address = await policy.ResolveConnectionAddressAsync(
+                context.DnsEndPoint,
+                cancellationToken);
+            var socket = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+            try
+            {
+                await socket.ConnectAsync(
+                    new IPEndPoint(address, context.DnsEndPoint.Port),
+                    cancellationToken);
+                return new NetworkStream(socket, ownsSocket: true);
+            }
+            catch
+            {
+                socket.Dispose();
+                throw;
+            }
+        }
+    };
 });
 
 var contentTypeProvider = new FileExtensionContentTypeProvider();
@@ -319,6 +426,7 @@ if (app.Environment.IsDevelopment())
 app.UseHttpsRedirection();
 
 app.UseRouting();
+app.UseRateLimiter();
 
 app.MapControllers();
 

@@ -31,7 +31,9 @@ internal sealed class RpcProgramMismatchException : Exception
 
 internal static class RpcDecoder
 {
-    public static (RpcCallHeader Header, int BodyOffset) DecodeCall(ReadOnlySpan<byte> message)
+    public static (RpcCallHeader Header, int BodyOffset) DecodeCall(
+        ReadOnlySpan<byte> message,
+        bool allowAnonymous = false)
     {
         var reader = new XdrReader(message);
         try
@@ -46,7 +48,7 @@ internal static class RpcDecoder
             var program = reader.ReadUInt32();
             var version = reader.ReadUInt32();
             var procedure = reader.ReadUInt32();
-            var cred = RpcAuthDecoder.ReadCredential(ref reader);
+            var cred = RpcAuthDecoder.ReadCredential(ref reader, allowAnonymous);
             RpcAuthDecoder.ReadAndDiscardVerifier(ref reader);
 
             var header = new RpcCallHeader(xid, program, version, procedure, cred);

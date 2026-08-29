@@ -3,6 +3,7 @@ using System.Security.Claims;
 using System.Text;
 using System.Text.Encodings.Web;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 
@@ -12,12 +13,18 @@ internal sealed class BasicAuthenticationHandler : AuthenticationHandler<Authent
 {
     public const string SchemeName = "Basic";
     private const string Realm = "SecondDimensionWatcher WebDAV";
+    private readonly IDeviceTokenHasher _tokenHasher;
+    private readonly IMemoryCache _verificationCache;
 
     public BasicAuthenticationHandler(
         IOptionsMonitor<AuthenticationSchemeOptions> options,
         ILoggerFactory logger,
-        UrlEncoder encoder) : base(options, logger, encoder)
+        UrlEncoder encoder,
+        IDeviceTokenHasher tokenHasher,
+        IMemoryCache verificationCache) : base(options, logger, encoder)
     {
+        _tokenHasher = tokenHasher;
+        _verificationCache = verificationCache;
     }
 
     protected override async Task<AuthenticateResult> HandleAuthenticateAsync()
@@ -53,13 +60,34 @@ internal sealed class BasicAuthenticationHandler : AuthenticationHandler<Authent
             return AuthenticateResult.Fail("Invalid credentials.");
 
         bool verified;
-        try
+        if (_tokenHasher.IsModernHash(record.TokenHash))
         {
-            verified = BCrypt.Net.BCrypt.Verify(password, record.TokenHash);
+            verified = _tokenHasher.Verify(password, record.TokenHash);
         }
-        catch (BCrypt.Net.SaltParseException)
+        else
         {
-            return AuthenticateResult.Fail("Stored token hash is invalid.");
+            var cacheKey = _tokenHasher.VerificationCacheKey(record.Id, password);
+            if (!_verificationCache.TryGetValue(cacheKey, out verified))
+            {
+                try
+                {
+                    verified = BCrypt.Net.BCrypt.Verify(password, record.TokenHash);
+                }
+                catch (BCrypt.Net.SaltParseException)
+                {
+                    return AuthenticateResult.Fail("Stored token hash is invalid.");
+                }
+
+                if (verified)
+                {
+                    await repository.UpdateHashAsync(
+                        record.Id,
+                        record.TokenHash,
+                        _tokenHasher.Hash(password),
+                        Context.RequestAborted);
+                }
+                _verificationCache.Set(cacheKey, verified, TimeSpan.FromMinutes(2));
+            }
         }
 
         if (!verified)

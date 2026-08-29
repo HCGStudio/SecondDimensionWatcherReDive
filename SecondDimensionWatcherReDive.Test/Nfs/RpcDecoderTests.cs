@@ -20,7 +20,7 @@ public class RpcDecoderTests
             verifier: VerifierAuthNone(),
             body: [0xCA, 0xFE]);
 
-        var (header, bodyOffset) = RpcDecoder.DecodeCall(bytes);
+        var (header, bodyOffset) = RpcDecoder.DecodeCall(bytes, allowAnonymous: true);
         Assert.AreEqual(0xDEADBEEFu, header.Xid);
         Assert.AreEqual(100003u, header.Program);
         Assert.AreEqual(4u, header.Version);
@@ -28,6 +28,21 @@ public class RpcDecoderTests
         Assert.AreEqual(0u, header.Credential.Uid);
         Assert.AreEqual(string.Empty, header.Credential.MachineName);
         CollectionAssert.AreEqual(new byte[] { 0xCA, 0xFE }, bytes[bodyOffset..]);
+    }
+
+    [TestMethod]
+    public void DecodeCall_RejectsAuthNoneByDefault()
+    {
+        var bytes = BuildCall(
+            xid: 1,
+            program: 100003,
+            version: 4,
+            procedure: 1,
+            credential: CredentialAuthNone(),
+            verifier: VerifierAuthNone(),
+            body: []);
+
+        Assert.ThrowsExactly<RpcAuthRejectedException>(() => RpcDecoder.DecodeCall(bytes));
     }
 
     [TestMethod]

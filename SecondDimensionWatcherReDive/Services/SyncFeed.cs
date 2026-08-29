@@ -8,22 +8,22 @@ using SecondDimensionWatcherReDive.Framework.FileDownload;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Framework.Tasks;
 using SecondDimensionWatcherReDive.Utils.Incidents;
+using SecondDimensionWatcherReDive.Utils.Http;
 
 namespace SecondDimensionWatcherReDive.Services;
 
 /// <summary>
 ///     The SyncFeed class is responsible for synchronizing feeds at regular intervals.
 /// </summary>
-public partial class SyncFeed(
+internal partial class SyncFeed(
     IServiceProvider serviceProvider,
     ILogger<SyncFeed> logger,
-    IHttpClientFactory httpClientFactory,
+    ISafeOutboundHttpFetcher outboundFetcher,
     IServiceScopeFactory scopeFactory,
     ISubscriptionAutomationMatcher automationMatcher,
     IIncidentReporter? incidentReporter = null)
     : ScheduledTaskBase
 {
-    private readonly HttpClient _httpClient = httpClientFactory.CreateClient("Feed");
     private static readonly JsonSerializerOptions ExplanationJsonOptions = new(JsonSerializerDefaults.Web);
 
     public override string Id => "SyncFeed";
@@ -41,7 +41,10 @@ public partial class SyncFeed(
         AnimationAddRequest request,
         CancellationToken cancellationToken)
     {
-        var data = await _httpClient.GetByteArrayAsync(request.DownloadUrl, cancellationToken);
+        var data = await outboundFetcher.GetBytesAsync(
+            request.DownloadUrl,
+            OutboundPayloadKind.Torrent,
+            cancellationToken);
         if (data.Length == 0)
         {
             throw new InvalidTorrentDataException(request.DownloadUrl);

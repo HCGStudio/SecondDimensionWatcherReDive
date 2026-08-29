@@ -55,7 +55,7 @@ public class AuthSysCredTests
     }
 
     [TestMethod]
-    public void AuthNoneReturnsAnonymous()
+    public void AuthNoneIsRejectedByDefault()
     {
         var buf = new ArrayBufferWriter<byte>();
         var w = new XdrWriter(buf);
@@ -63,7 +63,26 @@ public class AuthSysCredTests
         w.WriteOpaque([]);
 
         var reader = new XdrReader(buf.WrittenSpan);
-        var cred = RpcAuthDecoder.ReadCredential(ref reader);
+        try
+        {
+            RpcAuthDecoder.ReadCredential(ref reader);
+            Assert.Fail("expected RpcAuthRejectedException");
+        }
+        catch (RpcAuthRejectedException)
+        {
+        }
+    }
+
+    [TestMethod]
+    public void AuthNoneCanBeExplicitlyEnabled()
+    {
+        var buf = new ArrayBufferWriter<byte>();
+        var w = new XdrWriter(buf);
+        w.WriteUInt32(RpcConstants.AuthNone);
+        w.WriteOpaque([]);
+
+        var reader = new XdrReader(buf.WrittenSpan);
+        var cred = RpcAuthDecoder.ReadCredential(ref reader, allowAnonymous: true);
         Assert.AreEqual(0u, cred.Uid);
         Assert.AreEqual(0u, cred.Gid);
         Assert.AreEqual(string.Empty, cred.MachineName);

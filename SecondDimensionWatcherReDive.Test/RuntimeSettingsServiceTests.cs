@@ -454,7 +454,14 @@ public sealed class RuntimeSettingsServiceTests
         await using (var first = await SettingsTestHost.CreateAsync(repository, dataProtection))
         {
             var initial = await first.RuntimeSettings.GetAsync(CancellationToken.None);
-            var nfs = initial.Desired.Nfs with { Enabled = true, Port = 2050 };
+            var nfs = initial.Desired.Nfs with
+            {
+                Enabled = true,
+                Port = 2050,
+                IdleTimeoutSeconds = 45,
+                AllowAnonymous = true,
+                AllowedNetworks = ["10.20.0.0/16"]
+            };
 
             var saved = await first.RuntimeSettings.UpdateAsync(
                 new RuntimeSettingsPatch(
@@ -480,6 +487,9 @@ public sealed class RuntimeSettingsServiceTests
         Assert.IsTrue(restartedState.Desired.Nfs.Enabled);
         Assert.AreEqual("true", restarted.Configuration["Nfs:Enabled"]?.ToLowerInvariant());
         Assert.AreEqual("2050", restarted.Configuration["Nfs:Port"]);
+        Assert.AreEqual("45", restarted.Configuration["Nfs:IdleTimeoutSeconds"]);
+        Assert.AreEqual("true", restarted.Configuration["Nfs:AllowAnonymous"]?.ToLowerInvariant());
+        Assert.AreEqual("10.20.0.0/16", restarted.Configuration["Nfs:AllowedNetworks:0"]);
     }
 
     [TestMethod]

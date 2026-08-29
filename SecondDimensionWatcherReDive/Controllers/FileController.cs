@@ -1,11 +1,15 @@
 using System.ComponentModel.DataAnnotations;
 using System.Security.Cryptography;
+using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.StaticFiles;
 using System.Text.Json;
 using Microsoft.Extensions.Caching.Distributed;
+using Microsoft.Extensions.Options;
+using Microsoft.AspNetCore.WebUtilities;
+using SecondDimensionWatcherReDive.Configuration;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Framework.FileStore;
 
@@ -19,14 +23,18 @@ internal partial class FileController(
     IFileExplorer fileExplorer,
     IDistributedCache distributedCache,
     IContentTypeProvider contentTypeProvider,
+    IOptions<TokenSecurityOptions> tokenSecurityOptions,
     ILogger<FileController> logger) : ControllerBase
 {
     private static string GenerateToken(int length)
     {
         var arr = length > 128 ? new byte[length] : stackalloc byte[length];
         RandomNumberGenerator.Fill(arr);
-        return Convert.ToBase64String(arr);
+        return WebEncoders.Base64UrlEncode(arr);
     }
+
+    private static string TokenCacheKey(string token) =>
+        "playback-link:" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token)));
 
     [HttpPost("generateLink")]
     public async Task<IActionResult> GetFileLink([FromBody] External.FileLinkResultRequest payload,
@@ -45,13 +53,14 @@ internal partial class FileController(
         LogResolvedTargetPath(logger, virtualPath, "virtual path");
 
         var token = GenerateToken(64);
-        await distributedCache.SetStringAsync(token,
+        var lifetime = TimeSpan.FromMinutes(tokenSecurityOptions.Value.PlaybackLinkMinutes);
+        await distributedCache.SetStringAsync(TokenCacheKey(token),
             JsonSerializer.Serialize(new External.FileStoreToken(virtualPath, string.Empty),
                 External.AppJsonSerializerContext.Default.FileStoreToken),
-            new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = TimeSpan.FromDays(1) },
+            new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = lifetime },
             cancellationToken);
         var url = Url.ActionLink(nameof(GetFile), values: new { token })!;
-        LogLinkGenerated(logger, payload.Id, url);
+        LogLinkGenerated(logger, payload.Id, lifetime.TotalMinutes);
         return Ok(new External.FileLinkResultResponse(url));
     }
 
@@ -60,7 +69,11 @@ internal partial class FileController(
     public async Task<IActionResult> GetFile([FromQuery] [Required] string token,
         CancellationToken cancellationToken)
     {
-        var json = await distributedCache.GetStringAsync(token, cancellationToken);
+        Response.Headers.CacheControl = "private,no-store";
+        Response.Headers.Pragma = "no-cache";
+        Response.Headers["Referrer-Policy"] = "no-referrer";
+
+        var json = await distributedCache.GetStringAsync(TokenCacheKey(token), cancellationToken);
         var fileStoreToken = json is null ? null : JsonSerializer.Deserialize(json, External.AppJsonSerializerContext.Default.FileStoreToken);
         if (fileStoreToken is null)
         {
@@ -141,8 +154,9 @@ internal partial class FileController(
     [LoggerMessage(Level = LogLevel.Debug, Message = "Resolved target path: {TargetPath} ({Reason})")]
     private static partial void LogResolvedTargetPath(ILogger logger, string targetPath, string reason);
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "Generated play link for animation {Id}: {Url}")]
-    private static partial void LogLinkGenerated(ILogger logger, Guid id, string url);
+    [LoggerMessage(Level = LogLevel.Information,
+        Message = "Generated scoped play link for animation {Id}, valid for {LifetimeMinutes} minutes")]
+    private static partial void LogLinkGenerated(ILogger logger, Guid id, double lifetimeMinutes);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Play request with invalid or expired token")]
     private static partial void LogPlayTokenInvalid(ILogger logger);

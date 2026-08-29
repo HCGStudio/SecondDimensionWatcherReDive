@@ -1,16 +1,19 @@
 using System.Runtime.InteropServices;
 using System.Xml;
 using System.Xml.Serialization;
+using Microsoft.Extensions.Options;
+using SecondDimensionWatcherReDive.Configuration;
 using SecondDimensionWatcherReDive.Framework.Feed;
 using SecondDimensionWatcherReDive.Framework.FileDownload;
+using SecondDimensionWatcherReDive.Utils.Http;
 
 namespace SecondDimensionWatcherReDive.Utils.Feed;
 
-public sealed class MikananiSubscriptionFeedReader(IHttpClientFactory httpClientFactory)
+internal sealed class MikananiSubscriptionFeedReader(
+    ISafeOutboundHttpFetcher outboundFetcher,
+    IOptions<OutboundHttpOptions> options)
     : ISubscriptionFeedReader
 {
-    private readonly HttpClient _httpClient = httpClientFactory.CreateClient("Feed");
-
     private static TimeZoneInfo ChinaTimeZone { get; } = RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
         ? TimeZoneInfo.FindSystemTimeZoneById("China Standard Time")
         : TimeZoneInfo.FindSystemTimeZoneById("Asia/Shanghai");
@@ -20,7 +23,11 @@ public sealed class MikananiSubscriptionFeedReader(IHttpClientFactory httpClient
         Guid? feedId,
         CancellationToken cancellationToken)
     {
-        await using var response = await _httpClient.GetStreamAsync(feedUrl, cancellationToken);
+        var data = await outboundFetcher.GetBytesAsync(
+            feedUrl,
+            OutboundPayloadKind.Feed,
+            cancellationToken);
+        using var response = new MemoryStream(data, writable: false);
         using var xmlReader = XmlReader.Create(response, new XmlReaderSettings
         {
             Async = false,
@@ -33,8 +40,9 @@ public sealed class MikananiSubscriptionFeedReader(IHttpClientFactory httpClient
             result.Channel?.Item is not { Count: > 0 } items)
             return [];
 
-        var releases = new List<AnimationAddRequest>(items.Count);
-        foreach (var item in items)
+        var maximumItems = options.Value.MaxFeedItems;
+        var releases = new List<AnimationAddRequest>(Math.Min(items.Count, maximumItems));
+        foreach (var item in items.Take(maximumItems))
         {
             if (item?.Torrent is null ||
                 item.Enclosure is null ||

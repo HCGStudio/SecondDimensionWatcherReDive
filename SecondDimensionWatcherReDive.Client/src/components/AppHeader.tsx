@@ -19,7 +19,9 @@ import {
   User,
 } from "lucide-react";
 
+import type { IAuthResult } from "../auth/IAuthResult";
 import { useLoginStatus } from "../auth/hooks";
+import { revokeSession } from "../auth/utils";
 import i18n, {
   type SupportedLanguage,
   languageLabels,
@@ -175,9 +177,14 @@ const UserMenu: React.FC = () => {
     ? (resolved as SupportedLanguage)
     : "zh-cn";
 
-  const onLogout = () => {
-    localStorage.removeItem("auth");
-    location.reload();
+  const onLogout = async () => {
+    const stored = localStorage.getItem("auth");
+    try {
+      if (stored) await revokeSession(JSON.parse(stored) as IAuthResult);
+    } finally {
+      localStorage.removeItem("auth");
+      location.reload();
+    }
   };
 
   return (
@@ -209,7 +216,7 @@ const UserMenu: React.FC = () => {
           </DropdownMenuItem>
         ))}
         <DropdownMenuSeparator />
-        <DropdownMenuItem color="danger" onSelect={onLogout}>
+        <DropdownMenuItem color="danger" onSelect={() => void onLogout()}>
           {t("user.logout")}
         </DropdownMenuItem>
       </DropdownMenuContent>

@@ -10,7 +10,8 @@ namespace SecondDimensionWatcherReDive.NFS.Server;
 
 internal sealed partial class NfsConnectionHandler(
     IServiceScopeFactory scopeFactory,
-    ILogger<NfsConnectionHandler> logger)
+    ILogger<NfsConnectionHandler> logger,
+    NfsOptions options)
 {
     public async Task RunAsync(Stream stream, CancellationToken cancellationToken)
     {
@@ -18,12 +19,26 @@ internal sealed partial class NfsConnectionHandler(
         {
             while (!cancellationToken.IsCancellationRequested)
             {
-                using var record = await RpcRecordReader.ReadAsync(
-                    stream, RpcConstants.MaxRequestBytes, cancellationToken);
-                if (record is null)
+                using var idleTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                idleTimeout.CancelAfter(TimeSpan.FromSeconds(options.IdleTimeoutSeconds));
+                RpcRecord? record;
+                try
+                {
+                    record = await RpcRecordReader.ReadAsync(
+                        stream, RpcConstants.MaxRequestBytes, idleTimeout.Token);
+                }
+                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                {
+                    LogConnectionIdle(logger, options.IdleTimeoutSeconds);
                     return;
+                }
+                using (record)
+                {
+                    if (record is null)
+                        return;
 
-                await HandleRequestAsync(stream, record.Memory, cancellationToken);
+                    await HandleRequestAsync(stream, record.Memory, cancellationToken);
+                }
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -48,7 +63,7 @@ internal sealed partial class NfsConnectionHandler(
 
         try
         {
-            var (header, bodyOffset) = RpcDecoder.DecodeCall(message.Span);
+            var (header, bodyOffset) = RpcDecoder.DecodeCall(message.Span, options.AllowAnonymous);
 
             if (header.Program != NfsConstants.NfsProgram)
             {
@@ -147,4 +162,8 @@ internal sealed partial class NfsConnectionHandler(
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Malformed NFS call discarded")]
     private static partial void LogMalformedCall(ILogger logger, Exception ex);
+
+    [LoggerMessage(Level = LogLevel.Debug,
+        Message = "NFS connection closed after {IdleTimeoutSeconds} seconds idle")]
+    private static partial void LogConnectionIdle(ILogger logger, int idleTimeoutSeconds);
 }

@@ -1,54 +1,67 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Caching.Distributed;
+using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
+using SecondDimensionWatcherReDive.Auth;
+using SecondDimensionWatcherReDive.Configuration;
 
 namespace SecondDimensionWatcherReDive.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
+[EnableRateLimiting("auth")]
 internal partial class AuthController : ControllerBase
 {
     private readonly IConfiguration _configuration;
     private readonly ILogger<AuthController> _logger;
-    private readonly IDistributedCache _distributedCache;
-
+    private readonly RefreshTokenStore _refreshTokens;
     private readonly TokenValidationParameters _tokenValidationParams;
+    private readonly TokenSecurityOptions _securityOptions;
+    private readonly TimeProvider _timeProvider;
 
-    public AuthController(IConfiguration configuration, TokenValidationParameters tokenValidationParams,
-        IDistributedCache distributedCache, ILogger<AuthController> logger)
+    public AuthController(
+        IConfiguration configuration,
+        TokenValidationParameters tokenValidationParams,
+        RefreshTokenStore refreshTokens,
+        IOptions<TokenSecurityOptions> securityOptions,
+        TimeProvider timeProvider,
+        ILogger<AuthController> logger)
     {
         _configuration = configuration;
         _tokenValidationParams = tokenValidationParams;
-        _distributedCache = distributedCache;
+        _refreshTokens = refreshTokens;
+        _securityOptions = securityOptions.Value;
+        _timeProvider = timeProvider;
         _logger = logger;
     }
 
-    private static string RandomString(int length)
-    {
-        const string chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-        return RandomNumberGenerator.GetString(chars, length);
-    }
-
-    private async Task<External.LoginResult> GenerateJwtTokenAsync()
+    private async Task<External.LoginResult> GenerateJwtTokenAsync(
+        RefreshTokenFamily? refreshTokenFamily,
+        CancellationToken cancellationToken)
     {
         var handler = new JwtSecurityTokenHandler();
-        var key = Encoding.ASCII.GetBytes(_configuration["JwtSecret"]!);
+        var key = Encoding.UTF8.GetBytes(_configuration["JwtSecret"]!);
+        var now = _timeProvider.GetUtcNow();
+        var jwtId = Guid.NewGuid().ToString();
 
         var tokenDescriptor = new SecurityTokenDescriptor
         {
             Subject = new ClaimsIdentity(new[]
             {
                 new Claim("Id", Guid.Empty.ToString()),
-                new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
+                new Claim(JwtRegisteredClaimNames.Jti, jwtId)
             }),
-            Expires = DateTime.UtcNow.AddMinutes(10),
+            Issuer = _securityOptions.Issuer,
+            Audience = _securityOptions.Audience,
+            IssuedAt = now.UtcDateTime,
+            NotBefore = now.UtcDateTime,
+            Expires = now.AddMinutes(_securityOptions.AccessTokenMinutes).UtcDateTime,
             SigningCredentials =
                 new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha256Signature)
         };
@@ -56,16 +69,19 @@ internal partial class AuthController : ControllerBase
         var token = handler.CreateToken(tokenDescriptor);
         var jwtToken = handler.WriteToken(token);
 
-        var refreshToken = new External.RefreshToken(RandomString(25) + Guid.NewGuid(), token.Id);
-
-        await _distributedCache.SetStringAsync(refreshToken.Token,
-            JsonSerializer.Serialize(refreshToken, External.AppJsonSerializerContext.Default.RefreshToken));
-
-        return new External.LoginResult(jwtToken, refreshToken.Token);
+        var refreshToken = await _refreshTokens.IssueAsync(
+            jwtId,
+            refreshTokenFamily,
+            cancellationToken);
+        return refreshToken is null
+            ? new External.LoginResult(null, null, false)
+            : new External.LoginResult(jwtToken, refreshToken.Token);
     }
 
     [HttpPost("register")]
-    public async Task<IActionResult> Register([FromBody] External.LoginData data)
+    public async Task<IActionResult> Register(
+        [FromBody] External.LoginData data,
+        CancellationToken cancellationToken)
     {
         if (!string.IsNullOrWhiteSpace(_configuration["Password:Value"]))
             return BadRequest();
@@ -74,13 +90,16 @@ internal partial class AuthController : ControllerBase
         await System.IO.File.WriteAllBytesAsync(passwordFile,
             JsonSerializer.SerializeToUtf8Bytes(
                 new External.PasswordConfig(new External.PasswordHash(BCrypt.Net.BCrypt.HashPassword(data.Password))),
-                External.AppJsonSerializerContext.Default.PasswordConfig));
+                External.AppJsonSerializerContext.Default.PasswordConfig),
+            cancellationToken);
 
-        return Ok(await GenerateJwtTokenAsync());
+        return Ok(await GenerateJwtTokenAsync(null, cancellationToken));
     }
 
     [HttpPost("login")]
-    public async Task<IActionResult> Login([FromBody] External.LoginData data)
+    public async Task<IActionResult> Login(
+        [FromBody] External.LoginData data,
+        CancellationToken cancellationToken)
     {
         var storedValue = _configuration["Password:Value"];
         if (string.IsNullOrWhiteSpace(storedValue))
@@ -89,17 +108,21 @@ internal partial class AuthController : ControllerBase
         if (!BCrypt.Net.BCrypt.Verify(data.Password, storedValue))
             return BadRequest();
 
-        return Ok(await GenerateJwtTokenAsync());
+        return Ok(await GenerateJwtTokenAsync(null, cancellationToken));
     }
 
     [HttpPost("refresh")]
-    public async Task<IActionResult> Refresh([FromBody] External.AuthRequest request)
+    public async Task<IActionResult> Refresh(
+        [FromBody] External.AuthRequest request,
+        CancellationToken cancellationToken)
     {
-        var result = await VerifyAndGenerateTokenAsync(request);
+        var result = await VerifyAndGenerateTokenAsync(request, cancellationToken);
         return result.Success ? Ok(result) : BadRequest(result);
     }
 
-    private async Task<External.LoginResult> VerifyAndGenerateTokenAsync(External.AuthRequest request)
+    private async Task<External.LoginResult> VerifyAndGenerateTokenAsync(
+        External.AuthRequest request,
+        CancellationToken cancellationToken)
     {
         try
         {
@@ -115,22 +138,37 @@ internal partial class AuthController : ControllerBase
                     StringComparison.InvariantCultureIgnoreCase))
                 return new External.LoginResult(null, null, false);
 
-            var storedJson = await _distributedCache.GetStringAsync(request.RefreshToken);
-            var storedToken = storedJson is null ? null : JsonSerializer.Deserialize(storedJson, External.AppJsonSerializerContext.Default.RefreshToken);
-            if (storedToken is null) return new External.LoginResult(null, null, false);
-
-            if (tokenInVerification.FindFirst(c => c.Type == JwtRegisteredClaimNames.Jti)?.Value != storedToken.JwtId)
+            var jwtId = tokenInVerification.FindFirst(c => c.Type == JwtRegisteredClaimNames.Jti)?.Value;
+            if (string.IsNullOrEmpty(jwtId))
                 return new External.LoginResult(null, null, false);
 
-            await _distributedCache.RemoveAsync(request.RefreshToken);
-
-            return await GenerateJwtTokenAsync();
+            var family = await _refreshTokens.ConsumeAsync(
+                request.RefreshToken,
+                jwtId,
+                cancellationToken);
+            return family is null
+                ? new External.LoginResult(null, null, false)
+                : await GenerateJwtTokenAsync(family, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception exception)
         {
             LogTokenVerificationFailed(_logger, exception);
             return new External.LoginResult(null, null, false);
         }
+    }
+
+    [HttpPost("logout")]
+    [AllowAnonymous]
+    public async Task<IActionResult> Logout(
+        [FromBody] External.RevokeTokenRequest request,
+        CancellationToken cancellationToken)
+    {
+        await _refreshTokens.RevokeAsync(request.RefreshToken, cancellationToken);
+        return NoContent();
     }
 
     [HttpGet("verify")]
@@ -146,6 +184,6 @@ internal partial class AuthController : ControllerBase
         return Ok(new { Allow = string.IsNullOrWhiteSpace(_configuration["Password:Value"]) });
     }
 
-    [LoggerMessage(Level = LogLevel.Error, Message = "Token verification failed")]
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Token verification failed")]
     private static partial void LogTokenVerificationFailed(ILogger logger, Exception ex);
 }

@@ -166,6 +166,8 @@ internal sealed class WebDavWebApplicationFactory : WebApplicationFactory<Migrat
         var keyBytes = Encoding.ASCII.GetBytes(JwtSecret);
         var creds = new SigningCredentials(new SymmetricSecurityKey(keyBytes), SecurityAlgorithms.HmacSha256);
         var token = new JwtSecurityToken(
+            issuer: "SecondDimensionWatcherReDive",
+            audience: "SecondDimensionWatcherReDive.Client",
             claims: new[] { new Claim(ClaimTypes.Name, TestUserName) },
             expires: DateTime.UtcNow.AddMinutes(10),
             signingCredentials: creds);

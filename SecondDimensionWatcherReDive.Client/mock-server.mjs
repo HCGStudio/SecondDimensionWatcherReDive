@@ -895,9 +895,12 @@ let systemSettings = {
   nfs: {
     enabled: false,
     port: 2049,
-    bindAddress: "0.0.0.0",
+    bindAddress: "127.0.0.1",
     leaseSeconds: 90,
     maxConnections: 32,
+    idleTimeoutSeconds: 120,
+    allowAnonymous: false,
+    allowedNetworks: ["127.0.0.0/8", "::1/128"],
     restartRequired: true,
     pendingRestart: false,
   },
@@ -1492,6 +1495,9 @@ async function route(method, pathname, searchParams, req, res) {
           bindAddress: systemSettings.nfs.bindAddress,
           leaseSeconds: systemSettings.nfs.leaseSeconds,
           maxConnections: systemSettings.nfs.maxConnections,
+          idleTimeoutSeconds: systemSettings.nfs.idleTimeoutSeconds,
+          allowAnonymous: systemSettings.nfs.allowAnonymous,
+          allowedNetworks: [...systemSettings.nfs.allowedNetworks],
         };
         const changed = JSON.stringify(runningNfs) !== JSON.stringify(body.nfs);
         systemSettings.nfs = {

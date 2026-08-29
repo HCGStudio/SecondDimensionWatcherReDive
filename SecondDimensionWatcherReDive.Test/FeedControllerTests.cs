@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Moq;
 using SecondDimensionWatcherReDive.Controllers;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
+using SecondDimensionWatcherReDive.Utils.Http;
 
 namespace SecondDimensionWatcherReDive.Test;
 
@@ -10,14 +11,19 @@ namespace SecondDimensionWatcherReDive.Test;
 public class FeedControllerTests
 {
     private Mock<IFeedRepository> _repoMock = null!;
+    private Mock<ISafeOutboundHttpFetcher> _outboundFetcher = null!;
     private FeedController _controller = null!;
 
     [TestInitialize]
     public void Setup()
     {
         _repoMock = new Mock<IFeedRepository>();
+        _outboundFetcher = new Mock<ISafeOutboundHttpFetcher>();
+        _outboundFetcher.Setup(fetcher => fetcher.ValidateUrlAsync(
+                It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
 
-        _controller = new FeedController(_repoMock.Object)
+        _controller = new FeedController(_repoMock.Object, _outboundFetcher.Object)
         {
             ControllerContext = new ControllerContext
             {
@@ -71,6 +77,23 @@ public class FeedControllerTests
         Assert.AreNotEqual(Guid.Empty, feed.Id);
 
         _repoMock.Verify(r => r.AddAsync(It.IsAny<Feed>(), CancellationToken.None), Times.Once);
+    }
+
+    [TestMethod]
+    public async Task AddFeed_BlockedDestination_ReturnsBadRequest()
+    {
+        _outboundFetcher.Setup(fetcher => fetcher.ValidateUrlAsync(
+                "http://127.0.0.1/rss",
+                It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new OutboundRequestBlockedException("blocked"));
+
+        var result = await _controller.AddFeed(
+            new Controllers.External.AddFeedRequest("http://127.0.0.1/rss", "private"),
+            CancellationToken.None);
+
+        Assert.IsInstanceOfType<BadRequestObjectResult>(result);
+        _repoMock.Verify(repository => repository.AddAsync(
+            It.IsAny<Feed>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [TestMethod]

@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.StaticFiles;
 using SecondDimensionWatcherReDive.Auth;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
@@ -12,6 +13,7 @@ namespace SecondDimensionWatcherReDive.Controllers;
 [Route("api/vfs")]
 [Authorize(AuthenticationSchemes = BasicAuthenticationHandler.SchemeName)]
 [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
+[EnableRateLimiting("basic")]
 internal sealed partial class VfsController(
     IFileExplorer fileExplorer,
     IFileMappingRepository fileMappingRepository,

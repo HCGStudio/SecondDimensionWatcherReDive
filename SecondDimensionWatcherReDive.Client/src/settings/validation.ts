@@ -122,3 +122,12 @@ export const isIpAddress = (value: string): boolean => {
     return false;
   }
 };
+
+export const isIpCidr = (value: string): boolean => {
+  const separator = value.lastIndexOf("/");
+  if (separator <= 0) return false;
+  const address = value.slice(0, separator);
+  const prefix = Number(value.slice(separator + 1));
+  const maximum = address.includes(":") ? 128 : 32;
+  return isIpAddress(address) && isIntegerInRange(prefix, 0, maximum);
+};

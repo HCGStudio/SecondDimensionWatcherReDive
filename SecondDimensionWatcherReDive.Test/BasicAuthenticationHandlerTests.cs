@@ -3,6 +3,7 @@ using System.Text.Encodings.Web;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
@@ -43,7 +44,9 @@ public class BasicAuthenticationHandlerTests
         var handler = new BasicAuthenticationHandler(
             optionsMonitor.Object,
             NullLoggerFactory.Instance,
-            UrlEncoder.Default);
+            UrlEncoder.Default,
+            new DeviceTokenHasher("test-pepper-with-at-least-32-characters"),
+            new MemoryCache(new MemoryCacheOptions()));
 
         var httpContext = new DefaultHttpContext { RequestServices = provider };
         if (authorization is not null) httpContext.Request.Headers["Authorization"] = authorization;
@@ -112,10 +115,16 @@ public class BasicAuthenticationHandlerTests
     [TestMethod]
     public async Task ValidCredentials_Succeed()
     {
-        var (handler, _, _) = await CreateHandlerAsync(BasicHeader(ValidUser, ValidPassword), SeededToken());
+        var seeded = SeededToken();
+        var (handler, _, repo) = await CreateHandlerAsync(BasicHeader(ValidUser, ValidPassword), seeded);
         var result = await handler.AuthenticateAsync();
         Assert.IsTrue(result.Succeeded);
         Assert.AreEqual(ValidUser, result.Principal!.Identity!.Name);
+        repo.Verify(repository => repository.UpdateHashAsync(
+            seeded.Id,
+            seeded.TokenHash,
+            It.Is<string>(hash => hash.StartsWith("$hmac-sha256$v1$")),
+            It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [TestMethod]
