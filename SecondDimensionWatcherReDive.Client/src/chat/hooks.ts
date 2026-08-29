@@ -1,7 +1,12 @@
 import useSWR from "swr";
 
 import fetcher from "../auth/httpClient";
-import { AiModel, ChatConversation, ChatConversationDetail, ChatStatus } from "./types";
+import {
+  AiModel,
+  ChatConversation,
+  ChatConversationDetail,
+  ChatStatus,
+} from "./types";
 
 export const useChatStatus = () =>
   useSWR<ChatStatus>("/api/chat/status", fetcher);

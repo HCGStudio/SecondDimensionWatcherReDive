@@ -2,76 +2,156 @@ name: Release
 
 on:
   workflow_dispatch:
-    inputs:
-      bump:
-        description: 'Version bump type'
-        required: true
-        default: 'patch'
-        type: choice
-        options:
-          - patch
-          - minor
-          - major
 
 permissions:
-  contents: write
-  actions: write
+  contents: read
+
+concurrency:
+  group: stable-release
+  cancel-in-progress: false
 
 jobs:
-  bump-and-release:
+  metadata:
+    name: Validate release metadata
     runs-on: ubuntu-latest
+    outputs:
+      commit_sha: ${{ steps.metadata.outputs.commit_sha }}
+      image_repository: ${{ steps.metadata.outputs.image_repository }}
+      version: ${{ steps.metadata.outputs.version }}
     steps:
       - uses: actions/checkout@v7
 
-      - name: Read current version
-        id: current
-        run: |
-          VERSION=$(cat VERSION | tr -d '[:space:]')
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Current version: $VERSION"
-
-      - name: Compute new version
-        id: new
-        run: |
-          IFS='.' read -r MAJOR MINOR PATCH <<< "${{ steps.current.outputs.version }}"
-          case "${{ inputs.bump }}" in
-            major) MAJOR=$((MAJOR+1)); MINOR=0; PATCH=0 ;;
-            minor) MINOR=$((MINOR+1)); PATCH=0 ;;
-            patch) PATCH=$((PATCH+1)) ;;
-          esac
-          NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
-          echo "version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
-          echo "New version: $NEW_VERSION"
-
-      - name: Update version in project files
-        run: |
-          NEW_VERSION="${{ steps.new.outputs.version }}"
-
-          # VERSION file
-          echo "$NEW_VERSION" > VERSION
-
-          # .csproj
-          sed -i "s|<AssemblyVersion>.*</AssemblyVersion>|<AssemblyVersion>${NEW_VERSION}</AssemblyVersion>|" \
-            SecondDimensionWatcherReDive/SecondDimensionWatcherReDive.csproj
-          sed -i "s|<FileVersion>.*</FileVersion>|<FileVersion>${NEW_VERSION}</FileVersion>|" \
-            SecondDimensionWatcherReDive/SecondDimensionWatcherReDive.csproj
-
-      - name: Commit version bump
-        run: |
-          NEW_VERSION="${{ steps.new.outputs.version }}"
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git commit -m "release: bump version to ${NEW_VERSION}"
-          git tag "v${NEW_VERSION}"
-          git push
-          git push origin "v${NEW_VERSION}"
-
-      - name: Trigger release builds
+      - name: Validate version and tag
+        id: metadata
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_REF: ${{ github.ref }}
+          REPOSITORY_OWNER: ${{ github.repository_owner }}
         run: |
-          NEW_VERSION="${{ steps.new.outputs.version }}"
-          gh workflow run build.yml -f release_version="${NEW_VERSION}"
-          gh workflow run container.yml -f release_version="${NEW_VERSION}"
-          echo "Triggered build and container workflows for release ${NEW_VERSION}"
+          set -euo pipefail
+          test "$RELEASE_REF" = refs/heads/main
+          version=$(tr -d '[:space:]' < VERSION)
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          grep --fixed-strings --quiet "<AssemblyVersion>${version}</AssemblyVersion>" \
+            SecondDimensionWatcherReDive/SecondDimensionWatcherReDive.csproj
+          grep --fixed-strings --quiet "<FileVersion>${version}</FileVersion>" \
+            SecondDimensionWatcherReDive/SecondDimensionWatcherReDive.csproj
+          if git ls-remote --exit-code --tags origin "refs/tags/v${version}" >/dev/null 2>&1; then
+            echo "Tag v${version} already exists" >&2
+            exit 1
+          fi
+
+          image_repository="ghcr.io/$(printf '%s/sdw-redive' "$REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
+          echo "commit_sha=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+          echo "image_repository=$image_repository" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  verify:
+    name: Verify release commit
+    needs: metadata
+    uses: ./.github/workflows/verify.yml
+    permissions:
+      contents: read
+
+  build:
+    name: Build checked release artifacts
+    needs: [metadata, verify]
+    uses: ./.github/workflows/build.yml
+    permissions:
+      contents: read
+      packages: write
+    with:
+      commit_sha: ${{ needs.metadata.outputs.commit_sha }}
+      image_repository: ${{ needs.metadata.outputs.image_repository }}
+      version: ${{ needs.metadata.outputs.version }}
+
+  publish:
+    name: Publish stable release
+    needs: [metadata, build]
+    permissions:
+      contents: write
+      packages: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.metadata.outputs.commit_sha }}
+
+      - name: Ensure main did not move during the build
+        env:
+          SOURCE_SHA: ${{ needs.metadata.outputs.commit_sha }}
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "$SOURCE_SHA"
+
+      - name: Download checked release bundle
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.build.outputs.bundle_name }}
+          path: release/
+
+      - name: Verify package checksums
+        working-directory: release
+        run: sha256sum --check SHA256SUMS
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Recheck the immutable image
+        env:
+          IMAGE_DIGEST: ${{ needs.build.outputs.image_digest }}
+          IMAGE_REPOSITORY: ${{ needs.metadata.outputs.image_repository }}
+        run: |
+          set -euo pipefail
+          [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          docker buildx imagetools inspect "$IMAGE_REPOSITORY@$IMAGE_DIGEST" > image-manifest.txt
+          grep --fixed-strings --quiet "linux/amd64" image-manifest.txt
+          grep --fixed-strings --quiet "linux/arm64" image-manifest.txt
+
+      - name: Prepare complete draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IMAGE_DIGEST: ${{ needs.build.outputs.image_digest }}
+          IMAGE_REPOSITORY: ${{ needs.metadata.outputs.image_repository }}
+          SOURCE_SHA: ${{ needs.metadata.outputs.commit_sha }}
+          VERSION: ${{ needs.metadata.outputs.version }}
+        run: |
+          set -euo pipefail
+          tag="v${VERSION}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release $tag already exists; inspect or remove the draft before retrying" >&2
+            exit 1
+          fi
+          gh release create "$tag" release/* \
+            --draft \
+            --target "$SOURCE_SHA" \
+            --title "Release ${VERSION}" \
+            --generate-notes \
+            --notes "Container: ${IMAGE_REPOSITORY}@${IMAGE_DIGEST}"
+
+      - name: Promote stable image tags from the verified digest
+        env:
+          IMAGE_DIGEST: ${{ needs.build.outputs.image_digest }}
+          IMAGE_REPOSITORY: ${{ needs.metadata.outputs.image_repository }}
+          VERSION: ${{ needs.metadata.outputs.version }}
+        run: |
+          set -euo pipefail
+          docker buildx imagetools create \
+            --tag "$IMAGE_REPOSITORY:$VERSION" \
+            --tag "$IMAGE_REPOSITORY:latest" \
+            "$IMAGE_REPOSITORY@$IMAGE_DIGEST"
+          docker buildx imagetools inspect "$IMAGE_REPOSITORY:$VERSION"
+
+      - name: Publish release and create the formal tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.metadata.outputs.version }}
+        run: gh release edit "v${VERSION}" --draft=false --latest

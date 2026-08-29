@@ -1,11 +1,12 @@
+import React from "react";
+import { useTranslation } from "react-i18next";
+
 import {
   ChevronLeft,
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
 } from "lucide-react";
-import React from "react";
-import { useTranslation } from "react-i18next";
 
 import { cn } from "../../lib/cn";
 

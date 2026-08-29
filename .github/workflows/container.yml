@@ -1,49 +1,115 @@
-name: Container Build & Publish
+name: Publish verified mainline
 
 on:
-  push:
-    branches: [ "main" ]
+  workflow_run:
+    workflows: [Verify]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
-    inputs:
-      release_version:
-        description: 'Release version (leave empty for pre-release)'
-        required: false
-        type: string
 
 permissions:
   contents: read
-  packages: write
+
+concurrency:
+  group: publish-mainline
+  cancel-in-progress: false
 
 jobs:
-  build-and-push:
+  verify_manual_run:
+    name: Verify manual run
+    if: github.event_name == 'workflow_dispatch'
+    uses: ./.github/workflows/verify.yml
+    permissions:
+      contents: read
+
+  metadata:
+    name: Resolve verified source
+    needs: verify_manual_run
+    if: >-
+      always() &&
+      ((github.event_name == 'workflow_dispatch' && needs.verify_manual_run.result == 'success') ||
+       (github.event_name == 'workflow_run' &&
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_branch == 'main' &&
+        github.event.workflow_run.head_repository.full_name == github.repository))
+    runs-on: ubuntu-latest
+    outputs:
+      commit_sha: ${{ steps.metadata.outputs.commit_sha }}
+      image_repository: ${{ steps.metadata.outputs.image_repository }}
+      version: ${{ steps.metadata.outputs.version }}
+    steps:
+      - name: Select verified commit
+        id: source
+        env:
+          DISPATCH_REF: ${{ github.ref }}
+          DISPATCH_SHA: ${{ github.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+          VERIFIED_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = workflow_run ]; then
+            commit_sha="$VERIFIED_SHA"
+          else
+            test "$DISPATCH_REF" = refs/heads/main
+            commit_sha="$DISPATCH_SHA"
+          fi
+          [[ "$commit_sha" =~ ^[0-9a-f]{40}$ ]]
+          echo "commit_sha=$commit_sha" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.source.outputs.commit_sha }}
+
+      - name: Compute prerelease metadata
+        id: metadata
+        env:
+          COMMIT_SHA: ${{ steps.source.outputs.commit_sha }}
+          REPOSITORY_OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          base_version=$(tr -d '[:space:]' < VERSION)
+          [[ "$base_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          version="${base_version}.${GITHUB_RUN_NUMBER}"
+          image_repository="ghcr.io/$(printf '%s/sdw-redive' "$REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
+
+          echo "commit_sha=$COMMIT_SHA" >> "$GITHUB_OUTPUT"
+          echo "image_repository=$image_repository" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build checked artifacts
+    needs: metadata
+    uses: ./.github/workflows/build.yml
+    permissions:
+      contents: read
+      packages: write
+    with:
+      commit_sha: ${{ needs.metadata.outputs.commit_sha }}
+      image_repository: ${{ needs.metadata.outputs.image_repository }}
+      version: ${{ needs.metadata.outputs.version }}
+
+  publish:
+    name: Publish prerelease
+    needs: [metadata, build]
+    permissions:
+      contents: write
+      packages: write
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.metadata.outputs.commit_sha }}
 
-      - name: Compute image name and version
-        run: |
-          REGISTRY="ghcr.io"
-          RELEASE_VERSION="${{ github.event.inputs.release_version }}"
-          IMAGE_NAME=$(echo "${{ github.repository_owner }}/sdw-redive" | tr '[:upper:]' '[:lower:]')
+      - name: Download checked release bundle
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.build.outputs.bundle_name }}
+          path: release/
 
-          if [ -n "$RELEASE_VERSION" ]; then
-            VERSION="$RELEASE_VERSION"
-            TAG1="${REGISTRY}/${IMAGE_NAME}:${VERSION}"
-            TAG2="${REGISTRY}/${IMAGE_NAME}:latest"
-          else
-            BASE_VERSION=$(cat VERSION | tr -d '[:space:]')
-            VERSION="${BASE_VERSION}.${{ github.run_number }}"
-            TAG1="${REGISTRY}/${IMAGE_NAME}:pre-${VERSION}"
-            TAG2="${REGISTRY}/${IMAGE_NAME}:prerelease-latest"
-          fi
-
-          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
-          echo "IMAGE_NAME=${IMAGE_NAME}" >> "$GITHUB_ENV"
-          echo "TAG1=${TAG1}" >> "$GITHUB_ENV"
-          echo "TAG2=${TAG2}" >> "$GITHUB_ENV"
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v4
+      - name: Verify package checksums
+        working-directory: release
+        run: sha256sum --check SHA256SUMS
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -53,17 +119,46 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          password: ${{ github.token }}
 
-      - name: Build and push
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: ./Containerfile
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: |
-            ${{ env.TAG1 }}
-            ${{ env.TAG2 }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      - name: Prepare draft prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IMAGE_DIGEST: ${{ needs.build.outputs.image_digest }}
+          IMAGE_REPOSITORY: ${{ needs.metadata.outputs.image_repository }}
+          SOURCE_SHA: ${{ needs.metadata.outputs.commit_sha }}
+          VERSION: ${{ needs.metadata.outputs.version }}
+        run: |
+          set -euo pipefail
+          tag="pre-${VERSION}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release $tag already exists; refusing to overwrite it" >&2
+            exit 1
+          fi
+          gh release create "$tag" release/* \
+            --draft \
+            --prerelease \
+            --latest=false \
+            --target "$SOURCE_SHA" \
+            --title "Pre-release ${VERSION}" \
+            --generate-notes \
+            --notes "Container: ${IMAGE_REPOSITORY}@${IMAGE_DIGEST}"
+
+      - name: Promote the verified image digest
+        env:
+          IMAGE_DIGEST: ${{ needs.build.outputs.image_digest }}
+          IMAGE_REPOSITORY: ${{ needs.metadata.outputs.image_repository }}
+          VERSION: ${{ needs.metadata.outputs.version }}
+        run: |
+          set -euo pipefail
+          docker buildx imagetools create \
+            --tag "$IMAGE_REPOSITORY:pre-$VERSION" \
+            --tag "$IMAGE_REPOSITORY:prerelease-latest" \
+            "$IMAGE_REPOSITORY@$IMAGE_DIGEST"
+          docker buildx imagetools inspect "$IMAGE_REPOSITORY:pre-$VERSION"
+
+      - name: Publish prerelease and create its tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.metadata.outputs.version }}
+        run: gh release edit "pre-${VERSION}" --draft=false --prerelease --latest=false
