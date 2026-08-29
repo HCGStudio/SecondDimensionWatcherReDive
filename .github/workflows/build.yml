@@ -189,7 +189,7 @@ jobs:
           mkdir -p dist
           nfpm package --config packaging/nfpm.yaml --packager deb \
             --target "dist/sdw-redive_${VERSION}_${ARCH}.deb"
-          docker build --tag sdw-redive:delivery-smoke .
+          docker build --file Containerfile --tag sdw-redive:delivery-smoke .
 
       - name: Install, migrate, start, and uninstall delivery artifacts
         run: >-
