@@ -31,6 +31,7 @@ import {
   submitDownload,
 } from "../animation/utils";
 import { useAccess } from "../auth/hooks";
+import { retryAfterReauthentication } from "../auth/utils";
 import { setPlaybackWatched } from "../playback/api";
 import { usePlaybackStates } from "../playback/hooks";
 import { formatBytes, formatFileSize } from "../utils/formatBytes";
@@ -127,7 +128,7 @@ const AutomationDispositionBadge: React.FC<{
 };
 
 const ActionButtons: React.FC<{ value: IAnimationInfo }> = ({ value }) => {
-  const { t } = useTranslation("animation");
+  const { t } = useTranslation(["animation", "settings"]);
   const { canContentWrite, isAdministrator } = useAccess();
   const { data: status } = useAnimationDownloadStatus(
     value.isDownloadTracked && !value.isDownloadFinished ? value.id : null,
@@ -136,6 +137,7 @@ const ActionButtons: React.FC<{ value: IAnimationInfo }> = ({ value }) => {
   const [isSheetOpen, setIsSheetOpen] = React.useState(false);
   const [isRetrying, setIsRetrying] = React.useState(false);
   const [isReidentifyingFiles, setIsReidentifyingFiles] = React.useState(false);
+  const [isCancelling, setIsCancelling] = React.useState(false);
   const [isUpdatingWatched, setIsUpdatingWatched] = React.useState(false);
   const { data: playbackStates, mutate: mutatePlaybackStates } =
     usePlaybackStates(value.isDownloadFinished ? value.id : undefined);
@@ -214,13 +216,35 @@ const ActionButtons: React.FC<{ value: IAnimationInfo }> = ({ value }) => {
     }
   }, [value.id, addToast, t]);
 
+  const onCancelDownload = React.useCallback(
+    async (removeFile: boolean) => {
+      if (isCancelling) return;
+
+      setIsCancelling(true);
+      try {
+        const operation = () => cancelDownload(value.id, removeFile);
+        if (removeFile) {
+          await retryAfterReauthentication(
+            operation,
+            t("settings:system.reauthenticatePrompt"),
+          );
+        } else {
+          await operation();
+        }
+      } catch {
+        addToast({ title: t("toast.deleteFailed"), color: "danger" });
+      } finally {
+        setIsCancelling(false);
+      }
+    },
+    [addToast, isCancelling, t, value.id],
+  );
+
   const onDelete = React.useCallback(() => {
     if (window.confirm(t("confirm.deleteFile"))) {
-      cancelDownload(value.id, true).catch(() =>
-        addToast({ title: t("toast.deleteFailed"), color: "danger" }),
-      );
+      void onCancelDownload(true);
     }
-  }, [value.id, addToast, t]);
+  }, [onCancelDownload, t]);
 
   const onToggleAllWatched = React.useCallback(async () => {
     if (!playbackStates || playbackStates.length === 0) return;
@@ -415,7 +439,7 @@ const ActionButtons: React.FC<{ value: IAnimationInfo }> = ({ value }) => {
               canContentWrite ? (
                 <DropdownMenuItem
                   color="danger"
-                  disabled={isReidentifyingFiles}
+                  disabled={isReidentifyingFiles || isCancelling}
                   onSelect={() => {
                     const removeFile = isAdministrator;
                     if (
@@ -427,12 +451,7 @@ const ActionButtons: React.FC<{ value: IAnimationInfo }> = ({ value }) => {
                         ),
                       )
                     ) {
-                      cancelDownload(value.id, removeFile).catch(() =>
-                        addToast({
-                          title: t("toast.deleteFailed"),
-                          color: "danger",
-                        }),
-                      );
+                      void onCancelDownload(removeFile);
                     }
                   }}
                 >
@@ -447,7 +466,7 @@ const ActionButtons: React.FC<{ value: IAnimationInfo }> = ({ value }) => {
               isAdministrator ? (
                 <DropdownMenuItem
                   color="danger"
-                  disabled={isReidentifyingFiles}
+                  disabled={isReidentifyingFiles || isCancelling}
                   onSelect={onDelete}
                 >
                   <Trash2 size={14} />
