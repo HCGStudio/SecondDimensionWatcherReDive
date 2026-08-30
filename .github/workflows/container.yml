@@ -233,16 +233,16 @@ jobs:
             exit 1
           fi
 
-          tag1_digest=$(docker buildx imagetools inspect "$TAG1" --format '{{json .Manifest}}' | jq -er '.digest')
-          if [ "$tag1_digest" != "$manifest_digest" ]; then
-            echo "$TAG1 points to $tag1_digest instead of $manifest_digest" >&2
+          tag1_manifest=$(docker buildx imagetools inspect "$TAG1" --raw)
+          if [ "$tag1_manifest" != "$manifest" ]; then
+            echo "$TAG1 does not resolve to the validated manifest" >&2
             exit 1
           fi
 
           docker buildx imagetools create --tag "$TAG2" "${REGISTRY_IMAGE}@${manifest_digest}"
-          tag2_digest=$(docker buildx imagetools inspect "$TAG2" --format '{{json .Manifest}}' | jq -er '.digest')
-          if [ "$tag2_digest" != "$manifest_digest" ]; then
-            echo "$TAG2 points to $tag2_digest instead of $manifest_digest" >&2
+          tag2_manifest=$(docker buildx imagetools inspect "$TAG2" --raw)
+          if [ "$tag2_manifest" != "$manifest" ]; then
+            echo "$TAG2 does not resolve to the validated manifest" >&2
             exit 1
           fi
 
