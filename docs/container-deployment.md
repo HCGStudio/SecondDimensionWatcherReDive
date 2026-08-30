@@ -19,7 +19,7 @@
 - `downloads` — sdw-redive 和 qbittorrent **共享**，用于下载文件的读写
 - `pgdata` — PostgreSQL 数据持久化
 - `valkeydata` — Valkey 缓存数据持久化
-- `appdata` — 登录密码文件与运行时敏感配置的 Data Protection 密钥环
+- `appdata` — 登录密码文件、运行时敏感配置的 Data Protection 密钥环，以及插件 catalog、安装包、配置与隔离数据
 
 ## 快速开始
 
@@ -115,6 +115,7 @@ podman logs qbittorrent 2>&1 | grep "temporary password"
 | `ConnectionStrings__sdw` | PostgreSQL 连接字符串 | 必填 |
 | `JwtSecret` | JWT 签名密钥（>=32 字符） | 必填 |
 | `DataProtection__KeyRingPath` | 网页保存密钥/密码所用的持久化加密密钥环 | `/app/data/data-protection-keys` |
+| `PluginPlatform__RootPath` | 插件 catalog、包、配置与隔离数据的持久化目录 | `/app/data/plugins` |
 | `FileStore__Local` | 下载文件存储路径 | `/downloads` |
 | `MediaLibrary__ScanInterval` | 持续监控目录的轮询间隔 | `00:05:00` |
 | `MediaLibrary__SettlingPeriod` | 新文件写入完成后的稳定等待时间 | `00:00:30` |
@@ -137,7 +138,7 @@ podman logs qbittorrent 2>&1 | grep "temporary password"
 
 ### 网页运行时设置
 
-首次登录后可在「设置」中修改 AI/TMDB、qBittorrent、媒体库扫描、异常阈值和 NFS。网页值保存在 PostgreSQL，优先于上表的环境变量；敏感值加密后存储且不会通过 API 回显。`appdata` 卷中的 Data Protection 密钥环必须保留，否则重启后的应用无法解密已保存的密钥。
+首次登录后可在「设置」中修改 AI/TMDB、qBittorrent、媒体库扫描、异常阈值和 NFS。网页值保存在 PostgreSQL，优先于上表的环境变量；敏感值加密后存储且不会通过 API 回显。`appdata` 卷中的 Data Protection 密钥环必须保留，否则重启后的应用无法解密已保存的密钥。插件平台也必须位于持久卷中；随附 Compose 将 `PluginPlatform__RootPath` 设为 `/app/data/plugins`，因此重建容器不会丢失已安装包、catalog、配置或插件隔离数据。
 
 如果运行多个应用副本并让它们连接同一个 PostgreSQL 数据库，必须把 `DataProtection__KeyRingPath` 指向所有副本共享的同一持久化密钥环（且都使用内置 application name `SecondDimensionWatcherReDive`）。实例各自使用本地密钥环会导致其他副本无法解密数据库中的运行时密钥和密码。
 

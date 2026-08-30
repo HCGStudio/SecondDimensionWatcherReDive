@@ -1,0 +1,42 @@
+# Controlled plugin platform
+
+The plugin platform extends notification and file-storage providers without loading third-party code into the web process. API version 1.0 uses a fresh worker process and a constrained V8 runtime for every handler invocation. The host enforces wall-clock, CPU, working-set, V8 heap, array-buffer, response-size, and cancellation limits. A worker crash or V8 fatal resource violation therefore ends only that invocation. Three consecutive failures open a per-plugin circuit breaker; health and the last failure are visible through `GET /api/plugins` and Settings → Plugins.
+
+## Trust and installation
+
+Only authenticated application operators can manage plugins. Packages are uploaded locally and inspected before any code can run. Inspection rejects path traversal, symbolic links, duplicate or oversized archive content, invalid manifests, and any missing, unlisted, or hash-mismatched file. `integrity.files` must enumerate every regular archive file except `manifest.json`; that exact path/digest set is covered by the publisher signature and is checked again while extracting and before every invocation. Inspection reports compatibility, signature trust, the immutable package checksum, and every requested capability. Installation succeeds only when the caller echoes both the checksum and the exact capability set. A changed byte requires another preview and approval.
+
+Preview staging is bounded by both package count and aggregate bytes (`MaximumStagedPackages` and `MaximumStagedPackageBytes`); expired previews are removed before admitting another upload. The installation boundary validates the echoed checksum shape before reading the staged package.
+
+The HTTP upload envelope accepts the platform's full configurable package range (up to 64 MiB, plus multipart framing), while `MaximumPackageBytes` remains the authoritative per-deployment package limit enforced during inspection. If `PluginPlatform:RootPath` is absent during an upgrade, the platform stores plugins in a `plugins` directory beside `PasswordFile`; packaged installations therefore fall back to `/var/lib/sdw-redive/plugins` instead of the read-only application directory.
+
+Plugin and dependency versions use bounded, strict SemVer (`major.minor.patch` with optional legal prerelease/build identifiers); path separators, control/non-ASCII characters, empty identifiers, and ambiguous numeric forms are rejected before extraction. API versions use the same bounded grammar while permitting the API's `major.minor` form. Extraction also canonicalizes the version and temporary destinations and requires both to remain under that plugin's package directory. Publisher, provider, provider-operation, and handler names are bounded ASCII identifiers; display text is length/control-character checked.
+
+Unsigned local packages are rejected by default. Configure trusted publisher PEM public keys under `PluginPlatform:TrustedPublisherPublicKeys`. `AllowUnsignedLocalPackages` exists for local development and compatibility tests only; it does not accept invalid or untrusted signatures. The trusted public-key fingerprint is persisted as plugin ownership, so upgrades and reinstalls that would inherit retained configuration/data must use the same key. The remote-install endpoint is intentionally hard-disabled: the service never downloads or evaluates arbitrary JavaScript from a URL.
+
+## Isolation and capabilities
+
+Workers receive only JSON input, read-only JSON configuration, and a restricted host interface with one `Request` method. They cannot obtain `IServiceProvider`, CLR types, host objects, `fetch`, `require`, or the host filesystem. The parent validates every request:
+
+- `network.request` accepts HTTP(S), disables redirects, cookies, and proxies, requires an exact or `*.` domain approval, resolves once, pins the connection to the validated result, and requires every DNS answer to be public. It rejects loopback, private, link-local, metadata, multicast, unspecified, transition/special-use ranges, and fail-closes IPv6 to ordinary global-unicast space. Private-network access is not available in API 1.0. Host or container egress ACLs remain the final boundary for organization-specific NAT64, 6rd, ISATAP, or other custom translation prefixes that cannot be identified from an address alone.
+- `file.read` and `file.list` require an approved absolute root. Linux/macOS paths are traversed with directory-relative `openat` plus `O_NOFOLLOW`, closing path/symbolic-link replacement races. Windows file reads validate the opened handle; directory listing, metadata, and data writes fail closed until equivalent handle-relative operations are available.
+- `data.*` requires `storageAccess` and remains inside `PluginPlatform:RootPath/data/<plugin-id>`.
+- notification publication, download control, and background tasks are represented in the manifest capability model but have no generic broker operation in API 1.0; unknown operations are denied.
+
+Network and file responses are bounded. Plugin-scoped data also has configurable aggregate byte, file-count, and path-depth quotas; writes reserve quota under a per-plugin gate and atomically replace the destination. Plugins do not receive arbitrary request headers, credentials, database access, or a service container.
+
+`MaximumConcurrentWorkers` and `MaximumConcurrentWorkersPerPlugin` bound aggregate worker amplification and reject excess work without degrading plugin health. `MaximumPluginDataBytes`, `MaximumPluginDataFiles`, and `MaximumPluginDataPathDepth` bound persistent storage. Lifecycle operations close the invocation gate, cancel and drain active workers, and only then move package or data directories.
+
+## Compatibility and lifecycle
+
+A plugin can be installed while incompatible so an administrator can inspect it, but it cannot be enabled. Enable checks the API version, OS/architecture, minimum dependency versions, and whether dependencies are enabled. Disabling or uninstalling a dependency automatically disables dependents. Installs and upgrades start disabled.
+
+Configuration and plugin-scoped data survive upgrades. If `dataVersion` changes, the new manifest must explicitly declare `dataMigration.strategy` as `reset`; the host moves old data to a rollback directory until the catalog update commits. Other version changes preserve data. Uninstall preserves configuration and data by default for a future reinstall; `DELETE /api/plugins/{id}?deleteData=true` is the explicit irreversible removal path.
+
+Reset upgrades and uninstalls use an fsync'd lifecycle journal stored separately from their payload directory. Startup rolls back every prepared operation, finalizes committed cleanup, and removes unreferenced package versions. Journal deletion is the last cleanup step, so repeated termination during a large payload deletion remains recoverable and idempotent. Cascaded dependency disables acquire the same per-plugin lifecycle lease as direct disables, canceling and draining active workers before the disabled state is committed.
+
+Each event handler is invoked with an independent timeout and exception boundary. A failure or timeout is contained and does not prevent later handlers from running; caller cancellation still propagates immediately.
+
+## Provider contract and compatibility suite
+
+Manifest `providers` entries declare a `kind`, display `name`, and operation-to-handler map. Handler names are validated before installation. Notification providers must request the `notifications` capability, and storage providers must request `storageAccess`, so the approval screen never understates the host data delivered to a provider. Runtime provider identities are stable global keys in the form `plugin:<plugin-id>:<provider-name>`; they cannot collide with built-in stores or silently rebind to another plugin. API 1.0 wires `notification` providers through `INotificationProvider` and `storage` providers through `IFileStore`; manifests declaring unimplemented download or metadata adapters are rejected rather than appearing healthy but unusable. The example webhook notification and plugin-scoped storage packages are installed, enabled, and exercised end-to-end by `PluginPlatformIntegrationTests`. Package validation, missing dependencies, incompatible APIs, capability denial, worker timeout/crash/aggregate-concurrency containment, circuit breaking, event isolation, upgrade rollback/reset, quota enforcement, and retained uninstall state are covered by the same test suite.

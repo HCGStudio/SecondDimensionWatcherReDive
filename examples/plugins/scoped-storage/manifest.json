@@ -1,0 +1,36 @@
+{
+  "id": "example.scoped-storage",
+  "name": "Plugin-scoped storage",
+  "description": "A read-only FileStore provider backed only by this plugin's isolated data directory.",
+  "version": "1.0.0",
+  "apiVersion": "1.0",
+  "entryPoint": "index.js",
+  "dependencies": [],
+  "capabilities": {
+    "networkDomains": [],
+    "fileRoots": [],
+    "notifications": false,
+    "downloadControl": false,
+    "storageAccess": true,
+    "backgroundTasks": false
+  },
+  "platforms": ["any"],
+  "integrity": {
+    "files": {
+      "index.js": "8daa9c1860964f8e33684744d827d720d1da42415755f0affcac5cce62457a9e"
+    }
+  },
+  "providers": [
+    {
+      "kind": "storage",
+      "name": "example-scoped",
+      "handlers": {
+        "exists": "exists",
+        "info": "info",
+        "read": "read",
+        "list": "list"
+      }
+    }
+  ],
+  "dataVersion": 1
+}
