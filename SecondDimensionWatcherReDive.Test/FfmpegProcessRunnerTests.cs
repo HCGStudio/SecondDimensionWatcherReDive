@@ -32,6 +32,8 @@ public class FfmpegProcessRunnerTests
             MediaProbe probe;
             await using (var source = File.OpenRead(sourcePath))
                 probe = await runner.ProbeAsync(source, CancellationToken.None);
+            Assert.IsTrue(probe.Video?.Profile is "Baseline" or "Constrained Baseline" or "Main" or "High");
+            Assert.AreEqual("yuv420p", probe.Video?.PixelFormat);
             var sourceInfo = new FileInfo(sourcePath);
             var sourceModel = new TranscodingSource(
                 Guid.NewGuid(),
@@ -67,13 +69,18 @@ public class FfmpegProcessRunnerTests
             StringAssert.Contains(
                 await File.ReadAllTextAsync(Path.Combine(output, "media.m3u8")),
                 "#EXT-X-ENDLIST");
-            IReadOnlyList<TranscodingSubtitle> subtitles;
-            await using (var source = File.OpenRead(sourcePath))
-                subtitles = await runner.ExtractTextSubtitlesAsync(
+            var subtitles = new List<TranscodingSubtitle>();
+            for (var index = 0; index < plan.TextSubtitles.Count; index++)
+            {
+                await using var source = File.OpenRead(sourcePath);
+                var subtitle = await runner.ExtractTextSubtitleAsync(
                     source,
-                    plan,
+                    plan.TextSubtitles[index],
+                    index + 1,
                     output,
                     CancellationToken.None);
+                if (subtitle is not null) subtitles.Add(subtitle);
+            }
             Assert.AreEqual(1, subtitles.Count);
             StringAssert.StartsWith(
                 await File.ReadAllTextAsync(Path.Combine(output, subtitles[0].FileName)),

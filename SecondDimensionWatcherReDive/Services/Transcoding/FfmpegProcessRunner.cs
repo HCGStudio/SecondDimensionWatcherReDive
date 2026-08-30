@@ -24,9 +24,10 @@ internal interface IFfmpegProcessRunner
         Action<FfmpegProgress> onProgress,
         CancellationToken cancellationToken);
 
-    Task<IReadOnlyList<TranscodingSubtitle>> ExtractTextSubtitlesAsync(
+    Task<TranscodingSubtitle?> ExtractTextSubtitleAsync(
         Stream source,
-        TranscodingPlan plan,
+        MediaStreamProbe subtitle,
+        int ordinal,
         string outputDirectory,
         CancellationToken cancellationToken);
 }
@@ -89,7 +90,9 @@ internal sealed partial class FfmpegProcessRunner(
                 stream.Tags?.Title,
                 stream.Disposition?.Default == 1,
                 stream.Disposition?.Forced == 1,
-                stream.Disposition?.AttachedPic == 1))
+                stream.Disposition?.AttachedPic == 1,
+                stream.Profile,
+                stream.PixelFormat))
             .ToArray();
         var duration = ParseDuration(document.Format?.Duration)
                        ?? (document.Streams ?? []).Select(stream => ParseDuration(stream.Duration)).FirstOrDefault(value => value is not null);
@@ -185,32 +188,26 @@ internal sealed partial class FfmpegProcessRunner(
             cancellationToken);
     }
 
-    public async Task<IReadOnlyList<TranscodingSubtitle>> ExtractTextSubtitlesAsync(
+    public async Task<TranscodingSubtitle?> ExtractTextSubtitleAsync(
         Stream source,
-        TranscodingPlan plan,
+        MediaStreamProbe subtitle,
+        int ordinal,
         string outputDirectory,
         CancellationToken cancellationToken)
     {
-        if (plan.TextSubtitles.Count == 0) return [];
-
+        var finalPath = Path.Combine(outputDirectory, $"subtitle-{subtitle.Index}.vtt");
+        var temporaryPath = $"{finalPath}.tmp";
+        TryDelete(temporaryPath);
         var startInfo = CreateStartInfo(_options.FfmpegPath, redirectOutput: false);
         AddArguments(startInfo,
             "-hide_banner", "-y",
             "-i", "pipe:0",
             "-threads", _options.MaxThreadsPerJob.ToString(CultureInfo.InvariantCulture),
-            "-nostats");
-        var pending = new List<(MediaStreamProbe Stream, string TemporaryPath, string FinalPath)>();
-        foreach (var stream in plan.TextSubtitles)
-        {
-            var finalPath = Path.Combine(outputDirectory, $"subtitle-{stream.Index}.vtt");
-            var temporaryPath = $"{finalPath}.tmp";
-            pending.Add((stream, temporaryPath, finalPath));
-            AddArguments(startInfo,
-                "-map", $"0:{stream.Index}",
-                "-c:s", "webvtt",
-                "-f", "webvtt",
-                temporaryPath);
-        }
+            "-nostats",
+            "-map", $"0:{subtitle.Index}",
+            "-c:s", "webvtt",
+            "-f", "webvtt",
+            temporaryPath);
         var result = await RunFfmpegAsync(
             startInfo,
             source,
@@ -220,23 +217,18 @@ internal sealed partial class FfmpegProcessRunner(
             detectFirstSegment: false);
         if (result.ExitCode != 0)
         {
-            LogSubtitleExtractionFailed(logger, result.ExitCode, result.ErrorOutput);
-            foreach (var item in pending) TryDelete(item.TemporaryPath);
-            return [];
+            LogSubtitleExtractionFailed(logger, subtitle.Index, result.ExitCode, result.ErrorOutput);
+            TryDelete(temporaryPath);
+            return null;
         }
 
-        var subtitles = new List<TranscodingSubtitle>();
-        foreach (var item in pending)
-        {
-            if (!File.Exists(item.TemporaryPath)) continue;
-            File.Move(item.TemporaryPath, item.FinalPath, overwrite: true);
-            subtitles.Add(new TranscodingSubtitle(
-                Path.GetFileName(item.FinalPath),
-                BuildSubtitleLabel(item.Stream, subtitles.Count + 1),
-                item.Stream.Language,
-                "vtt"));
-        }
-        return subtitles;
+        if (!File.Exists(temporaryPath)) return null;
+        File.Move(temporaryPath, finalPath, overwrite: true);
+        return new TranscodingSubtitle(
+            Path.GetFileName(finalPath),
+            BuildSubtitleLabel(subtitle, ordinal),
+            subtitle.Language,
+            "vtt");
     }
 
     private async Task<FfmpegRunResult> RunFfmpegAsync(
@@ -515,8 +507,12 @@ internal sealed partial class FfmpegProcessRunner(
         catch (IOException) { }
     }
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "FFmpeg subtitle extraction exited with code {ExitCode}: {Error}")]
-    private static partial void LogSubtitleExtractionFailed(ILogger logger, int exitCode, string error);
+    [LoggerMessage(Level = LogLevel.Warning, Message = "FFmpeg subtitle stream {StreamIndex} extraction exited with code {ExitCode}: {Error}")]
+    private static partial void LogSubtitleExtractionFailed(
+        ILogger logger,
+        int streamIndex,
+        int exitCode,
+        string error);
 
     private sealed record FfprobeDocument(
         [property: JsonPropertyName("streams")] FfprobeStream[]? Streams,
@@ -526,6 +522,8 @@ internal sealed partial class FfmpegProcessRunner(
         [property: JsonPropertyName("index")] int? Index,
         [property: JsonPropertyName("codec_name")] string? CodecName,
         [property: JsonPropertyName("codec_type")] string? CodecType,
+        [property: JsonPropertyName("profile")] string? Profile,
+        [property: JsonPropertyName("pix_fmt")] string? PixelFormat,
         [property: JsonPropertyName("duration")] string? Duration,
         [property: JsonPropertyName("disposition")] FfprobeDisposition? Disposition,
         [property: JsonPropertyName("tags")] FfprobeTags? Tags);

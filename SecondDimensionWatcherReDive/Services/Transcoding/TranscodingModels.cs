@@ -89,7 +89,9 @@ internal sealed record MediaStreamProbe(
     string? Title,
     bool IsDefault,
     bool IsForced,
-    bool IsAttachedPicture);
+    bool IsAttachedPicture,
+    string? Profile,
+    string? PixelFormat);
 
 internal sealed record MediaProbe(
     string Container,

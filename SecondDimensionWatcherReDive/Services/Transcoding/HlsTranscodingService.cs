@@ -13,7 +13,7 @@ namespace SecondDimensionWatcherReDive.Services.Transcoding;
 
 internal sealed partial class HlsTranscodingService : BackgroundService, IHlsTranscodingService
 {
-    private const int CacheManifestVersion = 1;
+    private const int CacheManifestVersion = 2;
     private const string CacheOwnershipMarker = ".sdw-transcode-cache";
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IFfmpegProcessRunner _processRunner;
@@ -305,6 +305,9 @@ internal sealed partial class HlsTranscodingService : BackgroundService, IHlsTra
             RecreateJobDirectory(job.CacheDirectory);
             job.SetState(TranscodingJobState.Transcoding);
             UpdateJobGauges();
+            using var subtitleCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            var subtitleTask = ExtractTextSubtitlesAsync(job, plan, subtitleCancellation.Token);
+            var subtitleTaskObserved = false;
             var firstSegmentRecorded = 0;
             void OnProgress(FfmpegProgress update)
             {
@@ -318,49 +321,59 @@ internal sealed partial class HlsTranscodingService : BackgroundService, IHlsTra
                 }
             }
 
-            var useHardware = !plan.CopyVideo && !string.IsNullOrWhiteSpace(_options.HardwareVideoEncoder);
-            FfmpegRunResult result;
-            await using (var source = await OpenSourceStreamAsync(job.Source, cancellationToken))
-                result = await _processRunner.GenerateHlsAsync(
-                    source,
-                    plan,
-                    job.Selection,
-                    job.CacheDirectory,
-                    useHardware,
-                    OnProgress,
-                    cancellationToken);
-            if (result.ExitCode != 0 && useHardware)
+            try
             {
-                LogHardwareFallback(_logger, _options.HardwareVideoEncoder!, result.ErrorOutput);
-                DeleteGeneratedFiles(job.CacheDirectory);
-                await using var source = await OpenSourceStreamAsync(job.Source, cancellationToken);
-                result = await _processRunner.GenerateHlsAsync(
-                    source,
-                    plan,
-                    job.Selection,
-                    job.CacheDirectory,
-                    useHardwareEncoder: false,
-                    OnProgress,
-                    cancellationToken);
-            }
-            if (result.ExitCode != 0)
-                throw new InvalidOperationException($"FFmpeg exited with code {result.ExitCode}: {result.ErrorOutput}");
+                var useHardware = !plan.CopyVideo && !string.IsNullOrWhiteSpace(_options.HardwareVideoEncoder);
+                FfmpegRunResult result;
+                await using (var source = await OpenSourceStreamAsync(job.Source, cancellationToken))
+                    result = await _processRunner.GenerateHlsAsync(
+                        source,
+                        plan,
+                        job.Selection,
+                        job.CacheDirectory,
+                        useHardware,
+                        OnProgress,
+                        cancellationToken);
+                if (result.ExitCode != 0 && useHardware)
+                {
+                    LogHardwareFallback(_logger, _options.HardwareVideoEncoder!, result.ErrorOutput);
+                    DeleteGeneratedHlsFiles(job.CacheDirectory);
+                    await using var source = await OpenSourceStreamAsync(job.Source, cancellationToken);
+                    result = await _processRunner.GenerateHlsAsync(
+                        source,
+                        plan,
+                        job.Selection,
+                        job.CacheDirectory,
+                        useHardwareEncoder: false,
+                        OnProgress,
+                        cancellationToken);
+                }
+                if (result.ExitCode != 0)
+                    throw new InvalidOperationException($"FFmpeg exited with code {result.ExitCode}: {result.ErrorOutput}");
 
-            IReadOnlyList<TranscodingSubtitle> subtitles;
-            await using (var source = await OpenSourceStreamAsync(job.Source, cancellationToken))
-                subtitles = await _processRunner.ExtractTextSubtitlesAsync(
-                    source,
-                    plan,
-                    job.CacheDirectory,
-                    cancellationToken);
-            job.SetSubtitles(subtitles);
-            await WriteManifestAsync(job, cancellationToken);
-            _metrics.RecordCompleted();
-            if (job.GetSpeed() is { } speed) _metrics.RecordSpeed(speed);
-            UpdateCacheBytes();
-            job.SetReady(subtitles);
-            UpdateJobGauges();
-            await CleanupCacheAsync(removeIncomplete: false, cancellationToken);
+                var subtitles = await subtitleTask;
+                subtitleTaskObserved = true;
+                await WriteManifestAsync(job, cancellationToken);
+                _metrics.RecordCompleted();
+                if (job.GetSpeed() is { } speed) _metrics.RecordSpeed(speed);
+                UpdateCacheBytes();
+                job.SetReady(subtitles);
+                UpdateJobGauges();
+                await CleanupCacheAsync(removeIncomplete: false, cancellationToken);
+            }
+            finally
+            {
+                if (!subtitleTaskObserved)
+                {
+                    try
+                    {
+                        await subtitleCancellation.CancelAsync();
+                        await subtitleTask;
+                    }
+                    catch (OperationCanceledException) when (subtitleCancellation.IsCancellationRequested) { }
+                    catch (Exception exception) { LogSubtitleCleanupFailed(_logger, exception); }
+                }
+            }
         }
         catch (OperationCanceledException) when (job.Cancellation.IsCancellationRequested)
         {
@@ -441,6 +454,32 @@ internal sealed partial class HlsTranscodingService : BackgroundService, IHlsTra
         }
     }
 
+    private async Task<IReadOnlyList<TranscodingSubtitle>> ExtractTextSubtitlesAsync(
+        TranscodingJob job,
+        TranscodingPlan plan,
+        CancellationToken cancellationToken)
+    {
+        var subtitles = new List<TranscodingSubtitle>();
+        for (var index = 0; index < plan.TextSubtitles.Count; index++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var track = plan.TextSubtitles[index];
+            TranscodingSubtitle? subtitle;
+            await using (var source = await OpenSourceStreamAsync(job.Source, cancellationToken))
+                subtitle = await _processRunner.ExtractTextSubtitleAsync(
+                    source,
+                    track,
+                    index + 1,
+                    job.CacheDirectory,
+                    cancellationToken);
+            if (subtitle is null) continue;
+
+            subtitles.Add(subtitle);
+            job.SetSubtitles(subtitles.ToArray());
+        }
+        return subtitles;
+    }
+
     private TranscodingSession? FindSession(Guid id, string token, bool touch = true)
     {
         if (!_sessions.TryGetValue(id, out var session) || !TokensEqual(session.AccessToken, token))
@@ -507,6 +546,19 @@ internal sealed partial class HlsTranscodingService : BackgroundService, IHlsTra
 
     private async Task CleanupCacheAsync(bool removeIncomplete, CancellationToken cancellationToken)
     {
+        await _creationGate.WaitAsync(cancellationToken);
+        try
+        {
+            CleanupCacheCore(removeIncomplete, cancellationToken);
+        }
+        finally
+        {
+            _creationGate.Release();
+        }
+    }
+
+    private void CleanupCacheCore(bool removeIncomplete, CancellationToken cancellationToken)
+    {
         CleanupExpiredSessions();
         if (!Directory.Exists(_options.CachePath)) return;
         var now = DateTimeOffset.UtcNow;
@@ -549,7 +601,6 @@ internal sealed partial class HlsTranscodingService : BackgroundService, IHlsTra
             total -= candidate.Size;
         }
         _metrics.SetCacheBytes(Math.Max(0, total));
-        await Task.CompletedTask;
     }
 
     private void CleanupExpiredSessions()
@@ -677,12 +728,16 @@ internal sealed partial class HlsTranscodingService : BackgroundService, IHlsTra
         File.WriteAllText(Path.Combine(path, CacheOwnershipMarker), string.Empty);
     }
 
-    private static void DeleteGeneratedFiles(string directory)
+    private static void DeleteGeneratedHlsFiles(string directory)
     {
         foreach (var path in Directory.EnumerateFiles(directory))
-            if (Path.GetFileName(path) is not (".access" or CacheOwnershipMarker))
+        {
+            var fileName = Path.GetFileName(path);
+            if (fileName is "media.m3u8" or "media.m3u8.tmp"
+                || fileName.StartsWith("segment-", StringComparison.Ordinal))
                 try { File.Delete(path); }
                 catch (IOException) { }
+        }
     }
 
     private static void TryDeleteDirectory(string path)
@@ -740,6 +795,9 @@ internal sealed partial class HlsTranscodingService : BackgroundService, IHlsTra
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Ignoring invalid transcoding cache manifest {Path}")]
     private static partial void LogInvalidCacheManifest(ILogger logger, string path, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Failed while stopping background subtitle extraction")]
+    private static partial void LogSubtitleCleanupFailed(ILogger logger, Exception exception);
 
     private sealed record CacheDirectory(string Key, string Path, DateTimeOffset LastAccess, long Size);
 
@@ -828,10 +886,30 @@ internal sealed partial class HlsTranscodingService : BackgroundService, IHlsTra
                 _progress = 1,
                 _subtitles = manifest.Subtitles
             };
-            var video = new MediaStreamProbe(0, "video", manifest.VideoCodec, null, null, true, false, false);
+            var video = new MediaStreamProbe(
+                0,
+                "video",
+                manifest.VideoCodec,
+                null,
+                null,
+                true,
+                false,
+                false,
+                null,
+                null);
             var audio = manifest.AudioCodec is null
                 ? null
-                : new MediaStreamProbe(1, "audio", manifest.AudioCodec, null, null, true, false, false);
+                : new MediaStreamProbe(
+                    1,
+                    "audio",
+                    manifest.AudioCodec,
+                    null,
+                    null,
+                    true,
+                    false,
+                    false,
+                    null,
+                    null);
             job._plan = new TranscodingPlan(
                 manifest.Strategy,
                 video,

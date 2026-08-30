@@ -34,6 +34,33 @@ public class TranscodingPlannerTests
     }
 
     [TestMethod]
+    public void CreatePlan_Hi10pH264_TranscodesToBrowserCompatibleVideo()
+    {
+        var plan = TranscodingPlanner.CreatePlan(
+            CreateSource("episode.mkv"),
+            CreateProbe(Video("h264", "High 10", "yuv420p10le"), Audio("aac")),
+            TranscodingSelection.Create("auto", null, null, null, null),
+            burnBitmapSubtitles: false);
+
+        Assert.AreEqual(TranscodingStrategy.Transcode, plan.Strategy);
+        Assert.IsFalse(plan.CopyVideo);
+        Assert.IsTrue(plan.CopyAudio);
+    }
+
+    [TestMethod]
+    public void CreatePlan_H264WithoutCompatibilityMetadata_FailsClosedToTranscode()
+    {
+        var plan = TranscodingPlanner.CreatePlan(
+            CreateSource("episode.mp4"),
+            CreateProbe(Video("h264", null, null), Audio("aac")),
+            TranscodingSelection.Create("auto", null, null, null, null),
+            burnBitmapSubtitles: false);
+
+        Assert.AreEqual(TranscodingStrategy.Transcode, plan.Strategy);
+        Assert.IsFalse(plan.CopyVideo);
+    }
+
+    [TestMethod]
     public void CreatePlan_UnsupportedCodecs_TranscodesAndSelectsPreferredAudio()
     {
         var japanese = Audio("flac", 1, "jpn", "Japanese");
@@ -125,8 +152,11 @@ public class TranscodingPlannerTests
     private static MediaProbe CreateProbe(params MediaStreamProbe[] streams)
         => new("matroska", TimeSpan.FromMinutes(24), streams);
 
-    private static MediaStreamProbe Video(string codec)
-        => new(0, "video", codec, null, null, true, false, false);
+    private static MediaStreamProbe Video(
+        string codec,
+        string? profile = "High",
+        string? pixelFormat = "yuv420p")
+        => new(0, "video", codec, null, null, true, false, false, profile, pixelFormat);
 
     private static MediaStreamProbe Audio(
         string codec,
@@ -134,12 +164,12 @@ public class TranscodingPlannerTests
         string? language = null,
         string? title = null,
         bool isDefault = false)
-        => new(index, "audio", codec, language, title, isDefault, false, false);
+        => new(index, "audio", codec, language, title, isDefault, false, false, null, null);
 
     private static MediaStreamProbe Subtitle(
         string codec,
         int index,
         string? language,
         string? title)
-        => new(index, "subtitle", codec, language, title, false, false, false);
+        => new(index, "subtitle", codec, language, title, false, false, false, null, null);
 }

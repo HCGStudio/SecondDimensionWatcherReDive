@@ -1,3 +1,4 @@
+using System.Reflection;
 using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -171,6 +172,99 @@ public class HlsTranscodingServiceTests
         Assert.AreEqual(1, metrics.FailureRate);
     }
 
+    [TestMethod]
+    public async Task EmbeddedSubtitleIsPublishedWhileHlsGenerationIsStillRunning()
+    {
+        var runner = new ProgressiveSubtitleRunner(failFirstSubtitle: false);
+        await using var fixture = await TranscodingFixture.CreateAsync(runner);
+        var initial = await fixture.Service.PrepareAsync(
+            fixture.AnimationInfoId,
+            "episode.mkv",
+            TranscodingSelection.Create("auto", null, null, null, null),
+            CancellationToken.None);
+
+        try
+        {
+            await runner.GenerationStarted.Task.WaitAsync(TimeSpan.FromSeconds(3));
+            await runner.ExtractionCompleted.Task.WaitAsync(TimeSpan.FromSeconds(3));
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            TranscodingSessionStatus status;
+            do
+            {
+                status = await fixture.Service.GetStatusAsync(
+                             initial.SessionId,
+                             initial.AccessToken,
+                             timeout.Token)
+                         ?? throw new AssertFailedException("The transcoding session disappeared.");
+                if (status.Subtitles.Count == 1) break;
+                await Task.Delay(10, timeout.Token);
+            } while (true);
+
+            Assert.AreEqual(TranscodingJobState.Transcoding, status.State);
+            Assert.IsTrue(status.IsPlayable);
+            Assert.AreEqual("subtitle-2.vtt", status.Subtitles[0].FileName);
+        }
+        finally
+        {
+            runner.ReleaseGeneration.TrySetResult();
+        }
+
+        await WaitForStateAsync(fixture.Service, initial, TranscodingJobState.Ready);
+    }
+
+    [TestMethod]
+    public async Task FailedEmbeddedSubtitleDoesNotSuppressValidTrack()
+    {
+        var runner = new ProgressiveSubtitleRunner(failFirstSubtitle: true);
+        runner.ReleaseGeneration.TrySetResult();
+        await using var fixture = await TranscodingFixture.CreateAsync(runner);
+        var initial = await fixture.Service.PrepareAsync(
+            fixture.AnimationInfoId,
+            "episode.mkv",
+            TranscodingSelection.Create("auto", null, null, null, null),
+            CancellationToken.None);
+
+        var ready = await WaitForStateAsync(fixture.Service, initial, TranscodingJobState.Ready);
+
+        CollectionAssert.AreEqual(new[] { 2, 3 }, runner.ExtractedStreamIndices.ToArray());
+        Assert.AreEqual(1, ready.Subtitles.Count);
+        Assert.AreEqual("subtitle-3.vtt", ready.Subtitles[0].FileName);
+    }
+
+    [TestMethod]
+    public async Task CacheCleanup_WaitsForSessionCreationCriticalSection()
+    {
+        await using var fixture = await TranscodingFixture.CreateAsync(new CompletingRunner());
+        var serviceType = typeof(HlsTranscodingService);
+        var creationGate = (SemaphoreSlim)(serviceType.GetField(
+            "_creationGate",
+            BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(fixture.Service)
+            ?? throw new AssertFailedException("The cache creation gate was not found."));
+        var cleanupMethod = serviceType.GetMethod(
+                                "CleanupCacheAsync",
+                                BindingFlags.Instance | BindingFlags.NonPublic)
+                            ?? throw new AssertFailedException("The cache cleanup method was not found.");
+
+        await creationGate.WaitAsync(CancellationToken.None);
+        Task cleanupTask;
+        try
+        {
+            cleanupTask = (Task)(cleanupMethod.Invoke(
+                fixture.Service,
+                [false, CancellationToken.None])
+                ?? throw new AssertFailedException("Cache cleanup did not return a task."));
+            Assert.IsFalse(
+                cleanupTask.IsCompleted,
+                "Cleanup must not inspect or evict cache entries while PrepareAsync can attach a session.");
+        }
+        finally
+        {
+            creationGate.Release();
+        }
+
+        await cleanupTask.WaitAsync(TimeSpan.FromSeconds(3));
+    }
+
     private static async Task<TranscodingSessionStatus> WaitForStateAsync(
         IHlsTranscodingService service,
         TranscodingSessionStatus session,
@@ -201,9 +295,9 @@ public class HlsTranscodingServiceTests
                 "matroska",
                 TimeSpan.FromSeconds(30),
                 [
-                    new MediaStreamProbe(0, "video", "h264", null, null, true, false, false),
-                    new MediaStreamProbe(1, "audio", "aac", "jpn", "Japanese", true, false, false),
-                    new MediaStreamProbe(2, "subtitle", "ass", "eng", "English", true, false, false)
+                    new MediaStreamProbe(0, "video", "h264", null, null, true, false, false, "High", "yuv420p"),
+                    new MediaStreamProbe(1, "audio", "aac", "jpn", "Japanese", true, false, false, null, null),
+                    new MediaStreamProbe(2, "subtitle", "ass", "eng", "English", true, false, false, null, null)
                 ]));
 
         public async Task<FfmpegRunResult> GenerateHlsAsync(
@@ -228,18 +322,19 @@ public class HlsTranscodingServiceTests
             return new FfmpegRunResult(0, string.Empty);
         }
 
-        public async Task<IReadOnlyList<TranscodingSubtitle>> ExtractTextSubtitlesAsync(
+        public async Task<TranscodingSubtitle?> ExtractTextSubtitleAsync(
             Stream source,
-            TranscodingPlan plan,
+            MediaStreamProbe subtitle,
+            int ordinal,
             string outputDirectory,
             CancellationToken cancellationToken)
         {
-            const string name = "subtitle-2.vtt";
+            var name = $"subtitle-{subtitle.Index}.vtt";
             await File.WriteAllTextAsync(
                 Path.Combine(outputDirectory, name),
                 "WEBVTT\n",
                 cancellationToken);
-            return [new TranscodingSubtitle(name, "English", "eng", "vtt")];
+            return new TranscodingSubtitle(name, "English", "eng", "vtt");
         }
     }
 
@@ -252,8 +347,8 @@ public class HlsTranscodingServiceTests
                 "matroska",
                 TimeSpan.FromSeconds(30),
                 [
-                    new MediaStreamProbe(0, "video", "h264", null, null, true, false, false),
-                    new MediaStreamProbe(1, "audio", "aac", null, null, true, false, false)
+                    new MediaStreamProbe(0, "video", "h264", null, null, true, false, false, "High", "yuv420p"),
+                    new MediaStreamProbe(1, "audio", "aac", null, null, true, false, false, null, null)
                 ]));
 
         public async Task<FfmpegRunResult> GenerateHlsAsync(
@@ -274,12 +369,13 @@ public class HlsTranscodingServiceTests
             return new FfmpegRunResult(0, string.Empty);
         }
 
-        public Task<IReadOnlyList<TranscodingSubtitle>> ExtractTextSubtitlesAsync(
+        public Task<TranscodingSubtitle?> ExtractTextSubtitleAsync(
             Stream source,
-            TranscodingPlan plan,
+            MediaStreamProbe subtitle,
+            int ordinal,
             string outputDirectory,
             CancellationToken cancellationToken)
-            => Task.FromResult<IReadOnlyList<TranscodingSubtitle>>([]);
+            => Task.FromResult<TranscodingSubtitle?>(null);
     }
 
     private sealed class FailingRunner : IFfmpegProcessRunner
@@ -289,8 +385,8 @@ public class HlsTranscodingServiceTests
                 "matroska",
                 TimeSpan.FromSeconds(30),
                 [
-                    new MediaStreamProbe(0, "video", "h264", null, null, true, false, false),
-                    new MediaStreamProbe(1, "audio", "aac", null, null, true, false, false)
+                    new MediaStreamProbe(0, "video", "h264", null, null, true, false, false, "High", "yuv420p"),
+                    new MediaStreamProbe(1, "audio", "aac", null, null, true, false, false, null, null)
                 ]));
 
         public async Task<FfmpegRunResult> GenerateHlsAsync(
@@ -309,12 +405,95 @@ public class HlsTranscodingServiceTests
             return new FfmpegRunResult(1, "fixture FFmpeg failure");
         }
 
-        public Task<IReadOnlyList<TranscodingSubtitle>> ExtractTextSubtitlesAsync(
+        public Task<TranscodingSubtitle?> ExtractTextSubtitleAsync(
             Stream source,
-            TranscodingPlan plan,
+            MediaStreamProbe subtitle,
+            int ordinal,
             string outputDirectory,
             CancellationToken cancellationToken)
-            => Task.FromResult<IReadOnlyList<TranscodingSubtitle>>([]);
+            => Task.FromResult<TranscodingSubtitle?>(null);
+    }
+
+    private sealed class ProgressiveSubtitleRunner(bool failFirstSubtitle) : IFfmpegProcessRunner
+    {
+        private readonly object _gate = new();
+        private readonly List<int> _extractedStreamIndices = [];
+
+        public TaskCompletionSource GenerationStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ReleaseGeneration { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ExtractionCompleted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public IReadOnlyList<int> ExtractedStreamIndices
+        {
+            get { lock (_gate) return _extractedStreamIndices.ToArray(); }
+        }
+
+        public Task<MediaProbe> ProbeAsync(Stream source, CancellationToken cancellationToken)
+        {
+            var streams = new List<MediaStreamProbe>
+            {
+                new(0, "video", "h264", null, null, true, false, false, "High", "yuv420p"),
+                new(1, "audio", "aac", null, null, true, false, false, null, null),
+                new(2, "subtitle", "ass", "eng", failFirstSubtitle ? "Broken" : "English", false, false, false, null, null)
+            };
+            if (failFirstSubtitle)
+                streams.Add(new MediaStreamProbe(
+                    3,
+                    "subtitle",
+                    "subrip",
+                    "jpn",
+                    "Japanese",
+                    true,
+                    false,
+                    false,
+                    null,
+                    null));
+            return Task.FromResult(new MediaProbe("matroska", TimeSpan.FromSeconds(30), streams));
+        }
+
+        public async Task<FfmpegRunResult> GenerateHlsAsync(
+            Stream source,
+            TranscodingPlan plan,
+            TranscodingSelection selection,
+            string outputDirectory,
+            bool useHardwareEncoder,
+            Action<FfmpegProgress> onProgress,
+            CancellationToken cancellationToken)
+        {
+            await File.WriteAllBytesAsync(
+                Path.Combine(outputDirectory, "segment-000000.ts"),
+                [1, 2, 3],
+                cancellationToken);
+            await File.WriteAllTextAsync(
+                Path.Combine(outputDirectory, "media.m3u8"),
+                "#EXTM3U\n#EXTINF:6,\nsegment-000000.ts\n#EXT-X-ENDLIST\n",
+                cancellationToken);
+            onProgress(new FfmpegProgress(1, 1, true));
+            GenerationStarted.TrySetResult();
+            await ReleaseGeneration.Task.WaitAsync(cancellationToken);
+            return new FfmpegRunResult(0, string.Empty);
+        }
+
+        public async Task<TranscodingSubtitle?> ExtractTextSubtitleAsync(
+            Stream source,
+            MediaStreamProbe subtitle,
+            int ordinal,
+            string outputDirectory,
+            CancellationToken cancellationToken)
+        {
+            lock (_gate) _extractedStreamIndices.Add(subtitle.Index);
+            if (failFirstSubtitle && subtitle.Index == 2) return null;
+
+            var name = $"subtitle-{subtitle.Index}.vtt";
+            await File.WriteAllTextAsync(
+                Path.Combine(outputDirectory, name),
+                "WEBVTT\n",
+                cancellationToken);
+            if (subtitle.Index == 3 || !failFirstSubtitle) ExtractionCompleted.TrySetResult();
+            return new TranscodingSubtitle(name, subtitle.Title ?? $"Subtitle {ordinal}", subtitle.Language, "vtt");
+        }
     }
 
     private sealed class TranscodingFixture : IAsyncDisposable
