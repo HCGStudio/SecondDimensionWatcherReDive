@@ -66,7 +66,9 @@ Restore options:
 
 PostgreSQL is read from PGHOST/PGPORT/PGUSER/PGPASSWORD/PGDATABASE. If those
 are absent, ConnectionStrings__sdw may contain an ASP.NET semicolon connection
-string. Secrets are never printed.
+string. PGMAINTENANCEDATABASE defaults to postgres and is used only to replace
+the target database during restore. Restore requires a target-owning role with
+CREATEDB (or a superuser). Secrets are never printed.
 EOF
 }
 
@@ -478,6 +480,71 @@ major_version() {
     printf '%s' "${value%%.*}"
 }
 
+prepare_database_replacement() {
+    local maintenance_database=${PGMAINTENANCEDATABASE:-postgres}
+    [[ -n "${PGDATABASE}" && -n "${maintenance_database}" ]] ||
+        die "target and maintenance database names are required"
+    case "${PGDATABASE}" in
+        postgres|template0|template1)
+            die "refusing to replace a PostgreSQL system database"
+            ;;
+    esac
+    [[ "${PGDATABASE}" != "${maintenance_database}" ]] ||
+        die "maintenance database must differ from the restore target"
+
+    require_command createdb
+    require_command dropdb
+    psql --no-psqlrc --dbname "${maintenance_database}" --tuples-only --no-align \
+        --set=ON_ERROR_STOP=1 --command 'SELECT 1' >/dev/null ||
+        die "PostgreSQL maintenance database is unavailable"
+
+    local can_replace
+    can_replace=$(psql --no-psqlrc --dbname "${PGDATABASE}" \
+        --tuples-only --no-align --set=ON_ERROR_STOP=1 --command \
+        "SELECT CASE WHEN role.rolsuper OR
+             (role.rolcreatedb AND pg_has_role(current_user, db.datdba, 'MEMBER'))
+         THEN 'yes' ELSE 'no' END
+         FROM pg_database AS db CROSS JOIN pg_roles AS role
+         WHERE db.datname = current_database() AND role.rolname = current_user" \
+        2>/dev/null) || die "cannot inspect target database ownership"
+    [[ "${can_replace}" == yes ]] ||
+        die "PostgreSQL role must own the target and have CREATEDB, or be superuser"
+}
+
+replace_database_from_archive() {
+    local archive=$1 maintenance_database=${PGMAINTENANCEDATABASE:-postgres}
+    local database_owner database_encoding database_collation database_ctype
+    database_owner=$(psql --no-psqlrc --dbname "${PGDATABASE}" \
+        --tuples-only --no-align --set=ON_ERROR_STOP=1 --command \
+        "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = current_database()")
+    database_encoding=$(psql --no-psqlrc --dbname "${PGDATABASE}" \
+        --tuples-only --no-align --set=ON_ERROR_STOP=1 --command \
+        "SELECT pg_encoding_to_char(encoding) FROM pg_database WHERE datname = current_database()")
+    database_collation=$(psql --no-psqlrc --dbname "${PGDATABASE}" \
+        --tuples-only --no-align --set=ON_ERROR_STOP=1 --command \
+        "SELECT datcollate FROM pg_database WHERE datname = current_database()")
+    database_ctype=$(psql --no-psqlrc --dbname "${PGDATABASE}" \
+        --tuples-only --no-align --set=ON_ERROR_STOP=1 --command \
+        "SELECT datctype FROM pg_database WHERE datname = current_database()")
+    [[ -n "${database_owner}" && -n "${database_encoding}" &&
+       -n "${database_collation}" && -n "${database_ctype}" ]] ||
+        die "target database properties are unavailable"
+
+    # pg_restore --clean only drops objects present in the archive. Recreate the
+    # database so objects introduced after the backup cannot survive a replacement
+    # restore and conflict with the restored EF migration history.
+    dropdb --force --maintenance-db="${maintenance_database}" -- "${PGDATABASE}"
+    createdb --maintenance-db="${maintenance_database}" \
+        --template=template0 \
+        --owner="${database_owner}" \
+        --encoding="${database_encoding}" \
+        --lc-collate="${database_collation}" \
+        --lc-ctype="${database_ctype}" \
+        -- "${PGDATABASE}"
+    pg_restore --exit-on-error --no-owner --no-acl \
+        --dbname "${PGDATABASE}" "${archive}"
+}
+
 restore_backup() {
     [[ $# -ge 1 ]] || die "restore requires an archive"
     local archive=$1
@@ -516,6 +583,7 @@ restore_backup() {
     parse_connection_string
     require_command psql
     require_command pg_dump
+    prepare_database_replacement
     prepare_archive "${archive}" "${identity}"
 
     local extracted="${backup_temp_dir}/extracted"
@@ -560,8 +628,7 @@ restore_backup() {
     chmod 0600 "${safety_dump}.partial"
     mv "${safety_dump}.partial" "${safety_dump}"
 
-    pg_restore --clean --if-exists --exit-on-error --no-owner --no-acl \
-        --dbname "${PGDATABASE}" "${extracted}/database.dump"
+    replace_database_from_archive "${extracted}/database.dump"
     [[ "$(database_schema_version)" == "${backup_schema}" ]] ||
         die "restored database schema does not match the backup"
 

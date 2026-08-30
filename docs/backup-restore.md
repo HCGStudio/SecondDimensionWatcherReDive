@@ -84,14 +84,16 @@ podman-compose exec sdw-redive sdw-backup verify /app/backups/sdw-backup-....tar
 
 恢复是替换操作。先停止所有应用副本和后台任务；仅停止应用，不要停止 PostgreSQL。
 
-1. 把目标应用安装为与备份相同的 major 版本，并准备空数据库。
+1. 把目标应用安装为与备份相同的 major 版本。恢复脚本会在生成 safety dump 后删除并重建目标数据库，数据库登录角色必须拥有目标数据库并具有 `CREATEDB`（或使用 PostgreSQL 超级用户）；不要把 `PGDATABASE` 指向 `postgres`、`template0` 或 `template1`。默认的低权限应用账号不应长期获得 `CREATEDB`，恢复时请临时提供独立的数据库管理员凭据。
 2. 预先挂载足够空间；脚本在任何数据库写入前验证路径、链接、所有 SHA-256、`pg_restore --list`、格式、major 版本、可选 schema 版本、临时空间和目标目录可写性。
 3. 执行恢复。命令先在 safety directory 创建现有数据库 dump，旧配置、密码和密钥环也会重命名为 `.pre-restore-*`，可人工回退。
 4. 修正文件所有者与权限，启动应用，检查 `/api/auth/allowRegister`、登录、订阅和文件浏览。
 
 ```bash
 sudo systemctl stop sdw-redive
-sudo -u sdw-redive --preserve-env=PGHOST,PGPORT,PGUSER,PGPASSWORD,PGDATABASE \
+# /etc/sdw-redive 由 root 管理，因此完整恢复必须以 root 写入配置；
+# 下列 PostgreSQL 变量应由 root 可读的凭据文件或当前管理会话提供。
+sudo --preserve-env=PGHOST,PGPORT,PGUSER,PGPASSWORD,PGDATABASE,PGMAINTENANCEDATABASE \
   sdw-backup restore /var/lib/sdw-redive/backups/sdw-backup-....tar.gz \
   --confirm-replace \
   --expected-version 2.3.0 \
@@ -101,8 +103,7 @@ sudo -u sdw-redive --preserve-env=PGHOST,PGPORT,PGUSER,PGPASSWORD,PGDATABASE \
   --key-ring-destination /var/lib/sdw-redive/data-protection-keys
 sudo chown root:sdw-redive /etc/sdw-redive/appsettings.yml
 sudo chmod 0640 /etc/sdw-redive/appsettings.yml
-sudo chown -R sdw-redive:sdw-redive /var/lib/sdw-redive/data-protection-keys \
-  /var/lib/sdw-redive/password.json
+sudo chown -R sdw-redive:sdw-redive /var/lib/sdw-redive
 sudo systemctl start sdw-redive
 curl --fail http://127.0.0.1:5097/api/auth/allowRegister
 ```

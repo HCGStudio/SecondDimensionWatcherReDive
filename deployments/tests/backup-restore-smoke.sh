@@ -65,6 +65,9 @@ fi
 
 createdb sdw_restore
 export PGDATABASE=sdw_restore
+psql --no-psqlrc --set=ON_ERROR_STOP=1 --command \
+    "CREATE TABLE destination_only (id integer); INSERT INTO destination_only VALUES (99);" \
+    >/dev/null
 "${repo_root}/deployments/sdw-backup" restore "${archive}" \
     --confirm-replace \
     --expected-version "${app_version}" \
@@ -76,5 +79,7 @@ export PGDATABASE=sdw_restore
 
 test "$(psql --no-psqlrc --tuples-only --no-align --command \
     'SELECT value FROM drill_items WHERE id = 1')" = round-trip
+test "$(psql --no-psqlrc --tuples-only --no-align --command \
+    "SELECT to_regclass('public.destination_only') IS NULL")" = t
 cmp "${drill_root}/password.json" "${drill_root}/restored/password.json"
 printf 'backup restore smoke test passed\n'

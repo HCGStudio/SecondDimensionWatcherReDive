@@ -2,10 +2,14 @@ using Microsoft.EntityFrameworkCore;
 using System.Security.Cryptography;
 using System.Text;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
+using SecondDimensionWatcherReDive.Utils.FileStore;
+using DataFileMapping = SecondDimensionWatcherReDive.Framework.DataRepository.FileMapping;
 
 namespace SecondDimensionWatcherReDive.Repositories;
 
-public sealed class LogicalDataTransferRepository(Models.ApplicationContext context)
+public sealed class LogicalDataTransferRepository(
+    Models.ApplicationContext context,
+    IFileMapper fileMapper)
     : ILogicalDataTransferRepository
 {
     private const int FormatVersion = 1;
@@ -43,18 +47,18 @@ public sealed class LogicalDataTransferRepository(Models.ApplicationContext cont
 
         var rules = categories.HasFlag(LogicalDataCategory.FileNameRules)
             ? await (from rule in context.FileNameRegexRules.AsNoTracking()
-                    join animation in context.Animations.AsNoTracking()
-                        on rule.AnimationId equals animation.Id
-                    orderby animation.TmdbId, rule.CreatedAt
-                    select new LogicalFileNameRule(
-                        rule.Id,
-                        animation.TmdbId,
-                        animation.Name,
-                        animation.OriginalName,
-                        animation.PosterPath,
-                        rule.Pattern,
-                        rule.Description,
-                        rule.CreatedAt))
+                     join animation in context.Animations.AsNoTracking()
+                         on rule.AnimationId equals animation.Id
+                     orderby animation.TmdbId, rule.CreatedAt
+                     select new LogicalFileNameRule(
+                         rule.Id,
+                         animation.TmdbId,
+                         animation.Name,
+                         animation.OriginalName,
+                         animation.PosterPath,
+                         rule.Pattern,
+                         rule.Description,
+                         rule.CreatedAt))
                 .ToListAsync(cancellationToken)
             : [];
 
@@ -143,7 +147,14 @@ public sealed class LogicalDataTransferRepository(Models.ApplicationContext cont
         await ImportFeedsAsync(bundle, conflictStrategy, feedsByUrl, usedFeedIds, statistics, cancellationToken);
         await ImportPoliciesAsync(bundle, conflictStrategy, feedsByUrl, statistics, cancellationToken);
         await ImportRulesAsync(bundle, conflictStrategy, statistics, cancellationToken);
+        // Mapping previews can consume filename rules and animation rows imported in
+        // this bundle. Flush them inside the transaction before planning corrections.
+        await context.SaveChangesAsync(cancellationToken);
         await ImportMetadataCorrectionsAsync(bundle, conflictStrategy, statistics, cancellationToken);
+        // Metadata correction imports replace FileMappings in the same transaction.
+        // Flush them before playback import queries by virtual path; a later failure
+        // still rolls the entire import back.
+        await context.SaveChangesAsync(cancellationToken);
         await ImportPlaybackAsync(bundle, conflictStrategy, userId, statistics, cancellationToken);
 
         await context.SaveChangesAsync(cancellationToken);
@@ -302,7 +313,19 @@ public sealed class LogicalDataTransferRepository(Models.ApplicationContext cont
             bundle.MetadataCorrections.Count == 0)
             return;
 
+        // Use the same lock order as metadata review and FileMappingRepository so a
+        // correction cannot race another virtual-path transition.
+        await MappingTransactionLock.AcquireAsync(context, cancellationToken);
+
         var downloadUrls = bundle.MetadataCorrections.Select(item => item.ReleaseDownloadUrl).Distinct().ToArray();
+        var candidateIds = await context.AnimationInfo.AsNoTracking()
+            .Where(info => downloadUrls.Contains(info.DownloadUrl))
+            .Select(info => info.Id)
+            .ToListAsync(cancellationToken);
+        await MappingTransactionLock.LockAnimationInfosAsync(
+            context,
+            candidateIds,
+            cancellationToken);
         var candidates = await context.AnimationInfo
             .Include(info => info.Animation)
             .Include(info => info.Group)
@@ -365,6 +388,60 @@ public sealed class LogicalDataTransferRepository(Models.ApplicationContext cont
                 groups.Add(group.Name, group);
             }
 
+            var existingMappings = await context.FileMappings
+                .AsNoTracking()
+                .Where(mapping => mapping.AnimationInfoId == info.Id)
+                .OrderBy(mapping => mapping.VirtualPath)
+                .ToListAsync(cancellationToken);
+            IReadOnlyList<DataFileMapping> proposedMappings;
+            if (info.IsDownloadFinished)
+            {
+                var proposedInfo = info.ToRecord() with
+                {
+                    Animation = animation.ToRecord(),
+                    Group = group?.ToRecord(),
+                    Description = imported.Description,
+                    Season = imported.Season,
+                    Episode = imported.Episode,
+                    MetadataStatus = MetadataReviewStatus.Reviewed,
+                    MetadataConfidence = 1,
+                    MetadataLastError = null,
+                    MetadataReviewedAt = imported.AppliedAt,
+                    IsAiProcessed = true,
+                    AiRetryCount = 0
+                };
+                var preview = await fileMapper.PreviewDownloadAsync(
+                    proposedInfo,
+                    cancellationToken);
+                if (preview is null)
+                    throw new LogicalDataImportConflictException(
+                        $"Cannot rebuild mappings for imported metadata:{imported.ReleaseTitle}.");
+                proposedMappings = preview.Mappings;
+            }
+            else
+            {
+                // Match the normal review workflow: metadata-only corrections do not
+                // delete an inconsistent legacy mapping before download completion.
+                proposedMappings = existingMappings
+                    .Select(mapping => mapping.ToRecord())
+                    .ToList();
+            }
+
+            if (proposedMappings.Any(mapping => mapping.AnimationInfoId != info.Id) ||
+                proposedMappings.Select(mapping => mapping.VirtualPath)
+                    .Distinct(StringComparer.Ordinal).Count() != proposedMappings.Count)
+                throw new LogicalDataImportConflictException(
+                    $"Invalid mapping plan for imported metadata:{imported.ReleaseTitle}.");
+
+            var proposedPaths = proposedMappings.Select(mapping => mapping.VirtualPath).ToArray();
+            if (proposedPaths.Length > 0 &&
+                await context.FileMappings.AsNoTracking().AnyAsync(
+                    mapping => mapping.AnimationInfoId != info.Id &&
+                               proposedPaths.Contains(mapping.VirtualPath),
+                    cancellationToken))
+                throw new LogicalDataImportConflictException(
+                    $"Mapping conflict for imported metadata:{imported.ReleaseTitle}.");
+
             var nextVersion = checked(info.StateVersion + 1);
             var operation = new Models.MetadataReviewOperation
             {
@@ -399,7 +476,26 @@ public sealed class LogicalDataTransferRepository(Models.ApplicationContext cont
                 PreviousIsAiProcessed = info.IsAiProcessed,
                 PreviousAiRetryCount = info.AiRetryCount,
                 PreviousReviewedAt = info.MetadataReviewedAt,
-                PreviousCurrentOperationId = info.CurrentMetadataReviewOperationId
+                PreviousCurrentOperationId = info.CurrentMetadataReviewOperationId,
+                MappingSnapshots = existingMappings.Select(mapping =>
+                    new Models.MetadataReviewMappingSnapshot
+                    {
+                        Id = Guid.NewGuid(),
+                        OperationId = imported.OperationId,
+                        Kind = MetadataReviewMappingKind.Previous,
+                        VirtualPath = mapping.VirtualPath,
+                        PhysicalPath = mapping.PhysicalPath,
+                        FileStore = mapping.FileStore
+                    }).Concat(proposedMappings.Select(mapping =>
+                    new Models.MetadataReviewMappingSnapshot
+                    {
+                        Id = Guid.NewGuid(),
+                        OperationId = imported.OperationId,
+                        Kind = MetadataReviewMappingKind.Proposed,
+                        VirtualPath = mapping.VirtualPath,
+                        PhysicalPath = mapping.PhysicalPath,
+                        FileStore = mapping.FileStore
+                    })).ToList()
             };
             context.MetadataReviewOperations.Add(operation);
             info.Animation = animation;
@@ -415,6 +511,31 @@ public sealed class LogicalDataTransferRepository(Models.ApplicationContext cont
             info.AiRetryCount = 0;
             info.StateVersion = nextVersion;
             info.CurrentMetadataReviewOperationId = operation.Id;
+
+            var replacementMappings = proposedMappings.Select(mapping =>
+                new Models.FileMapping
+                {
+                    Id = Guid.NewGuid(),
+                    AnimationInfoId = info.Id,
+                    VirtualPath = mapping.VirtualPath,
+                    PhysicalPath = mapping.PhysicalPath,
+                    FileStore = mapping.FileStore
+                }).ToList();
+            await PlaybackProgressMappingMigrator.MigrateAsync(
+                context,
+                info.Id,
+                existingMappings,
+                replacementMappings,
+                cancellationToken);
+            await context.FileMappings
+                .Where(mapping => mapping.AnimationInfoId == info.Id)
+                .ExecuteDeleteAsync(cancellationToken);
+            if (replacementMappings.Count > 0)
+                await context.FileMappings.AddRangeAsync(replacementMappings, cancellationToken);
+
+            // Make this plan visible to collision checks for subsequent corrections
+            // in the same bundle. The enclosing transaction still provides atomicity.
+            await context.SaveChangesAsync(cancellationToken);
             existingOperationIds.Add(operation.Id);
             statistics.Add();
         }

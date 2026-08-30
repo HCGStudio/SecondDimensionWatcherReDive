@@ -1,6 +1,8 @@
 using Microsoft.EntityFrameworkCore;
+using Moq;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Repositories;
+using SecondDimensionWatcherReDive.Utils.FileStore;
 using Testcontainers.PostgreSql;
 using Models = SecondDimensionWatcherReDive.Models;
 
@@ -83,7 +85,7 @@ public sealed class LogicalDataTransferPostgreSqlTests
                     CreatedAt = DateTimeOffset.UtcNow
                 });
             await source.SaveChangesAsync();
-            bundle = await new LogicalDataTransferRepository(source).ExportAsync(
+            bundle = await Repository(source).ExportAsync(
                 LogicalDataCategory.Feeds |
                 LogicalDataCategory.AutomationPolicies |
                 LogicalDataCategory.FileNameRules,
@@ -98,7 +100,7 @@ public sealed class LogicalDataTransferPostgreSqlTests
         }
 
         await using var target = new Models.ApplicationContext(Options);
-        var repository = new LogicalDataTransferRepository(target);
+        var repository = Repository(target);
         var first = await repository.ImportAsync(
             bundle,
             LogicalImportConflictStrategy.Skip,
@@ -219,7 +221,7 @@ public sealed class LogicalDataTransferPostgreSqlTests
                  """);
             Assert.AreEqual(1, await source.PlaybackPreferences.AsNoTracking().CountAsync());
 
-            bundle = await new LogicalDataTransferRepository(source).ExportAsync(
+            bundle = await Repository(source).ExportAsync(
                 LogicalDataCategory.MetadataCorrections | LogicalDataCategory.Playback,
                 Guid.Empty,
                 "1.0.0",
@@ -244,7 +246,7 @@ public sealed class LogicalDataTransferPostgreSqlTests
         target.AddRange(targetInfo, Mapping(targetInfoId, VirtualPath));
         await target.SaveChangesAsync();
 
-        var result = await new LogicalDataTransferRepository(target).ImportAsync(
+        var result = await Repository(target).ImportAsync(
             bundle,
             LogicalImportConflictStrategy.Skip,
             Guid.Empty,
@@ -266,6 +268,240 @@ public sealed class LogicalDataTransferPostgreSqlTests
         var preferences = await target.PlaybackPreferences.SingleAsync();
         Assert.AreEqual(Guid.Empty, preferences.UserId);
         Assert.IsFalse(preferences.AutoPlayNext);
+    }
+
+    [TestMethod]
+    public async Task MetadataImportTransitionsMappingsPlaybackAndRemainsUndoable()
+    {
+        var publishedAt = DateTimeOffset.UtcNow.AddDays(-1);
+        var operationId = Guid.NewGuid();
+        var infoId = Guid.NewGuid();
+        const string DownloadUrl = "https://example.com/remapped-release.torrent";
+        const string PreviousPath = "/Old Show/Old Group/Old Show S01E02.mkv";
+        const string ProposedPath = "/Correct Show/Correct Group/Correct Show S02E05.mkv";
+        const string PhysicalPath = "/target-media/release.mkv";
+
+        await using (var seed = new Models.ApplicationContext(Options))
+        {
+            var oldAnimation = Animation("tv:old", "Old Show");
+            var oldGroup = new Models.AnimationGroup { Id = Guid.NewGuid(), Name = "Old Group" };
+            var info = Release(infoId, DownloadUrl, publishedAt);
+            info.Animation = oldAnimation;
+            info.Group = oldGroup;
+            info.Season = 1;
+            info.Episode = 2;
+            info.IsDownloadFinished = true;
+            info.FileStore = "local";
+            info.StorePath = "/target-media";
+            info.StateVersion = 7;
+            seed.AddRange(
+                oldAnimation,
+                oldGroup,
+                info,
+                new Models.FileMapping
+                {
+                    Id = Guid.NewGuid(),
+                    AnimationInfoId = infoId,
+                    VirtualPath = PreviousPath,
+                    PhysicalPath = PhysicalPath,
+                    FileStore = "local"
+                },
+                new Models.PlaybackProgress
+                {
+                    Id = Guid.NewGuid(),
+                    UserId = Guid.Empty,
+                    AnimationInfoId = infoId,
+                    VirtualPath = PreviousPath,
+                    PositionSeconds = 120,
+                    DurationSeconds = 1_440,
+                    UpdatedAt = DateTimeOffset.UtcNow.AddHours(-1)
+                });
+            await seed.SaveChangesAsync();
+        }
+
+        var bundle = new LogicalDataBundle(
+            1,
+            DateTimeOffset.UtcNow,
+            "1.0.0",
+            LogicalDataCategory.MetadataCorrections | LogicalDataCategory.Playback,
+            [],
+            [],
+            [],
+            [
+                new LogicalMetadataCorrection(
+                    operationId,
+                    DownloadUrl,
+                    "[Group] Example - 02",
+                    publishedAt,
+                    "tv:correct",
+                    "Correct Show",
+                    "Correct Show",
+                    "/correct.jpg",
+                    "corrected description",
+                    2,
+                    5,
+                    "Correct Group",
+                    DateTimeOffset.UtcNow)
+            ],
+            [
+                new LogicalPlaybackProgress(
+                    ProposedPath,
+                    600,
+                    1_440,
+                    false,
+                    DateTimeOffset.UtcNow,
+                    null)
+            ],
+            null);
+        var mapper = new Mock<IFileMapper>(MockBehavior.Strict);
+        mapper.Setup(candidate => candidate.PreviewDownloadAsync(
+                It.Is<AnimationInfo>(info =>
+                    info.Id == infoId &&
+                    info.Animation != null && info.Animation.TmdbId == "tv:correct" &&
+                    info.Group != null && info.Group.Name == "Correct Group" &&
+                    info.Season == 2 && info.Episode == 5),
+                CancellationToken.None))
+            .ReturnsAsync(new FileMappingPreview(
+                [
+                    new FileMapping(
+                        Guid.NewGuid(),
+                        infoId,
+                        ProposedPath,
+                        PhysicalPath,
+                        "local")
+                ],
+                []));
+
+        await using (var importing = new Models.ApplicationContext(Options))
+        {
+            var result = await Repository(importing, mapper.Object).ImportAsync(
+                bundle,
+                LogicalImportConflictStrategy.Overwrite,
+                Guid.Empty,
+                CancellationToken.None);
+            Assert.AreEqual(1, result.Added);
+            Assert.AreEqual(1, result.Updated);
+        }
+
+        await using (var verification = new Models.ApplicationContext(Options))
+        {
+            var info = await verification.AnimationInfo
+                .Include(candidate => candidate.Animation)
+                .Include(candidate => candidate.Group)
+                .SingleAsync();
+            Assert.AreEqual(8, info.StateVersion);
+            Assert.AreEqual(operationId, info.CurrentMetadataReviewOperationId);
+            Assert.AreEqual("tv:correct", info.Animation!.TmdbId);
+            Assert.AreEqual("Correct Group", info.Group!.Name);
+
+            var mapping = await verification.FileMappings.SingleAsync();
+            Assert.AreEqual(ProposedPath, mapping.VirtualPath);
+            Assert.AreEqual(PhysicalPath, mapping.PhysicalPath);
+            var snapshots = await verification.MetadataReviewMappingSnapshots
+                .OrderBy(snapshot => snapshot.Kind)
+                .ToListAsync();
+            Assert.AreEqual(2, snapshots.Count);
+            Assert.AreEqual(PreviousPath,
+                snapshots.Single(snapshot => snapshot.Kind == MetadataReviewMappingKind.Previous).VirtualPath);
+            Assert.AreEqual(ProposedPath,
+                snapshots.Single(snapshot => snapshot.Kind == MetadataReviewMappingKind.Proposed).VirtualPath);
+            Assert.IsTrue(snapshots.All(snapshot => snapshot.PhysicalPath == PhysicalPath));
+            var progress = await verification.PlaybackProgresses.SingleAsync();
+            Assert.AreEqual(ProposedPath, progress.VirtualPath);
+            Assert.AreEqual(600, progress.PositionSeconds);
+        }
+
+        await using (var undoContext = new Models.ApplicationContext(Options))
+        {
+            var undone = await new MetadataReviewRepository(undoContext, Options).UndoAsync(
+                operationId,
+                8,
+                CancellationToken.None);
+            Assert.AreEqual(MetadataReviewMutationOutcome.Success, undone.Outcome);
+        }
+
+        await using (var verification = new Models.ApplicationContext(Options))
+        {
+            var info = await verification.AnimationInfo
+                .Include(candidate => candidate.Animation)
+                .Include(candidate => candidate.Group)
+                .SingleAsync();
+            Assert.AreEqual(9, info.StateVersion);
+            Assert.AreEqual("tv:old", info.Animation!.TmdbId);
+            Assert.AreEqual("Old Group", info.Group!.Name);
+            Assert.AreEqual(PreviousPath, (await verification.FileMappings.SingleAsync()).VirtualPath);
+            var progress = await verification.PlaybackProgresses.SingleAsync();
+            Assert.AreEqual(PreviousPath, progress.VirtualPath);
+            Assert.AreEqual(600, progress.PositionSeconds);
+        }
+    }
+
+    [TestMethod]
+    public async Task UnavailableMetadataMappingPlanRollsBackWholeImport()
+    {
+        var publishedAt = DateTimeOffset.UtcNow.AddDays(-1);
+        var infoId = Guid.NewGuid();
+        const string DownloadUrl = "https://example.com/unavailable-mapping.torrent";
+        const string PreviousPath = "/unknown/original.mkv";
+        await using (var seed = new Models.ApplicationContext(Options))
+        {
+            var info = Release(infoId, DownloadUrl, publishedAt);
+            info.IsDownloadFinished = true;
+            info.FileStore = "local";
+            info.StorePath = "/missing-media";
+            seed.AddRange(info, Mapping(infoId, PreviousPath));
+            await seed.SaveChangesAsync();
+        }
+
+        var bundle = new LogicalDataBundle(
+            1,
+            DateTimeOffset.UtcNow,
+            "1.0.0",
+            LogicalDataCategory.Feeds | LogicalDataCategory.MetadataCorrections,
+            [new LogicalFeed(Guid.NewGuid(), "https://example.com/new.xml", "New", DateTimeOffset.UtcNow)],
+            [],
+            [],
+            [
+                new LogicalMetadataCorrection(
+                    Guid.NewGuid(),
+                    DownloadUrl,
+                    "[Group] Example - 02",
+                    publishedAt,
+                    "tv:correct",
+                    "Correct Show",
+                    "Correct Show",
+                    null,
+                    "corrected description",
+                    2,
+                    5,
+                    "Correct Group",
+                    DateTimeOffset.UtcNow)
+            ],
+            [],
+            null);
+        var mapper = new Mock<IFileMapper>(MockBehavior.Strict);
+        mapper.Setup(candidate => candidate.PreviewDownloadAsync(
+                It.IsAny<AnimationInfo>(),
+                CancellationToken.None))
+            .ReturnsAsync((FileMappingPreview?)null);
+
+        await using (var importing = new Models.ApplicationContext(Options))
+        {
+            await Assert.ThrowsAsync<LogicalDataImportConflictException>(() =>
+                Repository(importing, mapper.Object).ImportAsync(
+                    bundle,
+                    LogicalImportConflictStrategy.Overwrite,
+                    Guid.Empty,
+                    CancellationToken.None));
+        }
+
+        await using var verification = new Models.ApplicationContext(Options);
+        Assert.AreEqual(0, await verification.Feeds.CountAsync());
+        Assert.AreEqual(0, await verification.MetadataReviewOperations.CountAsync());
+        var infoAfter = await verification.AnimationInfo.SingleAsync();
+        Assert.AreEqual("uncorrected", infoAfter.Description);
+        Assert.AreEqual(0, infoAfter.StateVersion);
+        Assert.AreEqual(PreviousPath, (await verification.FileMappings.SingleAsync()).VirtualPath);
     }
 
     [TestMethod]
@@ -301,7 +537,7 @@ public sealed class LogicalDataTransferPostgreSqlTests
         await using (var importing = new Models.ApplicationContext(Options))
         {
             await Assert.ThrowsAsync<LogicalDataImportConflictException>(() =>
-                new LogicalDataTransferRepository(importing).ImportAsync(
+                Repository(importing).ImportAsync(
                     bundle,
                     LogicalImportConflictStrategy.Fail,
                     Guid.Empty,
@@ -348,4 +584,9 @@ public sealed class LogicalDataTransferPostgreSqlTests
             PhysicalPath = "/media/example.mkv",
             FileStore = "local"
         };
+
+    private static LogicalDataTransferRepository Repository(
+        Models.ApplicationContext context,
+        IFileMapper? fileMapper = null) =>
+        new(context, fileMapper ?? Mock.Of<IFileMapper>());
 }

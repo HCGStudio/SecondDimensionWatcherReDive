@@ -141,6 +141,8 @@ jobs:
             --key-ring-destination "$WORK_DIR/restored/keys" \
             --plugin-destination "$WORK_DIR/restored/plugins" \
             --safety-directory "$WORK_DIR/backups"
+          test "$(psql --no-psqlrc --tuples-only --no-align --command \
+            "SELECT to_regclass('public.restore_guard') IS NULL")" = "t"
           test "$(psql --no-psqlrc --tuples-only --no-align --command 'SELECT count(*) FROM "Feeds"')" = "1"
           cmp "$WORK_DIR/source/password.json" "$WORK_DIR/restored/password.json"
           cmp "$WORK_DIR/source/appsettings.yml" "$WORK_DIR/restored/appsettings.yml"
