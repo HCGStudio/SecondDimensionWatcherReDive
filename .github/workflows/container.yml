@@ -19,8 +19,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: container-${{ github.ref }}-${{ github.event.inputs.release_version || 'prerelease' }}
-  cancel-in-progress: true
+  group: container-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || (github.event_name == 'workflow_dispatch' && github.event.inputs.release_version != '' && 'stable' || 'prerelease') }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   prepare:
@@ -34,18 +34,27 @@ jobs:
 
       - name: Compute image name and version
         id: image
+        env:
+          RELEASE_VERSION: ${{ github.event.inputs.release_version }}
         run: |
           REGISTRY="ghcr.io"
-          RELEASE_VERSION="${{ github.event.inputs.release_version }}"
           IMAGE_NAME=$(echo "${{ github.repository_owner }}/sdw-redive" | tr '[:upper:]' '[:lower:]')
           REGISTRY_IMAGE="${REGISTRY}/${IMAGE_NAME}"
 
           if [ -n "$RELEASE_VERSION" ]; then
+            if [[ ! "$RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "Release version must use the x.y.z format" >&2
+              exit 1
+            fi
             VERSION="$RELEASE_VERSION"
             TAG1="${REGISTRY_IMAGE}:${VERSION}"
             TAG2="${REGISTRY_IMAGE}:latest"
           else
             BASE_VERSION=$(tr -d '[:space:]' < VERSION)
+            if [[ ! "$BASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "VERSION must use the x.y.z format" >&2
+              exit 1
+            fi
             VERSION="${BASE_VERSION}.${{ github.run_number }}"
             TAG1="${REGISTRY_IMAGE}:pre-${VERSION}"
             TAG2="${REGISTRY_IMAGE}:prerelease-latest"
@@ -55,7 +64,40 @@ jobs:
           echo "tag1=${TAG1}" >> "$GITHUB_OUTPUT"
           echo "tag2=${TAG2}" >> "$GITHUB_OUTPUT"
 
+  validate:
+    if: github.event_name == 'pull_request'
+    needs: prepare
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build container
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./Containerfile
+          platforms: ${{ matrix.platform }}
+          push: false
+          cache-from: type=gha,scope=container-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=container-${{ matrix.arch }},ignore-error=true
+
   build:
+    if: github.event_name != 'pull_request'
     needs: prepare
     permissions:
       contents: read
@@ -78,26 +120,13 @@ jobs:
         uses: docker/setup-buildx-action@v4
 
       - name: Log in to GHCR
-        if: github.event_name != 'pull_request'
         uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build container
-        if: github.event_name == 'pull_request'
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: ./Containerfile
-          platforms: ${{ matrix.platform }}
-          push: false
-          cache-from: type=gha,scope=container-${{ matrix.arch }}
-          cache-to: type=gha,mode=max,scope=container-${{ matrix.arch }}
-
       - name: Build and push by digest
-        if: github.event_name != 'pull_request'
         id: publish
         uses: docker/build-push-action@v7
         with:
@@ -106,10 +135,9 @@ jobs:
           platforms: ${{ matrix.platform }}
           outputs: type=image,name=${{ needs.prepare.outputs.registry_image }},push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha,scope=container-${{ matrix.arch }}
-          cache-to: type=gha,mode=max,scope=container-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=container-${{ matrix.arch }},ignore-error=true
 
       - name: Export digest
-        if: github.event_name != 'pull_request'
         env:
           DIGEST: ${{ steps.publish.outputs.digest }}
         run: |
@@ -122,7 +150,6 @@ jobs:
           touch "$RUNNER_TEMP/container-digests/$digest"
 
       - name: Upload digest
-        if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v7
         with:
           name: container-digest-${{ matrix.arch }}
@@ -180,16 +207,35 @@ jobs:
 
           docker buildx imagetools create \
             --tag "$TAG1" \
-            --tag "$TAG2" \
+            --metadata-file "$RUNNER_TEMP/manifest-metadata.json" \
             "${images[@]}"
 
-          manifest=$(docker buildx imagetools inspect "$TAG1" --raw)
-          for architecture in amd64 arm64; do
-            if ! jq -e --arg architecture "$architecture" \
-              'any(.manifests[]?; .platform.os == "linux" and .platform.architecture == $architecture)' \
-              <<< "$manifest" >/dev/null; then
-              echo "Published manifest is missing linux/$architecture" >&2
-              exit 1
-            fi
-          done
-          docker buildx imagetools inspect "$TAG1"
+          manifest_digest=$(jq -er '."containerimage.descriptor".digest' "$RUNNER_TEMP/manifest-metadata.json")
+          if [[ ! "$manifest_digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "Unexpected manifest digest: $manifest_digest" >&2
+            exit 1
+          fi
+
+          manifest=$(docker buildx imagetools inspect "${REGISTRY_IMAGE}@${manifest_digest}" --raw)
+          platforms=$(jq -c \
+            '[.manifests[]? | select((.platform.os // "unknown") != "unknown" or (.platform.architecture // "unknown") != "unknown") | "\(.platform.os)/\(.platform.architecture)"] | sort' \
+            <<< "$manifest")
+          if [ "$platforms" != '["linux/amd64","linux/arm64"]' ]; then
+            echo "Expected exactly linux/amd64 and linux/arm64, found $platforms" >&2
+            exit 1
+          fi
+
+          tag1_digest=$(docker buildx imagetools inspect "$TAG1" --format '{{json .Manifest}}' | jq -er '.digest')
+          if [ "$tag1_digest" != "$manifest_digest" ]; then
+            echo "$TAG1 points to $tag1_digest instead of $manifest_digest" >&2
+            exit 1
+          fi
+
+          docker buildx imagetools create --tag "$TAG2" "${REGISTRY_IMAGE}@${manifest_digest}"
+          tag2_digest=$(docker buildx imagetools inspect "$TAG2" --format '{{json .Manifest}}' | jq -er '.digest')
+          if [ "$tag2_digest" != "$manifest_digest" ]; then
+            echo "$TAG2 points to $tag2_digest instead of $manifest_digest" >&2
+            exit 1
+          fi
+
+          docker buildx imagetools inspect "${REGISTRY_IMAGE}@${manifest_digest}"
