@@ -78,6 +78,11 @@ internal sealed partial class ChatController(
     [HttpGet("conversations/{id:guid}")]
     public async Task<IActionResult> GetConversation(Guid id, CancellationToken cancellationToken)
     {
+        if (TryGetUserId(out var userId))
+        {
+            await chatActionService.GetForConversationAsync(
+                id, userId, cancellationToken);
+        }
         var detail = await chatRepository.GetConversationWithMessagesAsync(id, cancellationToken);
         if (detail is null)
         {
@@ -220,6 +225,8 @@ internal sealed partial class ChatController(
         CancellationToken cancellationToken)
     {
         if (!TryGetUserId(out var userId)) return Unauthorized();
+        await chatActionService.GetForConversationAsync(
+            conversationId, userId, cancellationToken);
         var entries = await chatActionRepository.GetAuditAsync(
             conversationId, userId, cancellationToken);
         return Ok(entries.Select(entry => new ChatActionAuditResponse(
@@ -249,6 +256,9 @@ internal sealed partial class ChatController(
         if (aiEngine is null || status is { IsConfigured: false })
             return TypedResults.StatusCode(503);
 
+        // Recover an execution whose owning process stopped before rebuilding model history.
+        // ChatRepository then overlays the terminal tool result onto the original tool message.
+        await chatActionService.GetForConversationAsync(id, userId, cancellationToken);
         var conversation = await chatRepository.GetConversationWithMessagesAsync(id, cancellationToken);
         if (conversation is null)
         {
@@ -611,29 +621,29 @@ internal sealed partial class ChatController(
                     break;
 
                 case "assistant":
-                {
-                    IReadOnlyList<ToolCall>? toolCalls = null;
-                    if (msg.ToolCallsJson is not null)
                     {
-                        try
+                        IReadOnlyList<ToolCall>? toolCalls = null;
+                        if (msg.ToolCallsJson is not null)
                         {
-                            using var doc = JsonDocument.Parse(msg.ToolCallsJson);
-                            toolCalls = doc.RootElement.EnumerateArray()
-                                .Select(tc => new ToolCall(
-                                    tc.GetProperty("id").GetString() ?? "",
-                                    tc.GetProperty("name").GetString() ?? "",
-                                    tc.GetProperty("arguments").GetString() ?? ""))
-                                .ToList();
+                            try
+                            {
+                                using var doc = JsonDocument.Parse(msg.ToolCallsJson);
+                                toolCalls = doc.RootElement.EnumerateArray()
+                                    .Select(tc => new ToolCall(
+                                        tc.GetProperty("id").GetString() ?? "",
+                                        tc.GetProperty("name").GetString() ?? "",
+                                        tc.GetProperty("arguments").GetString() ?? ""))
+                                    .ToList();
+                            }
+                            catch
+                            {
+                                // Skip malformed tool calls
+                            }
                         }
-                        catch
-                        {
-                            // Skip malformed tool calls
-                        }
-                    }
 
-                    messages.Add(new AssistantMessage(msg.Content, toolCalls));
-                    break;
-                }
+                        messages.Add(new AssistantMessage(msg.Content, toolCalls));
+                        break;
+                    }
 
                 case "tool":
                     if (msg.ToolCallId is not null)
@@ -694,7 +704,7 @@ internal sealed partial class ChatController(
         action.ResultSummary,
         action.ErrorSummary,
         action.ApprovalToken,
-        toolResult);
+        toolResult ?? action.ToolResultJson);
 
     // --- LoggerMessage definitions ---
 

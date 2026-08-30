@@ -44,6 +44,7 @@ internal sealed record ChatActionDetails(
     DateTimeOffset? CompletedAt,
     string? ResultSummary,
     string? ErrorSummary,
+    string? ToolResultJson,
     string? ApprovalToken);
 
 internal sealed record ChatActionDecisionResult(
@@ -93,6 +94,13 @@ internal sealed class ChatActionService : IChatActionService
 {
     private static readonly TimeSpan ApprovalLifetime = TimeSpan.FromMinutes(15);
     private static readonly TimeSpan ExecutionTimeout = TimeSpan.FromMinutes(2);
+    private static readonly TimeSpan ExecutionAbandonmentAge = ExecutionTimeout + TimeSpan.FromMinutes(1);
+    private const string AbandonedExecutionSummary =
+        "Execution owner stopped before recording completion; the side-effect outcome is unknown.";
+    private static readonly string AbandonedToolResultJson = JsonSerializer.Serialize(
+        new ToolFailureResult(
+            "Approved tool execution was interrupted. Verify the current system state before retrying."),
+        ToolJsonOptions.Options);
     private readonly IChatActionRepository _repository;
     private readonly IChatRawToolExecutorFactory _toolExecutorFactory;
     private readonly IDataProtector _parameterProtector;
@@ -173,6 +181,7 @@ internal sealed class ChatActionService : IChatActionService
         Guid userId,
         CancellationToken cancellationToken)
     {
+        await RecoverAbandonedExecutionsAsync(conversationId, userId, cancellationToken);
         var action = await _repository.FindAsync(
             actionId, conversationId, userId, cancellationToken);
         return action is null ? null : ToDetails(action);
@@ -183,6 +192,7 @@ internal sealed class ChatActionService : IChatActionService
         Guid userId,
         CancellationToken cancellationToken)
     {
+        await RecoverAbandonedExecutionsAsync(conversationId, userId, cancellationToken);
         var actions = await _repository.GetForConversationAsync(
             conversationId, userId, cancellationToken);
         return actions.Select(ToDetails).ToList();
@@ -197,6 +207,7 @@ internal sealed class ChatActionService : IChatActionService
         bool destructiveConfirmed,
         CancellationToken cancellationToken)
     {
+        await RecoverAbandonedExecutionsAsync(conversationId, userId, cancellationToken);
         var claim = await _repository.TryClaimForExecutionAsync(
             actionId,
             conversationId,
@@ -226,9 +237,13 @@ internal sealed class ChatActionService : IChatActionService
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
+            var failedResult = JsonSerializer.SerializeToElement(
+                new ToolFailureResult("Approved tool execution failed."),
+                ToolJsonOptions.Options);
             await _repository.CompleteExecutionAsync(
                 actionId,
                 false,
+                failedResult.GetRawText(),
                 null,
                 $"Execution raised {exception.GetType().Name}.",
                 DateTimeOffset.UtcNow,
@@ -238,15 +253,17 @@ internal sealed class ChatActionService : IChatActionService
             return new(
                 ChatActionClaimOutcome.Claimed,
                 failedAction is null ? null : ToDetails(failedAction),
-                JsonSerializer.SerializeToElement(
-                    new ToolFailureResult("Approved tool execution failed."),
-                    ToolJsonOptions.Options));
+                failedResult);
         }
         catch (OperationCanceledException)
         {
+            var timedOutResult = JsonSerializer.SerializeToElement(
+                new ToolFailureResult("Approved tool execution timed out."),
+                ToolJsonOptions.Options);
             await _repository.CompleteExecutionAsync(
                 actionId,
                 false,
+                timedOutResult.GetRawText(),
                 null,
                 "Execution exceeded its bounded timeout.",
                 DateTimeOffset.UtcNow,
@@ -256,37 +273,40 @@ internal sealed class ChatActionService : IChatActionService
             return new(
                 ChatActionClaimOutcome.Claimed,
                 failedAction is null ? null : ToDetails(failedAction),
-                JsonSerializer.SerializeToElement(
-                    new ToolFailureResult("Approved tool execution timed out."),
-                    ToolJsonOptions.Options));
+                timedOutResult);
         }
 
         var succeeded = toolResult.IsSuccess;
-        await _repository.CompleteExecutionAsync(
+        var serializedResult = JsonSerializer.SerializeToElement(
+            toolResult, toolResult.GetType(), ToolJsonOptions.Options);
+        var completed = await _repository.CompleteExecutionAsync(
             actionId,
             succeeded,
+            serializedResult.GetRawText(),
             succeeded ? "Approved tool execution succeeded." : null,
             succeeded ? null : "Approved tool returned a failure.",
             DateTimeOffset.UtcNow,
             CancellationToken.None);
         var completedAction = await _repository.FindAsync(
             actionId, conversationId, userId, CancellationToken.None);
-        var serializedResult = JsonSerializer.SerializeToElement(
-            toolResult, toolResult.GetType(), ToolJsonOptions.Options);
         return new(
             ChatActionClaimOutcome.Claimed,
             completedAction is null ? null : ToDetails(completedAction),
-            serializedResult);
+            completed
+                ? serializedResult
+                : ParseToolResult(completedAction?.ToolResultJson) ?? serializedResult);
     }
 
-    public Task<ChatActionRejectOutcome> RejectAsync(
+    public async Task<ChatActionRejectOutcome> RejectAsync(
         Guid actionId,
         Guid conversationId,
         Guid userId,
         string approvalToken,
         string parameterHash,
-        CancellationToken cancellationToken) =>
-        _repository.TryRejectAsync(
+        CancellationToken cancellationToken)
+    {
+        await RecoverAbandonedExecutionsAsync(conversationId, userId, cancellationToken);
+        return await _repository.TryRejectAsync(
             actionId,
             conversationId,
             userId,
@@ -294,6 +314,7 @@ internal sealed class ChatActionService : IChatActionService
             parameterHash,
             DateTimeOffset.UtcNow,
             cancellationToken);
+    }
 
     internal static string CanonicalizeParameters(string arguments)
     {
@@ -309,25 +330,25 @@ internal sealed class ChatActionService : IChatActionService
         switch (element.ValueKind)
         {
             case JsonValueKind.Object:
-            {
-                writer.WriteStartObject();
-                var properties = element.EnumerateObject()
-                    .OrderBy(property => property.Name, StringComparer.Ordinal)
-                    .ToList();
-                for (var index = 1; index < properties.Count; index++)
                 {
-                    if (string.Equals(properties[index - 1].Name, properties[index].Name,
-                            StringComparison.Ordinal))
-                        throw new JsonException("Duplicate JSON property names are not allowed.");
+                    writer.WriteStartObject();
+                    var properties = element.EnumerateObject()
+                        .OrderBy(property => property.Name, StringComparer.Ordinal)
+                        .ToList();
+                    for (var index = 1; index < properties.Count; index++)
+                    {
+                        if (string.Equals(properties[index - 1].Name, properties[index].Name,
+                                StringComparison.Ordinal))
+                            throw new JsonException("Duplicate JSON property names are not allowed.");
+                    }
+                    foreach (var property in properties)
+                    {
+                        writer.WritePropertyName(property.Name);
+                        WriteCanonical(writer, property.Value);
+                    }
+                    writer.WriteEndObject();
+                    break;
                 }
-                foreach (var property in properties)
-                {
-                    writer.WritePropertyName(property.Name);
-                    WriteCanonical(writer, property.Value);
-                }
-                writer.WriteEndObject();
-                break;
-            }
             case JsonValueKind.Array:
                 writer.WriteStartArray();
                 foreach (var item in element.EnumerateArray())
@@ -373,7 +394,40 @@ internal sealed class ChatActionService : IChatActionService
             action.CompletedAt,
             action.ResultSummary,
             action.ErrorSummary,
+            action.ToolResultJson,
             token);
+    }
+
+    private async Task RecoverAbandonedExecutionsAsync(
+        Guid conversationId,
+        Guid userId,
+        CancellationToken cancellationToken)
+    {
+        var now = DateTimeOffset.UtcNow;
+        await _repository.RecoverAbandonedExecutionsAsync(
+            conversationId,
+            userId,
+            now.Subtract(ExecutionAbandonmentAge),
+            AbandonedToolResultJson,
+            AbandonedExecutionSummary,
+            now,
+            cancellationToken);
+    }
+
+    private static JsonElement? ParseToolResult(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+            return null;
+
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            return document.RootElement.Clone();
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 
     private static string Hash(string value) =>

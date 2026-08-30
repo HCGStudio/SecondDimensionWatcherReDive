@@ -301,6 +301,9 @@ public class ApplicationContext : DbContext
             .HasIndex(action => new { action.UserId, action.ConversationId, action.ToolCallId });
 
         modelBuilder.Entity<ChatPendingAction>()
+            .HasIndex(action => new { action.ConversationId, action.ToolCallId });
+
+        modelBuilder.Entity<ChatPendingAction>()
             .HasIndex(action => new { action.UserId, action.ConversationId, action.State });
 
         modelBuilder.Entity<ChatPendingAction>()

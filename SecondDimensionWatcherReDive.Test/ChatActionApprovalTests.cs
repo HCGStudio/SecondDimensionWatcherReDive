@@ -110,6 +110,60 @@ public sealed class ChatActionApprovalTests
     }
 
     [TestMethod]
+    public async Task ApprovedResultIsPersistedAndReturnedAfterReconnect()
+    {
+        var fixture = new Fixture(ToolRiskLevel.Mutating);
+        var action = await fixture.CreatePendingAsync();
+
+        var approved = await fixture.Service.ApproveAsync(
+            action.Id,
+            fixture.ConversationId,
+            fixture.UserId,
+            action.ApprovalToken!,
+            action.ParameterHash,
+            false,
+            CancellationToken.None);
+        var reloaded = await fixture.Service.GetAsync(
+            action.Id, fixture.ConversationId, fixture.UserId, CancellationToken.None);
+        var replay = await fixture.Service.ApproveAsync(
+            action.Id,
+            fixture.ConversationId,
+            fixture.UserId,
+            action.ApprovalToken!,
+            action.ParameterHash,
+            false,
+            CancellationToken.None);
+
+        Assert.IsNotNull(approved.ToolResult);
+        Assert.IsNotNull(reloaded);
+        Assert.AreEqual(ChatActionState.Succeeded, reloaded.State);
+        Assert.AreEqual(approved.ToolResult.Value.GetRawText(), reloaded.ToolResultJson);
+        Assert.AreEqual(ChatActionClaimOutcome.AlreadyProcessed, replay.Outcome);
+        Assert.AreEqual(reloaded.ToolResultJson, replay.Action?.ToolResultJson);
+    }
+
+    [TestMethod]
+    public async Task AbandonedExecutionRecoversToAuditedFailureWithoutRepeatingSideEffect()
+    {
+        var fixture = new Fixture(ToolRiskLevel.Mutating);
+        var action = await fixture.CreatePendingAsync();
+        fixture.Repository.Abandon(
+            action.Id, DateTimeOffset.UtcNow.Subtract(TimeSpan.FromMinutes(10)));
+
+        var recovered = await fixture.Service.GetAsync(
+            action.Id, fixture.ConversationId, fixture.UserId, CancellationToken.None);
+
+        Assert.IsNotNull(recovered);
+        Assert.AreEqual(ChatActionState.Failed, recovered.State);
+        StringAssert.Contains(recovered.ErrorSummary, "outcome is unknown");
+        StringAssert.Contains(recovered.ToolResultJson, "interrupted");
+        Assert.AreEqual(0, fixture.Executor.ExecutionCount);
+        Assert.AreEqual(1, fixture.Repository.AuditEntries.Count(entry =>
+            entry.ActionId == action.Id
+            && entry.Event == ChatActionAuditEvent.ExecutionFailed));
+    }
+
+    [TestMethod]
     public async Task RejectExpiredAndInvalidConversationNeverExecute()
     {
         var rejectedFixture = new Fixture(ToolRiskLevel.Mutating);
@@ -420,7 +474,7 @@ public sealed class ChatActionApprovalTests
                     action.ProtectedParameters, action.ParameterHash,
                     action.ProtectedApprovalToken, action.ApprovalTokenHash,
                     action.ParameterSummary, action.ImpactSummary, action.IsReversible,
-                    action.CreatedAt, action.ExpiresAt, null, null, null, null, null);
+                    action.CreatedAt, action.ExpiresAt, null, null, null, null, null, null);
                 _actions.Add(record);
                 Audit(record, ChatActionAuditEvent.Requested, null, action.CreatedAt);
             }
@@ -519,21 +573,23 @@ public sealed class ChatActionApprovalTests
             }
         }
 
-        public Task CompleteExecutionAsync(
-            Guid actionId, bool succeeded, string? resultSummary, string? errorSummary,
+        public Task<bool> CompleteExecutionAsync(
+            Guid actionId, bool succeeded, string toolResultJson,
+            string? resultSummary, string? errorSummary,
             DateTimeOffset completedAt, CancellationToken cancellationToken)
         {
             lock (_gate)
             {
                 var index = _actions.FindIndex(action => action.Id == actionId);
                 if (index < 0 || _actions[index].State != ChatActionState.Executing)
-                    return Task.CompletedTask;
+                    return Task.FromResult(false);
                 var action = _actions[index] with
                 {
                     State = succeeded ? ChatActionState.Succeeded : ChatActionState.Failed,
                     CompletedAt = completedAt,
                     ResultSummary = resultSummary,
-                    ErrorSummary = errorSummary
+                    ErrorSummary = errorSummary,
+                    ToolResultJson = toolResultJson
                 };
                 _actions[index] = action;
                 Audit(action,
@@ -541,7 +597,44 @@ public sealed class ChatActionApprovalTests
                     succeeded ? resultSummary : errorSummary,
                     completedAt);
             }
-            return Task.CompletedTask;
+            return Task.FromResult(true);
+        }
+
+        public Task<int> RecoverAbandonedExecutionsAsync(
+            Guid conversationId,
+            Guid userId,
+            DateTimeOffset executionStartedBefore,
+            string toolResultJson,
+            string errorSummary,
+            DateTimeOffset recoveredAt,
+            CancellationToken cancellationToken)
+        {
+            lock (_gate)
+            {
+                var recovered = 0;
+                for (var index = 0; index < _actions.Count; index++)
+                {
+                    var action = _actions[index];
+                    if (action.ConversationId != conversationId
+                        || action.UserId != userId
+                        || action.State != ChatActionState.Executing
+                        || action.ExecutionStartedAt > executionStartedBefore)
+                        continue;
+
+                    action = action with
+                    {
+                        State = ChatActionState.Failed,
+                        CompletedAt = recoveredAt,
+                        ResultSummary = null,
+                        ErrorSummary = errorSummary,
+                        ToolResultJson = toolResultJson
+                    };
+                    _actions[index] = action;
+                    Audit(action, ChatActionAuditEvent.ExecutionFailed, errorSummary, recoveredAt);
+                    recovered++;
+                }
+                return Task.FromResult(recovered);
+            }
         }
 
         public Task<IReadOnlyList<ChatActionAuditEntry>> GetAuditAsync(
@@ -558,6 +651,21 @@ public sealed class ChatActionApprovalTests
             {
                 var index = _actions.FindIndex(action => action.Id == actionId);
                 _actions[index] = _actions[index] with { ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(-1) };
+            }
+        }
+
+        public void Abandon(Guid actionId, DateTimeOffset executionStartedAt)
+        {
+            lock (_gate)
+            {
+                var index = _actions.FindIndex(action => action.Id == actionId);
+                _actions[index] = _actions[index] with
+                {
+                    State = ChatActionState.Executing,
+                    DecidedAt = executionStartedAt,
+                    ExecutionStartedAt = executionStartedAt,
+                    ProtectedApprovalToken = string.Empty
+                };
             }
         }
 

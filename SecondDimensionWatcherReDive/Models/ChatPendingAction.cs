@@ -26,5 +26,6 @@ public class ChatPendingAction
     public DateTimeOffset? CompletedAt { get; set; }
     public string? ResultSummary { get; set; }
     public string? ErrorSummary { get; set; }
+    public string? ToolResultJson { get; set; }
     public ICollection<ChatActionAudit> AuditEntries { get; set; } = [];
 }

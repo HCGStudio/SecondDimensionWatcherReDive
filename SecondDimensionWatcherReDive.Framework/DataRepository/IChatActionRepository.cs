@@ -62,7 +62,8 @@ public sealed record PendingChatAction(
     DateTimeOffset? ExecutionStartedAt,
     DateTimeOffset? CompletedAt,
     string? ResultSummary,
-    string? ErrorSummary);
+    string? ErrorSummary,
+    string? ToolResultJson);
 
 public enum ChatActionClaimOutcome
 {
@@ -138,12 +139,22 @@ public interface IChatActionRepository
         DateTimeOffset now,
         CancellationToken cancellationToken);
 
-    Task CompleteExecutionAsync(
+    Task<bool> CompleteExecutionAsync(
         Guid actionId,
         bool succeeded,
+        string toolResultJson,
         string? resultSummary,
         string? errorSummary,
         DateTimeOffset completedAt,
+        CancellationToken cancellationToken);
+
+    Task<int> RecoverAbandonedExecutionsAsync(
+        Guid conversationId,
+        Guid userId,
+        DateTimeOffset executionStartedBefore,
+        string toolResultJson,
+        string errorSummary,
+        DateTimeOffset recoveredAt,
         CancellationToken cancellationToken);
 
     Task<IReadOnlyList<ChatActionAuditEntry>> GetAuditAsync(

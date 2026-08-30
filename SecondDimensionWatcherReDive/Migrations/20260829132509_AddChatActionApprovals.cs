@@ -36,7 +36,8 @@ namespace SecondDimensionWatcherReDive.Migrations
                     ExecutionStartedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
                     CompletedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
                     ResultSummary = table.Column<string>(type: "character varying(1024)", maxLength: 1024, nullable: true),
-                    ErrorSummary = table.Column<string>(type: "character varying(1024)", maxLength: 1024, nullable: true)
+                    ErrorSummary = table.Column<string>(type: "character varying(1024)", maxLength: 1024, nullable: true),
+                    ToolResultJson = table.Column<string>(type: "text", nullable: true)
                 },
                 constraints: table =>
                 {
@@ -81,6 +82,11 @@ namespace SecondDimensionWatcherReDive.Migrations
                 name: "IX_ChatActionAudits_UserId_ConversationId_CreatedAt",
                 table: "ChatActionAudits",
                 columns: new[] { "UserId", "ConversationId", "CreatedAt" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_ChatPendingActions_ConversationId_ToolCallId",
+                table: "ChatPendingActions",
+                columns: new[] { "ConversationId", "ToolCallId" });
 
             migrationBuilder.CreateIndex(
                 name: "IX_ChatPendingActions_State_ExpiresAt",

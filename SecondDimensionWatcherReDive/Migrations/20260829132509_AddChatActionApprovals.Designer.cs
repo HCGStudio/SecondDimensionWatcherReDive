@@ -446,6 +446,9 @@ namespace SecondDimensionWatcherReDive.Migrations
                         .HasMaxLength(1024)
                         .HasColumnType("character varying(1024)");
 
+                    b.Property<string>("ToolResultJson")
+                        .HasColumnType("text");
+
                     b.Property<string>("RiskLevel")
                         .IsRequired()
                         .HasMaxLength(32)
@@ -470,6 +473,8 @@ namespace SecondDimensionWatcherReDive.Migrations
                         .HasColumnType("uuid");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("ConversationId", "ToolCallId");
 
                     b.HasIndex("State", "ExpiresAt");
 
