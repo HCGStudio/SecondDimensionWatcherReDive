@@ -15,6 +15,7 @@
 - **ASP.NET Core 10 Runtime** — 应用以 framework-dependent 方式打包，需预先安装运行时
 - **PostgreSQL** — 数据库
 - **qBittorrent** — 开启 Web API
+- **FFmpeg / ffprobe** — 浏览器不兼容媒体的服务端 HLS 探测、封装与转码
 
 ### 安装 ASP.NET Core Runtime
 
@@ -29,6 +30,19 @@ sudo dnf install aspnetcore-runtime-10.0
 
 # Arch Linux
 sudo pacman -S aspnet-runtime-10.0
+```
+
+通过系统包安装时，FFmpeg 会作为依赖一并安装。使用 tar.gz 或手动部署时请另外安装：
+
+```bash
+# Debian / Ubuntu
+sudo apt install ffmpeg
+
+# Fedora / RHEL
+sudo dnf install ffmpeg
+
+# Arch Linux
+sudo pacman -S ffmpeg
 ```
 
 ## 安装
@@ -67,6 +81,7 @@ sudo pacman -U sdw-redive-*.pkg.tar.zst
 | `/etc/sdw-redive/appsettings.yml` | 配置文件（YAML 格式，升级时保留用户修改） |
 | `/var/lib/sdw-redive/downloads/` | 默认下载存储目录 |
 | `/var/lib/sdw-redive/data-protection-keys/` | 网页保存的敏感配置所用持久加密密钥环 |
+| `/var/lib/sdw-redive/transcode-cache/` | 可复用的 HLS 分片、WebVTT 字幕与缓存清单 |
 | `/usr/lib/systemd/system/sdw-redive.service` | systemd 服务单元 |
 
 安装时自动创建 `sdw-redive` 系统用户和组用于运行服务。
@@ -103,6 +118,19 @@ MediaLibrary:
   SettlingPeriod: "00:00:30"
   MissingGracePeriod: "1.00:00:00"
 
+Transcoding:
+  Enabled: true
+  CachePath: /var/lib/sdw-redive/transcode-cache
+  MaxConcurrentJobs: 1
+  QueueCapacity: 8
+  MaxThreadsPerJob: 2
+  MaxMemoryBytesPerJob: 2147483648 # 2 GiB
+  MaxDiskBytesPerJob: 21474836480 # 20 GiB / job
+  MaxCacheBytes: 107374182400 # 100 GiB total
+  CacheTtl: "14.00:00:00"
+  SessionTtl: "00:15:00"
+  SegmentDurationSeconds: 6
+
 # TMDB API 密钥（用于海报和元数据）
 TmdbApiKey: "YOUR_TMDB_API_KEY"
 
@@ -130,6 +158,31 @@ Inference:
 #   ConnectionString: "localhost:6379"
 #   InstanceName: "sdw-redive:"
 ```
+
+### 服务端流式播放与转码
+
+网页播放器仍优先使用原文件直放；可由浏览器解码的 MKV 使用按需 Range 拆包。不兼容的
+容器或轨道才会提交到服务端：H.264/AAC 等兼容轨道优先无损封装为 HLS，只有不兼容轨道
+才转码。首个分片完成后即可播放、拖动已生成范围并同步观看进度，源文件不会先完整下载到
+浏览器。文本内封字幕会转换为 WebVTT；位图字幕默认明确标记为不可用，可用
+`Transcoding:BurnBitmapSubtitles=true` 按字幕偏好烧录（会强制视频转码）。
+
+同一源版本、音轨/字幕偏好与质量会复用缓存。源文件长度或修改时间变化时会生成新缓存键；
+后台按 `CacheTtl` 和 LRU 清理，且始终优先保留正在播放或生成的任务。并发数、队列长度、
+FFmpeg 线程、工作集内存、单任务磁盘、总缓存和任务超时均可配置。队列满时 API 返回 429，
+不会启动额外 FFmpeg 进程。登录用户可通过 `GET /api/transcoding/metrics` 查看排队/活动任务、
+成功/失败/取消、失败率、缓存命中与占用、平均首分片时间和平均转码速度。
+
+可选硬件编码示例（实际编码器及输入参数取决于主机 FFmpeg 构建和设备映射）：
+
+```yaml
+Transcoding:
+  HardwareVideoEncoder: h264_nvenc
+  HardwareInputArguments: ["-hwaccel", "cuda"]
+```
+
+硬件进程失败时会删除不完整输出并自动用 `libx264` 重试。容器部署还需把对应 GPU 设备和
+驱动映射进容器；未配置硬件编码器时始终使用 CPU。
 
 `DataProtection:KeyRingPath` 是运行时敏感设置的解密根密钥，不是普通缓存。请持久化并备份该目录，权限应仅允许应用服务账号读取。多副本连接同一个 PostgreSQL 数据库时，**所有副本必须挂载同一份共享密钥环**；否则一个副本写入的 API key/密码无法被其他副本解密。所有副本也必须保持应用内置的 Data Protection application name 一致（`SecondDimensionWatcherReDive`）。
 

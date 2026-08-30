@@ -29,6 +29,27 @@ MediaLibrary:
   SettlingPeriod: "00:00:30"
   MissingGracePeriod: "1.00:00:00"
 
+# 浏览器不兼容媒体的服务端 HLS 后备路径。硬件编码器失败时自动回退 CPU。
+Transcoding:
+  Enabled: true
+  CachePath: /var/lib/sdw-redive/transcode-cache
+  FfmpegPath: ffmpeg
+  FfprobePath: ffprobe
+  MaxConcurrentJobs: 1
+  QueueCapacity: 8
+  MaxThreadsPerJob: 2
+  MaxMemoryBytesPerJob: 2147483648
+  MaxDiskBytesPerJob: 21474836480
+  MaxCacheBytes: 107374182400
+  JobTimeout: "06:00:00"
+  CacheTtl: "14.00:00:00"
+  CleanupInterval: "00:05:00"
+  SessionTtl: "00:15:00"
+  SegmentDurationSeconds: 6
+  HardwareVideoEncoder: null
+  HardwareInputArguments: []
+  BurnBitmapSubtitles: false
+
 # 密码文件路径
 PasswordFile: /var/lib/sdw-redive/password.json
 

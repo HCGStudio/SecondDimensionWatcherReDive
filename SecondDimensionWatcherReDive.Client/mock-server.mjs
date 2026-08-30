@@ -1369,7 +1369,14 @@ async function route(method, pathname, searchParams, req, res) {
   }
 
   // --- All remaining endpoints require auth ---
-  if (!hasAuth(req) && !pathname.startsWith("/api/auth/")) {
+  const publicTranscodingSession =
+    (method === "GET" || method === "DELETE") &&
+    pathname.startsWith("/api/transcoding/sessions/");
+  if (
+    !hasAuth(req) &&
+    !pathname.startsWith("/api/auth/") &&
+    !publicTranscodingSession
+  ) {
     return empty(res, 401);
   }
 
@@ -2497,6 +2504,95 @@ async function route(method, pathname, searchParams, req, res) {
   }
 
   // --- Files ---
+
+  if (method === "POST" && pathname === "/api/transcoding/prepare") {
+    const sessionId = randomUUID();
+    const token = randomBytes(32).toString("hex");
+    const base = `/api/transcoding/sessions/${sessionId}`;
+    return json(res, {
+      sessionId,
+      state: "ready",
+      strategy: "remux",
+      isPlayable: true,
+      cacheHit: false,
+      progress: 1,
+      speed: 8.5,
+      queuePosition: null,
+      error: null,
+      videoCodec: "h264",
+      audioCodec: "aac",
+      statusUrl: `${base}?token=${token}`,
+      cancelUrl: `${base}?token=${token}`,
+      playbackUrl: `${base}/media.m3u8?token=${token}`,
+      subtitles: [],
+      unsupportedSubtitleCount: 0,
+    });
+  }
+
+  const transcodeSessionMatch = pathname.match(
+    /^\/api\/transcoding\/sessions\/([^/]+)\/([^/]+)(?:\/([^/]+))?$/,
+  );
+  if (method === "GET" && transcodeSessionMatch?.[2] === "media.m3u8") {
+    const sessionId = transcodeSessionMatch[1];
+    const token = searchParams.get("token") ?? "";
+    res.writeHead(200, {
+      "Content-Type": "application/vnd.apple.mpegurl",
+      "Cache-Control": "no-cache, no-store",
+    });
+    return res.end(
+      `#EXTM3U\n#EXT-X-VERSION:3\n#EXTINF:6,\n/api/transcoding/sessions/${sessionId}/segments/segment-000000.ts?token=${token}\n#EXT-X-ENDLIST\n`,
+    );
+  }
+  if (
+    method === "GET" &&
+    transcodeSessionMatch?.[2] === "segments" &&
+    transcodeSessionMatch?.[3]
+  ) {
+    res.writeHead(200, { "Content-Type": "video/mp2t" });
+    return res.end("Mock HLS segment");
+  }
+  const transcodeStatusMatch = pathname.match(
+    /^\/api\/transcoding\/sessions\/([^/]+)$/,
+  );
+  if (method === "GET" && transcodeStatusMatch) {
+    const sessionId = transcodeStatusMatch[1];
+    const token = searchParams.get("token") ?? "";
+    const base = `/api/transcoding/sessions/${sessionId}`;
+    return json(res, {
+      sessionId,
+      state: "ready",
+      strategy: "remux",
+      isPlayable: true,
+      cacheHit: true,
+      progress: 1,
+      speed: 8.5,
+      queuePosition: null,
+      error: null,
+      videoCodec: "h264",
+      audioCodec: "aac",
+      statusUrl: `${base}?token=${token}`,
+      cancelUrl: `${base}?token=${token}`,
+      playbackUrl: `${base}/media.m3u8?token=${token}`,
+      subtitles: [],
+      unsupportedSubtitleCount: 0,
+    });
+  }
+  if (method === "DELETE" && transcodeStatusMatch) return empty(res, 204);
+
+  if (method === "GET" && pathname === "/api/transcoding/metrics") {
+    return json(res, {
+      queuedJobs: 0,
+      activeJobs: 0,
+      completedJobs: 1,
+      failedJobs: 0,
+      canceledJobs: 0,
+      cacheHits: 1,
+      cacheBytes: 1048576,
+      averageFirstSegmentSeconds: 0.8,
+      averageTranscodeSpeed: 8.5,
+      failureRate: 0,
+    });
+  }
 
   if (method === "GET" && pathname === "/api/file/list") {
     const id = searchParams.get("id");
