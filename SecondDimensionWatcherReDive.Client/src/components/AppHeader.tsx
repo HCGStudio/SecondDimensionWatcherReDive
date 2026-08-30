@@ -232,7 +232,7 @@ export const AppHeader: React.FC = () => {
   const { t } = useTranslation();
   const { data: status } = useLoginStatus();
   const { data: incidents } = useIncidents({ take: 1 });
-  const { data: todos } = useTodos();
+  const { data: todos } = useTodos({ take: 1 });
   const navigate = useNavigate();
   const items = createNavItems(incidents?.openCount, todos?.unreadCount);
 

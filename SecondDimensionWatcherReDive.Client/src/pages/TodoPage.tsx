@@ -4,6 +4,7 @@ import { useNavigate, useSearchParams } from "react-router";
 
 import {
   AlertTriangle,
+  BellRing,
   CheckCheck,
   Clock3,
   Download,
@@ -19,6 +20,7 @@ import { Spinner } from "../components/ui/Spinner";
 import { cn } from "../lib/cn";
 import { updateTodoState } from "../todos/api";
 import { useTodos } from "../todos/hooks";
+import { getTodoSnoozeAction } from "../todos/state";
 import { TodoItem, TodoPriority } from "../todos/types";
 import { PageTemplate } from "./PageTemplate";
 
@@ -28,17 +30,35 @@ const priorityClass: Record<TodoPriority, string> = {
   Critical: "border-error/40 bg-error/5",
 };
 
+const PAGE_SIZE = 50;
+
 export const TodoPage: React.FC = () => {
-  const { t, i18n } = useTranslation(["todos", "errors"]);
+  const { t, i18n } = useTranslation(["todos", "errors", "common"]);
   const { addToast } = useToast();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const focus = searchParams.get("focus");
   const [includeRead, setIncludeRead] = React.useState(false);
   const [includeSnoozed, setIncludeSnoozed] = React.useState(false);
+  const [page, setPage] = React.useState(0);
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
   const [busy, setBusy] = React.useState(false);
-  const { data, error, mutate } = useTodos({ includeRead, includeSnoozed });
+  const { data, error, mutate } = useTodos({
+    includeRead,
+    includeSnoozed,
+    skip: page * PAGE_SIZE,
+    take: PAGE_SIZE,
+  });
+
+  React.useEffect(() => {
+    setPage(0);
+    setSelected(new Set());
+  }, [includeRead, includeSnoozed]);
+
+  React.useEffect(() => {
+    if (!data || page === 0 || page * PAGE_SIZE < data.totalCount) return;
+    setPage(Math.max(0, Math.ceil(data.totalCount / PAGE_SIZE) - 1));
+  }, [data, page]);
 
   React.useEffect(() => {
     if (!focus || !data) return;
@@ -189,122 +209,158 @@ export const TodoPage: React.FC = () => {
           body={<p>{t("todos:empty.body")}</p>}
         />
       ) : (
-        <ul className="space-y-3" aria-label={t("todos:listLabel")}>
-          {items.map((item) => {
-            const automation =
-              item.type === "ReleaseMatched" ||
-              item.type === "DownloadPendingConfirmation" ||
-              item.type === "DownloadFailed";
-            const detail = automation
-              ? t(`todos:details.${item.type}`)
-              : item.detail;
-            return (
-              <li
-                id={`todo-${item.key}`}
-                key={item.key}
-                tabIndex={focus === item.key ? -1 : undefined}
-                className={cn(
-                  "rounded-xl border p-4 shadow-whisper transition-shadow focus:outline-hidden focus:ring-2 focus:ring-focus sm:p-5",
-                  priorityClass[item.priority],
-                  item.readAt && "opacity-65",
-                  focus === item.key && "ring-2 ring-focus",
-                )}
-              >
-                <div className="flex items-start gap-3">
-                  <input
-                    type="checkbox"
-                    aria-label={t("todos:actions.selectItem", {
-                      title: item.title,
-                    })}
-                    className="mt-1 h-4 w-4 shrink-0 accent-brand"
-                    checked={selected.has(item.key)}
-                    onChange={(event) =>
-                      setSelected((current) => {
-                        const next = new Set(current);
-                        if (event.target.checked) next.add(item.key);
-                        else next.delete(item.key);
-                        return next;
-                      })
-                    }
-                  />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                      <div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="rounded-full bg-canvas px-2 py-0.5 text-xs font-medium text-muted">
-                            {t(`todos:types.${item.type}`)}
-                          </span>
-                          <span className="text-xs text-subtle">
-                            {t(`todos:priorities.${item.priority}`)}
-                          </span>
+        <div>
+          <ul className="space-y-3" aria-label={t("todos:listLabel")}>
+            {items.map((item) => {
+              const automation =
+                item.type === "ReleaseMatched" ||
+                item.type === "DownloadPendingConfirmation" ||
+                item.type === "DownloadFailed";
+              const detail = automation
+                ? t(`todos:details.${item.type}`)
+                : item.detail;
+              const snoozeAction = getTodoSnoozeAction(item.snoozedUntil);
+              const isSnoozed = snoozeAction === "unsnooze";
+              return (
+                <li
+                  id={`todo-${item.key}`}
+                  key={item.key}
+                  tabIndex={focus === item.key ? -1 : undefined}
+                  className={cn(
+                    "rounded-xl border p-4 shadow-whisper transition-shadow focus:outline-hidden focus:ring-2 focus:ring-focus sm:p-5",
+                    priorityClass[item.priority],
+                    item.readAt && "opacity-65",
+                    focus === item.key && "ring-2 ring-focus",
+                  )}
+                >
+                  <div className="flex items-start gap-3">
+                    <input
+                      type="checkbox"
+                      aria-label={t("todos:actions.selectItem", {
+                        title: item.title,
+                      })}
+                      className="mt-1 h-4 w-4 shrink-0 accent-brand"
+                      checked={selected.has(item.key)}
+                      onChange={(event) =>
+                        setSelected((current) => {
+                          const next = new Set(current);
+                          if (event.target.checked) next.add(item.key);
+                          else next.delete(item.key);
+                          return next;
+                        })
+                      }
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="rounded-full bg-canvas px-2 py-0.5 text-xs font-medium text-muted">
+                              {t(`todos:types.${item.type}`)}
+                            </span>
+                            <span className="text-xs text-subtle">
+                              {t(`todos:priorities.${item.priority}`)}
+                            </span>
+                          </div>
+                          <h2 className="mt-2 font-serif text-lg font-medium text-foreground">
+                            {item.title}
+                          </h2>
                         </div>
-                        <h2 className="mt-2 font-serif text-lg font-medium text-foreground">
-                          {item.title}
-                        </h2>
+                        <time
+                          className="shrink-0 text-xs text-subtle"
+                          dateTime={item.occurredAt}
+                        >
+                          {new Date(item.occurredAt).toLocaleString(
+                            i18n.resolvedLanguage,
+                          )}
+                        </time>
                       </div>
-                      <time
-                        className="shrink-0 text-xs text-subtle"
-                        dateTime={item.occurredAt}
-                      >
-                        {new Date(item.occurredAt).toLocaleString(
-                          i18n.resolvedLanguage,
+                      <p className="mt-2 text-sm leading-body text-muted">
+                        {detail}
+                      </p>
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        {automation ? (
+                          <Button
+                            size="sm"
+                            disabled={busy}
+                            onClick={() => void download(item)}
+                          >
+                            <Download size={14} />
+                            {t("todos:actions.download")}
+                          </Button>
+                        ) : (
+                          <Button
+                            size="sm"
+                            onClick={() => navigate(item.deepLink)}
+                          >
+                            <ExternalLink size={14} />
+                            {t("todos:actions.open")}
+                          </Button>
                         )}
-                      </time>
-                    </div>
-                    <p className="mt-2 text-sm leading-body text-muted">
-                      {detail}
-                    </p>
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      {automation ? (
                         <Button
                           size="sm"
+                          variant="outline"
                           disabled={busy}
-                          onClick={() => void download(item)}
+                          onClick={() =>
+                            void apply(
+                              [item.key],
+                              item.readAt ? "markUnread" : "markRead",
+                            )
+                          }
                         >
-                          <Download size={14} />
-                          {t("todos:actions.download")}
+                          <CheckCheck size={14} />
+                          {item.readAt
+                            ? t("todos:actions.markUnread")
+                            : t("todos:actions.markRead")}
                         </Button>
-                      ) : (
                         <Button
                           size="sm"
-                          onClick={() => navigate(item.deepLink)}
+                          variant="outline"
+                          disabled={busy}
+                          onClick={() => void apply([item.key], snoozeAction)}
                         >
-                          <ExternalLink size={14} />
-                          {t("todos:actions.open")}
+                          {isSnoozed ? (
+                            <BellRing size={14} />
+                          ) : (
+                            <Clock3 size={14} />
+                          )}
+                          {isSnoozed
+                            ? t("todos:actions.unsnooze")
+                            : t("todos:actions.snooze")}
                         </Button>
-                      )}
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={busy}
-                        onClick={() =>
-                          void apply(
-                            [item.key],
-                            item.readAt ? "markUnread" : "markRead",
-                          )
-                        }
-                      >
-                        <CheckCheck size={14} />
-                        {item.readAt
-                          ? t("todos:actions.markUnread")
-                          : t("todos:actions.markRead")}
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={busy}
-                        onClick={() => void apply([item.key], "snooze")}
-                      >
-                        <Clock3 size={14} />
-                        {t("todos:actions.snooze")}
-                      </Button>
+                      </div>
                     </div>
                   </div>
-                </div>
-              </li>
-            );
-          })}
-        </ul>
+                </li>
+              );
+            })}
+          </ul>
+          {data.totalCount > PAGE_SIZE ? (
+            <nav
+              className="mt-4 flex items-center justify-between gap-3"
+              aria-label={t("common:pagination.page", { page: page + 1 })}
+            >
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={page === 0 || busy}
+                onClick={() => setPage((current) => Math.max(0, current - 1))}
+              >
+                {t("common:pagination.prev")}
+              </Button>
+              <span className="text-xs text-muted">
+                {t("common:pagination.page", { page: page + 1 })}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={busy || (page + 1) * PAGE_SIZE >= data.totalCount}
+                onClick={() => setPage((current) => current + 1)}
+              >
+                {t("common:pagination.next")}
+              </Button>
+            </nav>
+          ) : null}
+        </div>
       )}
     </PageTemplate>
   );

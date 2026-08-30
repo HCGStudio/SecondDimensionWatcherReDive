@@ -15,10 +15,23 @@ internal sealed class TodosController(ITodoRepository todoRepository) : Controll
     public async Task<ActionResult<TodoListResponse>> GetAsync(
         [FromQuery] bool includeRead = false,
         [FromQuery] bool includeSnoozed = false,
+        [FromQuery] int skip = 0,
+        [FromQuery] int take = 50,
         CancellationToken cancellationToken = default)
     {
+        if (skip < 0 || take is < 1 or > 200)
+            return BadRequest(new
+            {
+                message = "skip must be non-negative and take must be between 1 and 200."
+            });
+
         var page = await todoRepository.GetAsync(
-            includeRead, includeSnoozed, DateTimeOffset.UtcNow, cancellationToken);
+            includeRead,
+            includeSnoozed,
+            DateTimeOffset.UtcNow,
+            skip,
+            take,
+            cancellationToken);
         return Ok(new TodoListResponse(
             page.Items.Select(item => new TodoItemResponse(
                 item.Key,
@@ -85,11 +98,19 @@ internal sealed class TodosController(ITodoRepository todoRepository) : Controll
         return NoContent();
     }
 
-    private static bool IsValidKey(string? key) =>
-        key is not null
-        && key.Length <= 128
-        && (key.StartsWith("automation:", StringComparison.Ordinal)
-            || key.StartsWith("incident:", StringComparison.Ordinal)
-            || key.StartsWith("metadata:", StringComparison.Ordinal))
-        && Guid.TryParse(key[(key.IndexOf(':') + 1)..], out _);
+    private static bool IsValidKey(string? key)
+    {
+        if (key is null || key.Length > 128) return false;
+
+        var parts = key.Split(':');
+        if (parts.Length == 2
+            && (parts[0] is "automation" or "incident" or "metadata"))
+            return Guid.TryParse(parts[1], out _);
+
+        return parts.Length == 3
+               && parts[0] == "incident"
+               && Guid.TryParse(parts[1], out _)
+               && int.TryParse(parts[2], out var occurrence)
+               && occurrence > 1;
+    }
 }

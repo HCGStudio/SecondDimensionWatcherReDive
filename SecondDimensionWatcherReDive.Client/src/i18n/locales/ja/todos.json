@@ -16,6 +16,7 @@
     "markRead": "既読にする",
     "markUnread": "未読にする",
     "snooze": "1 時間スヌーズ",
+    "unsnooze": "今すぐ通知",
     "download": "ダウンロード / 再試行",
     "open": "詳細を開く"
   },

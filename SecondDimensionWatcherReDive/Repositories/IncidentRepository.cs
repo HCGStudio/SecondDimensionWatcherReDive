@@ -76,15 +76,7 @@ public sealed class IncidentRepository(Models.ApplicationContext context) : IInc
         }
         else
         {
-            entity.Type = incident.Type;
-            entity.Severity = incident.Severity;
-            entity.Title = incident.Title;
-            entity.Detail = incident.Detail;
-            entity.SourceId = incident.SourceId;
-            entity.UpdatedAt = incident.UpdatedAt;
-            // A recurring fault reopens the same logical incident, preserving its
-            // first-seen time and retry history.
-            entity.ResolvedAt = null;
+            ApplyReport(entity, incident);
         }
 
         try
@@ -100,13 +92,7 @@ public sealed class IncidentRepository(Models.ApplicationContext context) : IInc
             context.Entry(entity).State = EntityState.Detached;
             entity = await context.Incidents
                 .FirstAsync(candidate => candidate.Fingerprint == incident.Fingerprint, cancellationToken);
-            entity.Type = incident.Type;
-            entity.Severity = incident.Severity;
-            entity.Title = incident.Title;
-            entity.Detail = incident.Detail;
-            entity.SourceId = incident.SourceId;
-            entity.UpdatedAt = incident.UpdatedAt;
-            entity.ResolvedAt = null;
+            ApplyReport(entity, incident);
             await context.SaveChangesAsync(cancellationToken);
         }
         return ToRecord(entity);
@@ -177,7 +163,8 @@ public sealed class IncidentRepository(Models.ApplicationContext context) : IInc
         entity.ResolvedAt,
         entity.RetryCount,
         entity.LastRetryAt,
-        entity.LastRetryError);
+        entity.LastRetryError,
+        entity.Occurrence);
 
     private static IncidentEntity ToEntity(Incident record) => new()
     {
@@ -193,6 +180,25 @@ public sealed class IncidentRepository(Models.ApplicationContext context) : IInc
         ResolvedAt = record.ResolvedAt,
         RetryCount = record.RetryCount,
         LastRetryAt = record.LastRetryAt,
-        LastRetryError = record.LastRetryError
+        LastRetryError = record.LastRetryError,
+        Occurrence = Math.Max(1, record.Occurrence)
     };
+
+    private static void ApplyReport(IncidentEntity entity, Incident incident)
+    {
+        var isReopening = entity.ResolvedAt is not null;
+        entity.Type = incident.Type;
+        entity.Severity = incident.Severity;
+        entity.Title = incident.Title;
+        entity.Detail = incident.Detail;
+        entity.SourceId = incident.SourceId;
+        entity.UpdatedAt = incident.UpdatedAt;
+        // Keep the logical incident and its first-seen/retry history, but give
+        // each resolved -> open transition a stable occurrence discriminator.
+        // Concurrent reporters calculate the same next number, so the outbox's
+        // unique key still coalesces duplicate reports for that occurrence.
+        if (isReopening)
+            entity.Occurrence = Math.Max(1, entity.Occurrence) + 1;
+        entity.ResolvedAt = null;
+    }
 }

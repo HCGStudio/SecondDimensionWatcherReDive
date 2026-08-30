@@ -16,6 +16,7 @@
     "markRead": "标为已读",
     "markUnread": "标为未读",
     "snooze": "稍后 1 小时提醒",
+    "unsnooze": "立即提醒",
     "download": "下载 / 重试",
     "open": "查看详情"
   },

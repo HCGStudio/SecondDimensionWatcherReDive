@@ -46,9 +46,15 @@ public sealed partial class IncidentReporter(
                 var notificationType = isDiskSpaceLow
                     ? NotificationEventType.DiskSpaceLow
                     : NotificationEventType.IncidentOpened;
+                var deduplicationKey =
+                    $"{(isDiskSpaceLow ? "disk-space-low" : "incident-opened")}:{saved.Id}";
+                // Occurrence 1 deliberately retains the pre-occurrence key so an
+                // upgrade does not redeliver notifications already in the outbox.
+                if (saved.Occurrence > 1)
+                    deduplicationKey += $":{saved.Occurrence}";
                 await notificationPublisher.PublishAsync(new NotificationEvent(
                     notificationType,
-                    $"{(isDiskSpaceLow ? "disk-space-low" : "incident-opened")}:{saved.Id}",
+                    deduplicationKey,
                     saved.Title,
                     saved.Detail,
                     isDiskSpaceLow

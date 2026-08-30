@@ -217,6 +217,15 @@ public class ApplicationContext : DbContext
             .Property(incident => incident.LastRetryError)
             .HasMaxLength(2048);
 
+        modelBuilder.Entity<Incident>()
+            .Property(incident => incident.Occurrence)
+            .HasDefaultValue(1);
+
+        modelBuilder.Entity<Incident>()
+            .ToTable(table => table.HasCheckConstraint(
+                "CK_Incidents_Occurrence_Positive",
+                "\"Occurrence\" > 0"));
+
         modelBuilder.Entity<WebDavToken>()
             .HasIndex(t => t.Username)
             .IsUnique();

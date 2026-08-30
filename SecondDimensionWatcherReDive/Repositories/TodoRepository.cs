@@ -9,123 +9,137 @@ public sealed class TodoRepository(Models.ApplicationContext context) : ITodoRep
         bool includeRead,
         bool includeSnoozed,
         DateTimeOffset now,
+        int skip,
+        int take,
         CancellationToken cancellationToken)
     {
-        var automation = await context.AnimationInfo
-            .AsNoTracking()
-            .Where(info => info.AutomationDisposition == SubscriptionAutomationDisposition.Notified
-                           || info.AutomationDisposition == SubscriptionAutomationDisposition.PendingConfirmation
-                           || info.AutomationDisposition == SubscriptionAutomationDisposition.AutoDownloadFailed)
-            .Select(info => new
+        var automation =
+            from info in context.AnimationInfo.AsNoTracking()
+            where info.AutomationDisposition == SubscriptionAutomationDisposition.Notified
+                  || info.AutomationDisposition == SubscriptionAutomationDisposition.PendingConfirmation
+                  || info.AutomationDisposition == SubscriptionAutomationDisposition.AutoDownloadFailed
+            let key = "automation:" + info.Id.ToString()
+            join candidateState in context.TodoItemStates.AsNoTracking()
+                on key equals candidateState.Key into candidateStates
+            from state in candidateStates.DefaultIfEmpty()
+            select new TodoQueryRow
             {
-                info.Id,
-                info.Title,
-                info.PublishTime,
-                info.AutomationDisposition
-            })
-            .ToListAsync(cancellationToken);
-
-        var incidents = await context.Incidents
-            .AsNoTracking()
-            .Where(incident => incident.ResolvedAt == null)
-            .Select(incident => new
-            {
-                incident.Id,
-                incident.Type,
-                incident.Severity,
-                incident.Title,
-                incident.Detail,
-                incident.DetectedAt
-            })
-            .ToListAsync(cancellationToken);
-
-        var metadata = await context.AnimationInfo
-            .AsNoTracking()
-            .Where(info => info.MetadataStatus == MetadataReviewStatus.LowConfidence
-                           || info.MetadataStatus == MetadataReviewStatus.Failed)
-            .Select(info => new
-            {
-                info.Id,
-                info.Title,
-                info.MetadataStatus,
-                info.MetadataLastError,
-                info.PublishTime
-            })
-            .ToListAsync(cancellationToken);
-
-        var keys = automation.Select(info => $"automation:{info.Id}")
-            .Concat(incidents.Select(incident => $"incident:{incident.Id}"))
-            .Concat(metadata.Select(info => $"metadata:{info.Id}"))
-            .ToArray();
-        var states = await context.TodoItemStates
-            .AsNoTracking()
-            .Where(state => keys.Contains(state.Key))
-            .ToDictionaryAsync(state => state.Key, cancellationToken);
-
-        var items = new List<TodoItem>(keys.Length);
-        foreach (var info in automation)
-        {
-            var key = $"automation:{info.Id}";
-            var (type, priority, detail) = info.AutomationDisposition switch
-            {
-                SubscriptionAutomationDisposition.PendingConfirmation =>
-                    (TodoItemType.DownloadPendingConfirmation, TodoPriority.High,
-                        "A matched release is waiting for download confirmation."),
-                SubscriptionAutomationDisposition.AutoDownloadFailed =>
-                    (TodoItemType.DownloadFailed, TodoPriority.Critical,
-                        "Automatic download could not be started. Review and retry it."),
-                _ => (TodoItemType.ReleaseMatched, TodoPriority.Normal,
-                    "A notify-only subscription matched this release.")
+                Key = key,
+                Type = info.AutomationDisposition == SubscriptionAutomationDisposition.PendingConfirmation
+                    ? TodoItemType.DownloadPendingConfirmation
+                    : info.AutomationDisposition == SubscriptionAutomationDisposition.AutoDownloadFailed
+                        ? TodoItemType.DownloadFailed
+                        : TodoItemType.ReleaseMatched,
+                Priority = info.AutomationDisposition == SubscriptionAutomationDisposition.AutoDownloadFailed
+                    ? TodoPriority.Critical
+                    : info.AutomationDisposition == SubscriptionAutomationDisposition.PendingConfirmation
+                        ? TodoPriority.High
+                        : TodoPriority.Normal,
+                Title = info.Title,
+                Detail = info.AutomationDisposition == SubscriptionAutomationDisposition.PendingConfirmation
+                    ? "A matched release is waiting for download confirmation."
+                    : info.AutomationDisposition == SubscriptionAutomationDisposition.AutoDownloadFailed
+                        ? "Automatic download could not be started. Review and retry it."
+                        : "A notify-only subscription matched this release.",
+                DeepLink = "/todo?focus=" + key,
+                ResourceId = info.Id,
+                OccurredAt = info.PublishTime,
+                ReadAt = state == null ? null : state.ReadAt,
+                SnoozedUntil = state == null ? null : state.SnoozedUntil
             };
-            items.Add(Create(
-                key, type, priority, info.Title, detail,
-                $"/todo?focus={Uri.EscapeDataString(key)}", info.Id, info.PublishTime, states));
-        }
 
-        foreach (var incident in incidents)
-        {
-            var key = $"incident:{incident.Id}";
-            var disk = incident.Type == IncidentType.DiskSpaceLow;
-            items.Add(Create(
-                key,
-                disk ? TodoItemType.DiskSpaceLow : TodoItemType.Incident,
-                incident.Severity == IncidentSeverity.Critical
+        var incidents =
+            from incident in context.Incidents.AsNoTracking()
+            where incident.ResolvedAt == null
+            let baseKey = "incident:" + incident.Id.ToString()
+            let key = incident.Occurrence <= 1
+                ? baseKey
+                : baseKey + ":" + incident.Occurrence.ToString()
+            join candidateState in context.TodoItemStates.AsNoTracking()
+                on key equals candidateState.Key into candidateStates
+            from state in candidateStates.DefaultIfEmpty()
+            select new TodoQueryRow
+            {
+                Key = key,
+                Type = incident.Type == IncidentType.DiskSpaceLow
+                    ? TodoItemType.DiskSpaceLow
+                    : TodoItemType.Incident,
+                Priority = incident.Severity == IncidentSeverity.Critical
                     ? TodoPriority.Critical
                     : TodoPriority.High,
-                incident.Title,
-                incident.Detail,
-                disk ? "/incidents?type=diskSpaceLow" : $"/incidents?focus={incident.Id}",
-                incident.Id,
-                incident.DetectedAt,
-                states));
-        }
+                Title = incident.Title,
+                Detail = incident.Detail,
+                DeepLink = incident.Type == IncidentType.DiskSpaceLow
+                    ? "/incidents?type=diskSpaceLow"
+                    : "/incidents?focus=" + incident.Id.ToString(),
+                ResourceId = incident.Id,
+                OccurredAt = incident.UpdatedAt,
+                ReadAt = state == null ? null : state.ReadAt,
+                SnoozedUntil = state == null ? null : state.SnoozedUntil
+            };
 
-        foreach (var info in metadata)
-        {
-            var key = $"metadata:{info.Id}";
-            items.Add(Create(
-                key,
-                TodoItemType.MetadataReview,
-                info.MetadataStatus == MetadataReviewStatus.Failed
+        var metadata =
+            from info in context.AnimationInfo.AsNoTracking()
+            where info.MetadataStatus == MetadataReviewStatus.LowConfidence
+                  || info.MetadataStatus == MetadataReviewStatus.Failed
+            let key = "metadata:" + info.Id.ToString()
+            join candidateState in context.TodoItemStates.AsNoTracking()
+                on key equals candidateState.Key into candidateStates
+            from state in candidateStates.DefaultIfEmpty()
+            select new TodoQueryRow
+            {
+                Key = key,
+                Type = TodoItemType.MetadataReview,
+                Priority = info.MetadataStatus == MetadataReviewStatus.Failed
                     ? TodoPriority.High
                     : TodoPriority.Normal,
-                info.Title,
-                info.MetadataLastError ?? "Metadata confidence is low and needs review.",
-                $"/metadata-review?status={(info.MetadataStatus == MetadataReviewStatus.Failed ? "failed" : "lowConfidence")}&focus={info.Id}",
-                info.Id,
-                info.PublishTime,
-                states));
-        }
+                Title = info.Title,
+                Detail = info.MetadataLastError ?? "Metadata confidence is low and needs review.",
+                DeepLink = info.MetadataStatus == MetadataReviewStatus.Failed
+                    ? "/metadata-review?status=failed&focus=" + info.Id.ToString()
+                    : "/metadata-review?status=lowConfidence&focus=" + info.Id.ToString(),
+                ResourceId = info.Id,
+                OccurredAt = info.PublishTime,
+                ReadAt = state == null ? null : state.ReadAt,
+                SnoozedUntil = state == null ? null : state.SnoozedUntil
+            };
 
-        var unreadCount = items.Count(item => item.ReadAt is null
-                                              && (item.SnoozedUntil is null || item.SnoozedUntil <= now));
-        var filtered = items
-            .Where(item => includeRead || item.ReadAt is null)
-            .Where(item => includeSnoozed || item.SnoozedUntil is null || item.SnoozedUntil <= now)
+        var allItems = automation.Concat(incidents).Concat(metadata);
+        var unreadCount = await allItems.CountAsync(
+            item => item.ReadAt == null
+                    && (item.SnoozedUntil == null || item.SnoozedUntil <= now),
+            cancellationToken);
+
+        var visibleItems = allItems;
+        if (!includeRead)
+            visibleItems = visibleItems.Where(item => item.ReadAt == null);
+        if (!includeSnoozed)
+            visibleItems = visibleItems.Where(
+                item => item.SnoozedUntil == null || item.SnoozedUntil <= now);
+
+        var totalCount = await visibleItems.CountAsync(cancellationToken);
+        var rows = await visibleItems
             .OrderByDescending(item => item.Priority)
             .ThenByDescending(item => item.OccurredAt)
-            .ToList();
-        return new TodoPage(filtered, filtered.Count, unreadCount);
+            .ThenBy(item => item.Key)
+            .Skip(skip)
+            .Take(take)
+            .ToListAsync(cancellationToken);
+
+        return new TodoPage(
+            rows.Select(item => new TodoItem(
+                item.Key,
+                item.Type,
+                item.Priority,
+                item.Title,
+                item.Detail,
+                item.DeepLink,
+                item.ResourceId,
+                item.OccurredAt,
+                item.ReadAt,
+                item.SnoozedUntil)).ToList(),
+            totalCount,
+            unreadCount);
     }
 
     public async Task SetStateAsync(
@@ -154,20 +168,17 @@ public sealed class TodoRepository(Models.ApplicationContext context) : ITodoRep
         await context.SaveChangesAsync(cancellationToken);
     }
 
-    private static TodoItem Create(
-        string key,
-        TodoItemType type,
-        TodoPriority priority,
-        string title,
-        string detail,
-        string deepLink,
-        Guid resourceId,
-        DateTimeOffset occurredAt,
-        IReadOnlyDictionary<string, Models.TodoItemState> states)
+    private sealed class TodoQueryRow
     {
-        states.TryGetValue(key, out var state);
-        return new TodoItem(
-            key, type, priority, title, detail, deepLink, resourceId,
-            occurredAt, state?.ReadAt, state?.SnoozedUntil);
+        public string Key { get; init; } = string.Empty;
+        public TodoItemType Type { get; init; }
+        public TodoPriority Priority { get; init; }
+        public string Title { get; init; } = string.Empty;
+        public string Detail { get; init; } = string.Empty;
+        public string DeepLink { get; init; } = string.Empty;
+        public Guid? ResourceId { get; init; }
+        public DateTimeOffset OccurredAt { get; init; }
+        public DateTimeOffset? ReadAt { get; init; }
+        public DateTimeOffset? SnoozedUntil { get; init; }
     }
 }

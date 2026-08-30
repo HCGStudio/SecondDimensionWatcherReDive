@@ -40,6 +40,8 @@ public interface ITodoRepository
         bool includeRead,
         bool includeSnoozed,
         DateTimeOffset now,
+        int skip,
+        int take,
         CancellationToken cancellationToken);
 
     Task SetStateAsync(
