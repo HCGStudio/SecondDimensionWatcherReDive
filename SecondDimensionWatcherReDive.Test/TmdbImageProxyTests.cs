@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Headers;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -93,6 +94,36 @@ public sealed class TmdbImageProxyTests
     }
 
     [TestMethod]
+    public async Task Service_MapsResponseBodyIoFailuresToUnavailable()
+    {
+        var handler = new RecordingHandler(_ =>
+        {
+            var response = new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StreamContent(new ThrowingReadStream())
+            };
+            response.Content.Headers.ContentType = new MediaTypeHeaderValue("image/jpeg");
+            return response;
+        });
+        using var service = CreateService(handler);
+
+        var result = await service.GetAsync("w185", "poster.jpg", CancellationToken.None);
+
+        Assert.AreEqual(TmdbImageFetchStatus.Unavailable, result.Status);
+    }
+
+    [TestMethod]
+    public void Controller_RequiresAuthentication()
+    {
+        Assert.IsNotNull(Attribute.GetCustomAttribute(
+            typeof(TmdbImagesController),
+            typeof(AuthorizeAttribute)));
+        Assert.IsNull(Attribute.GetCustomAttribute(
+            typeof(TmdbImagesController),
+            typeof(AllowAnonymousAttribute)));
+    }
+
+    [TestMethod]
     public async Task Controller_SetsCacheHeadersAndHonorsConditionalRequest()
     {
         var content = new TmdbImageContent(ImageBytes, "image/jpeg", "\"image-etag\"");
@@ -103,7 +134,7 @@ public sealed class TmdbImageProxyTests
         var first = await controller.GetAsync("w300", "poster.jpg", CancellationToken.None);
 
         Assert.IsInstanceOfType<FileContentResult>(first);
-        Assert.AreEqual("public, max-age=86400", controller.Response.Headers.CacheControl.ToString());
+        Assert.AreEqual("private, max-age=86400", controller.Response.Headers.CacheControl.ToString());
         Assert.AreEqual(content.ETag, controller.Response.Headers.ETag.ToString());
         Assert.AreEqual("nosniff", controller.Response.Headers.XContentTypeOptions.ToString());
 
@@ -201,5 +232,39 @@ public sealed class TmdbImageProxyTests
             string size,
             string fileName,
             CancellationToken cancellationToken) => Task.FromResult(result);
+    }
+
+    private sealed class ThrowingReadStream : Stream
+    {
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override void Flush()
+        {
+        }
+
+        public override int Read(byte[] buffer, int offset, int count) =>
+            throw new IOException("upstream response interrupted");
+
+        public override ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromException<int>(new IOException("upstream response interrupted"));
+
+        public override long Seek(long offset, SeekOrigin origin) =>
+            throw new NotSupportedException();
+
+        public override void SetLength(long value) => throw new NotSupportedException();
+
+        public override void Write(byte[] buffer, int offset, int count) =>
+            throw new NotSupportedException();
     }
 }

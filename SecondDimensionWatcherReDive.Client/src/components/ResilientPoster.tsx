@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 
 import { ImageOff, RefreshCw } from "lucide-react";
 
+import { authenticatedFetch } from "../auth/httpClient";
 import { cn } from "../lib/cn";
 
 type ImageState = "loading" | "loaded" | "missing" | "error";
@@ -29,6 +30,9 @@ export const ResilientPoster: React.FC<ResilientPosterProps> = ({
   const [state, setState] = React.useState<ImageState>(
     src ? "loading" : "missing",
   );
+  const [authenticatedObjectUrl, setAuthenticatedObjectUrl] = React.useState<
+    string | null
+  >(null);
 
   React.useEffect(() => {
     setAttempt(0);
@@ -42,6 +46,9 @@ export const ResilientPoster: React.FC<ResilientPosterProps> = ({
     return `${src}${separator}retry=${attempt}`;
   }, [attempt, src]);
 
+  const requiresAuthentication =
+    requestUrl?.startsWith("/api/images/tmdb/") ?? false;
+
   const retry = React.useCallback(() => {
     setState("loading");
     setAttempt((value) => value + 1);
@@ -53,6 +60,44 @@ export const ResilientPoster: React.FC<ResilientPosterProps> = ({
     if (attempt === 0) retry();
     else setState("error");
   }, [attempt, retry]);
+
+  React.useEffect(() => {
+    setAuthenticatedObjectUrl(null);
+    if (!requestUrl || !requiresAuthentication) return;
+
+    const abortController = new AbortController();
+    let objectUrl: string | null = null;
+
+    void authenticatedFetch(requestUrl, {
+      signal: abortController.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok)
+          throw new Error(`image request failed: ${response.status}`);
+        const blob = await response.blob();
+        if (!blob.type.startsWith("image/")) {
+          throw new Error("image response has an invalid content type");
+        }
+        objectUrl = URL.createObjectURL(blob);
+        if (abortController.signal.aborted) {
+          URL.revokeObjectURL(objectUrl);
+          objectUrl = null;
+          return;
+        }
+        setAuthenticatedObjectUrl(objectUrl);
+      })
+      .catch(() => {
+        if (abortController.signal.aborted) return;
+        handleError();
+      });
+
+    return () => {
+      abortController.abort();
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [handleError, requestUrl, requiresAuthentication]);
+
+  const imageUrl = requiresAuthentication ? authenticatedObjectUrl : requestUrl;
 
   const fallbackLabel = alt
     ? t("images.unavailableFor", { name: alt })
@@ -76,10 +121,10 @@ export const ResilientPoster: React.FC<ResilientPosterProps> = ({
           className="absolute inset-0 animate-pulse bg-border-light/60"
         />
       ) : null}
-      {requestUrl ? (
+      {imageUrl ? (
         <img
-          key={requestUrl}
-          src={requestUrl}
+          key={imageUrl}
+          src={imageUrl}
           alt={alt}
           loading={eager ? "eager" : "lazy"}
           decoding="async"

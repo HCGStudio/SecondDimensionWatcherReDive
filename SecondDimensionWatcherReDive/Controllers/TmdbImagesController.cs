@@ -6,7 +6,7 @@ using SecondDimensionWatcherReDive.Services;
 namespace SecondDimensionWatcherReDive.Controllers;
 
 [ApiController]
-[AllowAnonymous]
+[Authorize]
 [Route("api/images/tmdb")]
 internal sealed class TmdbImagesController(
     ITmdbImageProxyService imageProxy,
@@ -27,7 +27,10 @@ internal sealed class TmdbImagesController(
             return Error(StatusCodes.Status502BadGateway, "tmdb_image_unavailable");
 
         var maxAge = Math.Max(0, (long)options.Value.ClientCacheDuration.TotalSeconds);
-        Response.Headers.CacheControl = $"public, max-age={maxAge}";
+        // These images are deliberately fetched through an authenticated endpoint.
+        // Keep the response in the caller's private browser cache so a shared cache
+        // cannot turn one authorized request into an anonymous delivery path.
+        Response.Headers.CacheControl = $"private, max-age={maxAge}";
         Response.Headers.ETag = result.Content.ETag;
         Response.Headers.XContentTypeOptions = "nosniff";
 

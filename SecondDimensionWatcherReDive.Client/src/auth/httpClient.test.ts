@@ -1,5 +1,5 @@
 import { ApiError } from "../errors/apiError";
-import fetcher, { clearAuth } from "./httpClient";
+import fetcher, { authenticatedFetch, clearAuth } from "./httpClient";
 
 type TestCallback = () => void | Promise<void>;
 type TestFunction = (name: string, callback: TestCallback) => void;
@@ -111,5 +111,24 @@ describe("fetcher stored authentication", () => {
       (error) => error === networkFailure,
     );
     equal(requestCount, 1);
+  });
+
+  it("returns an authenticated binary response without JSON parsing", async () => {
+    storeAuth();
+    globalThis.fetch = async (_input, init) => {
+      equal(
+        new Headers(init?.headers).get("Authorization"),
+        "Bearer stored-token",
+      );
+      return new Response("image bytes", {
+        status: 200,
+        headers: { "Content-Type": "image/jpeg" },
+      });
+    };
+
+    const response = await authenticatedFetch("/api/images/tmdb/w300/a.jpg");
+
+    equal(response.headers.get("Content-Type"), "image/jpeg");
+    equal(await response.text(), "image bytes");
   });
 });

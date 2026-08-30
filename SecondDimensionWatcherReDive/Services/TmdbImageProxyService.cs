@@ -153,6 +153,11 @@ internal sealed partial class TmdbImageProxyService : ITmdbImageProxyService, ID
             LogRequestFailed(_logger, cacheKey, exception.GetType().Name);
             return new TmdbImageFetchResult(TmdbImageFetchStatus.Unavailable);
         }
+        catch (IOException exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            LogRequestFailed(_logger, cacheKey, exception.GetType().Name);
+            return new TmdbImageFetchResult(TmdbImageFetchStatus.Unavailable);
+        }
     }
 
     private static bool IsValidPath(string size, string fileName) =>
