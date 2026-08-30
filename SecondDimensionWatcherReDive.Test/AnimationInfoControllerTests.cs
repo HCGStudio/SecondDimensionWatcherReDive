@@ -327,6 +327,7 @@ public class AnimationInfoControllerTests
                 id,
                 info.DownloadAttemptId,
                 It.IsAny<Guid>(),
+                null,
                 It.Is<CancellationToken>(token =>
                     token.CanBeCanceled && !token.IsCancellationRequested)))
             .ReturnsAsync(true);
@@ -339,6 +340,7 @@ public class AnimationInfoControllerTests
             id,
             info.DownloadAttemptId,
             cancellationAttemptId.Value,
+            null,
             It.Is<CancellationToken>(token =>
                 token.CanBeCanceled && !token.IsCancellationRequested)), Times.Once);
     }
@@ -370,6 +372,7 @@ public class AnimationInfoControllerTests
                 id,
                 info.DownloadAttemptId,
                 It.IsAny<Guid>(),
+                null,
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
 
@@ -380,6 +383,7 @@ public class AnimationInfoControllerTests
             id,
             info.DownloadAttemptId,
             It.IsAny<Guid>(),
+            null,
             It.IsAny<CancellationToken>()), Times.Once);
     }
 
@@ -413,6 +417,7 @@ public class AnimationInfoControllerTests
                 id,
                 info.DownloadAttemptId,
                 cancellationAttemptId,
+                null,
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
 
@@ -428,6 +433,7 @@ public class AnimationInfoControllerTests
             id,
             info.DownloadAttemptId,
             cancellationAttemptId,
+            null,
             It.IsAny<CancellationToken>()), Times.Once);
     }
 

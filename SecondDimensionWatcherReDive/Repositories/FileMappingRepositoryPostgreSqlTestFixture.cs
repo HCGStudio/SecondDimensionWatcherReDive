@@ -1,4 +1,6 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Framework.FileDownload;
 
@@ -27,6 +29,92 @@ internal sealed class FileMappingRepositoryPostgreSqlTestFixture(string connecti
         await context.Database.ExecuteSqlRawAsync(
             "TRUNCATE TABLE \"FileMappings\", \"AnimationInfo\", \"Animations\", \"AnimationGroups\" RESTART IDENTITY CASCADE",
             cancellationToken);
+    }
+
+    public async Task<(
+        Guid ExpectedActiveId,
+        IReadOnlyList<Guid> ActiveIds,
+        int DowngradedCandidateOperationCount)>
+        MigrateDuplicateActiveReleasesAsync(CancellationToken cancellationToken)
+    {
+        await using var context = new Models.ApplicationContext(_contextOptions);
+        var migrator = context.GetService<IMigrator>();
+        await migrator.MigrateAsync(
+            "20260829151303_AddLibrarySearchAndReleaseUpgrades",
+            cancellationToken);
+        var animation = new Models.Animation
+        {
+            Id = Guid.NewGuid(),
+            TmdbId = "migration-active-show",
+            Name = "Migration Active Show",
+            OriginalName = "Migration Active Show"
+        };
+        var earlier = Release(
+            animation,
+            null,
+            1,
+            1,
+            100,
+            DateTimeOffset.UtcNow.AddMinutes(-2),
+            FileDownloadTypes.TorrentDownload,
+            false,
+            "migration:earlier-" + Guid.NewGuid().ToString("N"),
+            1);
+        var later = Release(
+            animation,
+            null,
+            1,
+            1,
+            200,
+            DateTimeOffset.UtcNow.AddMinutes(-1),
+            FileDownloadTypes.TorrentDownload,
+            false,
+            "migration:later-" + Guid.NewGuid().ToString("N"),
+            1);
+        context.AnimationInfo.AddRange(earlier, later);
+        await context.SaveChangesAsync(cancellationToken);
+        context.ChangeTracker.Clear();
+
+        await migrator.MigrateAsync(null, cancellationToken);
+        var activeIds = await context.AnimationInfo
+            .AsNoTracking()
+            .Where(info => info.IsActiveRelease)
+            .Select(info => info.Id)
+            .ToListAsync(cancellationToken);
+        context.ReleaseUpgradeOperations.AddRange(
+            new Models.ReleaseUpgradeOperation
+            {
+                Id = Guid.NewGuid(),
+                CurrentReleaseId = earlier.Id,
+                CandidateReleaseId = later.Id,
+                Status = ReleaseUpgradeStatus.Failed,
+                CurrentScore = earlier.ReleaseScore,
+                CandidateScore = later.ReleaseScore,
+                CreatedAt = DateTimeOffset.UtcNow.AddMinutes(-1),
+                CompletedAt = DateTimeOffset.UtcNow.AddMinutes(-1)
+            },
+            new Models.ReleaseUpgradeOperation
+            {
+                Id = Guid.NewGuid(),
+                CurrentReleaseId = earlier.Id,
+                CandidateReleaseId = later.Id,
+                Status = ReleaseUpgradeStatus.Failed,
+                CurrentScore = earlier.ReleaseScore,
+                CandidateScore = later.ReleaseScore,
+                CreatedAt = DateTimeOffset.UtcNow,
+                CompletedAt = DateTimeOffset.UtcNow
+            });
+        await context.SaveChangesAsync(cancellationToken);
+        context.ChangeTracker.Clear();
+        await migrator.MigrateAsync(
+            "20260829151303_AddLibrarySearchAndReleaseUpgrades",
+            cancellationToken);
+        var downgradedCandidateOperationCount = await context.ReleaseUpgradeOperations
+            .CountAsync(
+                operation => operation.CandidateReleaseId == later.Id,
+                cancellationToken);
+        await migrator.MigrateAsync(null, cancellationToken);
+        return (earlier.Id, activeIds, downgradedCandidateOperationCount);
     }
 
     public async Task<Guid> SeedDownloadedAnimationAsync(CancellationToken cancellationToken)
@@ -226,43 +314,113 @@ internal sealed class FileMappingRepositoryPostgreSqlTestFixture(string connecti
                 WHERE schemaname = 'public'
                   AND (indexname LIKE 'IX_%_Trgm'
                        OR indexname = 'IX_AnimationInfo_ReleaseLanguages_Gin'
-                       OR indexname = 'UX_AnimationInfo_ReleaseIdentity')
+                       OR indexname = 'IX_AnimationInfo_AnimationId'
+                       OR indexname IN ('UX_AnimationInfo_ReleaseIdentity',
+                                        'UX_AnimationInfo_ActiveEpisodeRelease'))
                 ORDER BY indexname
                 """)
             .ToListAsync(cancellationToken);
     }
 
-    public async Task<UpgradeScenario> SeedUpgradeScenarioAsync(CancellationToken cancellationToken)
+    public async Task<UpgradeScenario> SeedUpgradeScenarioAsync(
+        CancellationToken cancellationToken,
+        bool includeDuplicateVideoRole = false,
+        bool includeCandidateProgress = false)
     {
         await using var context = new Models.ApplicationContext(_contextOptions);
         var animation = new Models.Animation
         {
-            Id = Guid.NewGuid(), TmdbId = "upgrade-show", Name = "Upgrade Show", OriginalName = "Upgrade Show"
+            Id = Guid.NewGuid(),
+            TmdbId = "upgrade-show",
+            Name = "Upgrade Show",
+            OriginalName = "Upgrade Show"
         };
         var current = Release(animation, null, 1, 1, 200, DateTimeOffset.UtcNow.AddMinutes(-2),
             FileDownloadTypes.TorrentDownload, true, "torrent:old-" + Guid.NewGuid().ToString("N"), 1);
         var candidate = Release(animation, null, 1, 1, 500, DateTimeOffset.UtcNow.AddMinutes(-1),
             FileDownloadTypes.TorrentDownload, true, "torrent:new-" + Guid.NewGuid().ToString("N"), 1);
         candidate.IsActiveRelease = false;
+        var canonicalPath = "/Upgrade Show/Old/Upgrade Show S01E01.MKV";
+        var canonicalSubtitlePath = "/Upgrade Show/Old/Upgrade Show S01E01.EN.srt";
         context.AnimationInfo.AddRange(current, candidate);
         context.FileMappings.AddRange(
             new Models.FileMapping
             {
-                Id = Guid.NewGuid(), AnimationInfoId = current.Id,
-                VirtualPath = "/Upgrade Show/Old/Upgrade Show S01E01.mkv",
-                PhysicalPath = "/store/old.mkv", FileStore = "local"
+                Id = Guid.NewGuid(),
+                AnimationInfoId = current.Id,
+                VirtualPath = canonicalPath,
+                PhysicalPath = "/store/old.mkv",
+                FileStore = "local"
             },
             new Models.FileMapping
             {
-                Id = Guid.NewGuid(), AnimationInfoId = candidate.Id,
+                Id = Guid.NewGuid(),
+                AnimationInfoId = current.Id,
+                VirtualPath = canonicalSubtitlePath,
+                PhysicalPath = "/store/old.en.srt",
+                FileStore = "local"
+            },
+            new Models.FileMapping
+            {
+                Id = Guid.NewGuid(),
+                AnimationInfoId = candidate.Id,
                 VirtualPath = "/Upgrade Show/New/Upgrade Show S01E01 (2).mkv",
-                PhysicalPath = "/store/new.mkv", FileStore = "local"
+                PhysicalPath = "/store/new.mkv",
+                FileStore = "local"
+            },
+            new Models.FileMapping
+            {
+                Id = Guid.NewGuid(),
+                AnimationInfoId = candidate.Id,
+                VirtualPath = "/Upgrade Show/New/Upgrade Show S01E01.en (2).srt",
+                PhysicalPath = "/store/new.en.srt",
+                FileStore = "local"
             });
+        if (includeDuplicateVideoRole)
+        {
+            context.FileMappings.Add(new Models.FileMapping
+            {
+                Id = Guid.NewGuid(),
+                AnimationInfoId = candidate.Id,
+                VirtualPath = "/Upgrade Show/New/Upgrade Show S01E01 (3).mkv",
+                PhysicalPath = "/store/new-alternate.mkv",
+                FileStore = "local"
+            });
+        }
+        var userId = Guid.NewGuid();
+        context.PlaybackProgresses.Add(new Models.PlaybackProgress
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            AnimationInfoId = current.Id,
+            VirtualPath = canonicalPath,
+            PositionSeconds = 321,
+            DurationSeconds = 1200,
+            IsWatched = false,
+            UpdatedAt = DateTimeOffset.UtcNow
+        });
+        if (includeCandidateProgress)
+        {
+            context.PlaybackProgresses.Add(new Models.PlaybackProgress
+            {
+                Id = Guid.NewGuid(),
+                UserId = userId,
+                AnimationInfoId = candidate.Id,
+                VirtualPath = "/Upgrade Show/New/Upgrade Show S01E01 (2).mkv",
+                PositionSeconds = 1200,
+                DurationSeconds = 1200,
+                IsWatched = true,
+                UpdatedAt = DateTimeOffset.UtcNow.AddMinutes(1),
+                WatchedAt = DateTimeOffset.UtcNow.AddMinutes(1)
+            });
+        }
         await context.SaveChangesAsync(cancellationToken);
         return new UpgradeScenario(new ReleaseUpgradeCandidate(
             current.Id, candidate.Id, animation.Name, 1, 1, 200, 500,
             ["resolution:2160p:+400"], false),
-            "/Upgrade Show/Old/Upgrade Show S01E01.mkv");
+            canonicalPath,
+            canonicalSubtitlePath,
+            userId);
     }
 
     public async Task<ReleaseUpgradeOperation?> BeginUpgradeAsync(
@@ -279,8 +437,40 @@ internal sealed class FileMappingRepositoryPostgreSqlTestFixture(string connecti
         CancellationToken cancellationToken)
     {
         await using var context = new Models.ApplicationContext(_contextOptions);
+        var operation = await context.ReleaseUpgradeOperations
+            .AsNoTracking()
+            .SingleAsync(item => item.Id == operationId, cancellationToken);
+        var repository = new ReleaseUpgradeRepository(context, _contextOptions);
+        var activation = await repository.GetActivationAsync(
+                             operation.CandidateReleaseId,
+                             cancellationToken)
+                         ?? throw new InvalidOperationException("Upgrade activation was not found.");
+        return await ActivateUpgradeAsync(operationId, activation, cancellationToken);
+    }
+
+    public async Task<ReleaseUpgradeActivation?> GetUpgradeActivationAsync(
+        Guid candidateReleaseId,
+        CancellationToken cancellationToken)
+    {
+        await using var context = new Models.ApplicationContext(_contextOptions);
         return await new ReleaseUpgradeRepository(context, _contextOptions)
-            .ActivateAsync(operationId, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddHours(24), cancellationToken);
+            .GetActivationAsync(candidateReleaseId, cancellationToken);
+    }
+
+    public async Task<ReleaseUpgradeMutationResult> ActivateUpgradeAsync(
+        Guid operationId,
+        ReleaseUpgradeActivation expected,
+        CancellationToken cancellationToken)
+    {
+        await using var context = new Models.ApplicationContext(_contextOptions);
+        return await new ReleaseUpgradeRepository(context, _contextOptions)
+            .ActivateAsync(
+                operationId,
+                expected.PreviousMappings,
+                expected.CandidateMappings,
+                DateTimeOffset.UtcNow,
+                DateTimeOffset.UtcNow.AddHours(24),
+                cancellationToken);
     }
 
     public async Task<IReadOnlyList<Guid>> GetReadyUpgradeCandidateIdsAsync(
@@ -300,6 +490,57 @@ internal sealed class FileMappingRepositoryPostgreSqlTestFixture(string connecti
             .RollbackAsync(operationId, DateTimeOffset.UtcNow, cancellationToken);
     }
 
+    public async Task<ReleaseUpgradeMutationResult> MarkUpgradeFailedAsync(
+        Guid operationId,
+        CancellationToken cancellationToken)
+    {
+        await using var context = new Models.ApplicationContext(_contextOptions);
+        return await new ReleaseUpgradeRepository(context, _contextOptions)
+            .MarkFailedAsync(operationId, "late failure", cancellationToken);
+    }
+
+    public async Task<bool> BeginUpgradeCandidateCancellationAsync(
+        Guid animationInfoId,
+        Guid? downloadAttemptId,
+        Guid cancellationAttemptId,
+        CancellationToken cancellationToken)
+    {
+        await using var context = new Models.ApplicationContext(_contextOptions);
+        return await new AnimationInfoRepository(context, _contextOptions)
+            .TryBeginCancelDownloadAsync(
+                animationInfoId,
+                downloadAttemptId,
+                cancellationAttemptId,
+                cancellationToken);
+    }
+
+    public async Task<bool> FinalizeUpgradeCandidateCancellationAsync(
+        Guid animationInfoId,
+        Guid? downloadAttemptId,
+        Guid cancellationAttemptId,
+        CancellationToken cancellationToken)
+    {
+        await using var context = new Models.ApplicationContext(_contextOptions);
+        return await new FileMappingRepository(context, _contextOptions)
+            .TryFinalizeDownloadCancellationAsync(
+                animationInfoId,
+                downloadAttemptId,
+                cancellationAttemptId,
+                terminalDisposition: null,
+                cancellationToken);
+    }
+
+    public async Task<ReleaseUpgradeOperation> GetUpgradeOperationAsync(
+        Guid operationId,
+        CancellationToken cancellationToken)
+    {
+        await using var context = new Models.ApplicationContext(_contextOptions);
+        return (await context.ReleaseUpgradeOperations
+                .AsNoTracking()
+                .SingleAsync(operation => operation.Id == operationId, cancellationToken))
+            .ToRecord();
+    }
+
     public async Task<IReadOnlyList<FileMapping>> GetMappingsAsync(
         Guid animationInfoId,
         CancellationToken cancellationToken)
@@ -307,6 +548,238 @@ internal sealed class FileMappingRepositoryPostgreSqlTestFixture(string connecti
         await using var context = new Models.ApplicationContext(_contextOptions);
         return await new FileMappingRepository(context, _contextOptions)
             .GetForAnimationInfoAsync(animationInfoId, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<PlaybackProgress>> GetPlaybackProgressesAsync(
+        Guid userId,
+        CancellationToken cancellationToken)
+    {
+        await using var context = new Models.ApplicationContext(_contextOptions);
+        return (await context.PlaybackProgresses
+                .AsNoTracking()
+                .Where(progress => progress.UserId == userId)
+                .OrderBy(progress => progress.VirtualPath)
+                .ToListAsync(cancellationToken))
+            .Select(progress => progress.ToRecord())
+            .ToList();
+    }
+
+    public async Task ChangeReleaseEpisodeAsync(
+        Guid animationInfoId,
+        int episode,
+        CancellationToken cancellationToken)
+    {
+        await using var context = new Models.ApplicationContext(_contextOptions);
+        await context.AnimationInfo
+            .Where(info => info.Id == animationInfoId)
+            .ExecuteUpdateAsync(
+                setters => setters.SetProperty(info => info.Episode, episode),
+                cancellationToken);
+    }
+
+    public async Task<Guid> SetCandidateDownloadInProgressAsync(
+        Guid animationInfoId,
+        CancellationToken cancellationToken)
+    {
+        var downloadAttemptId = Guid.NewGuid();
+        await using var context = new Models.ApplicationContext(_contextOptions);
+        await context.AnimationInfo
+            .Where(info => info.Id == animationInfoId)
+            .ExecuteUpdateAsync(
+                setters => setters
+                    .SetProperty(info => info.IsDownloadTracked, true)
+                    .SetProperty(info => info.IsDownloadFinished, false)
+                    .SetProperty(info => info.DownloadAttemptId, downloadAttemptId)
+                    .SetProperty(info => info.FileStore, (string?)null)
+                    .SetProperty(info => info.StorePath, (string?)null),
+                cancellationToken);
+        return downloadAttemptId;
+    }
+
+    public async Task<AnimationInfo?> CancelUpgradeCandidateAsync(
+        Guid animationInfoId,
+        Guid downloadAttemptId,
+        CancellationToken cancellationToken)
+    {
+        await using var context = new Models.ApplicationContext(_contextOptions);
+        var animationRepository = new AnimationInfoRepository(context, _contextOptions);
+        var cancellationAttemptId = Guid.NewGuid();
+        if (!await animationRepository.TryBeginCancelDownloadAsync(
+                animationInfoId,
+                downloadAttemptId,
+                cancellationAttemptId,
+                cancellationToken))
+            return null;
+        var mappingRepository = new FileMappingRepository(context, _contextOptions);
+        if (!await mappingRepository.TryFinalizeDownloadCancellationAsync(
+                animationInfoId,
+                downloadAttemptId,
+                cancellationAttemptId,
+                terminalDisposition: null,
+                cancellationToken))
+            return null;
+        return await animationRepository.FindByIdAsync(animationInfoId, cancellationToken);
+    }
+
+    public async Task ChangeMappingPhysicalPathAsync(
+        Guid animationInfoId,
+        string virtualPath,
+        string physicalPath,
+        CancellationToken cancellationToken)
+    {
+        await using var context = new Models.ApplicationContext(_contextOptions);
+        await context.FileMappings
+            .Where(mapping => mapping.AnimationInfoId == animationInfoId &&
+                              mapping.VirtualPath == virtualPath)
+            .ExecuteUpdateAsync(
+                setters => setters.SetProperty(mapping => mapping.PhysicalPath, physicalPath),
+                cancellationToken);
+    }
+
+    public async Task RemapCandidatePlaybackAsync(
+        Guid animationInfoId,
+        Guid userId,
+        string currentPath,
+        string replacementPath,
+        CancellationToken cancellationToken)
+    {
+        await using var context = new Models.ApplicationContext(_contextOptions);
+        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+        await MappingTransactionLock.AcquireAsync(context, cancellationToken);
+        await context.FileMappings
+            .Where(mapping => mapping.AnimationInfoId == animationInfoId &&
+                              mapping.VirtualPath == currentPath)
+            .ExecuteUpdateAsync(
+                setters => setters.SetProperty(mapping => mapping.VirtualPath, replacementPath),
+                cancellationToken);
+        await context.PlaybackProgresses
+            .Where(progress => progress.AnimationInfoId == animationInfoId &&
+                               progress.UserId == userId &&
+                               progress.VirtualPath == currentPath)
+            .ExecuteUpdateAsync(
+                setters => setters.SetProperty(progress => progress.VirtualPath, replacementPath),
+                cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+    }
+
+    public async Task<(bool FirstActive, bool SecondActive, int FirstEpisode)>
+        IdentifyCompetingReleasesAsync(
+            CancellationToken cancellationToken,
+            bool moveFirst = false,
+            bool deidentifyFirst = false,
+            bool concurrent = false)
+    {
+        var animation = new Models.Animation
+        {
+            Id = Guid.NewGuid(),
+            TmdbId = "single-active-show",
+            Name = "Single Active Show",
+            OriginalName = "Single Active Show"
+        };
+        var first = Release(
+            animation,
+            null,
+            1,
+            null,
+            100,
+            DateTimeOffset.UtcNow.AddMinutes(-2),
+            FileDownloadTypes.TorrentDownload,
+            false,
+            "torrent:first-" + Guid.NewGuid().ToString("N"),
+            12);
+        var second = Release(
+            animation,
+            null,
+            1,
+            null,
+            200,
+            DateTimeOffset.UtcNow.AddMinutes(-1),
+            FileDownloadTypes.TorrentDownload,
+            false,
+            "torrent:second-" + Guid.NewGuid().ToString("N"),
+            12);
+        first.IsActiveRelease = false;
+        second.IsActiveRelease = false;
+        await using (var seedContext = new Models.ApplicationContext(_contextOptions))
+        {
+            seedContext.AnimationInfo.AddRange(first, second);
+            await seedContext.SaveChangesAsync(cancellationToken);
+        }
+
+        if (concurrent)
+        {
+            async Task IdentifyAsync(Guid releaseId)
+            {
+                await using var updateContext = new Models.ApplicationContext(_contextOptions);
+                var updateRepository = new AnimationInfoRepository(updateContext, _contextOptions);
+                var record = await updateRepository.FindByIdAsync(releaseId, cancellationToken)
+                             ?? throw new InvalidOperationException("Seeded release could not be reloaded.");
+                if (!await updateRepository.TryUpdateAsync(
+                        record with
+                        {
+                            Animation = animation.ToRecord(),
+                            Season = 1,
+                            Episode = 1
+                        },
+                        record.StateVersion,
+                        cancellationToken))
+                    throw new InvalidOperationException("Seeded release could not be identified.");
+            }
+
+            await Task.WhenAll(IdentifyAsync(first.Id), IdentifyAsync(second.Id));
+        }
+        else
+        {
+            await using var repositoryContext = new Models.ApplicationContext(_contextOptions);
+            var repository = new AnimationInfoRepository(repositoryContext, _contextOptions);
+            var firstRecord = await repository.FindByIdAsync(first.Id, cancellationToken);
+            var secondRecord = await repository.FindByIdAsync(second.Id, cancellationToken);
+            if (firstRecord is null || secondRecord is null)
+                throw new InvalidOperationException("Seeded releases could not be reloaded.");
+
+            var animationRecord = animation.ToRecord();
+            if (!await repository.TryUpdateAsync(
+                    firstRecord with { Animation = animationRecord, Season = 1, Episode = 1 },
+                    firstRecord.StateVersion,
+                    cancellationToken) ||
+                !await repository.TryUpdateAsync(
+                    secondRecord with { Animation = animationRecord, Season = 1, Episode = 1 },
+                    secondRecord.StateVersion,
+                    cancellationToken))
+                throw new InvalidOperationException("Seeded releases could not be identified.");
+
+            if (moveFirst)
+            {
+                var identifiedFirst = await repository.FindByIdAsync(first.Id, cancellationToken)
+                                      ?? throw new InvalidOperationException(
+                                          "Active release could not be reloaded.");
+                if (!await repository.TryUpdateAsync(
+                        identifiedFirst with { Episode = 2 },
+                        identifiedFirst.StateVersion,
+                        cancellationToken))
+                    throw new InvalidOperationException("Active release could not be moved.");
+            }
+            else if (deidentifyFirst)
+            {
+                var identifiedFirst = await repository.FindByIdAsync(first.Id, cancellationToken)
+                                      ?? throw new InvalidOperationException(
+                                          "Active release could not be reloaded.");
+                if (!await repository.TryUpdateAsync(
+                        identifiedFirst with { Animation = null },
+                        identifiedFirst.StateVersion,
+                        cancellationToken))
+                    throw new InvalidOperationException("Active release could not be de-identified.");
+            }
+        }
+
+        await using var readContext = new Models.ApplicationContext(_contextOptions);
+        var releases = await readContext.AnimationInfo
+            .Where(info => info.Id == first.Id || info.Id == second.Id)
+            .ToDictionaryAsync(info => info.Id, cancellationToken);
+        return (
+            releases[first.Id].IsActiveRelease,
+            releases[second.Id].IsActiveRelease,
+            releases[first.Id].Episode!.Value);
     }
 
     private static Models.AnimationInfo Release(
@@ -320,28 +793,29 @@ internal sealed class FileMappingRepositoryPostgreSqlTestFixture(string connecti
         bool downloaded,
         string identity,
         int expected) => new()
-    {
-        Id = Guid.NewGuid(),
-        Animation = animation,
-        Group = group,
-        Title = $"{animation.Name} S{season:D2}E{episode:D2}",
-        Description = animation.OriginalName,
-        PublishTime = ingestedAt,
-        IngestedAt = ingestedAt,
-        DownloadUrl = "https://example.test/" + Guid.NewGuid().ToString("N"),
-        DownloadType = downloadType,
-        IsDownloadTracked = downloaded,
-        IsDownloadFinished = downloaded,
-        FileStore = downloaded ? "local" : null,
-        StorePath = downloaded ? "/store/" + Guid.NewGuid().ToString("N") : null,
-        Season = season,
-        Episode = episode,
-        ReleaseIdentity = identity,
-        ReleaseSubtitleGroup = group?.Name,
-        ReleaseScore = score,
-        ExpectedEpisodeCount = expected,
-        IsAiProcessed = true
-    };
+        {
+            Id = Guid.NewGuid(),
+            Animation = animation,
+            Group = group,
+            Title = $"{animation.Name} S{season:D2}E{episode:D2}",
+            Description = animation.OriginalName,
+            PublishTime = ingestedAt,
+            IngestedAt = ingestedAt,
+            DownloadUrl = "https://example.test/" + Guid.NewGuid().ToString("N"),
+            DownloadType = downloadType,
+            IsDownloadTracked = downloaded,
+            IsDownloadFinished = downloaded,
+            FileStore = downloaded ? "local" : null,
+            StorePath = downloaded ? "/store/" + Guid.NewGuid().ToString("N") : null,
+            Season = season,
+            Episode = episode,
+            ReleaseIdentity = identity,
+            ReleaseSubtitleGroup = group?.Name,
+            ReleaseScore = score,
+            ExpectedEpisodeCount = expected,
+            IsAiProcessed = true,
+            IsActiveRelease = true
+        };
 
     private static Models.FileMapping MappingEntity(Guid animationInfoId, string path) => new()
     {
@@ -361,4 +835,6 @@ internal sealed record LibraryScenario(
 
 internal sealed record UpgradeScenario(
     ReleaseUpgradeCandidate Candidate,
-    string CanonicalPath);
+    string CanonicalPath,
+    string CanonicalSubtitlePath,
+    Guid UserId);

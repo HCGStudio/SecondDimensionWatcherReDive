@@ -76,6 +76,8 @@ public interface IReleaseUpgradeRepository
 
     Task<ReleaseUpgradeMutationResult> ActivateAsync(
         Guid operationId,
+        IReadOnlyList<FileMapping> expectedPreviousMappings,
+        IReadOnlyList<FileMapping> expectedCandidateMappings,
         DateTimeOffset verifiedAt,
         DateTimeOffset rollbackUntil,
         CancellationToken cancellationToken);

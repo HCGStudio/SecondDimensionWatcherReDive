@@ -93,5 +93,5 @@ public class AnimationInfo
 
     public int? ExpectedEpisodeCount { get; set; }
 
-    public bool IsActiveRelease { get; set; } = true;
+    public bool IsActiveRelease { get; set; }
 }

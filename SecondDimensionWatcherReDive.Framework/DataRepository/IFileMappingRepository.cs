@@ -46,6 +46,7 @@ public interface IFileMappingRepository
         Guid animationInfoId,
         Guid? downloadAttemptId,
         Guid cancellationAttemptId,
+        SubscriptionAutomationDisposition? terminalDisposition,
         CancellationToken cancellationToken);
 
     Task RemoveByAnimationInfoAsync(Guid animationInfoId, CancellationToken cancellationToken);

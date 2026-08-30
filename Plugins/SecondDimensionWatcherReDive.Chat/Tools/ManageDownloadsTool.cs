@@ -141,6 +141,7 @@ internal sealed partial class ManageDownloadsTool(
             info.Id,
             info.DownloadAttemptId,
             cancellationAttemptId,
+            terminalDisposition: null,
             finalizeCancellation.Token);
         if (!cancelled)
             return new ToolFailureResult("Download state changed during cancellation");

@@ -47,4 +47,4 @@ public sealed record AnimationInfo(
     string? ReleaseScoreReasonsJson = null,
     int? ExpectedEpisodeCount = null,
     DateTimeOffset? IngestedAt = null,
-    bool IsActiveRelease = true);
+    bool IsActiveRelease = false);

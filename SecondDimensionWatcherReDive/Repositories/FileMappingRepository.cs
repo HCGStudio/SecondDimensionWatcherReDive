@@ -208,6 +208,7 @@ public class FileMappingRepository(
         Guid animationInfoId,
         Guid? downloadAttemptId,
         Guid cancellationAttemptId,
+        SubscriptionAutomationDisposition? terminalDisposition,
         CancellationToken cancellationToken)
     {
         var strategy = context.Database.CreateExecutionStrategy();
@@ -249,13 +250,27 @@ public class FileMappingRepository(
             // Retain the completed cancellation id until the next Start so a
             // lost commit acknowledgement can be retried idempotently.
             animationInfo.DownloadCancellationId = cancellationAttemptId;
-            animationInfo.AutomationDisposition = animationInfo.AutomationDisposition is
-                SubscriptionAutomationDisposition.AutoDownloadQueued or
-                SubscriptionAutomationDisposition.ManualDownloadQueued or
-                SubscriptionAutomationDisposition.DownloadCompleted
-                    ? SubscriptionAutomationDisposition.DownloadCancelled
-                    : animationInfo.AutomationDisposition;
+            animationInfo.AutomationDisposition = terminalDisposition
+                ?? (animationInfo.AutomationDisposition is
+                    SubscriptionAutomationDisposition.AutoDownloadQueued or
+                    SubscriptionAutomationDisposition.ManualDownloadQueued or
+                    SubscriptionAutomationDisposition.DownloadCompleted
+                        ? SubscriptionAutomationDisposition.DownloadCancelled
+                        : animationInfo.AutomationDisposition);
             animationInfo.StateVersion = checked(animationInfo.StateVersion + 1);
+            var cancelledAt = DateTimeOffset.UtcNow;
+            await finalizeContext.ReleaseUpgradeOperations
+                .Where(operation => operation.CandidateReleaseId == animationInfoId &&
+                                    (operation.Status == ReleaseUpgradeStatus.Downloading ||
+                                     operation.Status == ReleaseUpgradeStatus.Verifying))
+                .ExecuteUpdateAsync(
+                    setters => setters
+                        .SetProperty(operation => operation.Status, ReleaseUpgradeStatus.Failed)
+                        .SetProperty(
+                            operation => operation.FailureSummary,
+                            "Candidate download was cancelled before upgrade activation.")
+                        .SetProperty(operation => operation.CompletedAt, cancelledAt),
+                    cancellationToken);
             await finalizeContext.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             return true;

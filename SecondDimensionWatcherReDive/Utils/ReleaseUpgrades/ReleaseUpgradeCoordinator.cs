@@ -48,21 +48,45 @@ public sealed class ReleaseUpgradeCoordinator(
             return Result(false, "upgrade_already_started", false, requiresDownload, null,
                 ["Another worker already claimed this upgrade."]);
 
-        if (!requiresDownload)
+        if (operation.Status == ReleaseUpgradeStatus.Verifying)
             return await ActivateAsync(operation.CandidateReleaseId, cancellationToken);
 
+        next = await animationInfoRepository.FindByIdAsync(
+            candidate.CandidateReleaseId,
+            cancellationToken);
+        if (next is null)
+            return await FailAsync(operation, "Candidate release disappeared after claim.", cancellationToken);
+        if (next.IsDownloadFinished)
+            return await ActivateAsync(operation.CandidateReleaseId, cancellationToken);
+        if (next.IsDownloadTracked)
+            return Result(true, "download_in_progress", false, true, operation, []);
+
         var downloadAttemptId = Guid.NewGuid();
+        IFileDownloadClient? client = null;
+        var downloadStartAttempted = false;
+        var submissionAttempted = false;
         try
         {
+            downloadStartAttempted = true;
             if (!await animationInfoRepository.TryStartDownloadAsync(
                     next.Id,
                     downloadAttemptId,
                     DateTimeOffset.UtcNow,
                     SubscriptionAutomationDisposition.AutoDownloadQueued,
                     cancellationToken))
+            {
+                var racedCandidate = await animationInfoRepository.FindByIdAsync(
+                    next.Id,
+                    cancellationToken);
+                if (racedCandidate?.IsDownloadFinished == true)
+                    return await ActivateAsync(operation.CandidateReleaseId, cancellationToken);
+                if (racedCandidate?.IsDownloadTracked == true)
+                    return Result(true, "download_in_progress", false, true, operation, []);
                 return await FailAsync(operation, "Candidate download state changed.", cancellationToken);
+            }
 
-            var client = downloadClientProvider.GetRequiredClient(next.DownloadType);
+            client = downloadClientProvider.GetRequiredClient(next.DownloadType);
+            submissionAttempted = true;
             if (!await client.SubmitDownloadTaskAsync(
                     next.Id,
                     next.DownloadUrl,
@@ -70,11 +94,16 @@ public sealed class ReleaseUpgradeCoordinator(
                     next.AdditionalDownloadInfo,
                     cancellationToken))
             {
-                await animationInfoRepository.TryCancelDownloadAsync(
-                    next.Id,
+                var compensation = await CompensateDownloadStartAsync(
+                    next,
+                    client,
                     downloadAttemptId,
-                    SubscriptionAutomationDisposition.AutoDownloadFailed,
-                    cancellationToken);
+                    remoteMayHaveAccepted: false);
+                if (compensation == DownloadCompensationOutcome.RetainedForRecovery)
+                    return await RecoveryPendingAsync(
+                        operation,
+                        "Download client rejected the candidate, but local state could not be restored.",
+                        cancellationToken);
                 return await FailAsync(operation, "Download client rejected the candidate.", cancellationToken);
             }
 
@@ -82,11 +111,33 @@ public sealed class ReleaseUpgradeCoordinator(
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+            var compensation = downloadStartAttempted
+                ? await CompensateDownloadStartAsync(
+                    next,
+                    client,
+                    downloadAttemptId,
+                    submissionAttempted)
+                : DownloadCompensationOutcome.LocalStateRestored;
+            await FinalizeCancelledOperationAsync(operation, compensation);
+
             throw;
         }
         catch (Exception exception)
         {
+            var compensation = downloadStartAttempted
+                ? await CompensateDownloadStartAsync(
+                    next,
+                    client,
+                    downloadAttemptId,
+                    submissionAttempted)
+                : DownloadCompensationOutcome.LocalStateRestored;
+
             logger.LogWarning(exception, "Failed to queue release upgrade {OperationId}", operation.Id);
+            if (compensation == DownloadCompensationOutcome.RetainedForRecovery)
+                return await RecoveryPendingAsync(
+                    operation,
+                    $"{exception.Message} Download tracking was retained because cancellation could not be confirmed.",
+                    cancellationToken);
             return await FailAsync(operation, exception.Message, cancellationToken);
         }
     }
@@ -132,6 +183,8 @@ public sealed class ReleaseUpgradeCoordinator(
         if (activation is null)
             return Result(false, "operation_not_found", false, false, null,
                 ["No active upgrade was found for this candidate."]);
+        if (activation.CandidateMappings.Count == 0)
+            return Result(true, "mapping_pending", false, false, activation.Operation, []);
 
         // Validation is deliberately external to the mapping transaction. Until every
         // candidate file passes, the old virtual paths and physical files remain untouched.
@@ -151,6 +204,8 @@ public sealed class ReleaseUpgradeCoordinator(
         var now = DateTimeOffset.UtcNow;
         var mutation = await upgradeRepository.ActivateAsync(
             activation.Operation.Id,
+            activation.PreviousMappings,
+            activation.CandidateMappings,
             now,
             now.AddHours(rollbackHours),
             cancellationToken);
@@ -238,6 +293,21 @@ public sealed class ReleaseUpgradeCoordinator(
             operation.Id,
             summary,
             cancellationToken);
+        if (!mutation.IsSuccess)
+        {
+            var settled = mutation.Operation?.Status is
+                ReleaseUpgradeStatus.Applied or
+                ReleaseUpgradeStatus.Completed or
+                ReleaseUpgradeStatus.RolledBack;
+            return Result(
+                settled,
+                settled ? "already_settled" : mutation.Outcome,
+                false,
+                false,
+                mutation.Operation ?? operation,
+                errors ?? [summary]);
+        }
+
         await incidentReporter.ReportAsync(new IncidentReport(
                 IncidentType.FileMappingFailure,
                 IncidentSeverity.Error,
@@ -249,7 +319,174 @@ public sealed class ReleaseUpgradeCoordinator(
             errors ?? [summary]);
     }
 
+    private async Task<ReleaseUpgradeExecutionResult> RecoveryPendingAsync(
+        ReleaseUpgradeOperation operation,
+        string summary,
+        CancellationToken cancellationToken)
+    {
+        await incidentReporter.ReportAsync(new IncidentReport(
+                IncidentType.FileMappingFailure,
+                IncidentSeverity.Error,
+                "Release upgrade download recovery pending",
+                summary,
+                UpgradeSource(operation.Id)),
+            cancellationToken);
+        return Result(false, "recovery_pending", false, true, operation, [summary]);
+    }
+
+    private async Task FinalizeCancelledOperationAsync(
+        ReleaseUpgradeOperation operation,
+        DownloadCompensationOutcome compensation)
+    {
+        using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var summary = compensation == DownloadCompensationOutcome.LocalStateRestored
+            ? "Release upgrade request was cancelled and its download state was restored."
+            : "Release upgrade request was cancelled, but download tracking was retained for recovery.";
+        try
+        {
+            if (compensation == DownloadCompensationOutcome.LocalStateRestored)
+                await upgradeRepository.MarkFailedAsync(operation.Id, summary, cleanup.Token);
+            await incidentReporter.ReportAsync(new IncidentReport(
+                    IncidentType.FileMappingFailure,
+                    IncidentSeverity.Error,
+                    compensation == DownloadCompensationOutcome.LocalStateRestored
+                        ? "Release upgrade cancelled"
+                        : "Release upgrade download recovery pending",
+                    summary,
+                    UpgradeSource(operation.Id)),
+                cleanup.Token);
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(
+                exception,
+                "Could not finalize cancelled release upgrade {OperationId}",
+                operation.Id);
+        }
+    }
+
+    private async Task<DownloadCompensationOutcome> CompensateDownloadStartAsync(
+        AnimationInfo info,
+        IFileDownloadClient? downloadClient,
+        Guid downloadAttemptId,
+        bool remoteMayHaveAccepted)
+    {
+        using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var cancellationAttemptId = Guid.NewGuid();
+        try
+        {
+            // Register cancellation before any remote I/O. Activation and the
+            // cancellation saga share the mapping lock, so an activation that
+            // already committed makes this return false and its live files are
+            // never deleted by stale compensation.
+            if (!await animationInfoRepository.TryBeginCancelDownloadAsync(
+                    info.Id,
+                    downloadAttemptId,
+                    cancellationAttemptId,
+                    cleanup.Token))
+            {
+                var current = await animationInfoRepository.FindByIdAsync(
+                    info.Id,
+                    cleanup.Token);
+                return current is null || !current.IsDownloadTracked
+                    ? DownloadCompensationOutcome.LocalStateRestored
+                    : DownloadCompensationOutcome.RetainedForRecovery;
+            }
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(
+                exception,
+                "Could not register compensation for release upgrade download {AnimationInfoId}",
+                info.Id);
+            return DownloadCompensationOutcome.RetainedForRecovery;
+        }
+
+        if (remoteMayHaveAccepted && downloadClient is not null)
+        {
+            try
+            {
+                var cancellation = await downloadClient.CancelDownloadTaskAsync(
+                    info.Id,
+                    info.DownloadUrl,
+                    info.CachedDownloadData,
+                    info.AdditionalDownloadInfo,
+                    removeFile: false,
+                    cleanup.Token);
+                if (!cancellation.IsSuccess)
+                {
+                    await QueryDownloadProgressSafelyAsync(downloadClient, info, cleanup.Token);
+                    return DownloadCompensationOutcome.RetainedForRecovery;
+                }
+            }
+            catch (Exception exception)
+            {
+                logger.LogWarning(
+                    exception,
+                    "Could not confirm compensation for release upgrade download {AnimationInfoId}",
+                    info.Id);
+                await QueryDownloadProgressSafelyAsync(downloadClient, info, cleanup.Token);
+                return DownloadCompensationOutcome.RetainedForRecovery;
+            }
+        }
+        else if (remoteMayHaveAccepted)
+        {
+            return DownloadCompensationOutcome.RetainedForRecovery;
+        }
+
+        try
+        {
+            var restored = await fileMappingRepository.TryFinalizeDownloadCancellationAsync(
+                info.Id,
+                downloadAttemptId,
+                cancellationAttemptId,
+                SubscriptionAutomationDisposition.AutoDownloadFailed,
+                cleanup.Token);
+            if (restored)
+                return DownloadCompensationOutcome.LocalStateRestored;
+
+            var current = await animationInfoRepository.FindByIdAsync(info.Id, cleanup.Token);
+            return current is null || !current.IsDownloadTracked
+                ? DownloadCompensationOutcome.LocalStateRestored
+                : DownloadCompensationOutcome.RetainedForRecovery;
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(
+                exception,
+                "Could not restore local download state for release upgrade {AnimationInfoId}",
+                info.Id);
+            return DownloadCompensationOutcome.RetainedForRecovery;
+        }
+    }
+
+    private static async Task QueryDownloadProgressSafelyAsync(
+        IFileDownloadClient downloadClient,
+        AnimationInfo info,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await downloadClient.SubmitQueryDownloadProgressAsync(
+                info.Id,
+                info.DownloadUrl,
+                info.CachedDownloadData,
+                info.AdditionalDownloadInfo,
+                cancellationToken);
+        }
+        catch
+        {
+            // Startup recovery can rediscover the persisted attempt.
+        }
+    }
+
     private static string UpgradeSource(Guid operationId) => $"release-upgrade:{operationId:N}";
+
+    private enum DownloadCompensationOutcome
+    {
+        LocalStateRestored,
+        RetainedForRecovery
+    }
 
     private static ReleaseUpgradeExecutionResult Result(
         bool success,

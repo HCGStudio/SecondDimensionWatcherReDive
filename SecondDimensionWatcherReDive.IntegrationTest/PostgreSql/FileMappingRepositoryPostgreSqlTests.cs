@@ -165,10 +165,34 @@ public sealed class FileMappingRepositoryPostgreSqlTests
             "IX_Animations_OriginalName_Trgm",
             "IX_AnimationGroups_Name_Trgm",
             "IX_FileMappings_VirtualPath_Trgm",
-            "IX_AnimationInfo_ReleaseLanguages_Gin"
+            "IX_AnimationInfo_ReleaseLanguages_Gin",
+            "IX_AnimationInfo_AnimationId",
+            "UX_AnimationInfo_ActiveEpisodeRelease"
         };
         Assert.IsTrue(expected.All(indexes.Contains),
             $"Missing indexes: {string.Join(", ", expected.Except(indexes))}");
+    }
+
+    [TestMethod]
+    public async Task Migration_DeduplicatesActiveReleasesBeforeCreatingUniqueIndex()
+    {
+        await using var migrationDatabase = new PostgreSqlBuilder("postgres:17-alpine")
+            .WithDatabase("sdw_migration_tests")
+            .WithUsername("postgres")
+            .WithPassword("postgres")
+            .Build();
+        await migrationDatabase.StartAsync();
+        var fixture = new FileMappingRepositoryPostgreSqlTestFixture(
+            migrationDatabase.GetConnectionString());
+
+        var result = await fixture.MigrateDuplicateActiveReleasesAsync(CancellationToken.None);
+        var indexes = await fixture.GetLibraryIndexNamesAsync(CancellationToken.None);
+
+        Assert.HasCount(1, result.ActiveIds);
+        Assert.AreEqual(result.ExpectedActiveId, result.ActiveIds[0]);
+        Assert.AreEqual(1, result.DowngradedCandidateOperationCount);
+        CollectionAssert.Contains(indexes.ToArray(), "IX_AnimationInfo_AnimationId");
+        CollectionAssert.Contains(indexes.ToArray(), "UX_AnimationInfo_ActiveEpisodeRelease");
     }
 
     [TestMethod]
@@ -184,8 +208,13 @@ public sealed class FileMappingRepositoryPostgreSqlTests
 
         var beforeCurrent = await Fixture.GetMappingsAsync(
             scenario.Candidate.CurrentReleaseId, CancellationToken.None);
-        Assert.HasCount(1, beforeCurrent);
-        Assert.AreEqual(scenario.CanonicalPath, beforeCurrent[0].VirtualPath);
+        Assert.HasCount(2, beforeCurrent);
+        CollectionAssert.Contains(
+            beforeCurrent.Select(mapping => mapping.VirtualPath).ToArray(),
+            scenario.CanonicalPath);
+        CollectionAssert.Contains(
+            beforeCurrent.Select(mapping => mapping.VirtualPath).ToArray(),
+            scenario.CanonicalSubtitlePath);
 
         var applied = await Fixture.ActivateUpgradeAsync(operation.Id, CancellationToken.None);
         Assert.IsTrue(applied.IsSuccess);
@@ -194,18 +223,341 @@ public sealed class FileMappingRepositoryPostgreSqlTests
             scenario.Candidate.CurrentReleaseId, CancellationToken.None));
         var activeCandidate = await Fixture.GetMappingsAsync(
             scenario.Candidate.CandidateReleaseId, CancellationToken.None);
-        Assert.HasCount(1, activeCandidate);
-        Assert.AreEqual(scenario.CanonicalPath, activeCandidate[0].VirtualPath);
+        Assert.HasCount(2, activeCandidate);
+        var activeVideo = activeCandidate.Single(mapping => mapping.VirtualPath == scenario.CanonicalPath);
+        var activeSubtitle = activeCandidate.Single(mapping =>
+            mapping.VirtualPath == scenario.CanonicalSubtitlePath);
+        Assert.AreEqual("/store/new.mkv", activeVideo.PhysicalPath);
+        Assert.AreEqual("/store/new.en.srt", activeSubtitle.PhysicalPath);
+        var activeProgress = await Fixture.GetPlaybackProgressesAsync(
+            scenario.UserId,
+            CancellationToken.None);
+        Assert.HasCount(1, activeProgress);
+        Assert.AreEqual(scenario.Candidate.CandidateReleaseId, activeProgress[0].AnimationInfoId);
+        Assert.AreEqual(scenario.CanonicalPath, activeProgress[0].VirtualPath);
+        Assert.AreEqual(321d, activeProgress[0].PositionSeconds);
+        var lateFailure = await Fixture.MarkUpgradeFailedAsync(operation.Id, CancellationToken.None);
+        Assert.IsFalse(lateFailure.IsSuccess);
+        Assert.AreEqual("invalid_state", lateFailure.Outcome);
+        Assert.AreEqual(ReleaseUpgradeStatus.Applied, lateFailure.Operation!.Status);
 
         var rolledBack = await Fixture.RollbackUpgradeAsync(operation.Id, CancellationToken.None);
         Assert.IsTrue(rolledBack.IsSuccess);
         Assert.AreEqual(ReleaseUpgradeStatus.RolledBack, rolledBack.Operation!.Status);
         var restored = await Fixture.GetMappingsAsync(
             scenario.Candidate.CurrentReleaseId, CancellationToken.None);
-        Assert.HasCount(1, restored);
-        Assert.AreEqual(scenario.CanonicalPath, restored[0].VirtualPath);
+        Assert.HasCount(2, restored);
+        CollectionAssert.Contains(
+            restored.Select(mapping => mapping.VirtualPath).ToArray(),
+            scenario.CanonicalPath);
+        CollectionAssert.Contains(
+            restored.Select(mapping => mapping.VirtualPath).ToArray(),
+            scenario.CanonicalSubtitlePath);
         Assert.IsEmpty(await Fixture.GetMappingsAsync(
             scenario.Candidate.CandidateReleaseId, CancellationToken.None));
+        var restoredProgress = await Fixture.GetPlaybackProgressesAsync(
+            scenario.UserId,
+            CancellationToken.None);
+        Assert.HasCount(1, restoredProgress);
+        Assert.AreEqual(scenario.Candidate.CurrentReleaseId, restoredProgress[0].AnimationInfoId);
+        Assert.AreEqual(scenario.CanonicalPath, restoredProgress[0].VirtualPath);
+        Assert.AreEqual(321d, restoredProgress[0].PositionSeconds);
+    }
+
+    [TestMethod]
+    public async Task IdentifiedAlternatives_KeepExactlyOneActiveRelease()
+    {
+        var activities = await Fixture.IdentifyCompetingReleasesAsync(CancellationToken.None);
+
+        Assert.IsTrue(activities.FirstActive);
+        Assert.IsFalse(activities.SecondActive);
+    }
+
+    [TestMethod]
+    public async Task MovingActiveRelease_PromotesPreviousEpisodeSuccessor()
+    {
+        var activities = await Fixture.IdentifyCompetingReleasesAsync(
+            CancellationToken.None,
+            moveFirst: true);
+
+        Assert.IsTrue(activities.FirstActive);
+        Assert.AreEqual(2, activities.FirstEpisode);
+        Assert.IsTrue(activities.SecondActive);
+    }
+
+    [TestMethod]
+    public async Task DeidentifyingActiveRelease_PromotesPreviousEpisodeSuccessor()
+    {
+        var activities = await Fixture.IdentifyCompetingReleasesAsync(
+            CancellationToken.None,
+            deidentifyFirst: true);
+
+        Assert.IsFalse(activities.FirstActive);
+        Assert.IsTrue(activities.SecondActive);
+    }
+
+    [TestMethod]
+    public async Task ConcurrentIdentification_ActivatesExactlyOneRelease()
+    {
+        var activities = await Fixture.IdentifyCompetingReleasesAsync(
+            CancellationToken.None,
+            concurrent: true);
+
+        Assert.AreEqual(1, new[] { activities.FirstActive, activities.SecondActive }.Count(active => active));
+    }
+
+    [TestMethod]
+    public async Task ReleaseUpgrade_RejectsMetadataDriftAfterOperationBegins()
+    {
+        var scenario = await Fixture.SeedUpgradeScenarioAsync(CancellationToken.None);
+        var operation = await Fixture.BeginUpgradeAsync(scenario.Candidate, CancellationToken.None);
+        Assert.IsNotNull(operation);
+        await Fixture.ChangeReleaseEpisodeAsync(
+            scenario.Candidate.CandidateReleaseId,
+            2,
+            CancellationToken.None);
+
+        var applied = await Fixture.ActivateUpgradeAsync(operation.Id, CancellationToken.None);
+
+        Assert.IsFalse(applied.IsSuccess);
+        Assert.AreEqual("release_changed", applied.Outcome);
+        Assert.HasCount(2, await Fixture.GetMappingsAsync(
+            scenario.Candidate.CurrentReleaseId, CancellationToken.None));
+        Assert.HasCount(2, await Fixture.GetMappingsAsync(
+            scenario.Candidate.CandidateReleaseId, CancellationToken.None));
+    }
+
+    [TestMethod]
+    public async Task ReleaseUpgrade_RollbackRejectsInterveningMappingDrift()
+    {
+        var scenario = await Fixture.SeedUpgradeScenarioAsync(CancellationToken.None);
+        var operation = await Fixture.BeginUpgradeAsync(scenario.Candidate, CancellationToken.None);
+        Assert.IsNotNull(operation);
+        var applied = await Fixture.ActivateUpgradeAsync(operation.Id, CancellationToken.None);
+        Assert.IsTrue(applied.IsSuccess);
+        var remappedPath = "/Upgrade Show/Reviewed/Upgrade Show S01E01.MKV";
+        await Fixture.RemapCandidatePlaybackAsync(
+            scenario.Candidate.CandidateReleaseId,
+            scenario.UserId,
+            scenario.CanonicalPath,
+            remappedPath,
+            CancellationToken.None);
+
+        var rolledBack = await Fixture.RollbackUpgradeAsync(operation.Id, CancellationToken.None);
+
+        Assert.IsFalse(rolledBack.IsSuccess);
+        Assert.AreEqual("mapping_changed", rolledBack.Outcome);
+        var candidateMappings = await Fixture.GetMappingsAsync(
+            scenario.Candidate.CandidateReleaseId, CancellationToken.None);
+        CollectionAssert.Contains(
+            candidateMappings.Select(mapping => mapping.VirtualPath).ToArray(),
+            remappedPath);
+        var progress = await Fixture.GetPlaybackProgressesAsync(
+            scenario.UserId,
+            CancellationToken.None);
+        Assert.HasCount(1, progress);
+        Assert.AreEqual(scenario.Candidate.CandidateReleaseId, progress[0].AnimationInfoId);
+        Assert.AreEqual(remappedPath, progress[0].VirtualPath);
+    }
+
+    [TestMethod]
+    public async Task ReleaseUpgrade_RejectsMappingsChangedAfterFileValidation()
+    {
+        var scenario = await Fixture.SeedUpgradeScenarioAsync(CancellationToken.None);
+        var operation = await Fixture.BeginUpgradeAsync(scenario.Candidate, CancellationToken.None);
+        Assert.IsNotNull(operation);
+        var expected = await Fixture.GetUpgradeActivationAsync(
+            scenario.Candidate.CandidateReleaseId,
+            CancellationToken.None);
+        Assert.IsNotNull(expected);
+        var candidateVideo = expected.CandidateMappings.Single(mapping =>
+            mapping.PhysicalPath == "/store/new.mkv");
+        await Fixture.ChangeMappingPhysicalPathAsync(
+            scenario.Candidate.CandidateReleaseId,
+            candidateVideo.VirtualPath,
+            "/store/unvalidated.mkv",
+            CancellationToken.None);
+
+        var applied = await Fixture.ActivateUpgradeAsync(
+            operation.Id,
+            expected,
+            CancellationToken.None);
+
+        Assert.IsFalse(applied.IsSuccess);
+        Assert.AreEqual("mapping_changed", applied.Outcome);
+        Assert.HasCount(2, await Fixture.GetMappingsAsync(
+            scenario.Candidate.CurrentReleaseId, CancellationToken.None));
+        var candidateMappings = await Fixture.GetMappingsAsync(
+            scenario.Candidate.CandidateReleaseId, CancellationToken.None);
+        CollectionAssert.Contains(
+            candidateMappings.Select(mapping => mapping.PhysicalPath).ToArray(),
+            "/store/unvalidated.mkv");
+    }
+
+    [TestMethod]
+    public async Task ReleaseUpgrade_DuplicateFileRolesRollbackDeterministically()
+    {
+        var scenario = await Fixture.SeedUpgradeScenarioAsync(
+            CancellationToken.None,
+            includeDuplicateVideoRole: true);
+        var operation = await Fixture.BeginUpgradeAsync(scenario.Candidate, CancellationToken.None);
+        Assert.IsNotNull(operation);
+
+        var applied = await Fixture.ActivateUpgradeAsync(operation.Id, CancellationToken.None);
+        Assert.IsTrue(applied.IsSuccess);
+        var activeMappings = await Fixture.GetMappingsAsync(
+            scenario.Candidate.CandidateReleaseId,
+            CancellationToken.None);
+        Assert.AreEqual(
+            "/store/new.mkv",
+            activeMappings.Single(mapping => mapping.VirtualPath == scenario.CanonicalPath).PhysicalPath);
+
+        var rolledBack = await Fixture.RollbackUpgradeAsync(operation.Id, CancellationToken.None);
+        Assert.IsTrue(rolledBack.IsSuccess);
+        Assert.HasCount(2, await Fixture.GetMappingsAsync(
+            scenario.Candidate.CurrentReleaseId,
+            CancellationToken.None));
+        Assert.IsEmpty(await Fixture.GetMappingsAsync(
+            scenario.Candidate.CandidateReleaseId,
+            CancellationToken.None));
+    }
+
+    [TestMethod]
+    public async Task FailedReleaseUpgrade_CanBeClaimedAgain()
+    {
+        var scenario = await Fixture.SeedUpgradeScenarioAsync(CancellationToken.None);
+        var first = await Fixture.BeginUpgradeAsync(scenario.Candidate, CancellationToken.None);
+        Assert.IsNotNull(first);
+        var failed = await Fixture.MarkUpgradeFailedAsync(first.Id, CancellationToken.None);
+        Assert.IsTrue(failed.IsSuccess);
+
+        var retry = await Fixture.BeginUpgradeAsync(scenario.Candidate, CancellationToken.None);
+
+        Assert.IsNotNull(retry);
+        Assert.AreNotEqual(first.Id, retry.Id);
+    }
+
+    [TestMethod]
+    public async Task CancellingTrackedUpgrade_TerminatesOperationAndAllowsRetry()
+    {
+        var scenario = await Fixture.SeedUpgradeScenarioAsync(CancellationToken.None);
+        var downloadAttemptId = await Fixture.SetCandidateDownloadInProgressAsync(
+            scenario.Candidate.CandidateReleaseId,
+            CancellationToken.None);
+        var first = await Fixture.BeginUpgradeAsync(scenario.Candidate, CancellationToken.None);
+        Assert.IsNotNull(first);
+        Assert.AreEqual(ReleaseUpgradeStatus.Downloading, first.Status);
+
+        var cancelled = await Fixture.CancelUpgradeCandidateAsync(
+            scenario.Candidate.CandidateReleaseId,
+            downloadAttemptId,
+            CancellationToken.None);
+        Assert.IsNotNull(cancelled);
+        Assert.IsFalse(cancelled.IsDownloadTracked);
+        var retry = await Fixture.BeginUpgradeAsync(scenario.Candidate, CancellationToken.None);
+
+        Assert.IsNotNull(retry);
+        Assert.AreNotEqual(first.Id, retry.Id);
+    }
+
+    [TestMethod]
+    public async Task UpgradeCancellationIntent_PreventsActivationBeforeRemoteFinalize()
+    {
+        var scenario = await Fixture.SeedUpgradeScenarioAsync(CancellationToken.None);
+        var operation = await Fixture.BeginUpgradeAsync(scenario.Candidate, CancellationToken.None);
+        Assert.IsNotNull(operation);
+        Assert.AreEqual(ReleaseUpgradeStatus.Verifying, operation.Status);
+        var expected = await Fixture.GetUpgradeActivationAsync(
+            scenario.Candidate.CandidateReleaseId,
+            CancellationToken.None);
+        Assert.IsNotNull(expected);
+        var cancellationAttemptId = Guid.NewGuid();
+
+        var beganCancellation = await Fixture.BeginUpgradeCandidateCancellationAsync(
+            scenario.Candidate.CandidateReleaseId,
+            downloadAttemptId: null,
+            cancellationAttemptId,
+            CancellationToken.None);
+        var applied = await Fixture.ActivateUpgradeAsync(
+            operation.Id,
+            expected,
+            CancellationToken.None);
+        var finalized = await Fixture.FinalizeUpgradeCandidateCancellationAsync(
+            scenario.Candidate.CandidateReleaseId,
+            downloadAttemptId: null,
+            cancellationAttemptId,
+            CancellationToken.None);
+        var persisted = await Fixture.GetUpgradeOperationAsync(
+            operation.Id,
+            CancellationToken.None);
+
+        Assert.IsTrue(beganCancellation);
+        Assert.IsFalse(applied.IsSuccess);
+        Assert.AreEqual("invalid_state", applied.Outcome);
+        Assert.IsTrue(finalized);
+        Assert.AreEqual(ReleaseUpgradeStatus.Failed, persisted.Status);
+        Assert.IsEmpty(await Fixture.GetMappingsAsync(
+            scenario.Candidate.CandidateReleaseId,
+            CancellationToken.None));
+        Assert.HasCount(2, await Fixture.GetMappingsAsync(
+            scenario.Candidate.CurrentReleaseId,
+            CancellationToken.None));
+    }
+
+    [TestMethod]
+    public async Task AppliedUpgrade_RejectsStaleCancellationBeforeRemoteDeletion()
+    {
+        var scenario = await Fixture.SeedUpgradeScenarioAsync(CancellationToken.None);
+        var operation = await Fixture.BeginUpgradeAsync(scenario.Candidate, CancellationToken.None);
+        Assert.IsNotNull(operation);
+        var applied = await Fixture.ActivateUpgradeAsync(operation.Id, CancellationToken.None);
+        Assert.IsTrue(applied.IsSuccess);
+
+        var beganCancellation = await Fixture.BeginUpgradeCandidateCancellationAsync(
+            scenario.Candidate.CandidateReleaseId,
+            downloadAttemptId: null,
+            cancellationAttemptId: Guid.NewGuid(),
+            CancellationToken.None);
+
+        Assert.IsFalse(beganCancellation);
+        Assert.HasCount(2, await Fixture.GetMappingsAsync(
+            scenario.Candidate.CandidateReleaseId,
+            CancellationToken.None));
+        Assert.IsEmpty(await Fixture.GetMappingsAsync(
+            scenario.Candidate.CurrentReleaseId,
+            CancellationToken.None));
+    }
+
+    [TestMethod]
+    public async Task ReleaseUpgrade_MergesNewestPlaybackStateAcrossActivationAndRollback()
+    {
+        var scenario = await Fixture.SeedUpgradeScenarioAsync(
+            CancellationToken.None,
+            includeCandidateProgress: true);
+        var operation = await Fixture.BeginUpgradeAsync(scenario.Candidate, CancellationToken.None);
+        Assert.IsNotNull(operation);
+
+        var applied = await Fixture.ActivateUpgradeAsync(operation.Id, CancellationToken.None);
+        Assert.IsTrue(applied.IsSuccess);
+        var activeProgress = await Fixture.GetPlaybackProgressesAsync(
+            scenario.UserId,
+            CancellationToken.None);
+        Assert.HasCount(1, activeProgress);
+        Assert.AreEqual(scenario.Candidate.CandidateReleaseId, activeProgress[0].AnimationInfoId);
+        Assert.IsTrue(activeProgress[0].IsWatched);
+        Assert.IsNotNull(activeProgress[0].WatchedAt);
+        Assert.AreEqual(1200d, activeProgress[0].PositionSeconds);
+
+        var rolledBack = await Fixture.RollbackUpgradeAsync(operation.Id, CancellationToken.None);
+        Assert.IsTrue(rolledBack.IsSuccess);
+        var restoredProgress = await Fixture.GetPlaybackProgressesAsync(
+            scenario.UserId,
+            CancellationToken.None);
+        Assert.HasCount(1, restoredProgress);
+        Assert.AreEqual(scenario.Candidate.CurrentReleaseId, restoredProgress[0].AnimationInfoId);
+        Assert.IsTrue(restoredProgress[0].IsWatched);
+        Assert.IsNotNull(restoredProgress[0].WatchedAt);
+        Assert.AreEqual(1200d, restoredProgress[0].PositionSeconds);
     }
 
     private static FileMapping Mapping(Guid animationInfoId, string virtualPath) =>

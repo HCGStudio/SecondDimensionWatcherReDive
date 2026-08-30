@@ -241,12 +241,21 @@ public class AnimationInfoRepository(
                 || entity.MediaLibrarySourceId != expectedSourceId
                 || entity.DownloadType != FileDownloadTypes.MediaLibraryImport)
                 return false;
+            var previousEpisodeIdentity = GetEpisodeIdentity(writeContext, entity);
+            var wasActiveRelease = entity.IsActiveRelease;
 
             await writeContext.FileMappings
                 .Where(mapping => mapping.AnimationInfoId == id)
                 .ExecuteDeleteAsync(cancellationToken);
             writeContext.AnimationInfo.Remove(entity);
             await writeContext.SaveChangesAsync(cancellationToken);
+            await PromotePreviousEpisodeSuccessorAsync(
+                writeContext,
+                entity.Id,
+                wasActiveRelease,
+                previousEpisodeIdentity,
+                currentIdentity: null,
+                cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             return true;
         });
@@ -338,10 +347,10 @@ public class AnimationInfoRepository(
             return true;
         }
         catch (DbUpdateException exception) when (exception.InnerException is PostgresException
-                                                  {
-                                                      SqlState: PostgresErrorCodes.UniqueViolation,
-                                                      ConstraintName: "UX_AnimationInfo_ReleaseIdentity"
-                                                  })
+        {
+            SqlState: PostgresErrorCodes.UniqueViolation,
+            ConstraintName: "UX_AnimationInfo_ReleaseIdentity"
+        })
         {
             context.Entry(entity).State = EntityState.Detached;
             return false;
@@ -350,24 +359,48 @@ public class AnimationInfoRepository(
 
     public async Task UpdateAsync(AnimationInfo info, CancellationToken cancellationToken)
     {
-        var entity = await context.AnimationInfo.FindAsync([info.Id], cancellationToken)
-                     ?? throw new InvalidOperationException($"AnimationInfo {info.Id} not found");
-        var currentStateVersion = entity.StateVersion;
-        if (currentStateVersion != info.StateVersion)
-            throw new DbUpdateConcurrencyException(
-                $"AnimationInfo {info.Id} changed from revision {info.StateVersion} to {currentStateVersion}.");
+        var strategy = context.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async () =>
+        {
+            await using var writeContext = new Models.ApplicationContext(contextOptions);
+            await using var transaction = await writeContext.Database
+                .BeginTransactionAsync(cancellationToken);
+            await MappingTransactionLock.AcquireAsync(writeContext, cancellationToken);
+            var entity = await MappingTransactionLock.LockAnimationInfoAsync(
+                             writeContext,
+                             info.Id,
+                             cancellationToken)
+                         ?? throw new InvalidOperationException($"AnimationInfo {info.Id} not found");
+            var currentStateVersion = entity.StateVersion;
+            if (currentStateVersion != info.StateVersion)
+                throw new DbUpdateConcurrencyException(
+                    $"AnimationInfo {info.Id} changed from revision {info.StateVersion} to {currentStateVersion}.");
+            var previousEpisodeIdentity = GetEpisodeIdentity(writeContext, entity);
+            var wasActiveRelease = entity.IsActiveRelease;
 
-        info.ApplyTo(entity);
+            info.ApplyTo(entity);
+            entity.Animation = info.Animation is null
+                ? null
+                : await writeContext.Animations.FindAsync([info.Animation.Id], cancellationToken);
+            entity.Group = info.Group is null
+                ? null
+                : await writeContext.AnimationGroups.FindAsync([info.Group.Id], cancellationToken);
+            writeContext.Entry(entity).Property<Guid?>("AnimationId").CurrentValue = info.Animation?.Id;
+            writeContext.Entry(entity).Property<Guid?>("GroupId").CurrentValue = info.Group?.Id;
+            await SetEpisodeReleaseActivityAsync(writeContext, entity, cancellationToken);
+            var currentEpisodeIdentity = GetEpisodeIdentity(writeContext, entity);
+            entity.StateVersion = checked(currentStateVersion + 1);
 
-        entity.Animation = info.Animation is null
-            ? null
-            : await context.Animations.FindAsync([info.Animation.Id], cancellationToken);
-        entity.Group = info.Group is null
-            ? null
-            : await context.AnimationGroups.FindAsync([info.Group.Id], cancellationToken);
-        entity.StateVersion = checked(currentStateVersion + 1);
-
-        await context.SaveChangesAsync(cancellationToken);
+            await writeContext.SaveChangesAsync(cancellationToken);
+            await PromotePreviousEpisodeSuccessorAsync(
+                writeContext,
+                entity.Id,
+                wasActiveRelease,
+                previousEpisodeIdentity,
+                currentEpisodeIdentity,
+                cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        });
     }
 
     public async Task<bool> TryStartDownloadAsync(
@@ -383,6 +416,7 @@ public class AnimationInfoRepository(
             await using var writeContext = new Models.ApplicationContext(contextOptions);
             await using var transaction = await writeContext.Database
                 .BeginTransactionAsync(cancellationToken);
+            await MappingTransactionLock.AcquireAsync(writeContext, cancellationToken);
             var entity = await MappingTransactionLock.LockAnimationInfoAsync(
                 writeContext,
                 id,
@@ -436,6 +470,7 @@ public class AnimationInfoRepository(
             await using var writeContext = new Models.ApplicationContext(contextOptions);
             await using var transaction = await writeContext.Database
                 .BeginTransactionAsync(cancellationToken);
+            await MappingTransactionLock.AcquireAsync(writeContext, cancellationToken);
             var entity = await MappingTransactionLock.LockAnimationInfoAsync(
                 writeContext,
                 id,
@@ -445,16 +480,41 @@ public class AnimationInfoRepository(
                 || entity.DownloadAttemptId != downloadAttemptId)
                 return false;
 
-            if (entity.DownloadCancellationId == cancellationAttemptId)
-            {
-                await transaction.CommitAsync(cancellationToken);
-                return true;
-            }
-            if (entity.DownloadCancellationId is not null)
+            if (entity.DownloadCancellationId is not null &&
+                entity.DownloadCancellationId != cancellationAttemptId)
                 return false;
 
-            entity.DownloadCancellationId = cancellationAttemptId;
-            entity.StateVersion = checked(entity.StateVersion + 1);
+            // If activation acquired the shared mapping lock first, this is a
+            // stale cancellation request for a release that is now live. Do
+            // not let the caller delete its remote files after activation.
+            if (await writeContext.ReleaseUpgradeOperations.AnyAsync(
+                    operation => operation.CandidateReleaseId == entity.Id &&
+                                 operation.Status == ReleaseUpgradeStatus.Applied,
+                    cancellationToken))
+                return false;
+
+            if (entity.DownloadCancellationId is null)
+            {
+                entity.DownloadCancellationId = cancellationAttemptId;
+                entity.StateVersion = checked(entity.StateVersion + 1);
+            }
+
+            // Persist the cancellation intent and terminate the pending
+            // upgrade atomically. Activation uses the same global lock, so it
+            // can no longer commit between remote deletion and local finalize.
+            var cancelledAt = DateTimeOffset.UtcNow;
+            await writeContext.ReleaseUpgradeOperations
+                .Where(operation => operation.CandidateReleaseId == entity.Id &&
+                                    (operation.Status == ReleaseUpgradeStatus.Downloading ||
+                                     operation.Status == ReleaseUpgradeStatus.Verifying))
+                .ExecuteUpdateAsync(
+                    setters => setters
+                        .SetProperty(operation => operation.Status, ReleaseUpgradeStatus.Failed)
+                        .SetProperty(
+                            operation => operation.FailureSummary,
+                            "Candidate download cancellation was requested before upgrade activation.")
+                        .SetProperty(operation => operation.CompletedAt, cancelledAt),
+                    cancellationToken);
             await writeContext.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             return true;
@@ -542,6 +602,7 @@ public class AnimationInfoRepository(
             await using var writeContext = new Models.ApplicationContext(contextOptions);
             await using var transaction = await writeContext.Database
                 .BeginTransactionAsync(cancellationToken);
+            await MappingTransactionLock.AcquireAsync(writeContext, cancellationToken);
             var entity = await MappingTransactionLock.LockAnimationInfoAsync(
                 writeContext,
                 id,
@@ -567,6 +628,19 @@ public class AnimationInfoRepository(
                             ? SubscriptionAutomationDisposition.DownloadCancelled
                             : entity.AutomationDisposition);
                 entity.StateVersion = checked(entity.StateVersion + 1);
+                var cancelledAt = DateTimeOffset.UtcNow;
+                await writeContext.ReleaseUpgradeOperations
+                    .Where(operation => operation.CandidateReleaseId == entity.Id &&
+                                        (operation.Status == ReleaseUpgradeStatus.Downloading ||
+                                         operation.Status == ReleaseUpgradeStatus.Verifying))
+                    .ExecuteUpdateAsync(
+                        setters => setters
+                            .SetProperty(operation => operation.Status, ReleaseUpgradeStatus.Failed)
+                            .SetProperty(
+                                operation => operation.FailureSummary,
+                                "Candidate download was cancelled before upgrade activation.")
+                            .SetProperty(operation => operation.CompletedAt, cancelledAt),
+                        cancellationToken);
                 await writeContext.SaveChangesAsync(cancellationToken);
             }
             else if (entity.DownloadAttemptId is not null
@@ -591,30 +665,130 @@ public class AnimationInfoRepository(
         long expectedStateVersion,
         CancellationToken cancellationToken)
     {
-        var entity = await context.AnimationInfo
-            .FirstOrDefaultAsync(candidate => candidate.Id == info.Id, cancellationToken);
-        if (entity is null || entity.StateVersion != expectedStateVersion)
-            return false;
-
-        info.ApplyTo(entity);
-        entity.Animation = info.Animation is null
-            ? null
-            : await context.Animations.FindAsync([info.Animation.Id], cancellationToken);
-        entity.Group = info.Group is null
-            ? null
-            : await context.AnimationGroups.FindAsync([info.Group.Id], cancellationToken);
-        entity.StateVersion = checked(expectedStateVersion + 1);
-        context.Entry(entity).Property(candidate => candidate.StateVersion).OriginalValue = expectedStateVersion;
-
-        try
+        var strategy = context.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(async () =>
         {
-            await context.SaveChangesAsync(cancellationToken);
+            await using var writeContext = new Models.ApplicationContext(contextOptions);
+            await using var transaction = await writeContext.Database
+                .BeginTransactionAsync(cancellationToken);
+            await MappingTransactionLock.AcquireAsync(writeContext, cancellationToken);
+            var entity = await MappingTransactionLock.LockAnimationInfoAsync(
+                writeContext,
+                info.Id,
+                cancellationToken);
+            if (entity is null || entity.StateVersion != expectedStateVersion)
+                return false;
+            var previousEpisodeIdentity = GetEpisodeIdentity(writeContext, entity);
+            var wasActiveRelease = entity.IsActiveRelease;
+
+            info.ApplyTo(entity);
+            entity.Animation = info.Animation is null
+                ? null
+                : await writeContext.Animations.FindAsync([info.Animation.Id], cancellationToken);
+            entity.Group = info.Group is null
+                ? null
+                : await writeContext.AnimationGroups.FindAsync([info.Group.Id], cancellationToken);
+            writeContext.Entry(entity).Property<Guid?>("AnimationId").CurrentValue = info.Animation?.Id;
+            writeContext.Entry(entity).Property<Guid?>("GroupId").CurrentValue = info.Group?.Id;
+            await SetEpisodeReleaseActivityAsync(writeContext, entity, cancellationToken);
+            var currentEpisodeIdentity = GetEpisodeIdentity(writeContext, entity);
+            entity.StateVersion = checked(expectedStateVersion + 1);
+            writeContext.Entry(entity).Property(candidate => candidate.StateVersion).OriginalValue =
+                expectedStateVersion;
+
+            await writeContext.SaveChangesAsync(cancellationToken);
+            await PromotePreviousEpisodeSuccessorAsync(
+                writeContext,
+                entity.Id,
+                wasActiveRelease,
+                previousEpisodeIdentity,
+                currentEpisodeIdentity,
+                cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
             return true;
-        }
-        catch (DbUpdateConcurrencyException)
-        {
-            context.Entry(entity).State = EntityState.Detached;
-            return false;
-        }
+        });
     }
+
+    internal static async Task SetEpisodeReleaseActivityAsync(
+        Models.ApplicationContext writeContext,
+        Models.AnimationInfo entity,
+        CancellationToken cancellationToken)
+    {
+        var identity = GetEpisodeIdentity(writeContext, entity);
+        if (identity is null)
+        {
+            entity.IsActiveRelease = false;
+            return;
+        }
+
+        var value = identity.Value;
+        entity.IsActiveRelease = !await writeContext.AnimationInfo
+            .AsNoTracking()
+            .AnyAsync(other => other.Id != entity.Id &&
+                               other.IsActiveRelease &&
+                               EF.Property<Guid?>(other, "AnimationId") == value.AnimationId &&
+                               other.Season == value.Season &&
+                               other.Episode == value.Episode,
+                cancellationToken);
+    }
+
+    internal static EpisodeReleaseIdentity? GetEpisodeIdentity(
+        Models.ApplicationContext writeContext,
+        Models.AnimationInfo entity)
+    {
+        writeContext.ChangeTracker.DetectChanges();
+        var animationId = entity.Animation?.Id ?? writeContext.Entry(entity)
+            .Property<Guid?>("AnimationId")
+            .CurrentValue;
+        return animationId is { } id && entity.Season is { } season && entity.Episode is { } episode
+            ? new EpisodeReleaseIdentity(id, season, episode)
+            : null;
+    }
+
+    internal static async Task PromotePreviousEpisodeSuccessorAsync(
+        Models.ApplicationContext writeContext,
+        Guid changedReleaseId,
+        bool wasActiveRelease,
+        EpisodeReleaseIdentity? previousIdentity,
+        EpisodeReleaseIdentity? currentIdentity,
+        CancellationToken cancellationToken)
+    {
+        if (!wasActiveRelease || previousIdentity is not { } previous || previous == currentIdentity)
+            return;
+        if (await writeContext.AnimationInfo.AsNoTracking().AnyAsync(
+                info => info.Id != changedReleaseId &&
+                        info.IsActiveRelease &&
+                        EF.Property<Guid?>(info, "AnimationId") == previous.AnimationId &&
+                        info.Season == previous.Season &&
+                        info.Episode == previous.Episode,
+                cancellationToken))
+            return;
+
+        var successorId = await writeContext.AnimationInfo
+            .AsNoTracking()
+            .Where(info => info.Id != changedReleaseId &&
+                           info.MediaLibraryMissingSince == null &&
+                           EF.Property<Guid?>(info, "AnimationId") == previous.AnimationId &&
+                           info.Season == previous.Season &&
+                           info.Episode == previous.Episode)
+            .OrderByDescending(info => info.IsDownloadFinished &&
+                                       writeContext.FileMappings.Any(mapping =>
+                                           mapping.AnimationInfoId == info.Id))
+            .ThenByDescending(info => info.ReleaseScore)
+            .ThenByDescending(info => info.PublishTime)
+            .ThenBy(info => info.Id)
+            .Select(info => (Guid?)info.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (successorId is null) return;
+
+        await writeContext.AnimationInfo
+            .Where(info => info.Id == successorId.Value)
+            .ExecuteUpdateAsync(
+                setters => setters
+                    .SetProperty(info => info.IsActiveRelease, true)
+                    .SetProperty(info => info.StateVersion, info => info.StateVersion + 1),
+                cancellationToken);
+    }
+
+    internal readonly record struct EpisodeReleaseIdentity(Guid AnimationId, int Season, int Episode);
 }

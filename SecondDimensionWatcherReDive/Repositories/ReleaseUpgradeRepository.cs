@@ -1,10 +1,11 @@
+using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 
 namespace SecondDimensionWatcherReDive.Repositories;
 
-public sealed class ReleaseUpgradeRepository(
+public sealed partial class ReleaseUpgradeRepository(
     Models.ApplicationContext context,
     DbContextOptions<Models.ApplicationContext> contextOptions) : IReleaseUpgradeRepository
 {
@@ -30,16 +31,17 @@ public sealed class ReleaseUpgradeRepository(
         var policies = await context.SubscriptionAutomationPolicies.AsNoTracking()
             .ToDictionaryAsync(policy => policy.FeedId, cancellationToken);
         var attempted = await context.ReleaseUpgradeOperations.AsNoTracking()
+            .Where(operation => automaticOnly || operation.Status != ReleaseUpgradeStatus.Failed)
             .Select(operation => operation.CandidateReleaseId)
             .ToHashSetAsync(cancellationToken);
 
         var candidates = new List<ReleaseUpgradeCandidate>();
         foreach (var episode in releases.GroupBy(info => new
-                 {
-                     AnimationId = info.Animation!.Id,
-                     info.Season,
-                     info.Episode
-                 }))
+        {
+            AnimationId = info.Animation!.Id,
+            info.Season,
+            info.Episode
+        }))
         {
             var current = episode
                 .Where(info => info.IsActiveRelease && info.IsDownloadFinished && mapped.Contains(info.Id))
@@ -109,6 +111,9 @@ public sealed class ReleaseUpgradeRepository(
                 current.Season != next.Season ||
                 current.Episode != next.Episode ||
                 next.ReleaseScore <= current.ReleaseScore ||
+                !current.IsActiveRelease ||
+                next.IsActiveRelease ||
+                (next.IsDownloadTracked && next.DownloadCancellationId is not null) ||
                 !current.IsDownloadFinished ||
                 !await writeContext.FileMappings.AnyAsync(
                     mapping => mapping.AnimationInfoId == current.Id,
@@ -116,7 +121,8 @@ public sealed class ReleaseUpgradeRepository(
                 return null;
 
             if (await writeContext.ReleaseUpgradeOperations.AnyAsync(
-                    operation => operation.CandidateReleaseId == next.Id ||
+                    operation => (operation.CandidateReleaseId == next.Id &&
+                                  operation.Status != ReleaseUpgradeStatus.Failed) ||
                                  (operation.CurrentReleaseId == current.Id &&
                                   (operation.Status == ReleaseUpgradeStatus.Downloading ||
                                    operation.Status == ReleaseUpgradeStatus.Verifying ||
@@ -144,7 +150,7 @@ public sealed class ReleaseUpgradeRepository(
                 return entity.ToRecord();
             }
             catch (DbUpdateException exception) when (exception.InnerException is PostgresException
-                                                       { SqlState: PostgresErrorCodes.UniqueViolation })
+            { SqlState: PostgresErrorCodes.UniqueViolation })
             {
                 return null;
             }
@@ -207,6 +213,8 @@ public sealed class ReleaseUpgradeRepository(
 
     public async Task<ReleaseUpgradeMutationResult> ActivateAsync(
         Guid operationId,
+        IReadOnlyList<FileMapping> expectedPreviousMappings,
+        IReadOnlyList<FileMapping> expectedCandidateMappings,
         DateTimeOffset verifiedAt,
         DateTimeOffset rollbackUntil,
         CancellationToken cancellationToken)
@@ -235,6 +243,14 @@ public sealed class ReleaseUpgradeRepository(
                 !infos.TryGetValue(operation.CandidateReleaseId, out var candidate) ||
                 !candidate.IsDownloadFinished)
                 return new ReleaseUpgradeMutationResult(false, "candidate_not_ready", operation.ToRecord());
+            if (current.DownloadCancellationId is not null ||
+                candidate.DownloadCancellationId is not null)
+                return new ReleaseUpgradeMutationResult(false, "download_cancelling", operation.ToRecord());
+            if (!AreSameEpisode(writeContext, current, candidate) ||
+                !current.IsActiveRelease ||
+                candidate.IsActiveRelease ||
+                candidate.ReleaseScore <= current.ReleaseScore)
+                return new ReleaseUpgradeMutationResult(false, "release_changed", operation.ToRecord());
 
             var mappings = await writeContext.FileMappings
                 .Where(mapping => mapping.AnimationInfoId == current.Id ||
@@ -245,6 +261,9 @@ public sealed class ReleaseUpgradeRepository(
             var next = mappings.Where(mapping => mapping.AnimationInfoId == candidate.Id).ToList();
             if (previous.Count == 0 || next.Count == 0)
                 return new ReleaseUpgradeMutationResult(false, "mapping_missing", operation.ToRecord());
+            if (!MappingSetsMatch(previous, expectedPreviousMappings) ||
+                !MappingSetsMatch(next, expectedCandidateMappings))
+                return new ReleaseUpgradeMutationResult(false, "mapping_changed", operation.ToRecord());
 
             var snapshots = previous
                 .Select(mapping => ToSnapshot(
@@ -262,7 +281,11 @@ public sealed class ReleaseUpgradeRepository(
 
             writeContext.FileMappings.RemoveRange(mappings);
             var replacement = BuildCandidateReplacement(previous, next, candidate.Id);
-            await writeContext.FileMappings.AddRangeAsync(replacement, cancellationToken);
+            await writeContext.FileMappings.AddRangeAsync(replacement.Mappings, cancellationToken);
+            await TransferPlaybackProgressAsync(
+                writeContext,
+                BuildActivationPlaybackTransfers(current.Id, candidate.Id, replacement),
+                cancellationToken);
             await writeContext.AnimationInfo
                 .Where(info => info.Id == current.Id)
                 .ExecuteUpdateAsync(setters => setters
@@ -290,19 +313,33 @@ public sealed class ReleaseUpgradeRepository(
         string failureSummary,
         CancellationToken cancellationToken)
     {
-        var operation = await context.ReleaseUpgradeOperations
-            .SingleOrDefaultAsync(item => item.Id == operationId, cancellationToken);
-        if (operation is null)
-            return new ReleaseUpgradeMutationResult(false, "not_found", null);
-        if (operation.Status is ReleaseUpgradeStatus.Completed or ReleaseUpgradeStatus.RolledBack)
-            return new ReleaseUpgradeMutationResult(false, "invalid_state", operation.ToRecord());
-        operation.Status = ReleaseUpgradeStatus.Failed;
-        operation.FailureSummary = failureSummary.Length <= 2048
-            ? failureSummary
-            : failureSummary[..2048];
-        operation.CompletedAt = DateTimeOffset.UtcNow;
-        await context.SaveChangesAsync(cancellationToken);
-        return new ReleaseUpgradeMutationResult(true, "failed", operation.ToRecord());
+        var strategy = context.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(async () =>
+        {
+            await using var writeContext = new Models.ApplicationContext(contextOptions);
+            await using var transaction = await writeContext.Database.BeginTransactionAsync(cancellationToken);
+            await MappingTransactionLock.AcquireAsync(writeContext, cancellationToken);
+            await writeContext.Database.ExecuteSqlInterpolatedAsync(
+                $"SELECT 1 FROM \"ReleaseUpgradeOperations\" WHERE \"Id\" = {operationId} FOR UPDATE",
+                cancellationToken);
+            var operation = await writeContext.ReleaseUpgradeOperations
+                .SingleOrDefaultAsync(item => item.Id == operationId, cancellationToken);
+            if (operation is null)
+                return new ReleaseUpgradeMutationResult(false, "not_found", null);
+            if (operation.Status == ReleaseUpgradeStatus.Failed)
+                return new ReleaseUpgradeMutationResult(true, "already_failed", operation.ToRecord());
+            if (operation.Status is not (ReleaseUpgradeStatus.Downloading or ReleaseUpgradeStatus.Verifying))
+                return new ReleaseUpgradeMutationResult(false, "invalid_state", operation.ToRecord());
+
+            operation.Status = ReleaseUpgradeStatus.Failed;
+            operation.FailureSummary = failureSummary.Length <= 2048
+                ? failureSummary
+                : failureSummary[..2048];
+            operation.CompletedAt = DateTimeOffset.UtcNow;
+            await writeContext.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return new ReleaseUpgradeMutationResult(true, "failed", operation.ToRecord());
+        });
     }
 
     public async Task<ReleaseUpgradeMutationResult> RollbackAsync(
@@ -330,11 +367,38 @@ public sealed class ReleaseUpgradeRepository(
                 writeContext,
                 [operation.CurrentReleaseId, operation.CandidateReleaseId],
                 cancellationToken);
+            if (!infos.TryGetValue(operation.CurrentReleaseId, out var current) ||
+                !infos.TryGetValue(operation.CandidateReleaseId, out var activeCandidate) ||
+                !AreSameEpisode(writeContext, current, activeCandidate) ||
+                current.IsActiveRelease ||
+                !activeCandidate.IsActiveRelease)
+                return new ReleaseUpgradeMutationResult(false, "release_changed", operation.ToRecord());
             var previous = operation.MappingSnapshots
                 .Where(snapshot => snapshot.Kind == ReleaseUpgradeMappingKind.Previous)
                 .ToList();
-            if (previous.Count == 0)
+            var candidate = operation.MappingSnapshots
+                .Where(snapshot => snapshot.Kind == ReleaseUpgradeMappingKind.Candidate)
+                .ToList();
+            if (previous.Count == 0 || candidate.Count == 0)
                 return new ReleaseUpgradeMutationResult(false, "snapshot_missing", operation.ToRecord());
+
+            var replacement = BuildCandidateReplacement(
+                previous.Select(FromSnapshot).ToList(),
+                candidate.Select(FromSnapshot).ToList(),
+                operation.CandidateReleaseId);
+            var currentCandidateMappings = await writeContext.FileMappings
+                .AsNoTracking()
+                .Where(mapping => mapping.AnimationInfoId == operation.CandidateReleaseId)
+                .ToListAsync(cancellationToken);
+            if (!MappingSetsMatch(currentCandidateMappings, replacement.Mappings))
+                return new ReleaseUpgradeMutationResult(false, "mapping_changed", operation.ToRecord());
+            await TransferPlaybackProgressAsync(
+                writeContext,
+                BuildRollbackPlaybackTransfers(
+                    operation.CurrentReleaseId,
+                    operation.CandidateReleaseId,
+                    replacement),
+                cancellationToken);
 
             await writeContext.FileMappings
                 .Where(mapping => mapping.AnimationInfoId == operation.CandidateReleaseId)
@@ -348,16 +412,16 @@ public sealed class ReleaseUpgradeRepository(
                 FileStore = snapshot.FileStore
             }), cancellationToken);
             await writeContext.AnimationInfo
-                .Where(info => info.Id == operation.CurrentReleaseId)
-                .ExecuteUpdateAsync(setters => setters
-                        .SetProperty(info => info.StateVersion, info => info.StateVersion + 1)
-                        .SetProperty(info => info.IsActiveRelease, true),
-                    cancellationToken);
-            await writeContext.AnimationInfo
                 .Where(info => info.Id == operation.CandidateReleaseId)
                 .ExecuteUpdateAsync(setters => setters
                         .SetProperty(info => info.StateVersion, info => info.StateVersion + 1)
                         .SetProperty(info => info.IsActiveRelease, false),
+                    cancellationToken);
+            await writeContext.AnimationInfo
+                .Where(info => info.Id == operation.CurrentReleaseId)
+                .ExecuteUpdateAsync(setters => setters
+                        .SetProperty(info => info.StateVersion, info => info.StateVersion + 1)
+                        .SetProperty(info => info.IsActiveRelease, true),
                     cancellationToken);
             operation.Status = ReleaseUpgradeStatus.RolledBack;
             operation.CompletedAt = rolledBackAt;
@@ -395,34 +459,50 @@ public sealed class ReleaseUpgradeRepository(
         Guid operationId,
         Models.FileMapping mapping,
         ReleaseUpgradeMappingKind kind) => new()
-    {
-        Id = Guid.NewGuid(),
-        OperationId = operationId,
-        Kind = kind,
-        OriginalMappingId = mapping.Id,
-        AnimationInfoId = mapping.AnimationInfoId,
-        VirtualPath = mapping.VirtualPath,
-        PhysicalPath = mapping.PhysicalPath,
-        FileStore = mapping.FileStore
-    };
+        {
+            Id = Guid.NewGuid(),
+            OperationId = operationId,
+            Kind = kind,
+            OriginalMappingId = mapping.Id,
+            AnimationInfoId = mapping.AnimationInfoId,
+            VirtualPath = mapping.VirtualPath,
+            PhysicalPath = mapping.PhysicalPath,
+            FileStore = mapping.FileStore
+        };
 
-    private static IReadOnlyList<Models.FileMapping> BuildCandidateReplacement(
+    private static CandidateReplacementPlan BuildCandidateReplacement(
         IReadOnlyList<Models.FileMapping> previous,
         IReadOnlyList<Models.FileMapping> candidate,
         Guid candidateReleaseId)
     {
-        var remaining = new HashSet<string>(candidate.Select(item => item.VirtualPath), StringComparer.Ordinal);
+        var previousByRole = previous
+            .GroupBy(mapping => GetStableFileRole(mapping.VirtualPath), StringComparer.OrdinalIgnoreCase)
+            .Where(group => group.Count() == 1)
+            .ToDictionary(group => group.Key, group => group.Single(), StringComparer.OrdinalIgnoreCase);
+        var matchedPreviousIds = new HashSet<Guid>();
         var used = new HashSet<string>(StringComparer.Ordinal);
         var result = new List<Models.FileMapping>(candidate.Count);
-        for (var index = 0; index < candidate.Count; index++)
+        var candidatePathReplacements = new Dictionary<string, string>(StringComparer.Ordinal);
+        var previousPathReplacements = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var mapping in candidate
+                     .OrderBy(item => item.VirtualPath, StringComparer.Ordinal)
+                     .ThenBy(item => item.PhysicalPath, StringComparer.Ordinal)
+                     .ThenBy(item => item.Id))
         {
-            var mapping = candidate[index];
-            remaining.Remove(mapping.VirtualPath);
-            var preferred = index < previous.Count ? previous[index].VirtualPath : mapping.VirtualPath;
-            var virtualPath = !used.Contains(preferred) && !remaining.Contains(preferred)
-                ? preferred
+            var role = GetStableFileRole(mapping.VirtualPath);
+            var matchedPrevious = previousByRole.GetValueOrDefault(role);
+            var usesPreviousPath = matchedPrevious is not null &&
+                                   matchedPreviousIds.Add(matchedPrevious.Id);
+            var virtualPath = usesPreviousPath
+                ? matchedPrevious!.VirtualPath
                 : mapping.VirtualPath;
-            used.Add(virtualPath);
+            if (!used.Add(virtualPath))
+                throw new InvalidOperationException(
+                    $"Candidate replacement produced duplicate virtual path '{virtualPath}'.");
+
+            candidatePathReplacements.Add(mapping.VirtualPath, virtualPath);
+            if (usesPreviousPath)
+                previousPathReplacements.TryAdd(matchedPrevious!.VirtualPath, virtualPath);
             result.Add(new Models.FileMapping
             {
                 Id = Guid.NewGuid(),
@@ -433,8 +513,189 @@ public sealed class ReleaseUpgradeRepository(
             });
         }
 
-        return result;
+        return new CandidateReplacementPlan(
+            result,
+            candidatePathReplacements,
+            previousPathReplacements);
     }
+
+    private static string GetStableFileRole(string virtualPath)
+    {
+        var fileName = virtualPath[(virtualPath.LastIndexOf('/') + 1)..];
+        var extension = Path.GetExtension(fileName);
+        var stem = extension.Length == 0 ? fileName : fileName[..^extension.Length];
+        return CollisionSuffixRegex().Replace(stem, string.Empty) + extension;
+    }
+
+    private static Models.FileMapping FromSnapshot(Models.ReleaseUpgradeMappingSnapshot snapshot) => new()
+    {
+        Id = snapshot.OriginalMappingId,
+        AnimationInfoId = snapshot.AnimationInfoId,
+        VirtualPath = snapshot.VirtualPath,
+        PhysicalPath = snapshot.PhysicalPath,
+        FileStore = snapshot.FileStore
+    };
+
+    private static bool AreSameEpisode(
+        Models.ApplicationContext writeContext,
+        Models.AnimationInfo current,
+        Models.AnimationInfo candidate)
+    {
+        var currentAnimationId = writeContext.Entry(current)
+            .Property<Guid?>("AnimationId")
+            .CurrentValue;
+        var candidateAnimationId = writeContext.Entry(candidate)
+            .Property<Guid?>("AnimationId")
+            .CurrentValue;
+        return currentAnimationId is not null &&
+               currentAnimationId == candidateAnimationId &&
+               current.Season is not null &&
+               current.Season == candidate.Season &&
+               current.Episode is not null &&
+               current.Episode == candidate.Episode;
+    }
+
+    private static bool MappingSetsMatch(
+        IReadOnlyCollection<Models.FileMapping> actual,
+        IReadOnlyCollection<Models.FileMapping> expected)
+    {
+        if (actual.Count != expected.Count) return false;
+        var expectedMappings = expected
+            .Select(mapping => (mapping.VirtualPath, mapping.PhysicalPath, mapping.FileStore))
+            .ToHashSet();
+        return actual.All(mapping => expectedMappings.Contains(
+            (mapping.VirtualPath, mapping.PhysicalPath, mapping.FileStore)));
+    }
+
+    private static bool MappingSetsMatch(
+        IReadOnlyCollection<Models.FileMapping> actual,
+        IReadOnlyCollection<FileMapping> expected)
+    {
+        if (actual.Count != expected.Count) return false;
+        var expectedMappings = expected
+            .Select(mapping => (mapping.VirtualPath, mapping.PhysicalPath, mapping.FileStore))
+            .ToHashSet();
+        return actual.All(mapping => expectedMappings.Contains(
+            (mapping.VirtualPath, mapping.PhysicalPath, mapping.FileStore)));
+    }
+
+    private static IReadOnlyDictionary<PlaybackLocation, PlaybackLocation>
+        BuildActivationPlaybackTransfers(
+            Guid currentReleaseId,
+            Guid candidateReleaseId,
+            CandidateReplacementPlan replacement)
+    {
+        var transfers = replacement.CandidatePathReplacements.ToDictionary(
+            pair => new PlaybackLocation(candidateReleaseId, pair.Key),
+            pair => new PlaybackLocation(candidateReleaseId, pair.Value));
+        foreach (var pair in replacement.PreviousPathReplacements)
+        {
+            transfers[new PlaybackLocation(currentReleaseId, pair.Key)] =
+                new PlaybackLocation(candidateReleaseId, pair.Value);
+        }
+
+        return transfers;
+    }
+
+    private static IReadOnlyDictionary<PlaybackLocation, PlaybackLocation>
+        BuildRollbackPlaybackTransfers(
+            Guid currentReleaseId,
+            Guid candidateReleaseId,
+            CandidateReplacementPlan replacement)
+    {
+        var transfers = new Dictionary<PlaybackLocation, PlaybackLocation>();
+        foreach (var pair in replacement.PreviousPathReplacements)
+        {
+            transfers[new PlaybackLocation(candidateReleaseId, pair.Value)] =
+                new PlaybackLocation(currentReleaseId, pair.Key);
+        }
+
+        return transfers;
+    }
+
+    private static async Task TransferPlaybackProgressAsync(
+        Models.ApplicationContext writeContext,
+        IReadOnlyDictionary<PlaybackLocation, PlaybackLocation> transfers,
+        CancellationToken cancellationToken)
+    {
+        if (transfers.Count == 0) return;
+
+        var ownerIds = transfers.Keys
+            .Select(location => location.AnimationInfoId)
+            .Concat(transfers.Values.Select(location => location.AnimationInfoId))
+            .Distinct()
+            .ToArray();
+        var rows = await writeContext.PlaybackProgresses
+            .AsNoTracking()
+            .Where(progress => ownerIds.Contains(progress.AnimationInfoId))
+            .ToListAsync(cancellationToken);
+        var targets = transfers.Values.ToHashSet();
+        var affected = rows
+            .Where(progress =>
+            {
+                var location = new PlaybackLocation(
+                    progress.AnimationInfoId,
+                    progress.VirtualPath);
+                return transfers.ContainsKey(location) || targets.Contains(location);
+            })
+            .ToList();
+        if (affected.Count == 0) return;
+
+        var affectedIds = affected.Select(progress => progress.Id).ToArray();
+        await writeContext.PlaybackProgresses
+            .Where(progress => affectedIds.Contains(progress.Id))
+            .ExecuteDeleteAsync(cancellationToken);
+
+        var merged = affected
+            .Select(progress =>
+            {
+                var source = new PlaybackLocation(
+                    progress.AnimationInfoId,
+                    progress.VirtualPath);
+                var target = transfers.GetValueOrDefault(source, source);
+                return (Progress: progress, Target: target);
+            })
+            .GroupBy(item => new
+            {
+                item.Progress.UserId,
+                item.Target.AnimationInfoId,
+                item.Target.VirtualPath
+            })
+            .Select(group =>
+            {
+                // If both releases have progress for the same user/file role,
+                // retain the last user action rather than reviving stale state.
+                var winner = group
+                    .OrderByDescending(item => item.Progress.UpdatedAt)
+                    .ThenByDescending(item => item.Progress.Id)
+                    .First()
+                    .Progress;
+                return new Models.PlaybackProgress
+                {
+                    Id = winner.Id,
+                    UserId = group.Key.UserId,
+                    AnimationInfoId = group.Key.AnimationInfoId,
+                    VirtualPath = group.Key.VirtualPath,
+                    PositionSeconds = winner.PositionSeconds,
+                    DurationSeconds = winner.DurationSeconds,
+                    IsWatched = winner.IsWatched,
+                    UpdatedAt = winner.UpdatedAt,
+                    WatchedAt = winner.WatchedAt
+                };
+            })
+            .ToList();
+        await writeContext.PlaybackProgresses.AddRangeAsync(merged, cancellationToken);
+    }
+
+    [GeneratedRegex(@" \(\d+\)$", RegexOptions.CultureInvariant)]
+    private static partial Regex CollisionSuffixRegex();
+
+    private readonly record struct PlaybackLocation(Guid AnimationInfoId, string VirtualPath);
+
+    private sealed record CandidateReplacementPlan(
+        IReadOnlyList<Models.FileMapping> Mappings,
+        IReadOnlyDictionary<string, string> CandidatePathReplacements,
+        IReadOnlyDictionary<string, string> PreviousPathReplacements);
 
     private static IReadOnlyList<string> ParseReasons(string? json)
     {

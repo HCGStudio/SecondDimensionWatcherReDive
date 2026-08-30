@@ -230,6 +230,7 @@ internal class AnimationInfoController(
             id,
             info.DownloadAttemptId,
             cancellationAttemptId,
+            terminalDisposition: null,
             finalizeCancellation.Token);
         if (!cancelled)
             return Conflict();

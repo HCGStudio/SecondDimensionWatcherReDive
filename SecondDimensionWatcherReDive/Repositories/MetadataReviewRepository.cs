@@ -290,6 +290,10 @@ public class MetadataReviewRepository(
                 var mappingsBefore = existingMappings.Select(mapping => mapping.ToRecord()).ToList();
 
                 var animationInfoEntry = applyContext.Entry(animationInfo);
+                var previousEpisodeIdentity = AnimationInfoRepository.GetEpisodeIdentity(
+                    applyContext,
+                    animationInfo);
+                var wasActiveRelease = animationInfo.IsActiveRelease;
                 operation.PreviousDescription = animationInfo.Description;
                 operation.PreviousAnimationId = animationInfoEntry
                     .Property<Guid?>("AnimationId")
@@ -335,6 +339,8 @@ public class MetadataReviewRepository(
                 animationInfo.Description = operation.ProposedDescription;
                 animationInfo.Animation = animation;
                 animationInfo.Group = group;
+                animationInfoEntry.Property<Guid?>("AnimationId").CurrentValue = animation.Id;
+                animationInfoEntry.Property<Guid?>("GroupId").CurrentValue = group?.Id;
                 animationInfo.Season = operation.ProposedSeason;
                 animationInfo.Episode = operation.ProposedEpisode;
                 animationInfo.MetadataStatus = MetadataReviewStatus.Reviewed;
@@ -344,6 +350,13 @@ public class MetadataReviewRepository(
                 animationInfo.AiRetryCount = 0;
                 animationInfo.MetadataReviewedAt = appliedAt;
                 animationInfo.CurrentMetadataReviewOperationId = operation.Id;
+                await AnimationInfoRepository.SetEpisodeReleaseActivityAsync(
+                    applyContext,
+                    animationInfo,
+                    cancellationToken);
+                var currentEpisodeIdentity = AnimationInfoRepository.GetEpisodeIdentity(
+                    applyContext,
+                    animationInfo);
                 animationInfo.StateVersion = checked(animationInfo.StateVersion + 1);
 
                 var replacementMappings = proposedSnapshots
@@ -374,6 +387,13 @@ public class MetadataReviewRepository(
                 operation.AppliedVersion = animationInfo.StateVersion;
 
                 await applyContext.SaveChangesAsync(cancellationToken);
+                await AnimationInfoRepository.PromotePreviousEpisodeSuccessorAsync(
+                    applyContext,
+                    animationInfo.Id,
+                    wasActiveRelease,
+                    previousEpisodeIdentity,
+                    currentEpisodeIdentity,
+                    cancellationToken);
                 await transaction.CommitAsync(cancellationToken);
                 return new MetadataReviewMutationResult(
                     MetadataReviewMutationOutcome.Success,
@@ -547,9 +567,17 @@ public class MetadataReviewRepository(
                             animationInfo.Id);
                 }
 
+                var previousEpisodeIdentity = AnimationInfoRepository.GetEpisodeIdentity(
+                    undoContext,
+                    animationInfo);
+                var wasActiveRelease = animationInfo.IsActiveRelease;
                 animationInfo.Description = operation.PreviousDescription;
                 animationInfo.Animation = previousAnimation;
                 animationInfo.Group = previousGroup;
+                undoContext.Entry(animationInfo).Property<Guid?>("AnimationId").CurrentValue =
+                    previousAnimation?.Id;
+                undoContext.Entry(animationInfo).Property<Guid?>("GroupId").CurrentValue =
+                    previousGroup?.Id;
                 animationInfo.Season = operation.PreviousSeason;
                 animationInfo.Episode = operation.PreviousEpisode;
                 animationInfo.MetadataStatus = operation.PreviousMetadataStatus.Value;
@@ -559,6 +587,13 @@ public class MetadataReviewRepository(
                 animationInfo.AiRetryCount = operation.PreviousAiRetryCount.Value;
                 animationInfo.MetadataReviewedAt = operation.PreviousReviewedAt;
                 animationInfo.CurrentMetadataReviewOperationId = operation.PreviousCurrentOperationId;
+                await AnimationInfoRepository.SetEpisodeReleaseActivityAsync(
+                    undoContext,
+                    animationInfo,
+                    cancellationToken);
+                var currentEpisodeIdentity = AnimationInfoRepository.GetEpisodeIdentity(
+                    undoContext,
+                    animationInfo);
                 animationInfo.StateVersion = checked(animationInfo.StateVersion + 1);
 
                 var restoredMappings = previousSnapshots
@@ -594,6 +629,13 @@ public class MetadataReviewRepository(
                     previousOperation.AppliedVersion = animationInfo.StateVersion;
 
                 await undoContext.SaveChangesAsync(cancellationToken);
+                await AnimationInfoRepository.PromotePreviousEpisodeSuccessorAsync(
+                    undoContext,
+                    animationInfo.Id,
+                    wasActiveRelease,
+                    previousEpisodeIdentity,
+                    currentEpisodeIdentity,
+                    cancellationToken);
                 await transaction.CommitAsync(cancellationToken);
                 return new MetadataReviewMutationResult(
                     MetadataReviewMutationOutcome.Success,

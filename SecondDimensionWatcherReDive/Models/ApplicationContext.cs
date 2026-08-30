@@ -319,6 +319,18 @@ public class ApplicationContext : DbContext
         modelBuilder.Entity<AnimationInfo>()
             .HasIndex(info => info.SourceFeedId);
 
+        modelBuilder.Entity<AnimationInfo>()
+            .HasIndex("AnimationId")
+            .HasDatabaseName("IX_AnimationInfo_AnimationId");
+
+        modelBuilder.Entity<AnimationInfo>()
+            .HasIndex("AnimationId", "Season", "Episode")
+            .IsUnique()
+            .HasFilter(
+                "\"IsActiveRelease\" = TRUE AND \"AnimationId\" IS NOT NULL " +
+                "AND \"Season\" IS NOT NULL AND \"Episode\" IS NOT NULL")
+            .HasDatabaseName("UX_AnimationInfo_ActiveEpisodeRelease");
+
         modelBuilder.Entity<SubscriptionAutomationPolicy>()
             .HasKey(policy => policy.FeedId);
 
@@ -370,7 +382,8 @@ public class ApplicationContext : DbContext
 
         modelBuilder.Entity<ReleaseUpgradeOperation>()
             .HasIndex(operation => operation.CandidateReleaseId)
-            .IsUnique();
+            .IsUnique()
+            .HasFilter("\"Status\" <> 'Failed'");
 
         modelBuilder.Entity<ReleaseUpgradeOperation>()
             .HasIndex(operation => operation.CurrentReleaseId)
