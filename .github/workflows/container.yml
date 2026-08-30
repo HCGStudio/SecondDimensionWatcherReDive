@@ -37,7 +37,7 @@ jobs:
         env:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           EVENT_NAME: ${{ github.event_name }}
-          REF_NAME: ${{ github.ref_name }}
+          REF: ${{ github.ref }}
           RELEASE_VERSION: ${{ github.event.inputs.release_version }}
         run: |
           REGISTRY="ghcr.io"
@@ -49,7 +49,7 @@ jobs:
             echo "VERSION must use the x.y.z format" >&2
             exit 1
           fi
-          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$REF_NAME" != "$DEFAULT_BRANCH" ]; then
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$REF" != "refs/heads/$DEFAULT_BRANCH" ]; then
             echo "Manual publication must run from $DEFAULT_BRANCH" >&2
             exit 1
           fi
@@ -277,7 +277,7 @@ jobs:
       packages: write
     concurrency:
       group: container-moving-${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_version != '' && 'stable' || 'prerelease' }}
-      cancel-in-progress: false
+      queue: max
     steps:
       - uses: actions/checkout@v7
         with:
@@ -301,50 +301,31 @@ jobs:
           SOURCE_SHA: ${{ github.sha }}
           TAG2: ${{ needs.prepare.outputs.tag2 }}
         run: |
+          if [[ ! "$MANIFEST_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "Unexpected manifest digest: $MANIFEST_DIGEST" >&2
+            exit 1
+          fi
+
           if [ -n "$RELEASE_VERSION" ]; then
             current_version=$(tr -d '[:space:]' < VERSION)
             if [[ ! "$current_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
               echo "Current VERSION must use the x.y.z format" >&2
               exit 1
             fi
-
-            version_tag="${REGISTRY_IMAGE}:${current_version}"
-            manifest=$(docker buildx imagetools inspect "$version_tag" --raw)
-
-            platforms=$(jq -c \
-              '[.manifests[]? | select((.platform.os // "unknown") != "unknown" or (.platform.architecture // "unknown") != "unknown") | "\(.platform.os)/\(.platform.architecture)"] | sort' \
-              <<< "$manifest")
-            if [ "$platforms" != '["linux/amd64","linux/arm64"]' ]; then
-              echo "Refusing to promote $version_tag with platforms $platforms" >&2
-              exit 1
+            if [ "$current_version" != "$RELEASE_VERSION" ]; then
+              echo "::notice::Not updating $TAG2 because current VERSION is $current_version, not $RELEASE_VERSION"
+              exit 0
             fi
-
-            invalid_auxiliary=$(jq -c \
-              '[.manifests[]? | select((.platform.os // "unknown") == "unknown" and (.platform.architecture // "unknown") == "unknown") | select(.annotations["vnd.docker.reference.type"] != "attestation-manifest")]' \
-              <<< "$manifest")
-            if [ "$invalid_auxiliary" != '[]' ]; then
-              echo "Refusing to promote $version_tag with unexpected auxiliary descriptors" >&2
-              exit 1
-            fi
-
-            target_digest="sha256:$(printf '%s' "$manifest" | sha256sum | cut -d ' ' -f1)"
           else
-            if [[ ! "$MANIFEST_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
-              echo "Unexpected manifest digest: $MANIFEST_DIGEST" >&2
-              exit 1
-            fi
-
             current_sha=$(git rev-parse HEAD)
             if [ "$current_sha" != "$SOURCE_SHA" ]; then
               echo "::notice::Not updating $TAG2 because the default branch moved from $SOURCE_SHA to $current_sha"
               exit 0
             fi
-
-            target_digest="$MANIFEST_DIGEST"
-            manifest=$(docker buildx imagetools inspect "${REGISTRY_IMAGE}@${target_digest}" --raw)
           fi
 
-          docker buildx imagetools create --tag "$TAG2" "${REGISTRY_IMAGE}@${target_digest}"
+          manifest=$(docker buildx imagetools inspect "${REGISTRY_IMAGE}@${MANIFEST_DIGEST}" --raw)
+          docker buildx imagetools create --tag "$TAG2" "${REGISTRY_IMAGE}@${MANIFEST_DIGEST}"
           tag2_manifest=$(docker buildx imagetools inspect "$TAG2" --raw)
           if [ "$tag2_manifest" != "$manifest" ]; then
             echo "$TAG2 does not resolve to the validated manifest" >&2
