@@ -28,7 +28,7 @@
 
 版本变更必须先通过普通 PR 同时更新根目录 `VERSION` 以及主项目的 `AssemblyVersion`、`FileVersion`。合并后，从 `main` 手动运行 `Release` workflow；workflow 不再自行提交版本或提前创建 tag。
 
-正式流程会再次运行完整门禁，构建并检查所有目标制品与多架构镜像。构建期间若 `main` 已前进，发布会失败，避免给旧提交打新 tag。完整制品先上传到 draft，`<version>` 与 `latest` 从本次不可变 digest 推广；只有这些步骤全部成功后，draft 才发布并创建正式 `v<version>` tag。发布包附带 `SHA256SUMS`，release notes 记录容器 digest。
+正式流程会再次运行完整门禁，构建并检查所有目标制品与多架构镜像。构建期间若 `main` 已前进，发布会失败，避免给旧提交打新 tag。`<version>` 与 `latest` 先从本次不可变 digest 推广；最后通过 GitHub refs API 以 create-only 操作把正式 `v<version>` tag 原子绑定到已验证提交，校验目标 SHA 后才使用 `--verify-tag` 创建包含全部制品的 Release。若同名 bare tag 在构建期间出现，原子创建会失败；若制品上传失败，本次创建的未完成 Release 和仍指向已验证提交的 tag 会被清理，以便安全重试。发布包附带 `SHA256SUMS`，release notes 记录容器 digest。
 
 workflow 使用最小权限：验证只有 `contents: read`，构建候选镜像的 job 才有 `packages: write`，最终发布 job 才有 `contents: write` 和 `packages: write`。
 

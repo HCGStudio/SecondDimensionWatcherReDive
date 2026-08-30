@@ -116,12 +116,9 @@ jobs:
           grep --fixed-strings --quiet "linux/amd64" image-manifest.txt
           grep --fixed-strings --quiet "linux/arm64" image-manifest.txt
 
-      - name: Prepare complete draft release
+      - name: Ensure the release namespace is still unused
         env:
           GH_TOKEN: ${{ github.token }}
-          IMAGE_DIGEST: ${{ needs.build.outputs.image_digest }}
-          IMAGE_REPOSITORY: ${{ needs.metadata.outputs.image_repository }}
-          SOURCE_SHA: ${{ needs.metadata.outputs.commit_sha }}
           VERSION: ${{ needs.metadata.outputs.version }}
         run: |
           set -euo pipefail
@@ -130,12 +127,10 @@ jobs:
             echo "Release $tag already exists; inspect or remove the draft before retrying" >&2
             exit 1
           fi
-          gh release create "$tag" release/* \
-            --draft \
-            --target "$SOURCE_SHA" \
-            --title "Release ${VERSION}" \
-            --generate-notes \
-            --notes "Container: ${IMAGE_REPOSITORY}@${IMAGE_DIGEST}"
+          if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then
+            echo "Tag $tag appeared during verification; refusing to publish against an unverified ref" >&2
+            exit 1
+          fi
 
       - name: Promote stable image tags from the verified digest
         env:
@@ -150,8 +145,37 @@ jobs:
             "$IMAGE_REPOSITORY@$IMAGE_DIGEST"
           docker buildx imagetools inspect "$IMAGE_REPOSITORY:$VERSION"
 
-      - name: Publish release and create the formal tag
+      - name: Atomically create the verified tag and complete release
         env:
           GH_TOKEN: ${{ github.token }}
+          IMAGE_DIGEST: ${{ needs.build.outputs.image_digest }}
+          IMAGE_REPOSITORY: ${{ needs.metadata.outputs.image_repository }}
+          SOURCE_SHA: ${{ needs.metadata.outputs.commit_sha }}
           VERSION: ${{ needs.metadata.outputs.version }}
-        run: gh release edit "v${VERSION}" --draft=false --latest
+        run: |
+          set -euo pipefail
+          tag="v${VERSION}"
+          if ! gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+            --field ref="refs/tags/$tag" \
+            --field sha="$SOURCE_SHA" >/dev/null; then
+            echo "Could not atomically create $tag; another ref may have won the release race" >&2
+            exit 1
+          fi
+          tag_sha=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/$tag" --jq '.object.sha')
+          if [ "$tag_sha" != "$SOURCE_SHA" ]; then
+            echo "Created tag $tag does not point to verified source $SOURCE_SHA" >&2
+            exit 1
+          fi
+          if ! gh release create "$tag" release/* \
+            --verify-tag \
+            --title "Release ${VERSION}" \
+            --generate-notes \
+            --notes "Container: ${IMAGE_REPOSITORY}@${IMAGE_DIGEST}"; then
+            echo "Release creation failed; removing the incomplete release and the tag created by this run" >&2
+            gh release delete "$tag" --yes || true
+            current_sha=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/$tag" --jq '.object.sha' 2>/dev/null || true)
+            if [ "$current_sha" = "$SOURCE_SHA" ]; then
+              gh api --method DELETE "repos/${GITHUB_REPOSITORY}/git/refs/tags/$tag" || true
+            fi
+            exit 1
+          fi
