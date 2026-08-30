@@ -22,6 +22,8 @@ public class ApplicationContext : DbContext
     public DbSet<BangumiSubgroup> BangumiSubgroups { get; set; }
     public DbSet<ChatConversation> ChatConversations { get; set; }
     public DbSet<ChatMessage> ChatMessages { get; set; }
+    public DbSet<ChatPendingAction> ChatPendingActions { get; set; }
+    public DbSet<ChatActionAudit> ChatActionAudits { get; set; }
     public DbSet<FileMapping> FileMappings { get; set; }
     public DbSet<FileNameRegexRule> FileNameRegexRules { get; set; }
     public DbSet<SubscriptionAutomationPolicy> SubscriptionAutomationPolicies { get; set; }
@@ -322,5 +324,99 @@ public class ApplicationContext : DbContext
             .WithMany(c => c.Messages)
             .HasForeignKey(m => m.ConversationId)
             .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<ChatPendingAction>()
+            .HasIndex(action => new { action.UserId, action.ConversationId, action.ToolCallId });
+
+        modelBuilder.Entity<ChatPendingAction>()
+            .HasIndex(action => new { action.ConversationId, action.ToolCallId });
+
+        modelBuilder.Entity<ChatPendingAction>()
+            .HasIndex(action => new { action.UserId, action.ConversationId, action.State });
+
+        modelBuilder.Entity<ChatPendingAction>()
+            .HasIndex(action => new { action.State, action.ExpiresAt });
+
+        modelBuilder.Entity<ChatPendingAction>()
+            .Property(action => action.RiskLevel)
+            .HasConversion<string>()
+            .HasMaxLength(32);
+
+        modelBuilder.Entity<ChatPendingAction>()
+            .Property(action => action.State)
+            .HasConversion<string>()
+            .HasMaxLength(32);
+
+        modelBuilder.Entity<ChatPendingAction>()
+            .Property(action => action.ToolCallId)
+            .HasMaxLength(256);
+
+        modelBuilder.Entity<ChatPendingAction>()
+            .Property(action => action.ToolName)
+            .HasMaxLength(128);
+
+        modelBuilder.Entity<ChatPendingAction>()
+            .Property(action => action.ParameterHash)
+            .HasMaxLength(64);
+
+        modelBuilder.Entity<ChatPendingAction>()
+            .Property(action => action.ApprovalTokenHash)
+            .HasMaxLength(64);
+
+        modelBuilder.Entity<ChatPendingAction>()
+            .Property(action => action.ParameterSummary)
+            .HasMaxLength(1024);
+
+        modelBuilder.Entity<ChatPendingAction>()
+            .Property(action => action.ImpactSummary)
+            .HasMaxLength(2048);
+
+        modelBuilder.Entity<ChatPendingAction>()
+            .Property(action => action.ResultSummary)
+            .HasMaxLength(1024);
+
+        modelBuilder.Entity<ChatPendingAction>()
+            .Property(action => action.ErrorSummary)
+            .HasMaxLength(1024);
+
+        modelBuilder.Entity<ChatPendingAction>()
+            .ToTable(table => table.HasCheckConstraint(
+                "CK_ChatPendingActions_Expiry",
+                "\"ExpiresAt\" > \"CreatedAt\""));
+
+        modelBuilder.Entity<ChatActionAudit>()
+            .HasOne(audit => audit.Action)
+            .WithMany(action => action.AuditEntries)
+            .HasForeignKey(audit => audit.ActionId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        modelBuilder.Entity<ChatActionAudit>()
+            .HasIndex(audit => new { audit.UserId, audit.ConversationId, audit.CreatedAt });
+
+        modelBuilder.Entity<ChatActionAudit>()
+            .Property(audit => audit.RiskLevel)
+            .HasConversion<string>()
+            .HasMaxLength(32);
+
+        modelBuilder.Entity<ChatActionAudit>()
+            .Property(audit => audit.Event)
+            .HasConversion<string>()
+            .HasMaxLength(32);
+
+        modelBuilder.Entity<ChatActionAudit>()
+            .Property(audit => audit.ToolName)
+            .HasMaxLength(128);
+
+        modelBuilder.Entity<ChatActionAudit>()
+            .Property(audit => audit.ParameterHash)
+            .HasMaxLength(64);
+
+        modelBuilder.Entity<ChatActionAudit>()
+            .Property(audit => audit.ParameterSummary)
+            .HasMaxLength(1024);
+
+        modelBuilder.Entity<ChatActionAudit>()
+            .Property(audit => audit.Detail)
+            .HasMaxLength(1024);
     }
 }

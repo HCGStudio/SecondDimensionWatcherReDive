@@ -276,6 +276,7 @@ builder.Services.AddScoped<ISubscriptionAutomationPolicyRepository, Subscription
 builder.Services.AddScoped<ISeasonBangumiRepository, SeasonBangumiRepository>();
 builder.Services.AddScoped<IBangumiSubgroupRepository, BangumiSubgroupRepository>();
 builder.Services.AddScoped<IChatRepository, ChatRepository>();
+builder.Services.AddScoped<IChatActionRepository, ChatActionRepository>();
 builder.Services.AddScoped<IFileMappingRepository, FileMappingRepository>();
 builder.Services.AddScoped<IFileNameRegexRuleRepository, FileNameRegexRuleRepository>();
 builder.Services.AddScoped<IMetadataReviewRepository, MetadataReviewRepository>();

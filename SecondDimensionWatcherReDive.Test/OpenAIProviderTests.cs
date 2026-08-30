@@ -65,7 +65,8 @@ public sealed class OpenAIProviderTests
         var tools = new[]
         {
             new ToolDefinition("lookup", "Look something up", Schema(
-                """{"type":"object","properties":{"query":{"type":"string"}},"required":["query"]}"""))
+                """{"type":"object","properties":{"query":{"type":"string"}},"required":["query"]}"""),
+                ToolRiskLevel.ReadOnly)
         };
 
         var updates = await CollectAsync(provider.StreamChatCompletionAsync(
@@ -478,7 +479,8 @@ public sealed class OpenAIProviderTests
         public IReadOnlyList<ToolDefinition> ToolDefinitions { get; } =
         [
             new ToolDefinition("lookup", "Look something up", Schema(
-                """{"type":"object","properties":{"query":{"type":"string"}},"required":["query"]}"""))
+                """{"type":"object","properties":{"query":{"type":"string"}},"required":["query"]}"""),
+                ToolRiskLevel.ReadOnly)
         ];
 
         public List<ToolCall> Calls { get; } = [];

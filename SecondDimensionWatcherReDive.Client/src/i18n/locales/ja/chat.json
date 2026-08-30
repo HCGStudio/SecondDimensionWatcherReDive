@@ -19,5 +19,31 @@
     "executing": "実行中...",
     "arguments": "引数",
     "result": "結果"
+  },
+  "approval": {
+    "title": "承認が必要です",
+    "loading": "承認内容を読み込み中...",
+    "loadFailed": "承認内容を読み込めませんでした",
+    "decisionFailed": "操作の状態が変わったか、リクエストに失敗しました。再試行してください。",
+    "risk": "リスク：{{risk}}",
+    "risks": {
+      "ReadOnly": "読み取り専用",
+      "Mutating": "データを変更",
+      "Destructive": "高リスク"
+    },
+    "reversible": "元に戻せます",
+    "notReversible": "自動では元に戻せません",
+    "reject": "拒否",
+    "approve": "承認",
+    "confirmExecute": "確認して実行",
+    "destructiveConfirm": "これは高リスクな操作です。影響範囲を確認してもう一度実行してください。サーバー側でも二重確認が必須です。",
+    "states": {
+      "Pending": "承認待ち",
+      "Executing": "実行中",
+      "Succeeded": "実行済み",
+      "Failed": "失敗",
+      "Rejected": "拒否済み",
+      "Expired": "期限切れ"
+    }
   }
 }

@@ -7,7 +7,8 @@ namespace SecondDimensionWatcherReDive.Chat.Tools;
 
 [Tool<ManageTasksParams>(
     "manage_tasks",
-    "Manage background scheduled tasks. List all task statuses or manually trigger a specific task to run.")]
+    "Manage background scheduled tasks. List all task statuses or manually trigger a specific task to run.",
+    ToolRiskLevel.Mutating)]
 internal sealed partial class ManageTasksTool(
     IEnumerable<IScheduledTask> scheduledTasks) : ITool
 {

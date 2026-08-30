@@ -19,5 +19,31 @@
     "executing": "执行中...",
     "arguments": "参数",
     "result": "结果"
+  },
+  "approval": {
+    "title": "需要你的批准",
+    "loading": "正在载入审批详情...",
+    "loadFailed": "无法载入审批详情",
+    "decisionFailed": "操作状态已变化或请求失败，请重试",
+    "risk": "风险：{{risk}}",
+    "risks": {
+      "ReadOnly": "只读",
+      "Mutating": "会修改数据",
+      "Destructive": "高风险操作"
+    },
+    "reversible": "可撤销",
+    "notReversible": "不可自动撤销",
+    "reject": "拒绝",
+    "approve": "批准",
+    "confirmExecute": "确认并执行",
+    "destructiveConfirm": "这是高风险操作。请再次确认影响范围后执行；服务端也会强制校验本次二次确认。",
+    "states": {
+      "Pending": "待批准",
+      "Executing": "执行中",
+      "Succeeded": "已执行",
+      "Failed": "执行失败",
+      "Rejected": "已拒绝",
+      "Expired": "已过期"
+    }
   }
 }

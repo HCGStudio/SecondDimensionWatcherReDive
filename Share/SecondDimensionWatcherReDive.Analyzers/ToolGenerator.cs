@@ -50,13 +50,14 @@ public sealed class ToolGenerator : IIncrementalGenerator
         var paramType = attributeClass.TypeArguments[0];
         var paramTypeFqn = paramType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
 
-        // Get constructor arguments: (string name, string description)
-        if (attributeData.ConstructorArguments.Length < 2)
+        // Get constructor arguments: (string name, string description, ToolRiskLevel riskLevel)
+        if (attributeData.ConstructorArguments.Length < 3)
             return null;
 
         var toolName = attributeData.ConstructorArguments[0].Value as string;
         var toolDescription = attributeData.ConstructorArguments[1].Value as string;
-        if (toolName is null || toolDescription is null)
+        var riskLevel = attributeData.ConstructorArguments[2].Value as int?;
+        if (toolName is null || toolDescription is null || riskLevel is null)
             return null;
 
         // Validate ExecuteCoreAsync method exists
@@ -88,7 +89,8 @@ public sealed class ToolGenerator : IIncrementalGenerator
             ClassName = classSymbol.Name,
             ParamTypeFqn = paramTypeFqn,
             ToolName = toolName,
-            ToolDescription = toolDescription
+            ToolDescription = toolDescription,
+            RiskLevel = riskLevel.Value
         };
     }
 
@@ -123,7 +125,10 @@ public sealed class ToolGenerator : IIncrementalGenerator
         sb.Append(escapedName);
         sb.Append("\", \"");
         sb.Append(escapedDescription);
-        sb.AppendLine("\");");
+        sb.AppendLine("\",");
+        sb.Append("            (global::SecondDimensionWatcherReDive.Framework.AI.ToolRiskLevel)");
+        sb.Append(info.RiskLevel);
+        sb.AppendLine(");");
         sb.AppendLine();
 
         // Generate ExecuteAsync method — param deserialization only, no result serialization
@@ -168,5 +173,6 @@ public sealed class ToolGenerator : IIncrementalGenerator
         public string ParamTypeFqn;
         public string ToolName;
         public string ToolDescription;
+        public int RiskLevel;
     }
 }

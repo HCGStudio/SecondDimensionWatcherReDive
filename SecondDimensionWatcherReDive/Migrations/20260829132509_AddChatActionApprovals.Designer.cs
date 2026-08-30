@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using SecondDimensionWatcherReDive.Models;
@@ -11,9 +12,11 @@ using SecondDimensionWatcherReDive.Models;
 namespace SecondDimensionWatcherReDive.Migrations
 {
     [DbContext(typeof(ApplicationContext))]
-    partial class ApplicationContextModelSnapshot : ModelSnapshot
+    [Migration("20260829132509_AddChatActionApprovals")]
+    partial class AddChatActionApprovals
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -821,56 +824,17 @@ namespace SecondDimensionWatcherReDive.Migrations
                         });
                 });
 
-            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.MigrationExecutionState", b =>
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.MigrationMarker", b =>
                 {
                     b.Property<string>("Key")
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
+                        .HasColumnType("text");
 
-                    b.Property<int>("Version")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(1);
-
-                    b.Property<int>("AttemptCount")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(1);
-
-                    b.Property<string>("Checkpoint")
-                        .HasMaxLength(4096)
-                        .HasColumnType("character varying(4096)");
-
-                    b.Property<DateTimeOffset?>("FinishedAt")
+                    b.Property<DateTimeOffset>("AppliedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<string>("LastErrorSummary")
-                        .HasMaxLength(4096)
-                        .HasColumnType("character varying(4096)");
+                    b.HasKey("Key");
 
-                    b.Property<DateTimeOffset?>("StartedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<int>("Status")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(3);
-
-                    b.Property<DateTimeOffset>("UpdatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
-
-                    b.HasKey("Key", "Version");
-
-                    b.ToTable("MigrationMarkers", null, t =>
-                        {
-                            t.HasCheckConstraint("CK_MigrationMarkers_AttemptCount_NonNegative", "\"AttemptCount\" >= 0");
-
-                            t.HasCheckConstraint("CK_MigrationMarkers_Status_Range", "\"Status\" BETWEEN 0 AND 3");
-
-                            t.HasCheckConstraint("CK_MigrationMarkers_Version_Positive", "\"Version\" > 0");
-                        });
+                    b.ToTable("MigrationMarkers");
                 });
 
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.PlaybackPreference", b =>
