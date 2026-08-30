@@ -575,8 +575,11 @@ public partial class FileMapper(
         Guid animationInfoId,
         CancellationToken cancellationToken)
     {
-        var existing = await fileMappingRepository.FindByVirtualPathAsync(virtualPath, cancellationToken);
-        return existing is not null && existing.AnimationInfoId != animationInfoId;
+        var existing = await fileMappingRepository.FindFileSystemEntryAsync(
+            virtualPath,
+            cancellationToken);
+        return existing is not null &&
+               (existing.IsDirectory || existing.Mapping?.AnimationInfoId != animationInfoId);
     }
 
     private static string ApplySuffixUntilUnique(string virtualPath, Func<string, bool> isTaken)

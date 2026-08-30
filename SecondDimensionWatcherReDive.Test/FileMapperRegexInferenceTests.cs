@@ -309,15 +309,20 @@ public class FileMapperRegexInferenceTests
                 new FileNameInferenceResult(VideoFileNames[1], 1, 2)
             ]);
         fixture.FileMappingRepository
-            .Setup(repository => repository.FindByVirtualPathAsync(
+            .Setup(repository => repository.FindFileSystemEntryAsync(
                 It.IsAny<string>(),
                 CancellationToken.None))
-            .ReturnsAsync((string path, CancellationToken _) => new FileMapping(
-                Guid.NewGuid(),
-                fixture.AnimationInfoId,
+            .ReturnsAsync((string path, CancellationToken _) => new FileSystemEntry(
                 path,
-                "/old/file.mkv",
-                "test-store"));
+                Path.GetDirectoryName(path)?.Replace('\\', '/') ?? "/",
+                Path.GetFileName(path),
+                false,
+                new FileMapping(
+                    Guid.NewGuid(),
+                    fixture.AnimationInfoId,
+                    path,
+                    "/old/file.mkv",
+                    "test-store")));
 
         var result = await fixture.Mapper.ReidentifyFilesWithAiAsync(
             fixture.AnimationInfoId,
@@ -394,6 +399,38 @@ public class FileMapperRegexInferenceTests
             It.IsAny<string>(),
             It.IsAny<IReadOnlyList<FileMapping>>(),
             It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [TestMethod]
+    public async Task PreviewDownloadAsync_SyntheticDirectoryPath_AddsCollisionSuffix()
+    {
+        var fixture = CreateFixture(
+            [new FileStoreInfo(false, "/downloads/anime/Anime - 01.mkv", "Anime - 01.mkv")],
+            episode: 5);
+        const string OccupiedDirectory = "/Anime/TestGroup/Anime S01E05.mkv";
+        fixture.FileMappingRepository
+            .Setup(repository => repository.FindFileSystemEntryAsync(
+                It.IsAny<string>(),
+                CancellationToken.None))
+            .ReturnsAsync((string path, CancellationToken _) =>
+                path == OccupiedDirectory
+                    ? new FileSystemEntry(
+                        path,
+                        "/Anime/TestGroup",
+                        "Anime S01E05.mkv",
+                        true,
+                        null)
+                    : null);
+
+        var preview = await fixture.Mapper.PreviewDownloadAsync(
+            fixture.Info,
+            CancellationToken.None);
+
+        Assert.IsNotNull(preview);
+        Assert.AreEqual(
+            "/Anime/TestGroup/Anime S01E05 (2).mkv",
+            preview.Mappings.Single().VirtualPath);
+        CollectionAssert.Contains(preview.Warnings.ToList(), "collisionAdjusted");
     }
 
     [TestMethod]
@@ -523,10 +560,10 @@ public class FileMapperRegexInferenceTests
 
         var fileMappingRepository = new Mock<IFileMappingRepository>();
         fileMappingRepository
-            .Setup(repository => repository.VirtualPathExistsAsync(
+            .Setup(repository => repository.FindFileSystemEntryAsync(
                 It.IsAny<string>(),
                 It.IsAny<CancellationToken>()))
-            .ReturnsAsync(false);
+            .ReturnsAsync((FileSystemEntry?)null);
         fileMappingRepository
             .Setup(repository => repository.ReplaceForAnimationInfoAsync(
                 It.IsAny<Guid>(),

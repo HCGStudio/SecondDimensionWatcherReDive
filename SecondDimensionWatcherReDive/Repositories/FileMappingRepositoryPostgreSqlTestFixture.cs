@@ -30,7 +30,83 @@ internal sealed class FileMappingRepositoryPostgreSqlTestFixture(string connecti
             PhysicalPath = "/physical/backfill.mkv",
             FileStore = "local"
         };
-        context.FileMappings.Add(preexistingMapping);
+        var collisionInfo = new Models.AnimationInfo
+        {
+            Id = Guid.NewGuid(),
+            Title = "migration collision",
+            Description = "before migration"
+        };
+        var prefixMapping = new Models.FileMapping
+        {
+            Id = Guid.NewGuid(),
+            AnimationInfoId = collisionInfo.Id,
+            VirtualPath = "/unknown/foo",
+            PhysicalPath = "/physical/prefix",
+            FileStore = "local"
+        };
+        var operation = new Models.MetadataReviewOperation
+        {
+            Id = Guid.NewGuid(),
+            AnimationInfoId = collisionInfo.Id,
+            AnimationInfo = collisionInfo,
+            State = MetadataReviewOperationState.Applied,
+            CreatedAt = DateTimeOffset.UtcNow.AddMinutes(-2),
+            ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(13),
+            ProposedAnimationTmdbId = "migration",
+            ProposedAnimationName = "Migration",
+            ProposedAnimationOriginalName = "Migration",
+            ProposedDescription = "migration",
+            MappingSnapshots =
+            [
+                new Models.MetadataReviewMappingSnapshot
+                {
+                    Id = Guid.NewGuid(),
+                    Kind = MetadataReviewMappingKind.Proposed,
+                    VirtualPath = prefixMapping.VirtualPath,
+                    PhysicalPath = prefixMapping.PhysicalPath,
+                    FileStore = prefixMapping.FileStore
+                }
+            ]
+        };
+        context.AddRange(
+            preexistingMapping,
+            collisionInfo,
+            prefixMapping,
+            new Models.FileMapping
+            {
+                Id = Guid.NewGuid(),
+                AnimationInfoId = collisionInfo.Id,
+                VirtualPath = "/unknown/foo/bar.mkv",
+                PhysicalPath = "/physical/descendant",
+                FileStore = "local"
+            },
+            new Models.FileMapping
+            {
+                Id = Guid.NewGuid(),
+                AnimationInfoId = collisionInfo.Id,
+                VirtualPath = "/unknown/foo (2)",
+                PhysicalPath = "/physical/exact-candidate",
+                FileStore = "local"
+            },
+            new Models.FileMapping
+            {
+                Id = Guid.NewGuid(),
+                AnimationInfoId = collisionInfo.Id,
+                VirtualPath = "/unknown/foo (3)/child.mkv",
+                PhysicalPath = "/physical/directory-candidate",
+                FileStore = "local"
+            },
+            new Models.PlaybackProgress
+            {
+                Id = Guid.NewGuid(),
+                UserId = Guid.Empty,
+                AnimationInfoId = collisionInfo.Id,
+                VirtualPath = prefixMapping.VirtualPath,
+                PositionSeconds = 42,
+                DurationSeconds = 100,
+                UpdatedAt = DateTimeOffset.UtcNow
+            },
+            operation);
         await context.SaveChangesAsync(cancellationToken);
 
         await context.Database.MigrateAsync(cancellationToken);
@@ -43,9 +119,35 @@ internal sealed class FileMappingRepositoryPostgreSqlTestFixture(string connecti
         if (backfilled != 3)
             throw new InvalidOperationException("File-system hierarchy backfill was incomplete.");
         BackfillVerified = true;
+
+        var remappedPath = await context.FileMappings
+            .Where(mapping => mapping.Id == prefixMapping.Id)
+            .Select(mapping => mapping.VirtualPath)
+            .SingleAsync(cancellationToken);
+        var remappedProgressPath = await context.PlaybackProgresses
+            .Where(progress => progress.AnimationInfoId == collisionInfo.Id
+                               && progress.PositionSeconds == 42)
+            .Select(progress => progress.VirtualPath)
+            .SingleAsync(cancellationToken);
+        var remappedSnapshotPath = await context.MetadataReviewMappingSnapshots
+            .Where(snapshot => snapshot.OperationId == operation.Id)
+            .Select(snapshot => snapshot.VirtualPath)
+            .SingleAsync(cancellationToken);
+        var oldPathEntry = await context.FileSystemEntries
+            .AsNoTracking()
+            .SingleAsync(entry => entry.Path == "/unknown/foo", cancellationToken);
+        if (remappedPath != "/unknown/foo (4)"
+            || remappedProgressPath != remappedPath
+            || remappedSnapshotPath != remappedPath
+            || !oldPathEntry.IsDirectory)
+            throw new InvalidOperationException(
+                "File/directory collision normalization did not preserve related state.");
+        BackfillConflictResolved = true;
     }
 
     public bool BackfillVerified { get; private set; }
+
+    public bool BackfillConflictResolved { get; private set; }
 
     public async Task ResetAsync(CancellationToken cancellationToken)
     {

@@ -7,7 +7,7 @@ namespace SecondDimensionWatcherReDive.Chat.Tools;
 
 [Tool<QueryAnimationsParams>(
     "query_animations",
-    "Query animation info list. Supports multiple query modes: paged list, grouped by TMDB, downloading, downloaded, search by title, and get by ID.")]
+    "Query animation info list. Supports paged list, grouped by TMDB, downloading, downloaded, title search, and ID lookup. Grouped results return next_cursor when truncated; pass it back unchanged as grouped_cursor to continue.")]
 internal sealed partial class QueryAnimationsTool(
     IAnimationInfoRepository animationInfoRepository) : ITool
 {
@@ -18,8 +18,7 @@ internal sealed partial class QueryAnimationsTool(
         {
             QueryAnimationsAction.List => new ToolSuccessResult<AnimationPagedResult>(
                 await QueryListAsync(param, cancellationToken)),
-            QueryAnimationsAction.Grouped => new ToolSuccessResult<AnimationGroupedToolResult>(
-                await QueryGroupedAsync(param, cancellationToken)),
+            QueryAnimationsAction.Grouped => await QueryGroupedAsync(param, cancellationToken),
             QueryAnimationsAction.Downloading => new ToolSuccessResult<AnimationPagedResult>(
                 await QueryDownloadingAsync(param, cancellationToken)),
             QueryAnimationsAction.Downloaded => new ToolSuccessResult<AnimationPagedResult>(
@@ -38,30 +37,57 @@ internal sealed partial class QueryAnimationsTool(
         return new AnimationPagedResult(result.TotalCount, result.Data.Select(ToSummary));
     }
 
-    private async Task<AnimationGroupedToolResult> QueryGroupedAsync(
+    private async Task<IToolResult> QueryGroupedAsync(
         QueryAnimationsParams param,
         CancellationToken cancellationToken)
     {
+        if (param.Skip is not null and not 0)
+            return new ToolFailureResult(
+                "skip is not supported for grouped queries; pass next_cursor from the previous result as grouped_cursor");
+
         var take = Math.Clamp(param.Take ?? 20, 1, 50);
-        var result = await animationInfoRepository.GetAnimationCatalogPageAsync(
-            cursor: null,
-            take,
-            cancellationToken);
-        var uncategorized = await animationInfoRepository.GetUncategorizedPageAsync(
-            cursor: null,
-            take,
-            cancellationToken);
-        return new AnimationGroupedToolResult(
-            result.Items.Select(item => new AnimationGroupItem(
+        var cursor = param.GroupedCursor;
+        var animationPage = cursor?.AnimationsComplete == true
+            ? new AnimationCatalogPage([], null)
+            : await animationInfoRepository.GetAnimationCatalogPageAsync(
+                cursor?.Animations,
+                take,
+                cancellationToken);
+        var uncategorizedPage = cursor?.UncategorizedComplete == true
+            ? new AnimationInfoSummaryPage([], null)
+            : await animationInfoRepository.GetUncategorizedPageAsync(
+                cursor?.Uncategorized,
+                take,
+                cancellationToken);
+        var animations = animationPage.Items.Select(item => new AnimationGroupItem(
                 item.TmdbId,
                 item.Name,
                 item.OriginalName,
                 item.PosterPath,
                 item.EpisodeCount,
                 item.ReleaseCount,
-                item.AutomationAttentionCount)),
-            uncategorized.Items.Count,
-            uncategorized.Items.Select(ToSummary));
+                item.AutomationAttentionCount))
+            .ToList();
+        var uncategorized = uncategorizedPage.Items.Select(ToSummary).ToList();
+        var animationsComplete = cursor?.AnimationsComplete == true
+                                 || animationPage.NextCursor is null;
+        var uncategorizedComplete = cursor?.UncategorizedComplete == true
+                                    || uncategorizedPage.NextCursor is null;
+        var nextCursor = animationsComplete && uncategorizedComplete
+            ? null
+            : new AnimationGroupedCursor(
+                animationPage.NextCursor,
+                uncategorizedPage.NextCursor,
+                animationsComplete,
+                uncategorizedComplete);
+        return new ToolSuccessResult<AnimationGroupedToolResult>(
+            new AnimationGroupedToolResult(
+                animations,
+                animations.Count,
+                uncategorized,
+                uncategorized.Count,
+                nextCursor,
+                nextCursor is not null));
     }
 
     private async Task<AnimationPagedResult> QueryDownloadingAsync(QueryAnimationsParams param, CancellationToken cancellationToken)
@@ -128,7 +154,8 @@ internal sealed record QueryAnimationsParams(
     int? Skip = null,
     int? Take = null,
     string? Title = null,
-    string? Id = null);
+    string? Id = null,
+    AnimationGroupedCursor? GroupedCursor = null);
 
 internal sealed record AnimationPagedResult(int TotalCount, IEnumerable<AnimationSummary> Items);
 
@@ -139,8 +166,17 @@ internal sealed record AnimationSummary(
 
 internal sealed record AnimationGroupedToolResult(
     IEnumerable<AnimationGroupItem> Animations,
-    int UncategorizedCount,
-    IEnumerable<AnimationSummary> Uncategorized);
+    int ReturnedAnimationCount,
+    IEnumerable<AnimationSummary> Uncategorized,
+    int ReturnedUncategorizedCount,
+    AnimationGroupedCursor? NextCursor,
+    bool IsTruncated);
+
+internal sealed record AnimationGroupedCursor(
+    AnimationCatalogCursor? Animations,
+    AnimationInfoCursor? Uncategorized,
+    bool AnimationsComplete,
+    bool UncategorizedComplete);
 
 internal sealed record AnimationGroupItem(
     string TmdbId, string Name, string OriginalName, string? PosterPath,

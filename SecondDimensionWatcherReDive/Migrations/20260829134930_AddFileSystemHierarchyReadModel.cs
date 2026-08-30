@@ -11,6 +11,125 @@ namespace SecondDimensionWatcherReDive.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
+            // The legacy unique index allowed a file path to also be the prefix of
+            // another mapping. Normalize those ambiguous file nodes before building
+            // the hierarchy, preserving playback and metadata-review history for the
+            // remapped physical file. Shallow conflicts are handled first so a
+            // descendant always has a real directory parent by the time it is checked.
+            migrationBuilder.Sql(
+                """
+                DO $$
+                DECLARE
+                    conflicting record;
+                    old_path text;
+                    candidate_path text;
+                    directory_path text;
+                    file_name text;
+                    stem text;
+                    extension text;
+                    existing_suffix text;
+                    suffix_number bigint;
+                BEGIN
+                    LOOP
+                        SELECT mapping.* INTO conflicting
+                        FROM "FileMappings" AS mapping
+                        WHERE EXISTS (
+                            SELECT 1
+                            FROM "FileMappings" AS descendant
+                            WHERE descendant."Id" <> mapping."Id"
+                              AND left(
+                                    descendant."VirtualPath",
+                                    length(mapping."VirtualPath") + 1)
+                                  = mapping."VirtualPath" || '/')
+                        ORDER BY cardinality(string_to_array(
+                                     trim(BOTH '/' FROM mapping."VirtualPath"), '/')),
+                                 mapping."VirtualPath",
+                                 mapping."Id"
+                        LIMIT 1;
+                        EXIT WHEN NOT FOUND;
+
+                        old_path := conflicting."VirtualPath";
+                        directory_path := regexp_replace(old_path, '/[^/]+$', '');
+                        file_name := regexp_replace(old_path, '^.*/', '');
+                        IF file_name ~ '^.+\.[^.]*$' THEN
+                            extension := substring(file_name FROM '(\.[^.]*)$');
+                            stem := left(file_name, length(file_name) - length(extension));
+                        ELSE
+                            extension := '';
+                            stem := file_name;
+                        END IF;
+                        existing_suffix := substring(stem FROM ' \(([0-9]{1,9})\)$');
+                        IF existing_suffix IS NULL THEN
+                            suffix_number := 2;
+                        ELSE
+                            suffix_number := existing_suffix::bigint + 1;
+                            stem := regexp_replace(stem, ' \([0-9]{1,9}\)$', '');
+                        END IF;
+
+                        LOOP
+                            candidate_path := directory_path || '/' || stem ||
+                                ' (' || suffix_number || ')' || extension;
+                            EXIT WHEN NOT EXISTS (
+                                SELECT 1
+                                FROM "FileMappings" AS occupied
+                                WHERE occupied."Id" <> conflicting."Id"
+                                  AND (occupied."VirtualPath" = candidate_path
+                                       OR left(
+                                            occupied."VirtualPath",
+                                            length(candidate_path) + 1)
+                                          = candidate_path || '/'))
+                              AND NOT EXISTS (
+                                SELECT 1
+                                FROM "MetadataReviewMappingSnapshots" AS snapshot
+                                WHERE snapshot."VirtualPath" = candidate_path);
+                            suffix_number := suffix_number + 1;
+                        END LOOP;
+
+                        UPDATE "PlaybackProgresses" AS target
+                        SET "PositionSeconds" = source."PositionSeconds",
+                            "DurationSeconds" = source."DurationSeconds",
+                            "IsWatched" = source."IsWatched",
+                            "UpdatedAt" = source."UpdatedAt",
+                            "WatchedAt" = source."WatchedAt"
+                        FROM "PlaybackProgresses" AS source
+                        WHERE source."AnimationInfoId" = conflicting."AnimationInfoId"
+                          AND source."VirtualPath" = old_path
+                          AND target."AnimationInfoId" = source."AnimationInfoId"
+                          AND target."UserId" = source."UserId"
+                          AND target."VirtualPath" = candidate_path
+                          AND (source."UpdatedAt" > target."UpdatedAt"
+                               OR (source."UpdatedAt" = target."UpdatedAt"
+                                   AND source."IsWatched" AND NOT target."IsWatched"));
+
+                        DELETE FROM "PlaybackProgresses" AS source
+                        USING "PlaybackProgresses" AS target
+                        WHERE source."AnimationInfoId" = conflicting."AnimationInfoId"
+                          AND source."VirtualPath" = old_path
+                          AND target."AnimationInfoId" = source."AnimationInfoId"
+                          AND target."UserId" = source."UserId"
+                          AND target."VirtualPath" = candidate_path;
+
+                        UPDATE "PlaybackProgresses"
+                        SET "VirtualPath" = candidate_path
+                        WHERE "AnimationInfoId" = conflicting."AnimationInfoId"
+                          AND "VirtualPath" = old_path;
+
+                        UPDATE "MetadataReviewMappingSnapshots" AS snapshot
+                        SET "VirtualPath" = candidate_path
+                        FROM "MetadataReviewOperations" AS operation
+                        WHERE snapshot."OperationId" = operation."Id"
+                          AND operation."AnimationInfoId" = conflicting."AnimationInfoId"
+                          AND snapshot."VirtualPath" = old_path
+                          AND snapshot."PhysicalPath" = conflicting."PhysicalPath"
+                          AND snapshot."FileStore" = conflicting."FileStore";
+
+                        UPDATE "FileMappings"
+                        SET "VirtualPath" = candidate_path
+                        WHERE "Id" = conflicting."Id";
+                    END LOOP;
+                END $$;
+                """);
+
             migrationBuilder.CreateTable(
                 name: "FileSystemEntries",
                 columns: table => new

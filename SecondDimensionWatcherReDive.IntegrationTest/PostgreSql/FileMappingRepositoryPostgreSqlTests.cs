@@ -62,6 +62,7 @@ public sealed class FileMappingRepositoryPostgreSqlTests
     public void Migration_BackfillsMappingsCreatedBeforeTheReadModel()
     {
         Assert.IsTrue(Fixture.BackfillVerified);
+        Assert.IsTrue(Fixture.BackfillConflictResolved);
     }
 
     [TestMethod]
