@@ -9,11 +9,20 @@ internal static class PluginPlatformServiceExtensions
 {
     public static IServiceCollection AddPluginPlatform(
         this IServiceCollection services,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        string defaultRootPath)
     {
         services.AddOptions<PluginPlatformOptions>()
             .Bind(configuration.GetSection(PluginPlatformOptions.SectionName))
-            .Validate(options => options.MaximumPackageBytes is >= 1_024 and <= 64 * 1024 * 1024,
+            .PostConfigure(options =>
+            {
+                if (string.IsNullOrWhiteSpace(options.RootPath))
+                    options.RootPath = Path.GetFullPath(defaultRootPath);
+            })
+            .Validate(options => !string.IsNullOrWhiteSpace(options.RootPath),
+                "RootPath must not be empty.")
+            .Validate(options => options.MaximumPackageBytes is >= 1_024 and
+                                 <= PluginPlatformOptions.MaximumAllowedPackageBytes,
                 "MaximumPackageBytes must be between 1 KiB and 64 MiB.")
             .Validate(options => options.MaximumExpandedBytes >= options.MaximumPackageBytes,
                 "MaximumExpandedBytes must be at least MaximumPackageBytes.")

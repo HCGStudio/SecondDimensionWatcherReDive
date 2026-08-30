@@ -91,7 +91,9 @@ builder.Services.AddDataProtection()
     .SetApplicationName("SecondDimensionWatcherReDive")
     .PersistKeysToFileSystem(new DirectoryInfo(dataProtectionKeyRingPath));
 builder.Services.AddApplicationRuntimeSettings(runtimeSettingsProvider);
-builder.Services.AddPluginPlatform(builder.Configuration);
+builder.Services.AddPluginPlatform(
+    builder.Configuration,
+    PluginPlatformOptions.GetDefaultRootPath(passwordFile));
 
 builder.Services.Configure<MediaLibraryOptions>(
     builder.Configuration.GetSection(MediaLibraryOptions.SectionName));

@@ -21,7 +21,8 @@ internal sealed class PluginController(
 
     [HttpPost("preview")]
     [Consumes("multipart/form-data")]
-    [RequestSizeLimit(8 * 1024 * 1024)]
+    [RequestSizeLimit(PluginPlatformOptions.MaximumUploadRequestBytes)]
+    [RequestFormLimits(MultipartBodyLengthLimit = PluginPlatformOptions.MaximumAllowedPackageBytes)]
     public async Task<ActionResult<External.PluginPackagePreview>> Preview(
         [FromForm] IFormFile package,
         CancellationToken cancellationToken)

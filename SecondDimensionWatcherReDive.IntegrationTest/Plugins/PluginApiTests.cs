@@ -11,6 +11,23 @@ namespace SecondDimensionWatcherReDive.IntegrationTest.Plugins;
 public sealed class PluginApiTests
 {
     [TestMethod]
+    public async Task ManagementApi_AcceptsConfiguredPackagesAboveTheLegacyEightMiBLimit()
+    {
+        await using var factory = new WebDavWebApplicationFactory();
+        using var client = factory.CreateJwtClient();
+        var id = $"test.large-{Guid.NewGuid():N}";
+        var payload = RandomNumberGenerator.GetBytes(8 * 1024 * 1024 + 64 * 1024);
+        await using var package = CreatePackage(id, "1.0", payload);
+        Assert.IsGreaterThan(8L * 1024 * 1024, package.Length);
+        using var form = new MultipartFormDataContent();
+        form.Add(new StreamContent(package), "package", $"{id}.sdwpkg");
+
+        using var response = await client.PostAsync("/api/plugins/preview", form);
+
+        Assert.AreEqual(HttpStatusCode.OK, response.StatusCode, await response.Content.ReadAsStringAsync());
+    }
+
+    [TestMethod]
     public async Task ManagementApi_RequiresPreviewApproval_AndSupportsLifecycle()
     {
         await using var factory = new WebDavWebApplicationFactory();
@@ -104,10 +121,13 @@ public sealed class PluginApiTests
         StringAssert.Contains(await response.Content.ReadAsStringAsync(), "invalid_plugin_request");
     }
 
-    private static MemoryStream CreatePackage(string id, string apiVersion)
+    private static MemoryStream CreatePackage(string id, string apiVersion, byte[]? payload = null)
     {
         const string script = "globalThis.sdwPlugin={handlers:{ping:()=>({ok:true})}};";
         var digest = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(script))).ToLowerInvariant();
+        var integrityFiles = new Dictionary<string, string> { ["index.js"] = digest };
+        if (payload is not null)
+            integrityFiles["payload.bin"] = Convert.ToHexString(SHA256.HashData(payload)).ToLowerInvariant();
         var manifest = JsonSerializer.Serialize(new
         {
             id,
@@ -126,7 +146,7 @@ public sealed class PluginApiTests
                 backgroundTasks = false
             },
             platforms = new[] { "any" },
-            integrity = new { files = new Dictionary<string, string> { ["index.js"] = digest } },
+            integrity = new { files = integrityFiles },
             providers = Array.Empty<object>(),
             dataVersion = 1
         });
@@ -135,6 +155,12 @@ public sealed class PluginApiTests
         {
             WriteEntry(archive, "manifest.json", manifest);
             WriteEntry(archive, "index.js", script);
+            if (payload is not null)
+            {
+                var payloadEntry = archive.CreateEntry("payload.bin", CompressionLevel.NoCompression);
+                using var payloadStream = payloadEntry.Open();
+                payloadStream.Write(payload);
+            }
         }
         stream.Position = 0;
         return stream;
