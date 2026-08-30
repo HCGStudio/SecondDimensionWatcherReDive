@@ -65,6 +65,9 @@ services:
     volumes:
       - downloads:/downloads
       - appdata:/app/data
+      - ./backups:/app/backups
+      # The backup CLI archives this deployment configuration without printing it.
+      - ./podman-compose.yml:/app/deployment/podman-compose.yml:ro
       # Existing libraries can be imported in place from Settings. Replace the
       # host path and keep the mount read-only so originals cannot be modified.
       # - /path/to/anime:/media/anime:ro

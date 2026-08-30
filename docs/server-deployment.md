@@ -218,6 +218,8 @@ Environment=ASPNETCORE_URLS=http://0.0.0.0:8080
 
 ## 服务管理
 
+正式升级或修改数据库前，建议先运行 `sdw-backup create` 并执行 `sdw-backup verify`。系统包还提供可选的每日 systemd timer；RPO/RTO、加密、恢复演练和逻辑 JSON 迁移详见 [备份、恢复与逻辑数据迁移](backup-restore.md)。媒体文件不包含在数据库备份中，必须单独保护。
+
 ```bash
 # 启动服务
 sudo systemctl start sdw-redive

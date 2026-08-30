@@ -215,6 +215,8 @@ podman-compose down -v
 
 ## 更新
 
+更新前建议先执行并验证一次快照；完整的定时、加密和灾难恢复流程见 [备份、恢复与逻辑数据迁移](backup-restore.md)。数据库备份不包含 `downloads` 或外部媒体目录，这些卷需要独立快照。
+
 ```bash
 # 拉取最新镜像
 podman-compose pull sdw-redive

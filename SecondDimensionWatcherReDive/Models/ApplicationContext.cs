@@ -208,6 +208,10 @@ public class ApplicationContext : DbContext
             .HasKey(preference => preference.UserId);
 
         modelBuilder.Entity<PlaybackPreference>()
+            .Property(preference => preference.UserId)
+            .ValueGeneratedNever();
+
+        modelBuilder.Entity<PlaybackPreference>()
             .Property(preference => preference.SubtitleLanguage)
             .HasMaxLength(64);
 
