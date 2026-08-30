@@ -101,6 +101,35 @@ public class AnimationInfoRepository(
         return new PagedResult<AnimationInfo>(data.Select(e => e.ToRecord()).ToList(), totalCount);
     }
 
+    public async Task<IReadOnlyList<AnimationInfo>> GetDownloadedMigrationBatchAsync(
+        DateTimeOffset? beforePublishTime,
+        Guid? beforeId,
+        int take,
+        CancellationToken cancellationToken)
+    {
+        if (take <= 0) throw new ArgumentOutOfRangeException(nameof(take));
+        if (beforePublishTime.HasValue != beforeId.HasValue)
+            throw new ArgumentException("Both migration cursor values must be supplied together.");
+
+        var query = context.AnimationInfo
+            .AsNoTracking()
+            .Include(info => info.Group)
+            .Include(info => info.Animation)
+            .Where(info => info.IsDownloadFinished
+                           && info.MediaLibraryMissingSince == null);
+        if (beforePublishTime is { } publishTime && beforeId is { } id)
+            query = query.Where(info =>
+                info.PublishTime < publishTime
+                || (info.PublishTime == publishTime && info.Id.CompareTo(id) < 0));
+
+        var data = await query
+            .OrderByDescending(info => info.PublishTime)
+            .ThenByDescending(info => info.Id)
+            .Take(take)
+            .ToListAsync(cancellationToken);
+        return data.Select(entity => entity.ToRecord()).ToList();
+    }
+
     public async Task<AnimationInfo?> FindByIdAsync(Guid id, CancellationToken cancellationToken)
     {
         // The returned domain record is later passed back to UpdateAsync. Always load
