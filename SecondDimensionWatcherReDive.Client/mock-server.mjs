@@ -2589,8 +2589,51 @@ async function route(method, pathname, searchParams, req, res) {
     },
   ];
 
+  const mockDurableJobs =
+    globalThis._mockDurableJobs ??
+    (globalThis._mockDurableJobs = [
+      {
+        id: randomUUID(),
+        type: "downloadCompletion",
+        status: "deadLetter",
+        stage: "mapFiles",
+        attemptCount: 8,
+        createdAt: new Date(Date.now() - 3_600_000).toISOString(),
+        updatedAt: new Date(Date.now() - 60_000).toISOString(),
+        nextAttemptAt: new Date(Date.now() - 60_000).toISOString(),
+        lastAttemptAt: new Date(Date.now() - 60_000).toISOString(),
+        completedAt: null,
+        lastError: "InvalidOperationException: No file mapping could be produced.",
+      },
+    ]);
+
   if (method === "GET" && pathname === "/api/tasks") {
     return json(res, MOCK_TASKS);
+  }
+
+  if (method === "GET" && pathname === "/api/jobs") {
+    const status = searchParams.get("status");
+    const items = status
+      ? mockDurableJobs.filter(
+          (job) => job.status.toLowerCase() === status.toLowerCase(),
+        )
+      : mockDurableJobs;
+    return json(res, { items, totalCount: items.length });
+  }
+
+  if (
+    method === "POST" &&
+    (pathname === "/api/jobs/retry" || pathname === "/api/jobs/resolve")
+  ) {
+    const body = await readBody(req);
+    const ids = new Set(Array.isArray(body.ids) ? body.ids : []);
+    let affectedCount = 0;
+    for (let index = mockDurableJobs.length - 1; index >= 0; index--) {
+      if (!ids.has(mockDurableJobs[index].id)) continue;
+      mockDurableJobs.splice(index, 1);
+      affectedCount++;
+    }
+    return json(res, { affectedCount });
   }
 
   // POST /api/tasks/:id/run

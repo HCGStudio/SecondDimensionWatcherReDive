@@ -179,7 +179,7 @@ internal sealed partial class ChatController(
                 cancellationToken));
     }
 
-    private async IAsyncEnumerable<SseItem<string>> StreamChatEvents(
+    internal async IAsyncEnumerable<SseItem<string>> StreamChatEvents(
         IAIEngine aiEngine,
         List<IMessage> messages,
         ChatOptions chatOptions,
@@ -190,7 +190,15 @@ internal sealed partial class ChatController(
         string? model,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        var channel = Channel.CreateUnbounded<SseItem<string>>();
+        var channel = Channel.CreateBounded<SseItem<string>>(
+            new BoundedChannelOptions(256)
+            {
+                SingleReader = true,
+                SingleWriter = true,
+                FullMode = BoundedChannelFullMode.Wait
+            });
+        using var producerCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken);
 
         // Producer: runs AI chat streaming in background, writes SSE items to channel.
         // Keep the task and await it during iterator disposal so a disconnected request cannot
@@ -198,7 +206,7 @@ internal sealed partial class ChatController(
         var producer = ProduceChatEventsAsync(
             aiEngine, messages, chatOptions, conversationId, messageOrder,
             firstUserMessage, autoTitleEligible, model,
-            channel.Writer, cancellationToken);
+            channel.Writer, producerCancellation.Token);
 
         try
         {
@@ -208,13 +216,15 @@ internal sealed partial class ChatController(
         }
         finally
         {
-            // Do not use the canceled request token here. The producer receives it directly,
-            // performs bounded engine cleanup, and persists accumulated messages before returning.
+            // The reader can be disposed independently of RequestAborted (for example when
+            // response-body I/O fails). Explicitly stop the producer, then let it persist
+            // accumulated messages before this request scope is released.
+            await producerCancellation.CancelAsync();
             await producer;
         }
     }
 
-    private async Task ProduceChatEventsAsync(
+    internal async Task ProduceChatEventsAsync(
         IAIEngine aiEngine,
         List<IMessage> messages,
         ChatOptions chatOptions,
@@ -328,12 +338,14 @@ internal sealed partial class ChatController(
         catch (Exception ex)
         {
             LogStreamingError(ex, conversationId);
-            await writer.WriteAsync(
+            // A disconnected/failed reader may leave this bounded channel full.
+            // Terminal error delivery is best-effort so persistence and request
+            // scope disposal can never wait forever for a reader that is gone.
+            writer.TryWrite(
                 new SseItem<string>(
                     JsonSerializer.Serialize(new SseError(ex.Message),
                         ChatJsonSerializerContext.Default.SseError),
-                    "error"),
-                CancellationToken.None);
+                    "error"));
         }
 
         // Save all accumulated segments to DB

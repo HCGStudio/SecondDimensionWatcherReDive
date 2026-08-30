@@ -122,6 +122,7 @@ internal sealed class WebDavWebApplicationFactory : WebApplicationFactory<Migrat
             services.RemoveAll<IFileExplorer>();
             services.RemoveAll<IWebDavTokenRepository>();
             services.RemoveAll<IApplicationSettingsRepository>();
+            services.RemoveAll<IReadinessRepository>();
 
             services.AddSingleton(FileStoreMock.Object);
             services.AddSingleton(FileStoreProviderMock.Object);
@@ -130,6 +131,7 @@ internal sealed class WebDavWebApplicationFactory : WebApplicationFactory<Migrat
             services.AddSingleton<IWebDavTokenRepository>(_ =>
                 new FakeWebDavTokenRepository(TestUserName, BCrypt.Net.BCrypt.HashPassword(TestPassword)));
             services.AddSingleton<IApplicationSettingsRepository, FakeApplicationSettingsRepository>();
+            services.AddSingleton<IReadinessRepository, UnavailableReadinessRepository>();
         });
     }
 
@@ -188,6 +190,12 @@ internal sealed class WebDavWebApplicationFactory : WebApplicationFactory<Migrat
             => string.Empty;
 
         public bool HasPendingModelChanges() => false;
+    }
+
+    private sealed class UnavailableReadinessRepository : IReadinessRepository
+    {
+        public Task<bool> CanConnectAsync(CancellationToken cancellationToken) =>
+            Task.FromResult(false);
     }
 
     private sealed class FakeApplicationSettingsRepository : IApplicationSettingsRepository

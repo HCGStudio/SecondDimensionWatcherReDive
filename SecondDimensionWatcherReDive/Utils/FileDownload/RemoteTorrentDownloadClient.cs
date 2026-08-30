@@ -38,7 +38,8 @@ public class RemoteTorrentDownloadClient(
 
         if (response.IsSuccessStatusCode)
             await remoteTorrentTrackRequest.Writer.WriteAsync(
-                new(itemId, additionalDownloadInfo));
+                new(itemId, additionalDownloadInfo),
+                cancellationToken);
 
         return response.IsSuccessStatusCode;
     }
@@ -51,7 +52,8 @@ public class RemoteTorrentDownloadClient(
         CancellationToken cancellationToken)
     {
         await remoteTorrentTrackRequest.Writer.WriteAsync(
-            new(itemId, additionalDownloadInfo));
+            new(itemId, additionalDownloadInfo),
+            cancellationToken);
     }
 
     public override async Task<bool> PauseDownloadTaskAsync(

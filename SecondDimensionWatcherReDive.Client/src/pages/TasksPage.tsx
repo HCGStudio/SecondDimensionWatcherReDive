@@ -1,16 +1,23 @@
-import { AlertTriangle, Loader2, Play } from "lucide-react";
 import React from "react";
 import { useTranslation } from "react-i18next";
+
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Loader2,
+  Play,
+  RotateCcw,
+} from "lucide-react";
 
 import { useToast } from "../components/ToastProvider";
 import { Button } from "../components/ui/Button";
 import { EmptyPrompt } from "../components/ui/EmptyPrompt";
 import { Spinner } from "../components/ui/Spinner";
 import { Table, type TableColumn } from "../components/ui/Table";
-import { useTasks } from "../tasks/hooks";
+import { useDeadLetterJobs, useTasks } from "../tasks/hooks";
 import { useTaskMetadata } from "../tasks/taskMetadata";
-import { runTask } from "../tasks/utils";
-import { ITask } from "../tasks/types";
+import { IDurableJob, ITask } from "../tasks/types";
+import { resolveJobs, retryJobs, runTask } from "../tasks/utils";
 import { PageTemplate } from "./PageTemplate";
 
 function useFormatInterval(): (interval: string) => string {
@@ -43,8 +50,18 @@ export const TasksPage: React.FC = () => {
   const getTaskMetadata = useTaskMetadata();
   const formatInterval = useFormatInterval();
   const { data: tasks, error, mutate } = useTasks();
+  const {
+    data: deadLetters,
+    error: deadLetterError,
+    mutate: mutateDeadLetters,
+  } = useDeadLetterJobs();
   const { addToast } = useToast();
-  const [runningTasks, setRunningTasks] = React.useState<Set<string>>(new Set());
+  const [runningTasks, setRunningTasks] = React.useState<Set<string>>(
+    new Set(),
+  );
+  const [mutatingJobs, setMutatingJobs] = React.useState<Set<string>>(
+    new Set(),
+  );
 
   const onRun = React.useCallback(
     async (id: string) => {
@@ -72,6 +89,36 @@ export const TasksPage: React.FC = () => {
     [mutate, addToast, t, getTaskMetadata],
   );
 
+  const mutateJob = React.useCallback(
+    async (job: IDurableJob, action: "retry" | "resolve") => {
+      setMutatingJobs((previous) => new Set(previous).add(job.id));
+      try {
+        const result =
+          action === "retry"
+            ? await retryJobs([job.id])
+            : await resolveJobs([job.id]);
+        if (result.affectedCount !== 1) throw new Error("job state changed");
+        await mutateDeadLetters();
+        addToast({
+          title: t(`tasks:deadLetters.toast.${action}Success`),
+          color: "success",
+        });
+      } catch {
+        addToast({
+          title: t(`tasks:deadLetters.toast.${action}Failure`),
+          color: "danger",
+        });
+      } finally {
+        setMutatingJobs((previous) => {
+          const next = new Set(previous);
+          next.delete(job.id);
+          return next;
+        });
+      }
+    },
+    [addToast, mutateDeadLetters, t],
+  );
+
   const columns: TableColumn<ITask>[] = [
     {
       name: t("tasks:columns.name"),
@@ -79,7 +126,8 @@ export const TasksPage: React.FC = () => {
     },
     {
       name: t("tasks:columns.description"),
-      render: (_value: any, item: ITask) => getTaskMetadata(item.id).description,
+      render: (_value: any, item: ITask) =>
+        getTaskMetadata(item.id).description,
     },
     {
       field: "interval",
@@ -122,6 +170,65 @@ export const TasksPage: React.FC = () => {
     },
   ];
 
+  const deadLetterColumns: TableColumn<IDurableJob>[] = [
+    {
+      field: "type",
+      name: t("tasks:deadLetters.columns.type"),
+      render: () => t("tasks:deadLetters.types.downloadCompletion"),
+    },
+    {
+      field: "stage",
+      name: t("tasks:deadLetters.columns.stage"),
+      render: (value: IDurableJob["stage"]) =>
+        t(`tasks:deadLetters.stages.${value}`),
+    },
+    {
+      field: "attemptCount",
+      name: t("tasks:deadLetters.columns.attempts"),
+    },
+    {
+      field: "updatedAt",
+      name: t("tasks:deadLetters.columns.updated"),
+      render: (value: string) => new Date(value).toLocaleString(),
+    },
+    {
+      field: "lastError",
+      name: t("tasks:deadLetters.columns.error"),
+      render: (value: string | null) => value ?? "-",
+      truncateText: true,
+    },
+    {
+      name: t("tasks:deadLetters.columns.actions"),
+      render: (_value: unknown, item: IDurableJob) => {
+        const disabled = mutatingJobs.has(item.id);
+        return (
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={disabled}
+              onClick={() => mutateJob(item, "retry")}
+            >
+              <RotateCcw size={14} />
+              {t("tasks:deadLetters.retry")}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              color="success"
+              disabled={disabled}
+              onClick={() => mutateJob(item, "resolve")}
+            >
+              <CheckCircle2 size={14} />
+              {t("tasks:deadLetters.resolve")}
+            </Button>
+          </div>
+        );
+      },
+      width: "230px",
+    },
+  ];
+
   return (
     <PageTemplate>
       <h2 className="mb-6 font-serif text-xl font-medium text-foreground">
@@ -144,6 +251,28 @@ export const TasksPage: React.FC = () => {
           title={<h2>{t("tasks:empty.title")}</h2>}
           body={<p>{t("tasks:empty.body")}</p>}
         />
+      )}
+
+      <h2 className="mb-2 mt-10 font-serif text-xl font-medium text-foreground">
+        {t("tasks:deadLetters.title")}
+      </h2>
+      <p className="mb-5 text-sm text-muted">
+        {t("tasks:deadLetters.description")}
+      </p>
+      {deadLetterError ? (
+        <p className="text-sm text-error">
+          {t("tasks:deadLetters.loadFailed")}
+        </p>
+      ) : !deadLetters ? (
+        <div className="flex justify-center py-8">
+          <Spinner />
+        </div>
+      ) : deadLetters.items.length > 0 ? (
+        <Table items={deadLetters.items} columns={deadLetterColumns} />
+      ) : (
+        <p className="rounded-md border border-border-light bg-surface px-4 py-6 text-sm text-muted">
+          {t("tasks:deadLetters.empty")}
+        </p>
       )}
     </PageTemplate>
   );
