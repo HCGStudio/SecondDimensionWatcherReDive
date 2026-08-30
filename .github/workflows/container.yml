@@ -3,6 +3,11 @@ name: Container Build & Publish
 on:
   push:
     branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - ".github/workflows/container.yml"
+      - "Containerfile"
   workflow_dispatch:
     inputs:
       release_version:
@@ -12,38 +17,133 @@ on:
 
 permissions:
   contents: read
-  packages: write
+
+concurrency:
+  group: container-${{ github.ref }}-${{ github.event.inputs.release_version || 'prerelease' }}
+  cancel-in-progress: true
 
 jobs:
-  build-and-push:
+  prepare:
     runs-on: ubuntu-latest
+    outputs:
+      registry_image: ${{ steps.image.outputs.registry_image }}
+      tag1: ${{ steps.image.outputs.tag1 }}
+      tag2: ${{ steps.image.outputs.tag2 }}
     steps:
       - uses: actions/checkout@v7
 
       - name: Compute image name and version
+        id: image
         run: |
           REGISTRY="ghcr.io"
           RELEASE_VERSION="${{ github.event.inputs.release_version }}"
           IMAGE_NAME=$(echo "${{ github.repository_owner }}/sdw-redive" | tr '[:upper:]' '[:lower:]')
+          REGISTRY_IMAGE="${REGISTRY}/${IMAGE_NAME}"
 
           if [ -n "$RELEASE_VERSION" ]; then
             VERSION="$RELEASE_VERSION"
-            TAG1="${REGISTRY}/${IMAGE_NAME}:${VERSION}"
-            TAG2="${REGISTRY}/${IMAGE_NAME}:latest"
+            TAG1="${REGISTRY_IMAGE}:${VERSION}"
+            TAG2="${REGISTRY_IMAGE}:latest"
           else
-            BASE_VERSION=$(cat VERSION | tr -d '[:space:]')
+            BASE_VERSION=$(tr -d '[:space:]' < VERSION)
             VERSION="${BASE_VERSION}.${{ github.run_number }}"
-            TAG1="${REGISTRY}/${IMAGE_NAME}:pre-${VERSION}"
-            TAG2="${REGISTRY}/${IMAGE_NAME}:prerelease-latest"
+            TAG1="${REGISTRY_IMAGE}:pre-${VERSION}"
+            TAG2="${REGISTRY_IMAGE}:prerelease-latest"
           fi
 
-          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
-          echo "IMAGE_NAME=${IMAGE_NAME}" >> "$GITHUB_ENV"
-          echo "TAG1=${TAG1}" >> "$GITHUB_ENV"
-          echo "TAG2=${TAG2}" >> "$GITHUB_ENV"
+          echo "registry_image=${REGISTRY_IMAGE}" >> "$GITHUB_OUTPUT"
+          echo "tag1=${TAG1}" >> "$GITHUB_OUTPUT"
+          echo "tag2=${TAG2}" >> "$GITHUB_OUTPUT"
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v4
+  build:
+    needs: prepare
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build container
+        if: github.event_name == 'pull_request'
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./Containerfile
+          platforms: ${{ matrix.platform }}
+          push: false
+          cache-from: type=gha,scope=container-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=container-${{ matrix.arch }}
+
+      - name: Build and push by digest
+        if: github.event_name != 'pull_request'
+        id: publish
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./Containerfile
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=${{ needs.prepare.outputs.registry_image }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=container-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=container-${{ matrix.arch }}
+
+      - name: Export digest
+        if: github.event_name != 'pull_request'
+        env:
+          DIGEST: ${{ steps.publish.outputs.digest }}
+        run: |
+          digest="${DIGEST#sha256:}"
+          if [[ ! "$digest" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "Unexpected image digest: $DIGEST" >&2
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/container-digests"
+          touch "$RUNNER_TEMP/container-digests/$digest"
+
+      - name: Upload digest
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v7
+        with:
+          name: container-digest-${{ matrix.arch }}
+          path: ${{ runner.temp }}/container-digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  publish-manifest:
+    if: github.event_name != 'pull_request'
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@v8
+        with:
+          pattern: container-digest-*
+          path: ${{ runner.temp }}/container-digests
+          merge-multiple: true
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -55,15 +155,41 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: ./Containerfile
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: |
-            ${{ env.TAG1 }}
-            ${{ env.TAG2 }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      - name: Create and verify multi-platform manifest
+        env:
+          REGISTRY_IMAGE: ${{ needs.prepare.outputs.registry_image }}
+          TAG1: ${{ needs.prepare.outputs.tag1 }}
+          TAG2: ${{ needs.prepare.outputs.tag2 }}
+        run: |
+          mapfile -t digests < <(
+            find "$RUNNER_TEMP/container-digests" -maxdepth 1 -type f -printf '%f\n' | sort
+          )
+          if [ "${#digests[@]}" -ne 2 ]; then
+            echo "Expected two platform digests, found ${#digests[@]}" >&2
+            exit 1
+          fi
+
+          images=()
+          for digest in "${digests[@]}"; do
+            if [[ ! "$digest" =~ ^[0-9a-f]{64}$ ]]; then
+              echo "Unexpected image digest: $digest" >&2
+              exit 1
+            fi
+            images+=("${REGISTRY_IMAGE}@sha256:${digest}")
+          done
+
+          docker buildx imagetools create \
+            --tag "$TAG1" \
+            --tag "$TAG2" \
+            "${images[@]}"
+
+          manifest=$(docker buildx imagetools inspect "$TAG1" --raw)
+          for architecture in amd64 arm64; do
+            if ! jq -e --arg architecture "$architecture" \
+              'any(.manifests[]?; .platform.os == "linux" and .platform.architecture == $architecture)' \
+              <<< "$manifest" >/dev/null; then
+              echo "Published manifest is missing linux/$architecture" >&2
+              exit 1
+            fi
+          done
+          docker buildx imagetools inspect "$TAG1"
