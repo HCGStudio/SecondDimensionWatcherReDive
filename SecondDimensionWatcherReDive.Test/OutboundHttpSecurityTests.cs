@@ -52,9 +52,76 @@ public sealed class OutboundHttpSecurityTests
 
         await policy.ValidateUriAsync(new Uri("https://feed.example/rss"), CancellationToken.None);
         await Assert.ThrowsExactlyAsync<OutboundRequestBlockedException>(() =>
-            policy.ResolveConnectionAddressAsync(
+            policy.ResolveConnectionAddressesAsync(
                 new DnsEndPoint("feed.example", 443),
                 CancellationToken.None));
+    }
+
+    [TestMethod]
+    public async Task DualStackConnectionFallsBackWhenIpv6IsUnreachable()
+    {
+        var ipv6 = IPAddress.Parse("2606:2800:220:1:248:1893:25c8:1946");
+        var ipv4 = IPAddress.Parse("93.184.216.34");
+        var policy = CreatePolicy(new StubResolver([ipv6, ipv4]));
+        var connector = new StubSocketConnector((address, _) =>
+            address.AddressFamily == AddressFamily.InterNetworkV6
+                ? Task.FromException<Stream>(new SocketException((int)SocketError.NetworkUnreachable))
+                : Task.FromResult<Stream>(new MemoryStream()));
+        var options = Options.Create(new OutboundHttpOptions
+        {
+            HappyEyeballsDelayMilliseconds = 0
+        });
+        var factory = new OutboundConnectionFactory(policy, connector, options);
+
+        await using var stream = await factory.ConnectAsync(
+            new DnsEndPoint("dual-stack.example", 443),
+            CancellationToken.None);
+
+        CollectionAssert.Contains(connector.Attempts, ipv6);
+        CollectionAssert.Contains(connector.Attempts, ipv4);
+    }
+
+    [TestMethod]
+    public async Task ConnectionCandidatesInterleaveIpv6AndIpv4()
+    {
+        var firstIpv6 = IPAddress.Parse("2606:2800:220:1:248:1893:25c8:1946");
+        var secondIpv6 = IPAddress.Parse("2606:4700:4700::1111");
+        var ipv4 = IPAddress.Parse("93.184.216.34");
+        var policy = CreatePolicy(new StubResolver([firstIpv6, secondIpv6, ipv4]));
+
+        var candidates = await policy.ResolveConnectionAddressesAsync(
+            new DnsEndPoint("dual-stack.example", 443),
+            CancellationToken.None);
+
+        CollectionAssert.AreEqual(new[] { firstIpv6, ipv4, secondIpv6 }, candidates);
+    }
+
+    [TestMethod]
+    public async Task HappyEyeballsDoesNotWaitForStalledFirstAddress()
+    {
+        var ipv6 = IPAddress.Parse("2606:2800:220:1:248:1893:25c8:1946");
+        var ipv4 = IPAddress.Parse("93.184.216.34");
+        var policy = CreatePolicy(new StubResolver([ipv6, ipv4]));
+        var connector = new StubSocketConnector(async (address, cancellationToken) =>
+        {
+            if (address.AddressFamily == AddressFamily.InterNetworkV6)
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                throw new AssertFailedException("The stalled IPv6 attempt should be cancelled.");
+            }
+            return new MemoryStream();
+        });
+        var options = Options.Create(new OutboundHttpOptions
+        {
+            HappyEyeballsDelayMilliseconds = 1
+        });
+        var factory = new OutboundConnectionFactory(policy, connector, options);
+
+        await using var stream = await factory.ConnectAsync(
+            new DnsEndPoint("dual-stack.example", 443),
+            CancellationToken.None);
+
+        CollectionAssert.Contains(connector.Attempts, ipv4);
     }
 
     [TestMethod]
@@ -154,6 +221,24 @@ public sealed class OutboundHttpSecurityTests
     private sealed class StubHttpClientFactory(HttpClient client) : IHttpClientFactory
     {
         public HttpClient CreateClient(string name) => client;
+    }
+
+    private sealed class StubSocketConnector(
+        Func<IPAddress, CancellationToken, Task<Stream>> connect) : IOutboundSocketConnector
+    {
+        private readonly Lock _gate = new();
+
+        public List<IPAddress> Attempts { get; } = [];
+
+        public Task<Stream> ConnectAsync(
+            IPAddress address,
+            int port,
+            CancellationToken cancellationToken)
+        {
+            lock (_gate)
+                Attempts.Add(address);
+            return connect(address, cancellationToken);
+        }
     }
 
     private sealed class RecordingHandler(Func<HttpRequestMessage, HttpResponseMessage> responseFactory)

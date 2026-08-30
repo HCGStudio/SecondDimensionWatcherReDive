@@ -49,14 +49,13 @@ internal sealed class OutboundAddressPolicy
         EnsureAddressesAllowed(uri.IdnHost, addresses);
     }
 
-    public async Task<IPAddress> ResolveConnectionAddressAsync(
+    public async Task<IPAddress[]> ResolveConnectionAddressesAsync(
         DnsEndPoint endpoint,
         CancellationToken cancellationToken)
     {
         var addresses = await ResolveAsync(endpoint.Host, cancellationToken);
         EnsureAddressesAllowed(endpoint.Host, addresses);
-        return addresses.FirstOrDefault(address => address.AddressFamily == AddressFamily.InterNetworkV6)
-               ?? addresses[0];
+        return InterleaveAddressFamilies(addresses.Distinct().ToArray());
     }
 
     internal static void ValidateUriShape(Uri uri)
@@ -145,6 +144,27 @@ internal sealed class OutboundAddressPolicy
         if (denied is not null)
             throw new OutboundRequestBlockedException(
                 $"The outbound host '{host}' resolved to a blocked network.");
+    }
+
+    private static IPAddress[] InterleaveAddressFamilies(IReadOnlyList<IPAddress> addresses)
+    {
+        if (addresses.Count < 2)
+            return addresses.ToArray();
+
+        var preferredFamily = addresses[0].AddressFamily;
+        var preferred = new Queue<IPAddress>(addresses.Where(address =>
+            address.AddressFamily == preferredFamily));
+        var alternate = new Queue<IPAddress>(addresses.Where(address =>
+            address.AddressFamily != preferredFamily));
+        var ordered = new List<IPAddress>(addresses.Count);
+        while (preferred.Count > 0 || alternate.Count > 0)
+        {
+            if (preferred.TryDequeue(out var preferredAddress))
+                ordered.Add(preferredAddress);
+            if (alternate.TryDequeue(out var alternateAddress))
+                ordered.Add(alternateAddress);
+        }
+        return ordered.ToArray();
     }
 
     private readonly record struct IpNetworkRange(byte[] Network, int PrefixLength)

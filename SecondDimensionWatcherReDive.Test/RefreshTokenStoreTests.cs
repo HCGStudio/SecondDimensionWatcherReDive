@@ -1,5 +1,3 @@
-using Microsoft.Extensions.Caching.Distributed;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using SecondDimensionWatcherReDive.Auth;
 using SecondDimensionWatcherReDive.Configuration;
@@ -10,58 +8,136 @@ namespace SecondDimensionWatcherReDive.Test;
 public sealed class RefreshTokenStoreTests
 {
     [TestMethod]
-    public async Task RotationIsSingleUseAndReplayRevokesTheFamily()
+    public async Task ReplayAfterGraceRevokesTheFamily()
     {
-        var store = CreateStore();
-        var first = await store.IssueAsync("jwt-1", null, CancellationToken.None);
+        var time = new ManualTimeProvider();
+        var store = CreateStore(new MemoryRefreshTokenStorage(), time);
+        var first = await store.IssueAsync("jwt-1", CancellationToken.None);
         Assert.IsNotNull(first);
 
-        var family = await store.ConsumeAsync(first.Token, "jwt-1", CancellationToken.None);
-        Assert.IsNotNull(family);
-        var second = await store.IssueAsync("jwt-2", family, CancellationToken.None);
+        var second = await store.RotateAsync(
+            first.Token,
+            "jwt-1",
+            "jwt-2",
+            CancellationToken.None);
         Assert.IsNotNull(second);
 
-        Assert.IsNull(await store.ConsumeAsync(first.Token, "jwt-1", CancellationToken.None));
-        Assert.IsNull(await store.ConsumeAsync(second.Token, "jwt-2", CancellationToken.None));
+        time.Advance(TimeSpan.FromSeconds(4));
+        Assert.IsNull(await store.RotateAsync(
+            first.Token,
+            "jwt-1",
+            "ignored",
+            CancellationToken.None));
+        Assert.IsNull(await store.RotateAsync(
+            second.Token,
+            "jwt-2",
+            "jwt-3",
+            CancellationToken.None));
     }
 
     [TestMethod]
-    public async Task ConcurrentRotationAllowsAtMostOneConsumer()
+    public async Task ConcurrentRotationAcrossInstancesReturnsOneIdempotentReplacement()
     {
-        var store = CreateStore();
-        var issued = await store.IssueAsync("jwt", null, CancellationToken.None);
+        var time = new ManualTimeProvider();
+        var sharedStorage = new MemoryRefreshTokenStorage();
+        var firstStore = CreateStore(sharedStorage, time);
+        var secondStore = CreateStore(sharedStorage, time);
+        var issued = await firstStore.IssueAsync("jwt", CancellationToken.None);
         Assert.IsNotNull(issued);
 
         var results = await Task.WhenAll(
-            store.ConsumeAsync(issued.Token, "jwt", CancellationToken.None),
-            store.ConsumeAsync(issued.Token, "jwt", CancellationToken.None));
+            firstStore.RotateAsync(issued.Token, "jwt", "next-a", CancellationToken.None),
+            secondStore.RotateAsync(issued.Token, "jwt", "next-b", CancellationToken.None));
 
-        Assert.AreEqual(1, results.Count(result => result is not null));
-        var family = results.Single(result => result is not null)!;
-        Assert.IsNull(await store.IssueAsync("next", family, CancellationToken.None));
+        Assert.IsTrue(results.All(result => result is not null));
+        Assert.AreEqual(results[0]!.Token, results[1]!.Token);
+        Assert.AreEqual(results[0]!.JwtId, results[1]!.JwtId);
+
+        var descendant = await secondStore.RotateAsync(
+            results[0]!.Token,
+            results[0]!.JwtId,
+            "grandchild",
+            CancellationToken.None);
+        Assert.IsNotNull(descendant);
+    }
+
+    [TestMethod]
+    public async Task DuplicateStopsBeingIdempotentAfterBoundedGrace()
+    {
+        var time = new ManualTimeProvider();
+        var store = CreateStore(new MemoryRefreshTokenStorage(), time);
+        var issued = await store.IssueAsync("jwt", CancellationToken.None);
+        Assert.IsNotNull(issued);
+        Assert.IsNotNull(await store.RotateAsync(
+            issued.Token,
+            "jwt",
+            "next",
+            CancellationToken.None));
+
+        time.Advance(TimeSpan.FromSeconds(3));
+
+        Assert.IsNull(await store.RotateAsync(
+            issued.Token,
+            "jwt",
+            "too-late",
+            CancellationToken.None));
+    }
+
+    [TestMethod]
+    public async Task WrongJwtDoesNotConsumeRefreshToken()
+    {
+        var time = new ManualTimeProvider();
+        var store = CreateStore(new MemoryRefreshTokenStorage(), time);
+        var issued = await store.IssueAsync("jwt", CancellationToken.None);
+        Assert.IsNotNull(issued);
+
+        Assert.IsNull(await store.RotateAsync(
+            issued.Token,
+            "wrong",
+            "next",
+            CancellationToken.None));
+        Assert.IsNotNull(await store.RotateAsync(
+            issued.Token,
+            "jwt",
+            "next",
+            CancellationToken.None));
     }
 
     [TestMethod]
     public async Task LogoutRevokesOutstandingRefreshToken()
     {
-        var store = CreateStore();
-        var issued = await store.IssueAsync("jwt", null, CancellationToken.None);
+        var time = new ManualTimeProvider();
+        var store = CreateStore(new MemoryRefreshTokenStorage(), time);
+        var issued = await store.IssueAsync("jwt", CancellationToken.None);
         Assert.IsNotNull(issued);
 
         await store.RevokeAsync(issued.Token, CancellationToken.None);
 
-        Assert.IsNull(await store.ConsumeAsync(issued.Token, "jwt", CancellationToken.None));
+        Assert.IsNull(await store.RotateAsync(
+            issued.Token,
+            "jwt",
+            "next",
+            CancellationToken.None));
     }
 
-    private static RefreshTokenStore CreateStore()
+    private static RefreshTokenStore CreateStore(
+        IRefreshTokenStorage storage,
+        TimeProvider timeProvider) =>
+        new(
+            storage,
+            Options.Create(new TokenSecurityOptions
+            {
+                RefreshTokenDays = 30,
+                RefreshTokenReuseGraceSeconds = 3
+            }),
+            timeProvider);
+
+    internal sealed class ManualTimeProvider : TimeProvider
     {
-        var services = new ServiceCollection();
-        services.AddDistributedMemoryCache();
-        var provider = services.BuildServiceProvider();
-        var cache = provider.GetRequiredService<IDistributedCache>();
-        return new RefreshTokenStore(
-            cache,
-            Options.Create(new TokenSecurityOptions { RefreshTokenDays = 30 }),
-            TimeProvider.System);
+        private DateTimeOffset _utcNow = new(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+
+        public override DateTimeOffset GetUtcNow() => _utcNow;
+
+        internal void Advance(TimeSpan duration) => _utcNow += duration;
     }
 }

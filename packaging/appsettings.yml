@@ -13,12 +13,14 @@ Authentication:
   Audience: "SecondDimensionWatcherReDive.Client"
   AccessTokenMinutes: 10
   RefreshTokenDays: 30
+  RefreshTokenReuseGraceSeconds: 3
   PlaybackLinkMinutes: 15
 
 OutboundHttp:
   MaxRedirects: 3
   TotalTimeoutSeconds: 30
   ConnectTimeoutSeconds: 10
+  HappyEyeballsDelayMilliseconds: 250
   FirstByteTimeoutSeconds: 15
   MaxConcurrentRequests: 4
   MaxFeedBytes: 4194304
@@ -31,6 +33,13 @@ RateLimit:
   AuthPermitLimit: 10
   BasicPermitLimit: 600
   AiPermitLimit: 30
+
+# Loopback reverse proxies are trusted by default. For a proxy on another host or
+# container, add only its exact address or smallest network, never client networks.
+ReverseProxy:
+  ForwardLimit: 1
+  KnownProxies: []
+  KnownNetworks: []
 
 # qBittorrent Web API 地址（必填）
 # UserName / Password 留空表示 qBittorrent 未启用鉴权（或已通过白名单放行本机）

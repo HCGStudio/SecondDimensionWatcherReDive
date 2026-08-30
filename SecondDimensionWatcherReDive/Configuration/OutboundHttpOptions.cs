@@ -15,6 +15,9 @@ internal sealed class OutboundHttpOptions
     [Range(1, 60)]
     public int ConnectTimeoutSeconds { get; set; } = 10;
 
+    [Range(0, 2_000)]
+    public int HappyEyeballsDelayMilliseconds { get; set; } = 250;
+
     [Range(1, 120)]
     public int FirstByteTimeoutSeconds { get; set; } = 15;
 

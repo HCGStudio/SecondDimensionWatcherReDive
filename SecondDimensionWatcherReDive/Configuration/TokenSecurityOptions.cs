@@ -18,6 +18,9 @@ internal sealed class TokenSecurityOptions
     [Range(1, 365)]
     public int RefreshTokenDays { get; set; } = 30;
 
+    [Range(0, 30)]
+    public int RefreshTokenReuseGraceSeconds { get; set; } = 3;
+
     [Range(1, 120)]
     public int PlaybackLinkMinutes { get; set; } = 15;
 }

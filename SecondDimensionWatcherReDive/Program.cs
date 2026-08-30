@@ -1,6 +1,5 @@
 using System.Net;
 using System.Net.Http.Headers;
-using System.Net.Sockets;
 using System.Reflection;
 using System.Text;
 using System.Threading.Channels;
@@ -8,6 +7,7 @@ using System.Threading.RateLimiting;
 using AspSpaService;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.EntityFrameworkCore;
@@ -112,6 +112,18 @@ builder.Services.AddCors(options =>
         policy.AllowAnyOrigin();
     });
 });
+var trustedProxyOptions = builder.Configuration
+    .GetSection(TrustedProxyOptions.SectionName)
+    .Get<TrustedProxyOptions>() ?? new TrustedProxyOptions();
+builder.Services.AddOptions<TrustedProxyOptions>()
+    .BindConfiguration(TrustedProxyOptions.SectionName)
+    .ValidateDataAnnotations()
+    .Validate(
+        TrustedProxyConfiguration.IsValid,
+        "ReverseProxy known proxies and networks must be valid IP addresses and CIDRs.")
+    .ValidateOnStart();
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+    TrustedProxyConfiguration.Apply(options, trustedProxyOptions));
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -193,15 +205,22 @@ builder.Services.AddAuthentication(options =>
 var valkeyConnection = builder.Configuration["Valkey:ConnectionString"];
 if (!string.IsNullOrEmpty(valkeyConnection))
 {
+    var redisConnectionProvider = new RedisConnectionProvider(valkeyConnection);
+    builder.Services.AddSingleton(redisConnectionProvider);
     builder.Services.AddStackExchangeRedisCache(options =>
     {
-        options.Configuration = valkeyConnection;
+        options.ConnectionMultiplexerFactory = () =>
+            redisConnectionProvider.GetConnectionAsync(CancellationToken.None);
         options.InstanceName = builder.Configuration["Valkey:InstanceName"] ?? "sdw-redive:";
     });
+    builder.Services.AddSingleton<IRefreshTokenStorage>(_ => new RedisRefreshTokenStorage(
+        redisConnectionProvider,
+        builder.Configuration["Valkey:InstanceName"] ?? "sdw-redive:"));
 }
 else
 {
     builder.Services.AddDistributedMemoryCache();
+    builder.Services.AddSingleton<IRefreshTokenStorage, MemoryRefreshTokenStorage>();
 }
 builder.Services.AddMemoryCache();
 builder.Services.AddSingleton(TimeProvider.System);
@@ -219,6 +238,8 @@ builder.Services.AddOptions<OutboundHttpOptions>()
     .ValidateOnStart();
 builder.Services.AddSingleton<IHostAddressResolver, SystemHostAddressResolver>();
 builder.Services.AddSingleton<OutboundAddressPolicy>();
+builder.Services.AddSingleton<IOutboundSocketConnector, OutboundSocketConnector>();
+builder.Services.AddSingleton<OutboundConnectionFactory>();
 builder.Services.AddSingleton<ISafeOutboundHttpFetcher, SafeOutboundHttpFetcher>();
 builder.Services.AddScoped<QBittorrentCookieStore>();
 builder.Services.AddTransient<QBittorrentAuthHandler>();
@@ -279,7 +300,7 @@ builder.Services.AddHttpClient("SafeFeed", client =>
 })
 .ConfigurePrimaryHttpMessageHandler(serviceProvider =>
 {
-    var policy = serviceProvider.GetRequiredService<OutboundAddressPolicy>();
+    var connectionFactory = serviceProvider.GetRequiredService<OutboundConnectionFactory>();
     var options = serviceProvider.GetRequiredService<Microsoft.Extensions.Options.IOptions<OutboundHttpOptions>>().Value;
     return new SocketsHttpHandler
     {
@@ -289,25 +310,8 @@ builder.Services.AddHttpClient("SafeFeed", client =>
         MaxConnectionsPerServer = options.MaxConcurrentRequests,
         PooledConnectionLifetime = TimeSpan.FromMinutes(5),
         UseProxy = false,
-        ConnectCallback = async (context, cancellationToken) =>
-        {
-            var address = await policy.ResolveConnectionAddressAsync(
-                context.DnsEndPoint,
-                cancellationToken);
-            var socket = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
-            try
-            {
-                await socket.ConnectAsync(
-                    new IPEndPoint(address, context.DnsEndPoint.Port),
-                    cancellationToken);
-                return new NetworkStream(socket, ownsSocket: true);
-            }
-            catch
-            {
-                socket.Dispose();
-                throw;
-            }
-        }
+        ConnectCallback = (context, cancellationToken) =>
+            connectionFactory.ConnectAsync(context.DnsEndPoint, cancellationToken)
     };
 });
 
@@ -423,6 +427,7 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+app.UseForwardedHeaders();
 app.UseHttpsRedirection();
 
 app.UseRouting();

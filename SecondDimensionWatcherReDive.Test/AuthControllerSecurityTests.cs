@@ -1,9 +1,7 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Text;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
@@ -40,7 +38,8 @@ public sealed class AuthControllerSecurityTests
     [TestMethod]
     public async Task RefreshRotatesOnceAndReplayRevokesDescendants()
     {
-        var controller = CreateController();
+        var time = new RefreshTokenStoreTests.ManualTimeProvider();
+        var controller = CreateController(time);
         var loginResponse = await controller.Login(new LoginData(Password), CancellationToken.None);
         var first = (LoginResult)((OkObjectResult)loginResponse).Value!;
 
@@ -50,6 +49,16 @@ public sealed class AuthControllerSecurityTests
         var second = (LoginResult)((OkObjectResult)refreshResponse).Value!;
         Assert.AreNotEqual(first.RefreshToken, second.RefreshToken);
 
+        var concurrentDuplicate = await controller.Refresh(
+            new AuthRequest(first.Token!, first.RefreshToken!),
+            CancellationToken.None);
+        var duplicate = (LoginResult)((OkObjectResult)concurrentDuplicate).Value!;
+        Assert.AreEqual(second.RefreshToken, duplicate.RefreshToken);
+        Assert.AreEqual(
+            new JwtSecurityTokenHandler().ReadJwtToken(second.Token).Id,
+            new JwtSecurityTokenHandler().ReadJwtToken(duplicate.Token).Id);
+
+        time.Advance(TimeSpan.FromSeconds(4));
         var replay = await controller.Refresh(
             new AuthRequest(first.Token!, first.RefreshToken!),
             CancellationToken.None);
@@ -61,7 +70,7 @@ public sealed class AuthControllerSecurityTests
         Assert.IsInstanceOfType<BadRequestObjectResult>(descendant);
     }
 
-    private static AuthController CreateController()
+    private static AuthController CreateController(TimeProvider? timeProvider = null)
     {
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
@@ -75,7 +84,8 @@ public sealed class AuthControllerSecurityTests
             Issuer = "test-issuer",
             Audience = "test-audience",
             AccessTokenMinutes = 10,
-            RefreshTokenDays = 30
+            RefreshTokenDays = 30,
+            RefreshTokenReuseGraceSeconds = 3
         };
         var validation = new TokenValidationParameters
         {
@@ -91,19 +101,17 @@ public sealed class AuthControllerSecurityTests
             RequireExpirationTime = true,
             ClockSkew = TimeSpan.FromSeconds(30)
         };
-        var services = new ServiceCollection();
-        services.AddDistributedMemoryCache();
-        var provider = services.BuildServiceProvider();
+        timeProvider ??= TimeProvider.System;
         var store = new RefreshTokenStore(
-            provider.GetRequiredService<IDistributedCache>(),
+            new MemoryRefreshTokenStorage(),
             Options.Create(security),
-            TimeProvider.System);
+            timeProvider);
         return new AuthController(
             configuration,
             validation,
             store,
             Options.Create(security),
-            TimeProvider.System,
+            timeProvider,
             NullLogger<AuthController>.Instance);
     }
 }

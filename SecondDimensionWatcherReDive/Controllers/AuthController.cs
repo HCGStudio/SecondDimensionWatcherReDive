@@ -41,41 +41,15 @@ internal partial class AuthController : ControllerBase
         _logger = logger;
     }
 
-    private async Task<External.LoginResult> GenerateJwtTokenAsync(
-        RefreshTokenFamily? refreshTokenFamily,
-        CancellationToken cancellationToken)
+    private async Task<External.LoginResult> GenerateJwtTokenAsync(CancellationToken cancellationToken)
     {
-        var handler = new JwtSecurityTokenHandler();
-        var key = Encoding.UTF8.GetBytes(_configuration["JwtSecret"]!);
-        var now = _timeProvider.GetUtcNow();
         var jwtId = Guid.NewGuid().ToString();
-
-        var tokenDescriptor = new SecurityTokenDescriptor
-        {
-            Subject = new ClaimsIdentity(new[]
-            {
-                new Claim("Id", Guid.Empty.ToString()),
-                new Claim(JwtRegisteredClaimNames.Jti, jwtId)
-            }),
-            Issuer = _securityOptions.Issuer,
-            Audience = _securityOptions.Audience,
-            IssuedAt = now.UtcDateTime,
-            NotBefore = now.UtcDateTime,
-            Expires = now.AddMinutes(_securityOptions.AccessTokenMinutes).UtcDateTime,
-            SigningCredentials =
-                new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha256Signature)
-        };
-
-        var token = handler.CreateToken(tokenDescriptor);
-        var jwtToken = handler.WriteToken(token);
-
         var refreshToken = await _refreshTokens.IssueAsync(
             jwtId,
-            refreshTokenFamily,
             cancellationToken);
         return refreshToken is null
             ? new External.LoginResult(null, null, false)
-            : new External.LoginResult(jwtToken, refreshToken.Token);
+            : CreateLoginResult(refreshToken);
     }
 
     [HttpPost("register")]
@@ -93,7 +67,7 @@ internal partial class AuthController : ControllerBase
                 External.AppJsonSerializerContext.Default.PasswordConfig),
             cancellationToken);
 
-        return Ok(await GenerateJwtTokenAsync(null, cancellationToken));
+        return Ok(await GenerateJwtTokenAsync(cancellationToken));
     }
 
     [HttpPost("login")]
@@ -108,7 +82,7 @@ internal partial class AuthController : ControllerBase
         if (!BCrypt.Net.BCrypt.Verify(data.Password, storedValue))
             return BadRequest();
 
-        return Ok(await GenerateJwtTokenAsync(null, cancellationToken));
+        return Ok(await GenerateJwtTokenAsync(cancellationToken));
     }
 
     [HttpPost("refresh")]
@@ -142,13 +116,14 @@ internal partial class AuthController : ControllerBase
             if (string.IsNullOrEmpty(jwtId))
                 return new External.LoginResult(null, null, false);
 
-            var family = await _refreshTokens.ConsumeAsync(
+            var replacement = await _refreshTokens.RotateAsync(
                 request.RefreshToken,
                 jwtId,
+                Guid.NewGuid().ToString(),
                 cancellationToken);
-            return family is null
+            return replacement is null
                 ? new External.LoginResult(null, null, false)
-                : await GenerateJwtTokenAsync(family, cancellationToken);
+                : CreateLoginResult(replacement);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -182,6 +157,30 @@ internal partial class AuthController : ControllerBase
     public IActionResult CanRegister()
     {
         return Ok(new { Allow = string.IsNullOrWhiteSpace(_configuration["Password:Value"]) });
+    }
+
+    private External.LoginResult CreateLoginResult(IssuedRefreshToken refreshToken)
+    {
+        var handler = new JwtSecurityTokenHandler();
+        var key = Encoding.UTF8.GetBytes(_configuration["JwtSecret"]!);
+        var now = _timeProvider.GetUtcNow();
+        var tokenDescriptor = new SecurityTokenDescriptor
+        {
+            Subject = new ClaimsIdentity(new[]
+            {
+                new Claim("Id", Guid.Empty.ToString()),
+                new Claim(JwtRegisteredClaimNames.Jti, refreshToken.JwtId)
+            }),
+            Issuer = _securityOptions.Issuer,
+            Audience = _securityOptions.Audience,
+            IssuedAt = now.UtcDateTime,
+            NotBefore = now.UtcDateTime,
+            Expires = now.AddMinutes(_securityOptions.AccessTokenMinutes).UtcDateTime,
+            SigningCredentials =
+                new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha256Signature)
+        };
+        var token = handler.CreateToken(tokenDescriptor);
+        return new External.LoginResult(handler.WriteToken(token), refreshToken.Token);
     }
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Token verification failed")]
