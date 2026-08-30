@@ -19,7 +19,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: container-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || (github.event_name == 'workflow_dispatch' && github.event.inputs.release_version != '' && 'stable' || 'prerelease') }}
+  group: container-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || (github.event_name == 'workflow_dispatch' && github.event.inputs.release_version != '' && format('stable-{0}', github.event.inputs.release_version) || 'prerelease') }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -35,26 +35,38 @@ jobs:
       - name: Compute image name and version
         id: image
         env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
           RELEASE_VERSION: ${{ github.event.inputs.release_version }}
         run: |
           REGISTRY="ghcr.io"
           IMAGE_NAME=$(echo "${{ github.repository_owner }}/sdw-redive" | tr '[:upper:]' '[:lower:]')
           REGISTRY_IMAGE="${REGISTRY}/${IMAGE_NAME}"
+          BASE_VERSION=$(tr -d '[:space:]' < VERSION)
+
+          if [[ ! "$BASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "VERSION must use the x.y.z format" >&2
+            exit 1
+          fi
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$REF_NAME" != "$DEFAULT_BRANCH" ]; then
+            echo "Manual publication must run from $DEFAULT_BRANCH" >&2
+            exit 1
+          fi
 
           if [ -n "$RELEASE_VERSION" ]; then
             if [[ ! "$RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
               echo "Release version must use the x.y.z format" >&2
               exit 1
             fi
+            if [ "$RELEASE_VERSION" != "$BASE_VERSION" ]; then
+              echo "Release version $RELEASE_VERSION does not match VERSION ($BASE_VERSION)" >&2
+              exit 1
+            fi
             VERSION="$RELEASE_VERSION"
             TAG1="${REGISTRY_IMAGE}:${VERSION}"
             TAG2="${REGISTRY_IMAGE}:latest"
           else
-            BASE_VERSION=$(tr -d '[:space:]' < VERSION)
-            if [[ ! "$BASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-              echo "VERSION must use the x.y.z format" >&2
-              exit 1
-            fi
             VERSION="${BASE_VERSION}.${{ github.run_number }}"
             TAG1="${REGISTRY_IMAGE}:pre-${VERSION}"
             TAG2="${REGISTRY_IMAGE}:prerelease-latest"
@@ -157,13 +169,15 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  publish-manifest:
+  publish-version:
     if: github.event_name != 'pull_request'
     needs: [prepare, build]
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
+    outputs:
+      manifest_digest: ${{ steps.manifest.outputs.manifest_digest }}
     steps:
       - name: Download digests
         uses: actions/download-artifact@v8
@@ -183,10 +197,10 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create and verify multi-platform manifest
+        id: manifest
         env:
           REGISTRY_IMAGE: ${{ needs.prepare.outputs.registry_image }}
           TAG1: ${{ needs.prepare.outputs.tag1 }}
-          TAG2: ${{ needs.prepare.outputs.tag2 }}
         run: |
           mapfile -t digests < <(
             find "$RUNNER_TEMP/container-digests" -maxdepth 1 -type f -printf '%f\n' | sort
@@ -250,11 +264,58 @@ jobs:
             exit 1
           fi
 
-          docker buildx imagetools create --tag "$TAG2" "${REGISTRY_IMAGE}@${manifest_digest}"
+          echo "manifest_digest=$manifest_digest" >> "$GITHUB_OUTPUT"
+          docker buildx imagetools inspect "${REGISTRY_IMAGE}@${manifest_digest}"
+
+  promote-moving:
+    if: github.event_name != 'pull_request'
+    needs: [prepare, publish-version]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    concurrency:
+      group: container-moving-${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_version != '' && 'stable' || 'prerelease' }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Promote the moving tag from the verified digest
+        env:
+          MANIFEST_DIGEST: ${{ needs.publish-version.outputs.manifest_digest }}
+          REGISTRY_IMAGE: ${{ needs.prepare.outputs.registry_image }}
+          SOURCE_SHA: ${{ github.sha }}
+          TAG2: ${{ needs.prepare.outputs.tag2 }}
+        run: |
+          if [[ ! "$MANIFEST_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "Unexpected manifest digest: $MANIFEST_DIGEST" >&2
+            exit 1
+          fi
+
+          current_sha=$(git rev-parse HEAD)
+          if [ "$current_sha" != "$SOURCE_SHA" ]; then
+            echo "::notice::Not updating $TAG2 because the default branch moved from $SOURCE_SHA to $current_sha"
+            exit 0
+          fi
+
+          manifest=$(docker buildx imagetools inspect "${REGISTRY_IMAGE}@${MANIFEST_DIGEST}" --raw)
+          docker buildx imagetools create --tag "$TAG2" "${REGISTRY_IMAGE}@${MANIFEST_DIGEST}"
           tag2_manifest=$(docker buildx imagetools inspect "$TAG2" --raw)
           if [ "$tag2_manifest" != "$manifest" ]; then
             echo "$TAG2 does not resolve to the validated manifest" >&2
             exit 1
           fi
 
-          docker buildx imagetools inspect "${REGISTRY_IMAGE}@${manifest_digest}"
+          docker buildx imagetools inspect "$TAG2"
