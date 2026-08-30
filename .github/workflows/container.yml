@@ -225,6 +225,14 @@ jobs:
             exit 1
           fi
 
+          invalid_auxiliary=$(jq -c \
+            '[.manifests[]? | select((.platform.os // "unknown") == "unknown" and (.platform.architecture // "unknown") == "unknown") | select(.annotations["vnd.docker.reference.type"] != "attestation-manifest")]' \
+            <<< "$manifest")
+          if [ "$invalid_auxiliary" != '[]' ]; then
+            echo "Manifest contains unexpected auxiliary descriptors: $invalid_auxiliary" >&2
+            exit 1
+          fi
+
           tag1_digest=$(docker buildx imagetools inspect "$TAG1" --format '{{json .Manifest}}' | jq -er '.digest')
           if [ "$tag1_digest" != "$manifest_digest" ]; then
             echo "$TAG1 points to $tag1_digest instead of $manifest_digest" >&2
