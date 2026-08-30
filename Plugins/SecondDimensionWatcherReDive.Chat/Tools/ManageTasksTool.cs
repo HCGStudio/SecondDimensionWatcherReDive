@@ -9,9 +9,10 @@ namespace SecondDimensionWatcherReDive.Chat.Tools;
     "manage_tasks",
     "Manage background scheduled tasks. List all task statuses or manually trigger a specific task to run.")]
 internal sealed partial class ManageTasksTool(
-    IEnumerable<IScheduledTask> scheduledTasks) : ITool
+    IEnumerable<IScheduledTask> scheduledTasks,
+    IScheduledTaskLeaseManager leaseManager) : ITool
 {
-    private Task<IToolResult> ExecuteCoreAsync(
+    private async Task<IToolResult> ExecuteCoreAsync(
         ManageTasksParams param, CancellationToken cancellationToken)
     {
         var taskList = scheduledTasks.ToList();
@@ -20,10 +21,24 @@ internal sealed partial class ManageTasksTool(
         switch (param.Action)
         {
             case ManageTasksAction.List:
+            {
+                var statuses = await leaseManager.GetStatusesAsync(
+                    taskList.Select(task => task.Id).ToArray(),
+                    cancellationToken);
                 result = new ToolSuccessResult<TaskListResult>(new TaskListResult(
-                    taskList.Select(t => new TaskSummary(
-                        t.Id, t.Interval.ToString(), t.IsEnabled, t.LastRunAt, t.IsRunning))));
+                    taskList.Select(task =>
+                    {
+                        var status = statuses.GetValueOrDefault(task.Id)
+                                     ?? new ScheduledTaskStatus(null, false);
+                        return new TaskSummary(
+                            task.Id,
+                            task.Interval.ToString(),
+                            task.IsEnabled,
+                            status.LastRunAt,
+                            status.IsRunning);
+                    })));
                 break;
+            }
 
             case ManageTasksAction.Run:
             {
@@ -52,7 +67,7 @@ internal sealed partial class ManageTasksTool(
                 break;
         }
 
-        return Task.FromResult(result);
+        return result;
     }
 }
 

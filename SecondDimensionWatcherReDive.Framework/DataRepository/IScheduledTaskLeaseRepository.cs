@@ -25,4 +25,8 @@ public interface IScheduledTaskLeaseRepository
         bool succeeded,
         string? error,
         CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<ScheduledTaskLeaseState>> GetStatesAsync(
+        IReadOnlyCollection<string> taskIds,
+        CancellationToken cancellationToken);
 }

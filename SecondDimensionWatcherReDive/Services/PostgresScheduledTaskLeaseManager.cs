@@ -33,6 +33,41 @@ public sealed partial class PostgresScheduledTaskLeaseManager(
             : null;
     }
 
+    public async Task<IReadOnlyDictionary<string, ScheduledTaskStatus>> GetStatusesAsync(
+        IReadOnlyCollection<string> taskIds,
+        CancellationToken cancellationToken)
+    {
+        var ids = taskIds.Distinct(StringComparer.Ordinal).ToArray();
+        if (ids.Length == 0)
+            return new Dictionary<string, ScheduledTaskStatus>(StringComparer.Ordinal);
+
+        await using var scope = scopeFactory.CreateAsyncScope();
+        var repository = scope.ServiceProvider.GetRequiredService<IScheduledTaskLeaseRepository>();
+        var persistedStates = await repository.GetStatesAsync(ids, cancellationToken);
+        var statesById = persistedStates.ToDictionary(
+            state => state.TaskId,
+            StringComparer.Ordinal);
+        var now = DateTimeOffset.UtcNow;
+        return ids.ToDictionary(
+            taskId => taskId,
+            taskId => statesById.TryGetValue(taskId, out var state)
+                ? ToStatus(state, now)
+                : new ScheduledTaskStatus(null, false),
+            StringComparer.Ordinal);
+    }
+
+    private static ScheduledTaskStatus ToStatus(
+        ScheduledTaskLeaseState state,
+        DateTimeOffset now)
+    {
+        var isRunning = state.LeaseOwner is not null
+                        && state.LeaseExpiresAt > now
+                        && state.LastStartedAt is { } startedAt
+                        && (state.LastCompletedAt is null
+                            || startedAt > state.LastCompletedAt);
+        return new ScheduledTaskStatus(state.LastCompletedAt, isRunning);
+    }
+
     private sealed class ExecutionLease : IScheduledTaskExecutionLease
     {
         private readonly string _taskId;

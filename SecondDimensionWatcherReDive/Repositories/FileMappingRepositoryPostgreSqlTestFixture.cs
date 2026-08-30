@@ -249,6 +249,16 @@ internal sealed class FileMappingRepositoryPostgreSqlTestFixture(string connecti
             cancellationToken);
     }
 
+    public async Task<IReadOnlyList<ScheduledTaskLeaseState>> GetTaskLeaseStatesAsync(
+        IReadOnlyCollection<string> taskIds,
+        CancellationToken cancellationToken)
+    {
+        await using var context = new Models.ApplicationContext(_contextOptions);
+        return await new ScheduledTaskLeaseRepository(context).GetStatesAsync(
+            taskIds,
+            cancellationToken);
+    }
+
     public async Task<int> RetryJobsAsync(
         IReadOnlyCollection<Guid> ids,
         DateTimeOffset now,

@@ -92,4 +92,23 @@ public sealed class ScheduledTaskLeaseRepository(Models.ApplicationContext conte
                     state => succeeded ? completedAt : state.LastSucceededAt)
                 .SetProperty(state => state.LastError,
                     succeeded ? null : error), cancellationToken);
+
+    public async Task<IReadOnlyList<ScheduledTaskLeaseState>> GetStatesAsync(
+        IReadOnlyCollection<string> taskIds,
+        CancellationToken cancellationToken)
+    {
+        if (taskIds.Count == 0) return [];
+
+        var ids = taskIds.Distinct(StringComparer.Ordinal).ToArray();
+        return await context.ScheduledTaskStates
+            .AsNoTracking()
+            .Where(state => ids.Contains(state.TaskId))
+            .Select(state => new ScheduledTaskLeaseState(
+                state.TaskId,
+                state.LeaseOwner,
+                state.LeaseExpiresAt,
+                state.LastStartedAt,
+                state.LastCompletedAt))
+            .ToListAsync(cancellationToken);
+    }
 }

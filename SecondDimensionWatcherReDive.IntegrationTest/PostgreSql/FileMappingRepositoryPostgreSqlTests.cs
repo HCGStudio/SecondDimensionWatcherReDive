@@ -241,6 +241,43 @@ public sealed class FileMappingRepositoryPostgreSqlTests
     }
 
     [TestMethod]
+    public async Task ScheduledTaskLease_StatusProjectionReadsSharedState()
+    {
+        var now = DateTimeOffset.FromUnixTimeMilliseconds(
+            DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+        var leaseUntil = now.AddSeconds(30);
+        Assert.IsTrue(await Fixture.TryAcquireTaskLeaseAsync(
+            "StatusTask",
+            "instance-a",
+            now,
+            leaseUntil,
+            false,
+            CancellationToken.None));
+
+        var running = await Fixture.GetTaskLeaseStatesAsync(
+            ["StatusTask", "missing"],
+            CancellationToken.None);
+
+        Assert.HasCount(1, running);
+        Assert.AreEqual("instance-a", running[0].LeaseOwner);
+        Assert.AreEqual(now, running[0].LastStartedAt);
+        Assert.AreEqual(leaseUntil, running[0].LeaseExpiresAt);
+        Assert.IsNull(running[0].LastCompletedAt);
+
+        var completedAt = now.AddSeconds(5);
+        await Fixture.CompleteTaskLeaseAsync(
+            "StatusTask",
+            "instance-a",
+            completedAt,
+            now.AddMinutes(10),
+            CancellationToken.None);
+        var completed = await Fixture.GetTaskLeaseStatesAsync(
+            ["StatusTask"],
+            CancellationToken.None);
+        Assert.AreEqual(completedAt, completed.Single().LastCompletedAt);
+    }
+
+    [TestMethod]
     public async Task DeadLetterJobs_CanBeRetriedOrMarkedHandled()
     {
         var now = DateTimeOffset.UtcNow;

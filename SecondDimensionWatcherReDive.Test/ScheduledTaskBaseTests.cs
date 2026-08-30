@@ -64,6 +64,29 @@ public sealed class ScheduledTaskBaseTests
     }
 
     [TestMethod]
+    public async Task RunScheduledAsync_ForceArrivingDuringAcquisitionRetriesAsForced()
+    {
+        var task = new BlockingTask();
+        var leaseManager = new ForceUpgradeLeaseManager();
+        using var cancellation = new CancellationTokenSource();
+        var processor = task.ProcessQueueAsync(leaseManager, cancellation.Token);
+
+        var scheduled = task.RunScheduledAsync(CancellationToken.None);
+        await leaseManager.FirstAcquireStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        task.Enqueue();
+        leaseManager.ReleaseFirstAcquire.TrySetResult();
+        await task.Started.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        task.Release.TrySetResult();
+
+        Assert.IsTrue(await scheduled.WaitAsync(TimeSpan.FromSeconds(2)));
+        CollectionAssert.AreEqual(new[] { false, true }, leaseManager.Forces);
+        Assert.AreEqual(1, task.ExecutionCount);
+
+        await cancellation.CancelAsync();
+        await AssertCanceledAsync(processor);
+    }
+
+    [TestMethod]
     public async Task RunScheduledAsync_TemporaryLeaseStoreFailureDoesNotStopQueue()
     {
         var task = new BlockingTask();
@@ -147,6 +170,47 @@ public sealed class ScheduledTaskBaseTests
                 return Task.FromException<IScheduledTaskExecutionLease?>(AcquireException);
             return Task.FromResult<IScheduledTaskExecutionLease?>(Deny ? null : Lease);
         }
+
+        public Task<IReadOnlyDictionary<string, ScheduledTaskStatus>> GetStatusesAsync(
+            IReadOnlyCollection<string> taskIds,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyDictionary<string, ScheduledTaskStatus>>(
+                new Dictionary<string, ScheduledTaskStatus>());
+    }
+
+    private sealed class ForceUpgradeLeaseManager : IScheduledTaskLeaseManager
+    {
+        public TaskCompletionSource FirstAcquireStarted { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ReleaseFirstAcquire { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        public bool[] Forces => _forces.ToArray();
+
+        private readonly List<bool> _forces = [];
+        private readonly FakeLease _lease = new();
+
+        public async Task<IScheduledTaskExecutionLease?> TryAcquireAsync(
+            string taskId,
+            TimeSpan interval,
+            bool force,
+            CancellationToken cancellationToken)
+        {
+            _forces.Add(force);
+            if (_forces.Count == 1)
+            {
+                FirstAcquireStarted.TrySetResult();
+                await ReleaseFirstAcquire.Task.WaitAsync(cancellationToken);
+                return null;
+            }
+
+            return _lease;
+        }
+
+        public Task<IReadOnlyDictionary<string, ScheduledTaskStatus>> GetStatusesAsync(
+            IReadOnlyCollection<string> taskIds,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyDictionary<string, ScheduledTaskStatus>>(
+                new Dictionary<string, ScheduledTaskStatus>());
     }
 
     private sealed class FakeLease : IScheduledTaskExecutionLease

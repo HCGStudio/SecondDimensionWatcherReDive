@@ -56,45 +56,49 @@ public abstract class ScheduledTaskBase : IScheduledTask
         await foreach (var _ in _runQueue.Reader.ReadAllAsync(cancellationToken))
         {
             TaskCompletionSource<bool>? completion;
-            bool force;
             lock (_sync)
             {
                 completion = _pendingRun;
-                force = _pendingForce;
             }
             if (completion is null) continue;
 
-            IScheduledTaskExecutionLease? lease;
-            try
+            IScheduledTaskExecutionLease? lease = null;
+            while (lease is null)
             {
-                lease = await leaseManager.TryAcquireAsync(
-                    Id,
-                    Interval,
-                    force,
-                    cancellationToken);
-            }
-            catch (OperationCanceledException exception) when (cancellationToken.IsCancellationRequested)
-            {
-                completion.TrySetCanceled(exception.CancellationToken);
-                FinishRun(completion);
-                throw;
-            }
-            catch (Exception exception)
-            {
-                completion.TrySetException(
-                    new ScheduledTaskLeaseUnavailableException(exception));
-                FinishRun(completion);
-                continue;
-            }
+                var force = TakePendingForce(completion);
+                try
+                {
+                    lease = await leaseManager.TryAcquireAsync(
+                        Id,
+                        Interval,
+                        force,
+                        cancellationToken);
+                }
+                catch (OperationCanceledException exception) when (cancellationToken.IsCancellationRequested)
+                {
+                    completion.TrySetCanceled(exception.CancellationToken);
+                    FinishRun(completion);
+                    throw;
+                }
+                catch (Exception exception)
+                {
+                    completion.TrySetException(
+                        new ScheduledTaskLeaseUnavailableException(exception));
+                    FinishRun(completion);
+                    break;
+                }
 
-            if (lease is null)
-            {
-                // Another instance owns the same periodic task. Its local timer
-                // will drive the execution; this duplicate signal is complete.
-                completion.TrySetResult(false);
-                FinishRun(completion);
-                continue;
+                if (lease is not null)
+                    break;
+
+                // A manual request can upgrade a periodic acquisition while the
+                // database call is in flight. Retry that upgrade before completing
+                // the shared signal so a completed cooldown cannot swallow it.
+                if (CompleteLeaseDenialOrRetryForce(completion, force))
+                    continue;
+                break;
             }
+            if (lease is null) continue;
 
             await using (lease)
             {
@@ -164,6 +168,36 @@ public abstract class ScheduledTaskBase : IScheduledTask
                 TaskCreationOptions.RunContinuationsAsynchronously);
             _runQueue.Writer.TryWrite(0);
             return _pendingRun.Task;
+        }
+    }
+
+    private bool TakePendingForce(TaskCompletionSource<bool> completion)
+    {
+        lock (_sync)
+        {
+            if (!ReferenceEquals(_pendingRun, completion))
+                return false;
+            var force = _pendingForce;
+            _pendingForce = false;
+            return force;
+        }
+    }
+
+    private bool CompleteLeaseDenialOrRetryForce(
+        TaskCompletionSource<bool> completion,
+        bool attemptedForce)
+    {
+        lock (_sync)
+        {
+            if (!ReferenceEquals(_pendingRun, completion))
+                return false;
+            if (!attemptedForce && _pendingForce)
+                return true;
+
+            _pendingRun = null;
+            _pendingForce = false;
+            completion.TrySetResult(false);
+            return false;
         }
     }
 
