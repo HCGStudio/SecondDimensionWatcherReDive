@@ -167,6 +167,7 @@ jobs:
           name: container-digest-${{ matrix.arch }}
           path: ${{ runner.temp }}/container-digests/*
           if-no-files-found: error
+          overwrite: true
           retention-days: 1
 
   publish-version:
