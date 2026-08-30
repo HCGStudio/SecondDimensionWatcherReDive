@@ -30,6 +30,8 @@ import {
   retryInference,
   submitDownload,
 } from "../animation/utils";
+import { useAccess } from "../auth/hooks";
+import { retryAfterReauthentication } from "../auth/utils";
 import { setPlaybackWatched } from "../playback/api";
 import { usePlaybackStates } from "../playback/hooks";
 import { formatBytes, formatFileSize } from "../utils/formatBytes";
@@ -126,7 +128,8 @@ const AutomationDispositionBadge: React.FC<{
 };
 
 const ActionButtons: React.FC<{ value: IAnimationInfo }> = ({ value }) => {
-  const { t } = useTranslation("animation");
+  const { t } = useTranslation(["animation", "settings"]);
+  const { canContentWrite, isAdministrator } = useAccess();
   const { data: status } = useAnimationDownloadStatus(
     value.isDownloadTracked && !value.isDownloadFinished ? value.id : null,
   );
@@ -134,6 +137,7 @@ const ActionButtons: React.FC<{ value: IAnimationInfo }> = ({ value }) => {
   const [isSheetOpen, setIsSheetOpen] = React.useState(false);
   const [isRetrying, setIsRetrying] = React.useState(false);
   const [isReidentifyingFiles, setIsReidentifyingFiles] = React.useState(false);
+  const [isCancelling, setIsCancelling] = React.useState(false);
   const [isUpdatingWatched, setIsUpdatingWatched] = React.useState(false);
   const { data: playbackStates, mutate: mutatePlaybackStates } =
     usePlaybackStates(value.isDownloadFinished ? value.id : undefined);
@@ -142,8 +146,9 @@ const ActionButtons: React.FC<{ value: IAnimationInfo }> = ({ value }) => {
     playbackStates.length > 0 &&
     playbackStates.every((state) => state.isWatched);
 
-  const showRetryItem = value.isAiProcessed;
+  const showRetryItem = isAdministrator && value.isAiProcessed;
   const showAiReidentifyItem =
+    isAdministrator &&
     value.isDownloadFinished &&
     value.animation != null &&
     value.season != null &&
@@ -211,13 +216,35 @@ const ActionButtons: React.FC<{ value: IAnimationInfo }> = ({ value }) => {
     }
   }, [value.id, addToast, t]);
 
+  const onCancelDownload = React.useCallback(
+    async (removeFile: boolean) => {
+      if (isCancelling) return;
+
+      setIsCancelling(true);
+      try {
+        const operation = () => cancelDownload(value.id, removeFile);
+        if (removeFile) {
+          await retryAfterReauthentication(
+            operation,
+            t("settings:system.reauthenticatePrompt"),
+          );
+        } else {
+          await operation();
+        }
+      } catch {
+        addToast({ title: t("toast.deleteFailed"), color: "danger" });
+      } finally {
+        setIsCancelling(false);
+      }
+    },
+    [addToast, isCancelling, t, value.id],
+  );
+
   const onDelete = React.useCallback(() => {
     if (window.confirm(t("confirm.deleteFile"))) {
-      cancelDownload(value.id, true).catch(() =>
-        addToast({ title: t("toast.deleteFailed"), color: "danger" }),
-      );
+      void onCancelDownload(true);
     }
-  }, [value.id, addToast, t]);
+  }, [onCancelDownload, t]);
 
   const onToggleAllWatched = React.useCallback(async () => {
     if (!playbackStates || playbackStates.length === 0) return;
@@ -251,16 +278,20 @@ const ActionButtons: React.FC<{ value: IAnimationInfo }> = ({ value }) => {
   const hasOverflowItems =
     showRetryItem ||
     showAiReidentifyItem ||
-    (value.isDownloadTracked && !value.isDownloadFinished && status) ||
+    (canContentWrite &&
+      value.isDownloadTracked &&
+      !value.isDownloadFinished &&
+      status) ||
     (value.isDownloadTracked &&
       value.isDownloadFinished &&
-      !value.isMediaLibraryImport);
+      !value.isMediaLibraryImport &&
+      isAdministrator);
 
   return (
     <>
       <div className="flex shrink-0 items-center gap-1">
         {/* Primary action: icon-only button */}
-        {!value.isDownloadTracked ? (
+        {!value.isDownloadTracked && canContentWrite ? (
           <Button
             size="sm"
             variant="outline"
@@ -273,7 +304,10 @@ const ActionButtons: React.FC<{ value: IAnimationInfo }> = ({ value }) => {
           </Button>
         ) : null}
 
-        {value.isDownloadTracked && !value.isDownloadFinished && status ? (
+        {canContentWrite &&
+        value.isDownloadTracked &&
+        !value.isDownloadFinished &&
+        status ? (
           <>
             {status.state === "Downloading" ? (
               <Button
@@ -316,7 +350,7 @@ const ActionButtons: React.FC<{ value: IAnimationInfo }> = ({ value }) => {
 
         {value.isDownloadTracked && value.isDownloadFinished ? (
           <>
-            {playbackStates && playbackStates.length > 0 ? (
+            {canContentWrite && playbackStates && playbackStates.length > 0 ? (
               <Button
                 size="sm"
                 variant="outline"
@@ -401,32 +435,38 @@ const ActionButtons: React.FC<{ value: IAnimationInfo }> = ({ value }) => {
 
               {value.isDownloadTracked &&
               !value.isDownloadFinished &&
-              status ? (
+              status &&
+              canContentWrite ? (
                 <DropdownMenuItem
                   color="danger"
-                  disabled={isReidentifyingFiles}
+                  disabled={isReidentifyingFiles || isCancelling}
                   onSelect={() => {
-                    if (window.confirm(t("confirm.cancelAndDelete"))) {
-                      cancelDownload(value.id, true).catch(() =>
-                        addToast({
-                          title: t("toast.deleteFailed"),
-                          color: "danger",
-                        }),
-                      );
+                    const removeFile = isAdministrator;
+                    if (
+                      window.confirm(
+                        t(
+                          removeFile
+                            ? "confirm.cancelAndDelete"
+                            : "confirm.cancel",
+                        ),
+                      )
+                    ) {
+                      void onCancelDownload(removeFile);
                     }
                   }}
                 >
                   <Trash2 size={14} />
-                  {t("actions.delete")}
+                  {t(isAdministrator ? "actions.delete" : "actions.cancel")}
                 </DropdownMenuItem>
               ) : null}
 
               {value.isDownloadTracked &&
               value.isDownloadFinished &&
-              !value.isMediaLibraryImport ? (
+              !value.isMediaLibraryImport &&
+              isAdministrator ? (
                 <DropdownMenuItem
                   color="danger"
-                  disabled={isReidentifyingFiles}
+                  disabled={isReidentifyingFiles || isCancelling}
                   onSelect={onDelete}
                 >
                   <Trash2 size={14} />

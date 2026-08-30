@@ -1,3 +1,4 @@
+import enAccounts from "./locales/en/accounts.json";
 import enAnimation from "./locales/en/animation.json";
 import enAuth from "./locales/en/auth.json";
 import enChat from "./locales/en/chat.json";
@@ -11,6 +12,7 @@ import enPlayer from "./locales/en/player.json";
 import enSeason from "./locales/en/season.json";
 import enSettings from "./locales/en/settings.json";
 import enTasks from "./locales/en/tasks.json";
+import jaAccounts from "./locales/ja/accounts.json";
 import jaAnimation from "./locales/ja/animation.json";
 import jaAuth from "./locales/ja/auth.json";
 import jaChat from "./locales/ja/chat.json";
@@ -24,6 +26,7 @@ import jaPlayer from "./locales/ja/player.json";
 import jaSeason from "./locales/ja/season.json";
 import jaSettings from "./locales/ja/settings.json";
 import jaTasks from "./locales/ja/tasks.json";
+import zhCnAccounts from "./locales/zh-CN/accounts.json";
 import zhCnAnimation from "./locales/zh-CN/animation.json";
 import zhCnAuth from "./locales/zh-CN/auth.json";
 import zhCnChat from "./locales/zh-CN/chat.json";
@@ -41,6 +44,7 @@ import zhCnTasks from "./locales/zh-CN/tasks.json";
 export const resources = {
   "zh-cn": {
     common: zhCnCommon,
+    accounts: zhCnAccounts,
     auth: zhCnAuth,
     errors: zhCnErrors,
     animation: zhCnAnimation,
@@ -56,6 +60,7 @@ export const resources = {
   },
   en: {
     common: enCommon,
+    accounts: enAccounts,
     auth: enAuth,
     errors: enErrors,
     animation: enAnimation,
@@ -71,6 +76,7 @@ export const resources = {
   },
   ja: {
     common: jaCommon,
+    accounts: jaAccounts,
     auth: jaAuth,
     errors: jaErrors,
     animation: jaAnimation,

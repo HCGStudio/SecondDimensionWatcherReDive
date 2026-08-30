@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using SecondDimensionWatcherReDive.Framework.Authorization;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Utils.MetadataReview;
 using External = SecondDimensionWatcherReDive.Controllers.External;
@@ -10,6 +11,7 @@ namespace SecondDimensionWatcherReDive.Controllers;
 [ApiController]
 [Route("api/metadata-review")]
 [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
+[Authorize(Policy = AccessPolicies.Administrator)]
 internal sealed class MetadataReviewController(
     IMetadataReviewRepository metadataReviewRepository,
     IMetadataReviewService metadataReviewService) : ControllerBase

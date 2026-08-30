@@ -34,9 +34,78 @@ public class ApplicationContext : DbContext
     public DbSet<PlaybackPreference> PlaybackPreferences { get; set; }
     public DbSet<MediaLibrarySource> MediaLibrarySources { get; set; }
     public DbSet<ApplicationSettings> ApplicationSettings { get; set; }
+    public DbSet<UserAccount> Users { get; set; }
+    public DbSet<UserProfile> Profiles { get; set; }
+    public DbSet<LoginSession> LoginSessions { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<UserAccount>()
+            .HasIndex(user => user.Username)
+            .IsUnique();
+
+        modelBuilder.Entity<UserAccount>()
+            .Property(user => user.Username)
+            .HasMaxLength(64);
+
+        modelBuilder.Entity<UserAccount>()
+            .Property(user => user.PasswordHash)
+            .HasMaxLength(128);
+
+        modelBuilder.Entity<UserAccount>()
+            .Property(user => user.Role)
+            .HasConversion<string>()
+            .HasMaxLength(16);
+
+        modelBuilder.Entity<UserProfile>()
+            .Property(profile => profile.Id)
+            .ValueGeneratedNever();
+
+        modelBuilder.Entity<UserProfile>()
+            .Property(profile => profile.Name)
+            .HasMaxLength(64);
+
+        modelBuilder.Entity<UserProfile>()
+            .Property(profile => profile.Avatar)
+            .HasMaxLength(512);
+
+        modelBuilder.Entity<UserProfile>()
+            .Property(profile => profile.PinHash)
+            .HasMaxLength(128);
+
+        modelBuilder.Entity<UserProfile>()
+            .HasIndex(profile => new { profile.UserId, profile.Name })
+            .IsUnique();
+
+        modelBuilder.Entity<UserProfile>()
+            .HasOne(profile => profile.User)
+            .WithMany(user => user.Profiles)
+            .HasForeignKey(profile => profile.UserId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<LoginSession>()
+            .Property(session => session.RefreshTokenHash)
+            .HasMaxLength(64);
+
+        modelBuilder.Entity<LoginSession>()
+            .Property(session => session.DeviceName)
+            .HasMaxLength(128);
+
+        modelBuilder.Entity<LoginSession>()
+            .HasIndex(session => new { session.UserId, session.RevokedAt, session.ExpiresAt });
+
+        modelBuilder.Entity<LoginSession>()
+            .HasOne(session => session.User)
+            .WithMany(user => user.Sessions)
+            .HasForeignKey(session => session.UserId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<LoginSession>()
+            .HasOne(session => session.ActiveProfile)
+            .WithMany()
+            .HasForeignKey(session => session.ActiveProfileId)
+            .OnDelete(DeleteBehavior.Restrict);
+
         modelBuilder.Entity<ApplicationSettings>()
             .Property(settings => settings.Id)
             .ValueGeneratedNever();
@@ -199,6 +268,20 @@ public class ApplicationContext : DbContext
             .HasIndex(t => t.Username)
             .IsUnique();
 
+        modelBuilder.Entity<WebDavToken>()
+            .Property(token => token.Scope)
+            .HasMaxLength(32);
+
+        modelBuilder.Entity<WebDavToken>()
+            .Property(token => token.VirtualRoot)
+            .HasMaxLength(2048);
+
+        modelBuilder.Entity<WebDavToken>()
+            .HasOne(token => token.User)
+            .WithMany()
+            .HasForeignKey(token => token.UserId)
+            .OnDelete(DeleteBehavior.Cascade);
+
         modelBuilder.Entity<PlaybackProgress>()
             .HasIndex(progress => new
             {
@@ -219,6 +302,12 @@ public class ApplicationContext : DbContext
             .HasOne(progress => progress.AnimationInfo)
             .WithMany()
             .HasForeignKey(progress => progress.AnimationInfoId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<PlaybackProgress>()
+            .HasOne(progress => progress.Profile)
+            .WithMany()
+            .HasForeignKey(progress => progress.UserId)
             .OnDelete(DeleteBehavior.Cascade);
 
         modelBuilder.Entity<PlaybackProgress>()
@@ -250,6 +339,12 @@ public class ApplicationContext : DbContext
         modelBuilder.Entity<PlaybackPreference>()
             .Property(preference => preference.AudioTrackLabel)
             .HasMaxLength(128);
+
+        modelBuilder.Entity<PlaybackPreference>()
+            .HasOne(preference => preference.Profile)
+            .WithOne()
+            .HasForeignKey<PlaybackPreference>(preference => preference.UserId)
+            .OnDelete(DeleteBehavior.Cascade);
 
         modelBuilder.Entity<SeasonBangumi>()
             .HasIndex(b => b.MikanId)
@@ -321,6 +416,15 @@ public class ApplicationContext : DbContext
             .HasOne(m => m.Conversation)
             .WithMany(c => c.Messages)
             .HasForeignKey(m => m.ConversationId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<ChatConversation>()
+            .HasIndex(conversation => new { conversation.ProfileId, conversation.UpdatedAt });
+
+        modelBuilder.Entity<ChatConversation>()
+            .HasOne(conversation => conversation.Profile)
+            .WithMany()
+            .HasForeignKey(conversation => conversation.ProfileId)
             .OnDelete(DeleteBehavior.Cascade);
     }
 }

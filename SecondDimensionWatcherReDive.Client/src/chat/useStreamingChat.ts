@@ -1,4 +1,10 @@
-import { useCallback, useReducer } from "react";
+import { useCallback, useEffect, useReducer, useRef } from "react";
+
+import {
+  AuthBoundRequest,
+  AuthIdentityChangedError,
+  beginAuthBoundRequest,
+} from "../auth/httpClient";
 
 interface StreamingToolCall {
   id: string;
@@ -81,8 +87,7 @@ function reducer(
       return {
         ...state,
         contentBlocks: state.contentBlocks.map((block) =>
-          block.type === "tool_call" &&
-          block.toolCall.id === action.toolCallId
+          block.type === "tool_call" && block.toolCall.id === action.toolCallId
             ? {
                 ...block,
                 toolCall: { ...block.toolCall, result: action.result },
@@ -113,44 +118,43 @@ const initialState: StreamingState = {
 
 export function useStreamingChat() {
   const [state, dispatch] = useReducer(reducer, initialState);
+  const activeRequestRef = useRef<AuthBoundRequest | null>(null);
+  const requestGenerationRef = useRef(0);
 
   const sendMessage = useCallback(
     async (conversationId: string, content: string, model?: string) => {
+      activeRequestRef.current?.abort();
+      activeRequestRef.current?.dispose();
+      const generation = requestGenerationRef.current + 1;
+      requestGenerationRef.current = generation;
       dispatch({ type: "start" });
 
-      const authStr = localStorage.getItem("auth");
-      if (!authStr) {
-        dispatch({ type: "error", message: "Not authenticated" });
-        return;
-      }
-
-      let token: string;
+      let request: AuthBoundRequest | null = null;
       try {
-        token = JSON.parse(authStr).token;
-      } catch {
-        dispatch({ type: "error", message: "Invalid auth token" });
-        return;
-      }
-
-      try {
+        request = beginAuthBoundRequest(true);
+        activeRequestRef.current = request;
         const response = await fetch(
           `/api/chat/conversations/${conversationId}/messages`,
           {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
-              Authorization: `Bearer ${token}`,
+              Authorization: `Bearer ${request.auth.token}`,
             },
             body: JSON.stringify({ content, model: model ?? null }),
+            signal: request.signal,
           },
         );
+        if (!request.isCurrent()) throw new AuthIdentityChangedError();
 
         if (!response.ok) {
           const text = await response.text();
-          dispatch({
-            type: "error",
-            message: text || `HTTP ${response.status}`,
-          });
+          if (requestGenerationRef.current === generation) {
+            dispatch({
+              type: "error",
+              message: text || `HTTP ${response.status}`,
+            });
+          }
           return;
         }
 
@@ -166,6 +170,7 @@ export function useStreamingChat() {
 
         while (true) {
           const { done, value } = await reader.read();
+          if (!request.isCurrent()) throw new AuthIdentityChangedError();
           if (done) break;
 
           buffer += decoder.decode(value, { stream: true });
@@ -181,36 +186,48 @@ export function useStreamingChat() {
                 const data = JSON.parse(line.slice(6));
                 switch (currentEvent) {
                   case "text_delta":
-                    dispatch({ type: "text_delta", text: data.text });
+                    if (requestGenerationRef.current === generation) {
+                      dispatch({ type: "text_delta", text: data.text });
+                    }
                     break;
                   case "tool_call_begin":
-                    dispatch({
-                      type: "tool_call_begin",
-                      id: data.id,
-                      name: data.name,
-                    });
+                    if (requestGenerationRef.current === generation) {
+                      dispatch({
+                        type: "tool_call_begin",
+                        id: data.id,
+                        name: data.name,
+                      });
+                    }
                     break;
                   case "tool_call_delta":
-                    dispatch({
-                      type: "tool_call_delta",
-                      id: data.id,
-                      argumentsDelta: data.arguments_delta,
-                    });
+                    if (requestGenerationRef.current === generation) {
+                      dispatch({
+                        type: "tool_call_delta",
+                        id: data.id,
+                        argumentsDelta: data.arguments_delta,
+                      });
+                    }
                     break;
                   case "tool_result":
-                    dispatch({
-                      type: "tool_result",
-                      toolCallId: data.tool_call_id,
-                      name: data.name,
-                      result: data.result,
-                    });
+                    if (requestGenerationRef.current === generation) {
+                      dispatch({
+                        type: "tool_result",
+                        toolCallId: data.tool_call_id,
+                        name: data.name,
+                        result: data.result,
+                      });
+                    }
                     break;
                   case "finished":
                     receivedFinished = true;
-                    dispatch({ type: "finished" });
+                    if (requestGenerationRef.current === generation) {
+                      dispatch({ type: "finished" });
+                    }
                     break;
                   case "error":
-                    dispatch({ type: "error", message: data.message });
+                    if (requestGenerationRef.current === generation) {
+                      dispatch({ type: "error", message: data.message });
+                    }
                     break;
                 }
               } catch {
@@ -221,20 +238,49 @@ export function useStreamingChat() {
           }
         }
 
-        if (!receivedFinished) {
+        if (!receivedFinished && requestGenerationRef.current === generation) {
           dispatch({ type: "finished" });
         }
       } catch (err) {
-        dispatch({
-          type: "error",
-          message: err instanceof Error ? err.message : "Unknown error",
-        });
+        if (requestGenerationRef.current !== generation) return;
+        if (
+          err instanceof AuthIdentityChangedError ||
+          (err instanceof DOMException && err.name === "AbortError")
+        ) {
+          dispatch({ type: "reset" });
+        } else {
+          dispatch({
+            type: "error",
+            message: err instanceof Error ? err.message : "Unknown error",
+          });
+        }
+      } finally {
+        request?.dispose();
+        if (activeRequestRef.current === request) {
+          activeRequestRef.current = null;
+        }
       }
     },
     [],
   );
 
-  const reset = useCallback(() => dispatch({ type: "reset" }), []);
+  const reset = useCallback(() => {
+    requestGenerationRef.current += 1;
+    activeRequestRef.current?.abort();
+    activeRequestRef.current?.dispose();
+    activeRequestRef.current = null;
+    dispatch({ type: "reset" });
+  }, []);
+
+  useEffect(
+    () => () => {
+      requestGenerationRef.current += 1;
+      activeRequestRef.current?.abort();
+      activeRequestRef.current?.dispose();
+      activeRequestRef.current = null;
+    },
+    [],
+  );
 
   return { ...state, sendMessage, reset };
 }

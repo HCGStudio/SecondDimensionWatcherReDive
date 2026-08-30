@@ -56,6 +56,7 @@
     "retryDownload": "Retry download",
     "pause": "Pause",
     "resume": "Resume",
+    "cancel": "Cancel task",
     "browse": "Browse files",
     "markAllWatched": "Mark every video in this release watched",
     "markAllUnwatched": "Mark every video in this release unwatched",
@@ -70,6 +71,7 @@
   "confirm": {
     "deleteFile": "Delete the downloaded files?",
     "cancelAndDelete": "Cancel the download and delete the files?",
+    "cancel": "Cancel the download task? Existing files will be retained.",
     "forceAiReidentifyFiles": "This will ignore regex rules, use AI to re-identify filenames, and replace the current virtual file mappings. Continue?"
   },
   "toast": {

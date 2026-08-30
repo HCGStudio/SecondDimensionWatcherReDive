@@ -4,11 +4,34 @@ namespace SecondDimensionWatcherReDive.IntegrationTest.Helpers;
 
 internal sealed class FakeWebDavTokenRepository : IWebDavTokenRepository
 {
-    private readonly WebDavToken _seeded;
+    private WebDavToken _seeded;
 
-    public FakeWebDavTokenRepository(string username, string tokenHash)
+    public Guid TokenId => _seeded.Id;
+
+    public void Expire() => _seeded = _seeded with
     {
-        _seeded = new WebDavToken(Guid.NewGuid(), username, tokenHash, "integration-test", DateTimeOffset.UtcNow);
+        ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(-1)
+    };
+
+    public void SetScope(string scope) => _seeded = _seeded with { Scope = scope };
+
+    public FakeWebDavTokenRepository(
+        Guid userId,
+        string username,
+        string tokenHash,
+        string virtualRoot = "/")
+    {
+        _seeded = new WebDavToken(
+            Guid.NewGuid(),
+            userId,
+            username,
+            tokenHash,
+            "integration-test",
+            DateTimeOffset.UtcNow,
+            "read",
+            virtualRoot,
+            DateTimeOffset.UtcNow.AddDays(1),
+            null);
     }
 
     public Task<IReadOnlyList<WebDavToken>> GetAllOrderedAsync(CancellationToken cancellationToken)
@@ -23,6 +46,13 @@ internal sealed class FakeWebDavTokenRepository : IWebDavTokenRepository
     public Task AddAsync(WebDavToken token, CancellationToken cancellationToken)
         => throw new NotSupportedException();
 
-    public Task<bool> RemoveByIdAsync(Guid id, CancellationToken cancellationToken)
-        => throw new NotSupportedException();
+    public Task<bool> RevokeByIdAsync(
+        Guid id,
+        DateTimeOffset revokedAt,
+        CancellationToken cancellationToken)
+    {
+        if (_seeded.Id != id) return Task.FromResult(false);
+        _seeded = _seeded with { RevokedAt = revokedAt };
+        return Task.FromResult(true);
+    }
 }

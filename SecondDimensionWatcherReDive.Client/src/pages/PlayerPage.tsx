@@ -20,6 +20,12 @@ import {
   RotateCcw,
 } from "lucide-react";
 
+import { useAccess } from "../auth/hooks";
+import {
+  canSendProfileMutation,
+  getAuthIdentityKey,
+  subscribeToAuthChanges,
+} from "../auth/httpClient";
 import { ExternalPlayerButtons } from "../components/ExternalPlayerButtons";
 import { useToast } from "../components/ToastProvider";
 import { Button } from "../components/ui/Button";
@@ -101,11 +107,13 @@ interface AudioTrackOption {
 interface PendingProgressSave {
   request: Parameters<typeof savePlaybackProgress>[0];
   mediaKey: string;
+  identityKey: string;
 }
 
 interface PendingPreferenceSave {
   preferences: PlaybackPreferences;
   version: number;
+  identityKey: string;
 }
 
 const preferenceAudioOptions: AudioTrackOption[] = [
@@ -224,6 +232,7 @@ export const PlayerPage: React.FC = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { addToast } = useToast();
+  const { canPlaybackWrite } = useAccess();
 
   const file = searchParams.get("file") ?? undefined;
   const shouldAutoplay = searchParams.get("autoplay") === "1";
@@ -274,6 +283,9 @@ export const PlayerPage: React.FC = () => {
   const pendingPreferenceRef = React.useRef<PendingPreferenceSave | null>(null);
   const preferenceSaveRunningRef = React.useRef(false);
   const preferenceVersionRef = React.useRef(0);
+  const playerIdentityRef = React.useRef(getAuthIdentityKey());
+  const canPlaybackWriteRef = React.useRef(canPlaybackWrite);
+  canPlaybackWriteRef.current = canPlaybackWrite;
   const activeMediaKey = `${animationId ?? ""}\u0000${file ?? ""}`;
   const activeMediaKeyRef = React.useRef(activeMediaKey);
   activeMediaKeyRef.current = activeMediaKey;
@@ -294,6 +306,31 @@ export const PlayerPage: React.FC = () => {
       }
     }
   }, [playbackContext]);
+
+  React.useEffect(() => {
+    if (canPlaybackWrite) return;
+    pendingProgressRef.current = null;
+    pendingPreferenceRef.current = null;
+    preferenceVersionRef.current += 1;
+  }, [canPlaybackWrite]);
+
+  React.useEffect(
+    () =>
+      subscribeToAuthChanges(({ auth, profileChanged }) => {
+        if (auth && !profileChanged) return;
+        // Keep the identity captured by this mounted player unchanged. Its
+        // teardown callbacks will therefore discard rather than persist the
+        // old profile's position/preferences with a replacement token.
+        pendingProgressRef.current = null;
+        pendingPreferenceRef.current = null;
+        preferenceVersionRef.current += 1;
+        contextRef.current = undefined;
+        preferencesRef.current = undefined;
+        lastSyncedTimeRef.current = -1;
+        artRef.current?.pause();
+      }),
+    [],
+  );
 
   React.useEffect(() => {
     setExternalPlaybackUrl(null);
@@ -527,9 +564,25 @@ export const PlayerPage: React.FC = () => {
       while (pendingProgressRef.current) {
         const pending = pendingProgressRef.current;
         pendingProgressRef.current = null;
+        if (
+          !canSendProfileMutation(
+            pending.identityKey,
+            canPlaybackWriteRef.current,
+          )
+        ) {
+          continue;
+        }
         try {
           const state = await savePlaybackProgress(pending.request);
-          if (activeMediaKeyRef.current !== pending.mediaKey) continue;
+          if (
+            activeMediaKeyRef.current !== pending.mediaKey ||
+            !canSendProfileMutation(
+              pending.identityKey,
+              canPlaybackWriteRef.current,
+            )
+          ) {
+            continue;
+          }
           void mutateContext(
             (current) => (current ? { ...current, state } : current),
             false,
@@ -541,7 +594,13 @@ export const PlayerPage: React.FC = () => {
                 key.startsWith("/api/playback/states?")),
           );
         } catch {
-          if (activeMediaKeyRef.current === pending.mediaKey) {
+          if (
+            activeMediaKeyRef.current === pending.mediaKey &&
+            canSendProfileMutation(
+              pending.identityKey,
+              canPlaybackWriteRef.current,
+            )
+          ) {
             addToast({
               title: i18n.t("player:progress.saveFailed"),
               color: "warning",
@@ -556,6 +615,14 @@ export const PlayerPage: React.FC = () => {
 
   const persistCurrentProgress = React.useCallback(
     (force = false, keepalive = false) => {
+      const identityKey = playerIdentityRef.current;
+      if (
+        !identityKey ||
+        !canSendProfileMutation(identityKey, canPlaybackWriteRef.current)
+      ) {
+        pendingProgressRef.current = null;
+        return;
+      }
       const art = artRef.current;
       const context = contextRef.current;
       if (!art || !context) return;
@@ -589,13 +656,15 @@ export const PlayerPage: React.FC = () => {
         // Teardown cannot wait behind an ordinary request. Drop any unsent
         // intermediate sample and dispatch the final position with keepalive.
         pendingProgressRef.current = null;
-        void savePlaybackProgress(request, true).catch(() => undefined);
+        if (canSendProfileMutation(identityKey, canPlaybackWriteRef.current)) {
+          void savePlaybackProgress(request, true).catch(() => undefined);
+        }
         return;
       }
 
       // Keep at most one unsent sample. Pause/seek events replace older timer
       // samples, while the single in-flight request preserves write order.
-      pendingProgressRef.current = { request, mediaKey };
+      pendingProgressRef.current = { request, mediaKey, identityKey };
       void flushProgressQueue();
     },
     [flushProgressQueue],
@@ -837,9 +906,25 @@ export const PlayerPage: React.FC = () => {
       while (pendingPreferenceRef.current) {
         const pending = pendingPreferenceRef.current;
         pendingPreferenceRef.current = null;
+        if (
+          !canSendProfileMutation(
+            pending.identityKey,
+            canPlaybackWriteRef.current,
+          )
+        ) {
+          continue;
+        }
         try {
           const saved = await savePlaybackPreferences(pending.preferences);
-          if (preferenceVersionRef.current !== pending.version) continue;
+          if (
+            preferenceVersionRef.current !== pending.version ||
+            !canSendProfileMutation(
+              pending.identityKey,
+              canPlaybackWriteRef.current,
+            )
+          ) {
+            continue;
+          }
           preferencesRef.current = saved;
           void mutateContext(
             (context) =>
@@ -847,7 +932,13 @@ export const PlayerPage: React.FC = () => {
             false,
           );
         } catch {
-          if (preferenceVersionRef.current === pending.version) {
+          if (
+            preferenceVersionRef.current === pending.version &&
+            canSendProfileMutation(
+              pending.identityKey,
+              canPlaybackWriteRef.current,
+            )
+          ) {
             addToast({
               title: i18n.t("player:preferences.saveFailed"),
               color: "danger",
@@ -864,13 +955,25 @@ export const PlayerPage: React.FC = () => {
 
   const updatePreferences = React.useCallback(
     (changes: Partial<PlaybackPreferences>) => {
+      const identityKey = playerIdentityRef.current;
+      if (
+        !identityKey ||
+        !canSendProfileMutation(identityKey, canPlaybackWriteRef.current)
+      ) {
+        pendingPreferenceRef.current = null;
+        return;
+      }
       const current = preferencesRef.current;
       if (!current) return;
       const next: PlaybackPreferences = { ...current, ...changes };
       preferencesRef.current = next;
       const version = preferenceVersionRef.current + 1;
       preferenceVersionRef.current = version;
-      pendingPreferenceRef.current = { preferences: next, version };
+      pendingPreferenceRef.current = {
+        preferences: next,
+        version,
+        identityKey,
+      };
       void mutateContext(
         (context) => (context ? { ...context, preferences: next } : context),
         false,
@@ -921,7 +1024,13 @@ export const PlayerPage: React.FC = () => {
   );
 
   const onToggleWatched = React.useCallback(async () => {
-    if (!playbackContext) return;
+    const identityKey = playerIdentityRef.current;
+    if (
+      !playbackContext ||
+      !canSendProfileMutation(identityKey, canPlaybackWriteRef.current)
+    ) {
+      return;
+    }
     const isWatched = !(playbackContext.state?.isWatched ?? false);
     setSavingWatched(true);
     try {
@@ -930,6 +1039,9 @@ export const PlayerPage: React.FC = () => {
         path: playbackContext.media.path,
         isWatched,
       });
+      if (!canSendProfileMutation(identityKey, canPlaybackWriteRef.current)) {
+        return;
+      }
       await mutateContext(
         (current) => (current ? { ...current, state } : current),
         false,
@@ -945,7 +1057,9 @@ export const PlayerPage: React.FC = () => {
         color: "success",
       });
     } catch {
-      addToast({ title: t("watched.failed"), color: "danger" });
+      if (canSendProfileMutation(identityKey, canPlaybackWriteRef.current)) {
+        addToast({ title: t("watched.failed"), color: "danger" });
+      }
     } finally {
       setSavingWatched(false);
     }
@@ -1050,23 +1164,25 @@ export const PlayerPage: React.FC = () => {
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={savingWatched}
-                  onClick={() => void onToggleWatched()}
-                >
-                  {playbackContext.state?.isWatched ? (
-                    <RotateCcw size={15} />
-                  ) : (
-                    <CheckCircle2 size={15} />
-                  )}
-                  {t(
-                    playbackContext.state?.isWatched
-                      ? "watched.markUnwatched"
-                      : "watched.markWatched",
-                  )}
-                </Button>
+                {canPlaybackWrite ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={savingWatched}
+                    onClick={() => void onToggleWatched()}
+                  >
+                    {playbackContext.state?.isWatched ? (
+                      <RotateCcw size={15} />
+                    ) : (
+                      <CheckCircle2 size={15} />
+                    )}
+                    {t(
+                      playbackContext.state?.isWatched
+                        ? "watched.markUnwatched"
+                        : "watched.markWatched",
+                    )}
+                  </Button>
+                ) : null}
                 {playbackContext.next ? (
                   <Button
                     size="sm"
@@ -1162,6 +1278,7 @@ export const PlayerPage: React.FC = () => {
               <input
                 type="checkbox"
                 checked={preferences?.autoPlayNext ?? true}
+                disabled={!canPlaybackWrite}
                 onChange={(event) =>
                   void updatePreferences({ autoPlayNext: event.target.checked })
                 }

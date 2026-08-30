@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using SecondDimensionWatcherReDive.Framework.Authorization;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 
 namespace SecondDimensionWatcherReDive.Controllers;
@@ -18,6 +19,7 @@ internal class FeedController(IFeedRepository feedRepository) : ControllerBase
     }
 
     [HttpPost]
+    [Authorize(Policy = AccessPolicies.ContentWrite)]
     public async Task<IActionResult> AddFeed([FromBody] External.AddFeedRequest request,
         CancellationToken cancellationToken)
     {
@@ -28,6 +30,7 @@ internal class FeedController(IFeedRepository feedRepository) : ControllerBase
     }
 
     [HttpDelete("{id:guid}")]
+    [Authorize(Policy = AccessPolicies.ContentWrite)]
     public async Task<IActionResult> RemoveFeed([FromRoute] Guid id, CancellationToken cancellationToken)
     {
         var feed = await feedRepository.FindByIdAsync(id, cancellationToken);

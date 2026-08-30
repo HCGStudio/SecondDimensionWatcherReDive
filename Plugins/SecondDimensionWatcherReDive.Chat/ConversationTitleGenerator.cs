@@ -17,6 +17,7 @@ internal interface IConversationTitleGenerator
 
     Task TryAutoTitleAsync(
         Guid conversationId,
+        Guid profileId,
         string userMessage,
         string assistantMessage,
         string? model,
@@ -93,6 +94,7 @@ internal sealed partial class ConversationTitleGenerator(
 
     public async Task TryAutoTitleAsync(
         Guid conversationId,
+        Guid profileId,
         string userMessage,
         string assistantMessage,
         string? model,
@@ -108,7 +110,8 @@ internal sealed partial class ConversationTitleGenerator(
             }
 
             // Race-safety: only persist if title is still unset on the latest snapshot.
-            var current = await chatRepository.GetConversationWithMessagesAsync(conversationId, cancellationToken);
+            var current = await chatRepository.GetConversationWithMessagesAsync(
+                conversationId, profileId, cancellationToken);
             if (current is null)
                 return;
             if (!IsAutoTitleEligible(current.Title))
@@ -117,7 +120,8 @@ internal sealed partial class ConversationTitleGenerator(
                 return;
             }
 
-            await chatRepository.UpdateConversationTitleAsync(conversationId, title, cancellationToken);
+            await chatRepository.UpdateConversationTitleAsync(
+                conversationId, profileId, title, cancellationToken);
             LogTitleSaved(conversationId, title);
         }
         catch (OperationCanceledException)

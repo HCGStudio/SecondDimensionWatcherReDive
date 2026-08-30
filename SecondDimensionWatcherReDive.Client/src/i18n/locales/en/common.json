@@ -15,6 +15,8 @@
   },
   "user": {
     "account": "Account",
+    "manageAccount": "Manage account",
+    "profilePin": "Enter this profile's PIN",
     "language": "Language",
     "logout": "Sign out",
     "login": "Sign in"

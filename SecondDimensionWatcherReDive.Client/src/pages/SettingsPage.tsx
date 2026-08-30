@@ -4,6 +4,7 @@ import { useSearchParams } from "react-router";
 
 import { AlertTriangle, RefreshCw, RotateCw } from "lucide-react";
 
+import { retryAfterReauthentication } from "../auth/utils";
 import { AccessSettingsSection } from "../components/settings/AccessSettingsSection";
 import { AiSettingsSection } from "../components/settings/AiSettingsSection";
 import { DownloadSettingsSection } from "../components/settings/DownloadSettingsSection";
@@ -53,10 +54,14 @@ export const SettingsPage: React.FC = () => {
     async (patch: SettingsPatchWithoutRevision): Promise<SystemSettings> => {
       if (!data) throw new Error("Settings are not loaded");
       try {
-        const updated = await updateSystemSettings({
-          expectedRevision: data.revision,
-          ...patch,
-        });
+        const updated = await retryAfterReauthentication(
+          () =>
+            updateSystemSettings({
+              expectedRevision: data.revision,
+              ...patch,
+            }),
+          t("settings:system.reauthenticatePrompt"),
+        );
         await mutate(updated, { revalidate: false });
         return updated;
       } catch (saveError) {

@@ -53,6 +53,7 @@
     "retryDownload": "重试下载",
     "pause": "暂停",
     "resume": "恢复",
+    "cancel": "取消任务",
     "browse": "浏览文件",
     "markAllWatched": "将此版本的全部视频标记为已看",
     "markAllUnwatched": "将此版本的全部视频标记为未看",
@@ -67,6 +68,7 @@
   "confirm": {
     "deleteFile": "确定要删除已下载的文件吗？",
     "cancelAndDelete": "确定要取消下载并删除文件吗？",
+    "cancel": "确定要取消下载任务吗？已有文件会保留。",
     "forceAiReidentifyFiles": "将忽略正则规则并使用 AI 重新识别文件名，现有虚拟文件映射将被替换。确定继续吗？"
   },
   "toast": {

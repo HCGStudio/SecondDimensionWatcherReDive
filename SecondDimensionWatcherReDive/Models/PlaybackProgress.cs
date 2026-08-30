@@ -6,6 +6,8 @@ public class PlaybackProgress
 
     public Guid UserId { get; set; }
 
+    public UserProfile? Profile { get; set; }
+
     public Guid AnimationInfoId { get; set; }
 
     public AnimationInfo? AnimationInfo { get; set; }

@@ -6,6 +6,8 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.StaticFiles;
 using System.Text.Json;
 using Microsoft.Extensions.Caching.Distributed;
+using SecondDimensionWatcherReDive.Auth;
+using SecondDimensionWatcherReDive.Framework.Authorization;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Framework.FileStore;
 
@@ -17,6 +19,7 @@ namespace SecondDimensionWatcherReDive.Controllers;
 internal partial class FileController(
     IAnimationInfoRepository animationInfoRepository,
     IFileExplorer fileExplorer,
+    IIdentityRepository identityRepository,
     IDistributedCache distributedCache,
     IContentTypeProvider contentTypeProvider,
     ILogger<FileController> logger) : ControllerBase
@@ -32,6 +35,10 @@ internal partial class FileController(
     public async Task<IActionResult> GetFileLink([FromBody] External.FileLinkResultRequest payload,
         CancellationToken cancellationToken)
     {
+        if (!User.TryGetUserId(out var userId)
+            || !User.TryGetProfileId(out var profileId)
+            || !User.TryGetSessionId(out var sessionId))
+            return Unauthorized();
         LogGenerateLinkRequest(logger, payload.Id, payload.Path);
 
         var info = await animationInfoRepository.FindByIdWithAnimationAsync(payload.Id, cancellationToken);
@@ -41,12 +48,18 @@ internal partial class FileController(
             return NotFound();
         }
 
-        var virtualPath = ResolveVirtualPath(info, payload.Path);
+        if (!TryResolveVirtualPath(info, payload.Path, out var virtualPath))
+            return BadRequest();
+        var virtualRoot = DevicePathScope.GetVirtualRoot(User);
+        if (!DevicePathScope.TryMapInternalToPublic(
+                virtualPath, virtualRoot, out _))
+            return Forbid();
         LogResolvedTargetPath(logger, virtualPath, "virtual path");
 
         var token = GenerateToken(64);
         await distributedCache.SetStringAsync(token,
-            JsonSerializer.Serialize(new External.FileStoreToken(virtualPath, string.Empty),
+            JsonSerializer.Serialize(new External.FileStoreToken(
+                    virtualPath, string.Empty, sessionId, userId, profileId, virtualRoot),
                 External.AppJsonSerializerContext.Default.FileStoreToken),
             new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = TimeSpan.FromDays(1) },
             cancellationToken);
@@ -63,6 +76,18 @@ internal partial class FileController(
         var json = await distributedCache.GetStringAsync(token, cancellationToken);
         var fileStoreToken = json is null ? null : JsonSerializer.Deserialize(json, External.AppJsonSerializerContext.Default.FileStoreToken);
         if (fileStoreToken is null)
+        {
+            LogPlayTokenInvalid(logger);
+            return NotFound();
+        }
+
+        var authenticated = await identityRepository.GetAuthenticatedSessionAsync(
+            fileStoreToken.SessionId, DateTimeOffset.UtcNow, cancellationToken);
+        if (authenticated is null
+            || authenticated.User.Id != fileStoreToken.UserId
+            || authenticated.Profile.Id != fileStoreToken.ProfileId
+            || !DevicePathScope.TryMapInternalToPublic(
+                fileStoreToken.Path, fileStoreToken.VirtualRoot, out _))
         {
             LogPlayTokenInvalid(logger);
             return NotFound();
@@ -93,7 +118,11 @@ internal partial class FileController(
             return NotFound();
         }
 
-        var virtualPath = ResolveVirtualPath(info, relativeDir);
+        if (!TryResolveVirtualPath(info, relativeDir, out var virtualPath))
+            return BadRequest();
+        if (!DevicePathScope.TryMapInternalToPublic(
+                virtualPath, DevicePathScope.GetVirtualRoot(User), out _))
+            return Forbid();
         LogListPathInfo(logger, virtualPath, true);
 
         var tokens = await fileExplorer.EnumerateDirectoryAsync(
@@ -109,12 +138,30 @@ internal partial class FileController(
         return Ok(results);
     }
 
-    private static string ResolveVirtualPath(AnimationInfo info, string? relative)
+    private static bool TryResolveVirtualPath(
+        AnimationInfo info,
+        string? relative,
+        out string virtualPath)
     {
         var root = GetAnimationVirtualRoot(info);
-        if (string.IsNullOrWhiteSpace(relative)) return root;
+        if (string.IsNullOrWhiteSpace(relative))
+        {
+            virtualPath = root;
+            return true;
+        }
+
         var trimmed = relative.Trim('/');
-        return string.IsNullOrEmpty(trimmed) ? root : $"{root}/{trimmed}";
+        if (trimmed.Length > 2048
+            || trimmed.Contains('\\')
+            || trimmed.Any(char.IsControl)
+            || trimmed.Split('/').Any(segment => segment.Length == 0 || segment is "." or ".."))
+        {
+            virtualPath = string.Empty;
+            return false;
+        }
+
+        virtualPath = string.IsNullOrEmpty(trimmed) ? root : $"{root}/{trimmed}";
+        return true;
     }
 
     private static string GetAnimationVirtualRoot(AnimationInfo info)

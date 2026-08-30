@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SecondDimensionWatcherReDive.Configuration;
 using SecondDimensionWatcherReDive.Controllers.External;
+using SecondDimensionWatcherReDive.Framework.Authorization;
 
 namespace SecondDimensionWatcherReDive.Controllers;
 
@@ -13,6 +14,7 @@ namespace SecondDimensionWatcherReDive.Controllers;
 internal sealed class SettingsController(IRuntimeSettingsService settingsService) : ControllerBase
 {
     [HttpGet]
+    [Authorize(Policy = AccessPolicies.Administrator)]
     public async Task<ActionResult<ApplicationSettingsResponse>> GetSettingsAsync(
         CancellationToken cancellationToken)
     {
@@ -21,6 +23,7 @@ internal sealed class SettingsController(IRuntimeSettingsService settingsService
     }
 
     [HttpPatch]
+    [Authorize(Policy = AccessPolicies.RecentAdministrator)]
     public async Task<IActionResult> PatchSettingsAsync(
         [FromBody] PatchApplicationSettingsRequest request,
         CancellationToken cancellationToken)

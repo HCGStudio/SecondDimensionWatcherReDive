@@ -53,6 +53,7 @@
     "retryDownload": "ダウンロードを再試行",
     "pause": "一時停止",
     "resume": "再開",
+    "cancel": "タスクを中止",
     "browse": "ファイルを開く",
     "markAllWatched": "このリリースの全動画を視聴済みにする",
     "markAllUnwatched": "このリリースの全動画を未視聴に戻す",
@@ -67,6 +68,7 @@
   "confirm": {
     "deleteFile": "ダウンロード済みのファイルを削除しますか？",
     "cancelAndDelete": "ダウンロードを中止してファイルを削除しますか？",
+    "cancel": "ダウンロードタスクを中止しますか？既存ファイルは保持されます。",
     "forceAiReidentifyFiles": "正規表現ルールを無視して AI でファイル名を再識別し、現在の仮想ファイルマッピングを置き換えます。続行しますか？"
   },
   "toast": {

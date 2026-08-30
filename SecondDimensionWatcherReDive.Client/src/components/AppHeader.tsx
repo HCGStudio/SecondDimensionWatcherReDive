@@ -19,7 +19,9 @@ import {
   User,
 } from "lucide-react";
 
+import { IAuthState, UserRole } from "../auth/IAuthResult";
 import { useLoginStatus } from "../auth/hooks";
+import { logout, switchProfile } from "../auth/utils";
 import i18n, {
   type SupportedLanguage,
   languageLabels,
@@ -40,37 +42,61 @@ interface NavItem {
   labelKey: string;
   path: string;
   badge?: number;
+  administratorOnly?: boolean;
+  hiddenForViewer?: boolean;
 }
 
-const createNavItems = (incidentCount?: number): NavItem[] => [
-  { icon: <Home size={16} />, labelKey: "nav.home", path: "/" },
-  {
-    icon: <Download size={16} />,
-    labelKey: "nav.downloading",
-    path: "/downloading",
-  },
-  {
-    icon: <List size={16} />,
-    labelKey: "nav.downloaded",
-    path: "/downloaded",
-  },
-  { icon: <FolderOpen size={16} />, labelKey: "nav.files", path: "/files" },
-  { icon: <LayoutGrid size={16} />, labelKey: "nav.feeds", path: "/feeds" },
-  {
-    icon: <Inbox size={16} />,
-    labelKey: "nav.incidents",
-    path: "/incidents",
-    badge: incidentCount,
-  },
-  { icon: <Settings size={16} />, labelKey: "nav.tasks", path: "/tasks" },
-  {
-    icon: <FileSearch size={16} />,
-    labelKey: "nav.metadataReview",
-    path: "/metadata-review",
-  },
-  { icon: <MessageSquare size={16} />, labelKey: "nav.chat", path: "/chat" },
-  { icon: <Cog size={16} />, labelKey: "nav.settings", path: "/settings" },
-];
+const createNavItems = (role?: UserRole, incidentCount?: number): NavItem[] =>
+  [
+    { icon: <Home size={16} />, labelKey: "nav.home", path: "/" },
+    {
+      icon: <Download size={16} />,
+      labelKey: "nav.downloading",
+      path: "/downloading",
+    },
+    {
+      icon: <List size={16} />,
+      labelKey: "nav.downloaded",
+      path: "/downloaded",
+    },
+    { icon: <FolderOpen size={16} />, labelKey: "nav.files", path: "/files" },
+    { icon: <LayoutGrid size={16} />, labelKey: "nav.feeds", path: "/feeds" },
+    {
+      icon: <Inbox size={16} />,
+      labelKey: "nav.incidents",
+      path: "/incidents",
+      badge: incidentCount,
+      administratorOnly: true,
+    },
+    {
+      icon: <Settings size={16} />,
+      labelKey: "nav.tasks",
+      path: "/tasks",
+      administratorOnly: true,
+    },
+    {
+      icon: <FileSearch size={16} />,
+      labelKey: "nav.metadataReview",
+      path: "/metadata-review",
+      administratorOnly: true,
+    },
+    {
+      icon: <MessageSquare size={16} />,
+      labelKey: "nav.chat",
+      path: "/chat",
+      hiddenForViewer: true,
+    },
+    {
+      icon: <Cog size={16} />,
+      labelKey: "nav.settings",
+      path: "/settings",
+      administratorOnly: true,
+    },
+  ].filter(
+    (item) =>
+      (!item.administratorOnly || role === "Admin") &&
+      (!item.hiddenForViewer || role !== "Viewer"),
+  );
 
 const isPathActive = (pathname: string, path: string): boolean =>
   pathname === path || (path === "/" && pathname === "/main");
@@ -162,8 +188,9 @@ const MobileNavMenu: React.FC<{ items: NavItem[] }> = ({ items }) => {
   );
 };
 
-const UserMenu: React.FC = () => {
+const UserMenu: React.FC<{ status: IAuthState }> = ({ status }) => {
   const { t, i18n: i18nInstance } = useTranslation();
+  const navigate = useNavigate();
   const resolved = (
     i18nInstance.resolvedLanguage ??
     i18nInstance.language ??
@@ -175,9 +202,13 @@ const UserMenu: React.FC = () => {
     ? (resolved as SupportedLanguage)
     : "zh-cn";
 
-  const onLogout = () => {
-    localStorage.removeItem("auth");
-    location.reload();
+  const activeProfile = status.profiles.find(
+    (profile) => profile.id === status.profileId,
+  );
+
+  const onLogout = async () => {
+    await logout();
+    navigate("/login", { replace: true });
   };
 
   return (
@@ -188,9 +219,43 @@ const UserMenu: React.FC = () => {
           aria-label={t("user.account")}
         >
           <User size={16} />
+          <span className="hidden sm:inline">
+            {activeProfile?.name ?? status.username}
+          </span>
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="min-w-[10rem]">
+        <div className="px-3 py-1.5 text-xs uppercase tracking-wide text-subtle">
+          {status.username} · {status.role}
+        </div>
+        {status.profiles.map((profile) => (
+          <DropdownMenuItem
+            key={profile.id}
+            onSelect={() => {
+              if (profile.id === status.profileId) return;
+              const pin = profile.hasPin
+                ? window.prompt(t("user.profilePin"))
+                : undefined;
+              if (profile.hasPin && pin === null) return;
+              void switchProfile(profile.id, pin || undefined).then(() => {
+                window.location.assign("/");
+              });
+            }}
+          >
+            <Check
+              size={14}
+              className={
+                profile.id === status.profileId ? "opacity-100" : "opacity-0"
+              }
+            />
+            {profile.name}
+          </DropdownMenuItem>
+        ))}
+        <DropdownMenuItem onSelect={() => navigate("/account")}>
+          <User size={14} />
+          {t("user.manageAccount")}
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
         <div className="px-3 py-1.5 text-xs uppercase tracking-wide text-subtle">
           {t("user.language")}
         </div>
@@ -209,7 +274,7 @@ const UserMenu: React.FC = () => {
           </DropdownMenuItem>
         ))}
         <DropdownMenuSeparator />
-        <DropdownMenuItem color="danger" onSelect={onLogout}>
+        <DropdownMenuItem color="danger" onSelect={() => void onLogout()}>
           {t("user.logout")}
         </DropdownMenuItem>
       </DropdownMenuContent>
@@ -220,9 +285,12 @@ const UserMenu: React.FC = () => {
 export const AppHeader: React.FC = () => {
   const { t } = useTranslation();
   const { data: status } = useLoginStatus();
-  const { data: incidents } = useIncidents({ take: 1 });
+  const { data: incidents } = useIncidents({
+    take: 1,
+    enabled: status?.role === "Admin",
+  });
   const navigate = useNavigate();
-  const items = createNavItems(incidents?.openCount);
+  const items = createNavItems(status?.role, incidents?.openCount);
 
   return (
     <header className="sticky top-0 z-30 border-b border-border bg-surface/95 backdrop-blur">
@@ -250,7 +318,7 @@ export const AppHeader: React.FC = () => {
         </div>
         <div className="shrink-0">
           {status ? (
-            <UserMenu />
+            <UserMenu status={status} />
           ) : (
             <button
               className="inline-flex items-center gap-1.5 text-sm text-muted hover:text-foreground transition-colors"

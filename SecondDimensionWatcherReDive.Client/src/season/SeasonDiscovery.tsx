@@ -1,21 +1,30 @@
-import { Check, ChevronLeft, ChevronRight, RefreshCw, Rss, Users } from "lucide-react";
 import React from "react";
 import { useTranslation } from "react-i18next";
 
-import { useFeeds } from "../feed/hooks";
+import {
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  RefreshCw,
+  Rss,
+  Users,
+} from "lucide-react";
+
+import { useAccess } from "../auth/hooks";
 import { useToast } from "../components/ToastProvider";
 import { Button } from "../components/ui/Button";
-import { Spinner } from "../components/ui/Spinner";
 import {
   Sheet,
+  SheetBody,
   SheetContent,
   SheetHeader,
-  SheetBody,
   SheetTitle,
 } from "../components/ui/Sheet";
+import { Spinner } from "../components/ui/Spinner";
+import { useFeeds } from "../feed/hooks";
 import { useBangumiSubgroups, useSeasonBangumis } from "./hooks";
-import { refreshSeason, subscribeBangumi } from "./utils";
 import { ISeasonBangumi, SeasonOption } from "./types";
+import { refreshSeason, subscribeBangumi } from "./utils";
 
 const DAY_KEYS: Record<number, string> = {
   1: "monday",
@@ -35,10 +44,10 @@ const MIKAN_BASE = "https://mikanani.me";
 
 const SEASONS = ["冬", "春", "夏", "秋"] as const;
 const SEASON_KEY: Record<string, string> = {
-  "冬": "winter",
-  "春": "spring",
-  "夏": "summer",
-  "秋": "autumn",
+  冬: "winter",
+  春: "spring",
+  夏: "summer",
+  秋: "autumn",
 };
 
 function getCurrentSeason(): { year: number; season: string } {
@@ -52,8 +61,11 @@ function getCurrentSeason(): { year: number; season: string } {
   return { year: now.getFullYear(), season };
 }
 
-function adjacentSeasonRaw(opt: SeasonOption, delta: number): { year: number; season: string } {
-  const idx = SEASONS.indexOf(opt.season as typeof SEASONS[number]);
+function adjacentSeasonRaw(
+  opt: SeasonOption,
+  delta: number,
+): { year: number; season: string } {
+  const idx = SEASONS.indexOf(opt.season as (typeof SEASONS)[number]);
   const newIdx = idx + delta;
   if (newIdx < 0) {
     return { year: opt.year - 1, season: SEASONS[SEASONS.length - 1] };
@@ -74,6 +86,7 @@ function buildSubgroupRssUrl(mikanId: number, subgroupId: number): string {
 
 export const SeasonDiscovery: React.FC = () => {
   const { t } = useTranslation("season");
+  const { canContentWrite, isAdministrator } = useAccess();
   const formatLabel = React.useCallback(
     (year: number, season: string) =>
       t("seasonLabel", {
@@ -96,7 +109,8 @@ export const SeasonDiscovery: React.FC = () => {
   }, [formatLabel]);
 
   const isCurrent =
-    selectedSeason.year === current.year && selectedSeason.season === current.season;
+    selectedSeason.year === current.year &&
+    selectedSeason.season === current.season;
 
   const {
     data: seasonData,
@@ -111,7 +125,8 @@ export const SeasonDiscovery: React.FC = () => {
   const { data: feeds, mutate: mutateFeeds } = useFeeds();
   const { addToast } = useToast();
   const [refreshing, setRefreshing] = React.useState(false);
-  const [selectedBangumi, setSelectedBangumi] = React.useState<ISeasonBangumi | null>(null);
+  const [selectedBangumi, setSelectedBangumi] =
+    React.useState<ISeasonBangumi | null>(null);
 
   const subscribedUrls = React.useMemo(() => {
     const set = new Set<string>();
@@ -162,8 +177,8 @@ export const SeasonDiscovery: React.FC = () => {
     if (
       next.year > current.year ||
       (next.year === current.year &&
-        SEASONS.indexOf(next.season as typeof SEASONS[number]) >
-          SEASONS.indexOf(current.season as typeof SEASONS[number]))
+        SEASONS.indexOf(next.season as (typeof SEASONS)[number]) >
+          SEASONS.indexOf(current.season as (typeof SEASONS)[number]))
     ) {
       return;
     }
@@ -175,8 +190,8 @@ export const SeasonDiscovery: React.FC = () => {
     if (next.year > current.year) return false;
     if (
       next.year === current.year &&
-      SEASONS.indexOf(next.season as typeof SEASONS[number]) >
-        SEASONS.indexOf(current.season as typeof SEASONS[number])
+      SEASONS.indexOf(next.season as (typeof SEASONS)[number]) >
+        SEASONS.indexOf(current.season as (typeof SEASONS)[number])
     )
       return false;
     return true;
@@ -208,7 +223,12 @@ export const SeasonDiscovery: React.FC = () => {
             <span className="min-w-[7rem] text-center text-sm font-medium text-foreground">
               {selectedSeason.label}
             </span>
-            <Button variant="icon" size="sm" onClick={onNext} disabled={!canGoNext}>
+            <Button
+              variant="icon"
+              size="sm"
+              onClick={onNext}
+              disabled={!canGoNext}
+            >
               <ChevronRight size={16} />
             </Button>
           </div>
@@ -216,23 +236,32 @@ export const SeasonDiscovery: React.FC = () => {
         <div className="flex items-center gap-3">
           {seasonData?.lastScrapedAt ? (
             <span className="text-xs text-subtle">
-              {t("lastUpdated", { time: new Date(seasonData.lastScrapedAt).toLocaleString() })}
+              {t("lastUpdated", {
+                time: new Date(seasonData.lastScrapedAt).toLocaleString(),
+              })}
             </span>
           ) : null}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onRefresh}
-            disabled={refreshing || isLoading}
-          >
-            <RefreshCw size={14} className={refreshing || isLoading ? "animate-spin" : ""} />
-            {t("refresh")}
-          </Button>
+          {isAdministrator ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onRefresh}
+              disabled={refreshing || isLoading}
+            >
+              <RefreshCw
+                size={14}
+                className={refreshing || isLoading ? "animate-spin" : ""}
+              />
+              {t("refresh")}
+            </Button>
+          ) : null}
         </div>
       </div>
 
       {isLoading ? (
-        <div className="flex justify-center py-8"><Spinner /></div>
+        <div className="flex justify-center py-8">
+          <Spinner />
+        </div>
       ) : seasonData?.bangumis.length === 0 ? (
         <p className="text-sm text-muted">{t("empty")}</p>
       ) : (
@@ -268,24 +297,26 @@ export const SeasonDiscovery: React.FC = () => {
                         {bangumi.title}
                       </p>
                       <div className="flex gap-2">
-                        <Button
-                          size="sm"
-                          variant={isSubscribed ? "outline" : "solid"}
-                          disabled={isSubscribed}
-                          onClick={() => onSubscribeAll(bangumi)}
-                        >
-                          {isSubscribed ? (
-                            <>
-                              <Check size={12} />
-                              {t("subscribed")}
-                            </>
-                          ) : (
-                            <>
-                              <Rss size={12} />
-                              {t("subscribe")}
-                            </>
-                          )}
-                        </Button>
+                        {canContentWrite ? (
+                          <Button
+                            size="sm"
+                            variant={isSubscribed ? "outline" : "solid"}
+                            disabled={isSubscribed}
+                            onClick={() => onSubscribeAll(bangumi)}
+                          >
+                            {isSubscribed ? (
+                              <>
+                                <Check size={12} />
+                                {t("subscribed")}
+                              </>
+                            ) : (
+                              <>
+                                <Rss size={12} />
+                                {t("subscribe")}
+                              </>
+                            )}
+                          </Button>
+                        ) : null}
                         <Button
                           size="sm"
                           variant="outline"
@@ -321,6 +352,7 @@ export const SeasonDiscovery: React.FC = () => {
                 bangumi={selectedBangumi}
                 subscribedUrls={subscribedUrls}
                 onSubscribed={mutateFeeds}
+                canSubscribe={canContentWrite}
               />
             ) : null}
           </SheetBody>
@@ -334,7 +366,8 @@ const SubgroupList: React.FC<{
   bangumi: ISeasonBangumi;
   subscribedUrls: Set<string>;
   onSubscribed: () => void;
-}> = ({ bangumi, subscribedUrls, onSubscribed }) => {
+  canSubscribe: boolean;
+}> = ({ bangumi, subscribedUrls, onSubscribed, canSubscribe }) => {
   const { t } = useTranslation("season");
   const { data: subgroups, error } = useBangumiSubgroups(bangumi.mikanId);
   const { addToast } = useToast();
@@ -345,7 +378,10 @@ const SubgroupList: React.FC<{
         await subscribeBangumi(bangumi.mikanId, subgroupId);
         onSubscribed();
         addToast({
-          title: t("toast.subscribedSubgroup", { title: bangumi.title, subgroup: name }),
+          title: t("toast.subscribedSubgroup", {
+            title: bangumi.title,
+            subgroup: name,
+          }),
           color: "success",
         });
       } catch {
@@ -355,9 +391,16 @@ const SubgroupList: React.FC<{
     [bangumi, onSubscribed, addToast, t],
   );
 
-  if (error) return <p className="text-sm text-error">{t("loadSubgroupsFailed")}</p>;
-  if (!subgroups) return <div className="flex justify-center py-8"><Spinner /></div>;
-  if (subgroups.length === 0) return <p className="text-sm text-muted">{t("noSubgroups")}</p>;
+  if (error)
+    return <p className="text-sm text-error">{t("loadSubgroupsFailed")}</p>;
+  if (!subgroups)
+    return (
+      <div className="flex justify-center py-8">
+        <Spinner />
+      </div>
+    );
+  if (subgroups.length === 0)
+    return <p className="text-sm text-muted">{t("noSubgroups")}</p>;
 
   return (
     <div className="space-y-3">
@@ -366,36 +409,43 @@ const SubgroupList: React.FC<{
         const isAllSubscribed = subscribedUrls.has(allUrl);
         return (
           <div className="flex items-center justify-between rounded-md border border-border-light bg-canvas p-3">
-            <span className="text-sm font-medium text-foreground">{t("allSubgroups")}</span>
-            <Button
-              size="sm"
-              variant={isAllSubscribed ? "outline" : "solid"}
-              disabled={isAllSubscribed}
-              onClick={async () => {
-                try {
-                  await subscribeBangumi(bangumi.mikanId);
-                  onSubscribed();
-                  addToast({
-                    title: t("toast.subscribed", { name: bangumi.title }),
-                    color: "success",
-                  });
-                } catch {
-                  addToast({ title: t("toast.subscribeFailed"), color: "danger" });
-                }
-              }}
-            >
-              {isAllSubscribed ? (
-                <>
-                  <Check size={12} />
-                  {t("subscribed")}
-                </>
-              ) : (
-                <>
-                  <Rss size={12} />
-                  {t("subscribe")}
-                </>
-              )}
-            </Button>
+            <span className="text-sm font-medium text-foreground">
+              {t("allSubgroups")}
+            </span>
+            {canSubscribe ? (
+              <Button
+                size="sm"
+                variant={isAllSubscribed ? "outline" : "solid"}
+                disabled={isAllSubscribed}
+                onClick={async () => {
+                  try {
+                    await subscribeBangumi(bangumi.mikanId);
+                    onSubscribed();
+                    addToast({
+                      title: t("toast.subscribed", { name: bangumi.title }),
+                      color: "success",
+                    });
+                  } catch {
+                    addToast({
+                      title: t("toast.subscribeFailed"),
+                      color: "danger",
+                    });
+                  }
+                }}
+              >
+                {isAllSubscribed ? (
+                  <>
+                    <Check size={12} />
+                    {t("subscribed")}
+                  </>
+                ) : (
+                  <>
+                    <Rss size={12} />
+                    {t("subscribe")}
+                  </>
+                )}
+              </Button>
+            ) : null}
           </div>
         );
       })()}
@@ -410,24 +460,26 @@ const SubgroupList: React.FC<{
             className="flex items-center justify-between rounded-md border border-border-light p-3"
           >
             <span className="text-sm text-foreground">{sg.name}</span>
-            <Button
-              size="sm"
-              variant={isSubscribed ? "outline" : "solid"}
-              disabled={isSubscribed}
-              onClick={() => onSubscribe(sg.mikanSubgroupId, sg.name)}
-            >
-              {isSubscribed ? (
-                <>
-                  <Check size={12} />
-                  {t("subscribed")}
-                </>
-              ) : (
-                <>
-                  <Rss size={12} />
-                  {t("subscribe")}
-                </>
-              )}
-            </Button>
+            {canSubscribe ? (
+              <Button
+                size="sm"
+                variant={isSubscribed ? "outline" : "solid"}
+                disabled={isSubscribed}
+                onClick={() => onSubscribe(sg.mikanSubgroupId, sg.name)}
+              >
+                {isSubscribed ? (
+                  <>
+                    <Check size={12} />
+                    {t("subscribed")}
+                  </>
+                ) : (
+                  <>
+                    <Rss size={12} />
+                    {t("subscribe")}
+                  </>
+                )}
+              </Button>
+            ) : null}
           </div>
         );
       })}

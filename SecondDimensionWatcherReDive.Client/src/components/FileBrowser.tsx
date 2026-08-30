@@ -12,6 +12,7 @@ import {
   Play,
 } from "lucide-react";
 
+import { useAccess } from "../auth/hooks";
 import { IFileStoreListResult } from "../file/IFileStoreListResult";
 import { useFileList } from "../file/hooks";
 import { setPlaybackWatched } from "../playback/api";
@@ -34,6 +35,7 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({ animationId }) => {
   const { data: playbackStates, mutate: mutatePlaybackStates } =
     usePlaybackStates(animationId);
   const navigate = useNavigate();
+  const { canPlaybackWrite } = useAccess();
   const { addToast } = useToast();
   const [updatingPath, setUpdatingPath] = React.useState<string | null>(null);
 
@@ -68,6 +70,7 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({ animationId }) => {
 
   const onToggleWatched = React.useCallback(
     async (path: string) => {
+      if (!canPlaybackWrite) return;
       const state = stateByPath.get(path);
       if (!state) return;
       setUpdatingPath(path);
@@ -89,7 +92,14 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({ animationId }) => {
         setUpdatingPath(null);
       }
     },
-    [addToast, animationId, mutatePlaybackStates, stateByPath, t],
+    [
+      addToast,
+      animationId,
+      canPlaybackWrite,
+      mutatePlaybackStates,
+      stateByPath,
+      t,
+    ],
   );
 
   if (error) {
@@ -134,7 +144,7 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({ animationId }) => {
               const state = stateByPath.get(path);
               return (
                 <div className="flex items-center justify-end gap-1">
-                  {state ? (
+                  {state && canPlaybackWrite ? (
                     <Button
                       variant="icon"
                       size="sm"

@@ -2,6 +2,7 @@
   "pageTitle": "系统设置",
   "system": {
     "pageDescription": "配置 AI 执行引擎、外部服务、媒体处理、健康监控和访问协议。敏感值不会回显，未填写新值时会保留当前配置。",
+    "reauthenticatePrompt": "请输入账户密码以确认此敏感操作",
     "loadFailed": "无法加载系统设置，请检查服务状态后重试。",
     "retry": "重新加载",
     "navigation": {
@@ -242,11 +243,15 @@
     "intro": "在这里为每台设备生成独立的 WebDAV 用户名和访问令牌，可随时撤销。访问令牌在数据库中以 BCrypt 哈希保存，明文仅在创建时显示一次。",
     "create": {
       "title": "创建新凭据",
+      "userLabel": "凭据归属用户",
+      "currentUser": "当前管理员",
       "usernameLabel": "用户名（可选）",
       "usernamePlaceholder": "留空则自动生成",
       "usernameHelp": "用户名仅允许字母、数字、点、下划线、连字符，长度 3-32。",
       "descriptionLabel": "备注（可选）",
       "descriptionPlaceholder": "例如：客厅 Mac mini",
+      "virtualRootLabel": "可见虚拟根目录",
+      "expiresAtLabel": "到期日期（可选）",
       "submit": "生成"
     },
     "created": {
@@ -263,12 +268,16 @@
       },
       "columns": {
         "username": "用户名",
+        "user": "归属",
         "description": "备注",
+        "virtualRoot": "可见根目录",
+        "expiresAt": "到期 / 状态",
         "createdAt": "创建时间",
         "actions": "操作"
       },
       "deleteConfirm": "确认撤销凭据「{{username}}」吗？此操作不可恢复。",
-      "deleteAria": "撤销 {{username}}"
+      "deleteAria": "撤销 {{username}}",
+      "revoked": "已撤销"
     },
     "toast": {
       "created": "凭据已生成",
