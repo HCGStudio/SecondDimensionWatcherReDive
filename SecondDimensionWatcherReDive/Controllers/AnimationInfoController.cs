@@ -36,6 +36,7 @@ internal class AnimationInfoController(
     public async Task<IActionResult> GetGroupedAsync(
         [FromQuery] string? cursor,
         [FromQuery] int take = 24,
+        [FromQuery] long? catalogRevision = null,
         CancellationToken cancellationToken = default)
     {
         if (!TryDecodeCursor<AnimationCatalogCursor>(cursor, out var decoded))
@@ -45,6 +46,8 @@ internal class AnimationInfoController(
             NormalizeTake(take),
             cancellationToken);
         if (result.CursorInvalidated) return Conflict();
+        if (catalogRevision is not null && result.Revision != catalogRevision.Value)
+            return Conflict();
         return Ok(new External.AnimationCatalogResponse(
             result.Items.Select(item => item.ToExternal()).ToList(),
             EncodeCursor(result.NextCursor),
@@ -64,6 +67,7 @@ internal class AnimationInfoController(
     public async Task<IActionResult> GetUncategorizedAsync(
         [FromQuery] string? cursor,
         [FromQuery] int take = 24,
+        [FromQuery] long? catalogRevision = null,
         CancellationToken cancellationToken = default)
     {
         if (!TryDecodeCursor<AnimationInfoCursor>(cursor, out var decoded))
@@ -73,6 +77,8 @@ internal class AnimationInfoController(
             NormalizeTake(take),
             cancellationToken);
         if (result.CursorInvalidated) return Conflict();
+        if (catalogRevision is not null && result.Revision != catalogRevision.Value)
+            return Conflict();
         return Ok(new External.AnimationInfoSummaryResponse(
             result.Items.Select(item => item.ToExternal()).ToList(),
             EncodeCursor(result.NextCursor),
@@ -84,6 +90,7 @@ internal class AnimationInfoController(
         [FromRoute] string tmdbId,
         [FromQuery] string? cursor,
         [FromQuery] int take = 50,
+        [FromQuery] long? catalogRevision = null,
         CancellationToken cancellationToken = default)
     {
         if (!TryDecodeCursor<AnimationInfoCursor>(cursor, out var decoded))
@@ -95,6 +102,8 @@ internal class AnimationInfoController(
             cancellationToken);
         if (result is null) return NotFound();
         if (result.CursorInvalidated) return Conflict();
+        if (catalogRevision is not null && result.Revision != catalogRevision.Value)
+            return Conflict();
         return Ok(new External.AnimationEpisodeResponse(
             result.Animation.ToExternal(),
             result.Episodes.Select(item => item.ToExternal()).ToList(),
