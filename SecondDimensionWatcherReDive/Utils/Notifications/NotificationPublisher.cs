@@ -29,7 +29,7 @@ public sealed partial class NotificationPublisher(
 
         try
         {
-            var eventId = notificationEvent.Id ?? Guid.NewGuid();
+            var fallbackEventId = notificationEvent.Id ?? Guid.NewGuid();
             var occurredAt = notificationEvent.OccurredAt ?? DateTimeOffset.UtcNow;
             var title = Limit(notificationEvent.Title, 256);
             var body = Limit(notificationEvent.Body, 2048);
@@ -38,10 +38,14 @@ public sealed partial class NotificationPublisher(
             var baseDeduplicationKey = NormalizeDeduplicationKey(
                 notificationEvent.DeduplicationKey,
                 notificationEvent.Type,
-                eventId);
+                fallbackEventId);
+            // EventId identifies the logical event across all delivery targets and
+            // publication retries. Keep the outbox row Id independent so a target
+            // added later can be inserted without colliding with an existing row.
+            var eventId = notificationEvent.Id
+                          ?? DeriveEventId(notificationEvent.Type, baseDeduplicationKey);
 
             var enqueued = false;
-            var hasAssignedEventId = false;
 
             if (webhookEnabled)
             {
@@ -54,7 +58,7 @@ public sealed partial class NotificationPublisher(
                         return await EnqueueTargetAsync(
                             outbox,
                             new NotificationOutboxMessage(
-                                eventId,
+                                Guid.NewGuid(),
                                 eventId,
                                 NormalizeTargetDeduplicationKey(
                                     baseDeduplicationKey,
@@ -78,12 +82,10 @@ public sealed partial class NotificationPublisher(
                     },
                     notificationEvent.Type,
                     cancellationToken);
-                hasAssignedEventId = true;
             }
 
             if (webPushEnabled)
             {
-                var eventIdAlreadyAssigned = hasAssignedEventId;
                 enqueued |= await TryEnqueueChannelAsync(
                     async () =>
                     {
@@ -104,7 +106,7 @@ public sealed partial class NotificationPublisher(
                             any |= await EnqueueTargetAsync(
                                 outbox,
                                 new NotificationOutboxMessage(
-                                    eventIdAlreadyAssigned ? Guid.NewGuid() : eventId,
+                                    Guid.NewGuid(),
                                     eventId,
                                     targetDeduplicationKey,
                                     NotificationChannel.WebPush,
@@ -122,7 +124,6 @@ public sealed partial class NotificationPublisher(
                                     null,
                                     null),
                                 cancellationToken);
-                            eventIdAlreadyAssigned = true;
                         }
                         return any;
                     },
@@ -201,6 +202,16 @@ public sealed partial class NotificationPublisher(
         if (normalized.Length == 0)
             normalized = $"{type.ToString().ToLowerInvariant()}:{id:D}";
         return BoundDeduplicationKey(normalized);
+    }
+
+    private static Guid DeriveEventId(
+        NotificationEventType type,
+        string baseDeduplicationKey)
+    {
+        var identity = $"{type}:{baseDeduplicationKey}";
+        Span<byte> digest = stackalloc byte[32];
+        SHA256.HashData(Encoding.UTF8.GetBytes(identity), digest);
+        return new Guid(digest[..16]);
     }
 
     private static string NormalizeTargetDeduplicationKey(
