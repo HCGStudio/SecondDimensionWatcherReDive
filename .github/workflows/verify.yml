@@ -199,8 +199,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Verify prerelease version allocation
-        run: .github/scripts/next-prerelease-version.test.sh
+      - name: Verify publication boundaries
+        run: |
+          .github/scripts/resolve-verified-source.test.sh
+          .github/scripts/next-prerelease-version.test.sh
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
@@ -241,7 +243,7 @@ jobs:
           echo "RELEASE=1" >> "$GITHUB_ENV"
           echo "ARCH=amd64" >> "$GITHUB_ENV"
 
-      - name: Publish package payload
+      - name: Build package payload locally (no release)
         run: >-
           dotnet publish SecondDimensionWatcherReDive/SecondDimensionWatcherReDive.csproj
           -c Release -r linux-x64 --self-contained false

@@ -55,17 +55,7 @@ jobs:
           VERIFIED_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
-          if [ "$EVENT_NAME" = workflow_run ]; then
-            test "$CONCLUSION" = success
-            test "$RUN_EVENT" = push
-            test "$HEAD_BRANCH" = "$DEFAULT_BRANCH"
-            test "$HEAD_REPOSITORY" = "$REPOSITORY"
-            commit_sha="$VERIFIED_SHA"
-          else
-            test "$DISPATCH_REF" = "refs/heads/$DEFAULT_BRANCH"
-            commit_sha="$DISPATCH_SHA"
-          fi
-          [[ "$commit_sha" =~ ^[0-9a-f]{40}$ ]]
+          commit_sha=$(.github/scripts/resolve-verified-source.sh)
           echo "commit_sha=$commit_sha" >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@v7
