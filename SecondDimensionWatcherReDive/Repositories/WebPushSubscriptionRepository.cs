@@ -52,8 +52,7 @@ public sealed class WebPushSubscriptionRepository :
             {
                 if (await writeContext.WebPushSubscriptions.CountAsync(cancellationToken)
                     >= MaximumSubscriptions)
-                    throw new InvalidOperationException(
-                        $"At most {MaximumSubscriptions} Web Push subscriptions are allowed.");
+                    throw new Framework.DataRepository.WebPushSubscriptionLimitExceededException();
 
                 entity = new SubscriptionEntity
                 {

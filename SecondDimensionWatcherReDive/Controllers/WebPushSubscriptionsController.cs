@@ -80,7 +80,7 @@ internal sealed class WebPushSubscriptionsController(
         {
             return ValidationError("endpoint", "The push-service endpoint is not allowed.");
         }
-        catch (InvalidOperationException exception)
+        catch (WebPushSubscriptionLimitExceededException exception)
         {
             return Conflict(new { message = exception.Message });
         }

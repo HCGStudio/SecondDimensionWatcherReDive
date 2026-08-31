@@ -11,6 +11,9 @@ public sealed record WebPushSubscription(
     DateTimeOffset? LastFailureAt,
     string? LastError);
 
+public sealed class WebPushSubscriptionLimitExceededException()
+    : Exception("The Web Push subscription limit has been reached.");
+
 public interface IWebPushSubscriptionRepository
 {
     Task<WebPushSubscription> UpsertAsync(
