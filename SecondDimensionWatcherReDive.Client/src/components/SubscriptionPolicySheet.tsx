@@ -415,21 +415,16 @@ export const SubscriptionPolicySheet: React.FC<
               </section>
 
               <section className="px-4 py-5 sm:px-6">
-                <span
-                  className="sr-only"
-                  role="status"
-                  aria-live="polite"
-                  aria-atomic="true"
-                >
-                  {simulating
-                    ? t("automation.simulation.running")
-                    : simulation
-                      ? t("automation.simulation.summary", {
-                          matched: simulation.matched,
-                          total: simulation.total,
-                        })
-                      : ""}
-                </span>
+                {simulating ? (
+                  <span
+                    className="sr-only"
+                    role="status"
+                    aria-live="polite"
+                    aria-atomic="true"
+                  >
+                    {t("automation.simulation.running")}
+                  </span>
+                ) : null}
                 <div className="flex flex-wrap items-start justify-between gap-4">
                   <SectionHeading
                     number="03"
@@ -711,7 +706,12 @@ const SimulationResults: React.FC<{
   return (
     <div className="mt-4">
       <div className="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-lg border border-border bg-canvas/60 px-4 py-3">
-        <p className="text-sm font-medium text-foreground">
+        <p
+          className="text-sm font-medium text-foreground"
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+        >
           {t("automation.simulation.summary", {
             matched: result.matched,
             total: result.total,
