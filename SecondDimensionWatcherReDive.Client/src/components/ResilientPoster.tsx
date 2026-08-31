@@ -26,44 +26,83 @@ export const ResilientPoster: React.FC<ResilientPosterProps> = ({
   eager = false,
 }) => {
   const { t } = useTranslation("common");
-  const [attempt, setAttempt] = React.useState(0);
-  const [state, setState] = React.useState<ImageState>(
-    src ? "loading" : "missing",
+  const source = src ?? null;
+  const containerRef = React.useRef<HTMLDivElement>(null);
+  const [retryState, setRetryState] = React.useState({ source, attempt: 0 });
+  const [imageState, setImageState] = React.useState<{
+    source: string | null;
+    state: ImageState;
+  }>({ source, state: source ? "loading" : "missing" });
+  const [authenticatedImage, setAuthenticatedImage] = React.useState<{
+    requestUrl: string;
+    objectUrl: string;
+  } | null>(null);
+  const [visibleSource, setVisibleSource] = React.useState<string | null>(
+    eager ? source : null,
   );
-  const [authenticatedObjectUrl, setAuthenticatedObjectUrl] = React.useState<
-    string | null
-  >(null);
+  const attempt = retryState.source === source ? retryState.attempt : 0;
+  const state =
+    imageState.source === source
+      ? imageState.state
+      : source
+        ? "loading"
+        : "missing";
 
   React.useEffect(() => {
-    setAttempt(0);
-    setState(src ? "loading" : "missing");
-  }, [src]);
+    setRetryState({ source, attempt: 0 });
+    setImageState({ source, state: source ? "loading" : "missing" });
+  }, [source]);
 
   const requestUrl = React.useMemo(() => {
-    if (!src) return null;
-    if (attempt === 0) return src;
-    const separator = src.includes("?") ? "&" : "?";
-    return `${src}${separator}retry=${attempt}`;
-  }, [attempt, src]);
+    if (!source) return null;
+    if (attempt === 0) return source;
+    const separator = source.includes("?") ? "&" : "?";
+    return `${source}${separator}retry=${attempt}`;
+  }, [attempt, source]);
 
   const requiresAuthentication =
     requestUrl?.startsWith("/api/images/tmdb/") ?? false;
+  const shouldLoad =
+    !requiresAuthentication || eager || visibleSource === source;
+
+  React.useEffect(() => {
+    if (!source || !requiresAuthentication || shouldLoad) return;
+    const element = containerRef.current;
+    if (!element || !("IntersectionObserver" in window)) {
+      setVisibleSource(source);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        setVisibleSource(source);
+        observer.disconnect();
+      },
+      { rootMargin: "256px" },
+    );
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [requiresAuthentication, shouldLoad, source]);
 
   const retry = React.useCallback(() => {
-    setState("loading");
-    setAttempt((value) => value + 1);
-  }, []);
+    setImageState({ source, state: "loading" });
+    setRetryState((current) => ({
+      source,
+      attempt: current.source === source ? current.attempt + 1 : 1,
+    }));
+  }, [source]);
 
   const handleError = React.useCallback(() => {
     // Retry one transient failure automatically with a distinct browser cache
     // key, then leave a stable placeholder instead of a broken-image glyph.
     if (attempt === 0) retry();
-    else setState("error");
-  }, [attempt, retry]);
+    else setImageState({ source, state: "error" });
+  }, [attempt, retry, source]);
 
   React.useEffect(() => {
-    setAuthenticatedObjectUrl(null);
-    if (!requestUrl || !requiresAuthentication) return;
+    setAuthenticatedImage(null);
+    if (!requestUrl || !requiresAuthentication || !shouldLoad) return;
 
     const abortController = new AbortController();
     let objectUrl: string | null = null;
@@ -84,7 +123,7 @@ export const ResilientPoster: React.FC<ResilientPosterProps> = ({
           objectUrl = null;
           return;
         }
-        setAuthenticatedObjectUrl(objectUrl);
+        setAuthenticatedImage({ requestUrl, objectUrl });
       })
       .catch(() => {
         if (abortController.signal.aborted) return;
@@ -95,9 +134,13 @@ export const ResilientPoster: React.FC<ResilientPosterProps> = ({
       abortController.abort();
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [handleError, requestUrl, requiresAuthentication]);
+  }, [handleError, requestUrl, requiresAuthentication, shouldLoad]);
 
-  const imageUrl = requiresAuthentication ? authenticatedObjectUrl : requestUrl;
+  const imageUrl = requiresAuthentication
+    ? authenticatedImage?.requestUrl === requestUrl
+      ? authenticatedImage.objectUrl
+      : null
+    : requestUrl;
 
   const fallbackLabel = alt
     ? t("images.unavailableFor", { name: alt })
@@ -105,23 +148,28 @@ export const ResilientPoster: React.FC<ResilientPosterProps> = ({
 
   return (
     <div
+      ref={containerRef}
       className={cn(
         "relative isolate flex shrink-0 items-center justify-center overflow-hidden bg-canvas text-subtle",
         className,
       )}
       aria-busy={state === "loading" || undefined}
       data-image-state={state}
-      role={!requestUrl && alt ? "img" : undefined}
-      aria-label={!requestUrl && alt ? fallbackLabel : undefined}
     >
       <ImageOff size={22} aria-hidden="true" />
+      {(state === "missing" || state === "error") && alt ? (
+        <span className="sr-only" role="img" aria-label={fallbackLabel} />
+      ) : null}
+      {state === "loading" && !imageUrl && alt ? (
+        <span className="sr-only" role="img" aria-label={alt} />
+      ) : null}
       {state === "loading" ? (
         <span
           aria-hidden="true"
           className="absolute inset-0 animate-pulse bg-border-light/60"
         />
       ) : null}
-      {imageUrl ? (
+      {imageUrl && state !== "error" ? (
         <img
           key={imageUrl}
           src={imageUrl}
@@ -129,7 +177,7 @@ export const ResilientPoster: React.FC<ResilientPosterProps> = ({
           loading={eager ? "eager" : "lazy"}
           decoding="async"
           draggable={false}
-          onLoad={() => setState("loaded")}
+          onLoad={() => setImageState({ source, state: "loaded" })}
           onError={handleError}
           className={cn(
             "absolute inset-0 h-full w-full object-cover transition-opacity duration-300",

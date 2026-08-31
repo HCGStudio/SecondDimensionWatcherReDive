@@ -25,6 +25,7 @@
     "ja": "日本語"
   },
   "pagination": {
+    "label": "Pagination",
     "first": "First page",
     "prev": "Previous page",
     "next": "Next page",

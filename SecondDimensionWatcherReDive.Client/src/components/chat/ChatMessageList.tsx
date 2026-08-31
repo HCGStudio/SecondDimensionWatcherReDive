@@ -68,11 +68,15 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = ({
   useEffect(() => {
     if (isStreaming && !wasStreaming.current) {
       setAnnouncement(t("streaming"));
-    } else if (!isStreaming && wasStreaming.current && !hasStreamError) {
-      setAnnouncement(t("responseComplete"));
+    } else if (!isStreaming && wasStreaming.current) {
+      setAnnouncement(
+        !hasStreamError && contentBlocks.length > 0
+          ? t("responseComplete")
+          : "",
+      );
     }
     wasStreaming.current = isStreaming;
-  }, [hasStreamError, isStreaming, t]);
+  }, [contentBlocks.length, hasStreamError, isStreaming, t]);
 
   const groups = groupMessages(messages);
 

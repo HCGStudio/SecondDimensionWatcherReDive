@@ -208,11 +208,17 @@ export const WebDavSettingsSection: React.FC = () => {
                 <CredentialRow
                   label={t("settings:webdav.created.usernameLabel")}
                   value={created.username}
+                  copyLabel={t("settings:webdav.created.copyAria", {
+                    label: t("settings:webdav.created.usernameLabel"),
+                  })}
                   onCopy={() => void copy(created.username)}
                 />
                 <CredentialRow
                   label={t("settings:webdav.created.tokenLabel")}
                   value={created.token}
+                  copyLabel={t("settings:webdav.created.copyAria", {
+                    label: t("settings:webdav.created.tokenLabel"),
+                  })}
                   onCopy={() => void copy(created.token)}
                 />
               </div>
@@ -257,12 +263,14 @@ export const WebDavSettingsSection: React.FC = () => {
 interface CredentialRowProps {
   label: string;
   value: string;
+  copyLabel: string;
   onCopy: () => void;
 }
 
 const CredentialRow: React.FC<CredentialRowProps> = ({
   label,
   value,
+  copyLabel,
   onCopy,
 }) => (
   <div className="flex items-center gap-2 rounded-md border border-border-light bg-surface px-3 py-2">
@@ -272,7 +280,13 @@ const CredentialRow: React.FC<CredentialRowProps> = ({
         {value}
       </div>
     </div>
-    <Button variant="icon" size="sm" onClick={onCopy}>
+    <Button
+      variant="icon"
+      size="sm"
+      aria-label={copyLabel}
+      title={copyLabel}
+      onClick={onCopy}
+    >
       <Copy size={14} />
     </Button>
   </div>

@@ -254,6 +254,7 @@
       "warning": "请立即复制访问令牌——离开此页面后将无法再次查看。",
       "usernameLabel": "用户名",
       "tokenLabel": "访问令牌",
+      "copyAria": "复制{{label}}",
       "dismiss": "我已保存"
     },
     "list": {

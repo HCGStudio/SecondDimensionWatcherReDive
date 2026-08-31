@@ -45,7 +45,7 @@ export const ToolCallItem: React.FC<{
         aria-expanded={expanded}
         aria-controls={contentId}
         onClick={() => setExpanded(!expanded)}
-        className="flex w-full items-center gap-1.5 px-3 py-1.5 text-left text-muted hover:text-foreground transition-colors"
+        className="flex w-full items-center gap-1.5 rounded-md px-3 py-1.5 text-left text-muted transition-colors hover:text-foreground focus:outline-hidden focus:ring-2 focus:ring-inset focus:ring-focus"
       >
         {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
         <span className="font-mono text-xs">{toolCall.name}</span>

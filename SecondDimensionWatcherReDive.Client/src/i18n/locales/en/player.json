@@ -12,7 +12,8 @@
   "continue": {
     "title": "Continue watching",
     "subtitle": "Pick up where you left off on any device",
-    "resume": "Resume"
+    "resume": "Resume",
+    "progress": "Playback progress"
   },
   "progress": {
     "resumed": "Resumed at {{time}}",

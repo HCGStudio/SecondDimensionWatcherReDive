@@ -12,7 +12,8 @@
   "continue": {
     "title": "继续观看",
     "subtitle": "在任意设备上从上次离开的地方继续",
-    "resume": "继续"
+    "resume": "继续",
+    "progress": "播放进度"
   },
   "progress": {
     "resumed": "已从 {{time}} 继续播放",

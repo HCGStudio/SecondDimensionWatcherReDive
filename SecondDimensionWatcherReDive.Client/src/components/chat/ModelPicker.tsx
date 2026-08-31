@@ -31,7 +31,7 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
         <button
           type="button"
           aria-label={t("selectModel")}
-          className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-muted hover:text-foreground transition-colors"
+          className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-muted transition-colors hover:text-foreground focus:outline-hidden focus:ring-2 focus:ring-focus"
         >
           <span className="max-w-[200px] truncate">
             {selected?.name ?? t("selectModel")}

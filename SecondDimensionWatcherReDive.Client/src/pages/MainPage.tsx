@@ -29,8 +29,9 @@ const AnimeCard: React.FC<{
 
   return (
     <button
+      type="button"
       onClick={onClick}
-      className="group flex gap-4 rounded-lg border border-border bg-surface p-4 shadow-ring text-left transition-all hover:shadow-ring-brand hover:border-accent/30 cursor-pointer"
+      className="group flex cursor-pointer gap-4 rounded-lg border border-border bg-surface p-4 text-left shadow-ring transition-all hover:border-accent/30 hover:shadow-ring-brand focus:outline-hidden focus:ring-2 focus:ring-focus"
     >
       <ResilientPoster
         src={posterUrl}
@@ -112,8 +113,9 @@ export const EpisodeListPage: React.FC = () => {
   return (
     <PageTemplate>
       <button
+        type="button"
         onClick={() => navigate("/")}
-        className="mb-6 inline-flex items-center gap-1.5 text-sm text-muted hover:text-foreground transition-colors cursor-pointer"
+        className="mb-6 inline-flex cursor-pointer items-center gap-1.5 rounded-md py-1 text-sm text-muted transition-colors hover:text-foreground focus:outline-hidden focus:ring-2 focus:ring-focus"
       >
         <ArrowLeft size={16} />
         {t("animation:back")}

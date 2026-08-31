@@ -69,7 +69,7 @@ export const SettingsNavigation: React.FC<SettingsNavigationProps> = ({
             aria-current={section === active ? "page" : undefined}
             onClick={() => onChange(section)}
             className={cn(
-              "flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm transition-colors",
+              "flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm transition-colors focus:outline-hidden focus:ring-2 focus:ring-focus",
               section === active
                 ? "bg-surface font-medium text-foreground shadow-ring"
                 : "text-muted hover:bg-surface/60 hover:text-foreground",

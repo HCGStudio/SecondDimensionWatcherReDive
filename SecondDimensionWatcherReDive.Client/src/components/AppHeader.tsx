@@ -31,6 +31,8 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "./ui/DropdownMenu";
@@ -134,6 +136,7 @@ const MobileNavMenu: React.FC<{ items: NavItem[] }> = ({ items }) => {
           return (
             <DropdownMenuItem
               key={item.path}
+              aria-current={isActive ? "page" : undefined}
               onSelect={() => navigate(item.path)}
               className={cn(
                 "gap-2.5",
@@ -184,6 +187,7 @@ const UserMenu: React.FC = () => {
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button
+          type="button"
           className="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-muted transition-colors hover:text-foreground focus:outline-hidden focus:ring-2 focus:ring-focus"
           aria-label={t("user.account")}
         >
@@ -194,20 +198,22 @@ const UserMenu: React.FC = () => {
         <div className="px-3 py-1.5 text-xs uppercase tracking-wide text-subtle">
           {t("user.language")}
         </div>
-        {supportedLanguages.map((lng) => (
-          <DropdownMenuItem
-            key={lng}
-            onSelect={() => {
-              void i18n.changeLanguage(lng);
-            }}
-          >
-            <Check
-              size={14}
-              className={lng === currentLng ? "opacity-100" : "opacity-0"}
-            />
-            {languageLabels[lng]}
-          </DropdownMenuItem>
-        ))}
+        <DropdownMenuRadioGroup
+          value={currentLng}
+          onValueChange={(lng) => {
+            void i18n.changeLanguage(lng);
+          }}
+        >
+          {supportedLanguages.map((lng) => (
+            <DropdownMenuRadioItem key={lng} value={lng}>
+              <Check
+                size={14}
+                className={lng === currentLng ? "opacity-100" : "opacity-0"}
+              />
+              {languageLabels[lng]}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
         <DropdownMenuSeparator />
         <DropdownMenuItem color="danger" onSelect={onLogout}>
           {t("user.logout")}

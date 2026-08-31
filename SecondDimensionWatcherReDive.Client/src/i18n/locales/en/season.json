@@ -30,6 +30,7 @@
   "allSubgroups": "All subtitle groups",
   "selectSubgroup": "Pick a subtitle group to subscribe",
   "loadSubgroupsFailed": "Failed to load subtitle groups",
+  "loadFailed": "Failed to load the anime list",
   "noSubgroups": "No subtitle groups available",
   "toast": {
     "updated": "Anime list updated",

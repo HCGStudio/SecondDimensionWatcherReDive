@@ -30,6 +30,7 @@
   "allSubgroups": "全部字幕组",
   "selectSubgroup": "选择字幕组订阅",
   "loadSubgroupsFailed": "加载字幕组失败",
+  "loadFailed": "加载番组列表失败",
   "noSubgroups": "暂无字幕组数据",
   "toast": {
     "updated": "新番列表已更新",

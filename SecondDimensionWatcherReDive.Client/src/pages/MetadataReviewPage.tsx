@@ -116,7 +116,7 @@ const StatusTabs: React.FC<StatusTabsProps> = ({
             );
           }}
           className={cn(
-            "flex min-w-0 items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+            "flex min-w-0 items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors focus:outline-hidden focus:ring-2 focus:ring-focus",
             active === status
               ? "bg-canvas text-foreground shadow-ring"
               : "text-muted hover:bg-canvas/60 hover:text-foreground",

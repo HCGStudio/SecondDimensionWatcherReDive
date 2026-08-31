@@ -33,6 +33,7 @@
     },
     "status": {
       "notConfigured": "未配置 · 默认不自动处理",
+      "unavailable": "状态不可用",
       "filterCount": "{{count}} 项筛选"
     },
     "editor": {

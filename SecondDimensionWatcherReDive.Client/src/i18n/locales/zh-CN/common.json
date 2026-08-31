@@ -25,6 +25,7 @@
     "ja": "日本語"
   },
   "pagination": {
+    "label": "分页导航",
     "first": "第一页",
     "prev": "上一页",
     "next": "下一页",

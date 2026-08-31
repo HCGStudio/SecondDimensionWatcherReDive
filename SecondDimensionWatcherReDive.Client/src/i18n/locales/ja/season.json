@@ -30,6 +30,7 @@
   "allSubgroups": "すべての字幕グループ",
   "selectSubgroup": "字幕グループを選んで購読",
   "loadSubgroupsFailed": "字幕グループの読み込みに失敗しました",
+  "loadFailed": "アニメ一覧を読み込めませんでした",
   "noSubgroups": "字幕グループのデータがありません",
   "toast": {
     "updated": "アニメ一覧を更新しました",

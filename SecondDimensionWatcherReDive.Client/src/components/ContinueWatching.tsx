@@ -66,7 +66,7 @@ export const ContinueWatching: React.FC = () => {
                 const params = new URLSearchParams({ file: media.path });
                 navigate(`/play/${media.animationInfoId}?${params.toString()}`);
               }}
-              className="group overflow-hidden rounded-xl border border-border bg-surface text-left shadow-ring transition-all hover:border-accent/30 hover:shadow-ring-brand"
+              className="group overflow-hidden rounded-xl border border-border bg-surface text-left shadow-ring transition-all hover:border-accent/30 hover:shadow-ring-brand focus:outline-hidden focus:ring-2 focus:ring-focus"
             >
               <div className="flex min-w-0 gap-3 p-3">
                 <ResilientPoster
@@ -100,6 +100,7 @@ export const ContinueWatching: React.FC = () => {
               <div
                 className="h-1 bg-canvas"
                 role="progressbar"
+                aria-label={t("continue.progress")}
                 aria-valuemin={0}
                 aria-valuemax={100}
                 aria-valuenow={Math.round(percent)}

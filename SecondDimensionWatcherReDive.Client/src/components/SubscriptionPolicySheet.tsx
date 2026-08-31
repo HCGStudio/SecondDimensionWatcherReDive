@@ -594,7 +594,7 @@ const TagField: React.FC<TagFieldProps> = ({
             {value}
             <button
               type="button"
-              className="rounded text-subtle transition-colors hover:text-error focus:outline-hidden focus:ring-2 focus:ring-focus"
+              className="relative rounded text-subtle transition-colors before:absolute before:-inset-1.5 hover:text-error focus:outline-hidden focus:ring-2 focus:ring-focus"
               aria-label={t("automation.filters.removeValue", { value })}
               onClick={() => onChange(values.filter((item) => item !== value))}
             >
@@ -610,6 +610,7 @@ const TagField: React.FC<TagFieldProps> = ({
           placeholder={values.length === 0 ? placeholder : ""}
           onChange={(event) => setInput(event.target.value)}
           onKeyDown={(event) => {
+            if (event.nativeEvent.isComposing) return;
             if (event.key === "Enter" || event.key === ",") {
               event.preventDefault();
               addValues(input);
@@ -641,7 +642,7 @@ const TagField: React.FC<TagFieldProps> = ({
               <button
                 type="button"
                 key={suggestion}
-                className="rounded-md border border-border-light px-2 py-0.5 text-xs text-muted transition-colors hover:border-border hover:bg-canvas hover:text-foreground focus:outline-hidden focus:ring-2 focus:ring-focus"
+                className="rounded-md border border-border-light px-2 py-1 text-xs text-muted transition-colors hover:border-border hover:bg-canvas hover:text-foreground focus:outline-hidden focus:ring-2 focus:ring-focus"
                 onClick={() => addValues(suggestion)}
               >
                 + {suggestion}

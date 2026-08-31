@@ -33,6 +33,7 @@
     },
     "status": {
       "notConfigured": "Not configured · no automatic action",
+      "unavailable": "Status unavailable",
       "filterCount": "{{count}} filter(s)"
     },
     "editor": {

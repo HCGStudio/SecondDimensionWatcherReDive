@@ -87,7 +87,7 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
                 await onDelete(conv.id);
                 newConversationRef.current?.focus();
               }}
-              className="mr-2 shrink-0 rounded p-1 text-subtle opacity-100 transition-all hover:text-error focus:outline-hidden focus:ring-2 focus:ring-focus md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100"
+              className="mr-2 shrink-0 rounded p-1.5 text-subtle opacity-100 transition-all hover:text-error focus:outline-hidden focus:ring-2 focus:ring-focus md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100"
               title={t("deleteConversation")}
               aria-label={t("deleteConversationNamed", {
                 name: conv.title || t("untitledConversation"),

@@ -81,7 +81,7 @@ export const ToastProvider: React.FC<React.PropsWithChildren> = ({
               </div>
               <ToastPrimitive.Close
                 aria-label={t("notifications.dismiss")}
-                className="shrink-0 rounded-md p-1 text-subtle hover:text-foreground transition-colors focus:outline-hidden focus:ring-2 focus:ring-focus"
+                className="shrink-0 rounded-md p-1.5 text-subtle transition-colors hover:text-foreground focus:outline-hidden focus:ring-2 focus:ring-focus"
               >
                 <X size={14} />
               </ToastPrimitive.Close>

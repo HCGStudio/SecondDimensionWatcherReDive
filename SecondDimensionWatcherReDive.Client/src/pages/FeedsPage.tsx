@@ -93,6 +93,13 @@ export const FeedsPage: React.FC = () => {
         if (!policies && !policiesError) {
           return <Spinner size={14} />;
         }
+        if (policiesError) {
+          return (
+            <span className="text-xs text-error">
+              {t("feeds:automation.status.unavailable")}
+            </span>
+          );
+        }
         const policy = policiesByFeed.get(item.id);
         if (!policy) {
           return (
@@ -210,12 +217,22 @@ export const FeedsPage: React.FC = () => {
             body={<p>{t("feeds:loadFailed")}</p>}
           />
         ) : feeds && feeds.length > 0 ? (
-          <Table
-            items={feeds}
-            columns={columns}
-            label={t("feeds:automation.title")}
-            rowKey={(feed) => feed.id}
-          />
+          <>
+            {policiesError ? (
+              <p
+                role="alert"
+                className="mb-3 rounded-md border border-error/30 bg-error/10 px-3 py-2 text-sm text-error"
+              >
+                {t("feeds:automation.toast.loadFailed")}
+              </p>
+            ) : null}
+            <Table
+              items={feeds}
+              columns={columns}
+              label={t("feeds:automation.title")}
+              rowKey={(feed) => feed.id}
+            />
+          </>
         ) : feeds ? (
           <EmptyPrompt
             title={<h2>{t("feeds:empty.title")}</h2>}

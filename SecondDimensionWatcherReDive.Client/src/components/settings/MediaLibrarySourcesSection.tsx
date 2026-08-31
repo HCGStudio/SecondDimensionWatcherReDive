@@ -280,6 +280,7 @@ export const MediaLibrarySourcesSection: React.FC = () => {
               placeholder={t("settings:mediaLibrary.create.pathPlaceholder")}
               onChange={(event) => setPath(event.target.value)}
               onKeyDown={(event) => {
+                if (event.nativeEvent.isComposing) return;
                 if (event.key === "Enter") void create();
               }}
             />

@@ -1,17 +1,22 @@
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Options;
 using SecondDimensionWatcherReDive.Services;
 
 namespace SecondDimensionWatcherReDive.Controllers;
 
 [ApiController]
-[Authorize]
+[Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
+[EnableRateLimiting(RateLimitPolicyName)]
 [Route("api/images/tmdb")]
 internal sealed class TmdbImagesController(
     ITmdbImageProxyService imageProxy,
     IOptions<TmdbImageProxyOptions> options) : ControllerBase
 {
+    internal const string RateLimitPolicyName = "TmdbImages";
+
     [HttpGet("{size}/{fileName}")]
     public async Task<IActionResult> GetAsync(
         string size,
@@ -23,6 +28,8 @@ internal sealed class TmdbImagesController(
             return Error(StatusCodes.Status400BadRequest, "tmdb_image_path_invalid");
         if (result.Status == TmdbImageFetchStatus.NotFound)
             return Error(StatusCodes.Status404NotFound, "tmdb_image_not_found");
+        if (result.Status == TmdbImageFetchStatus.Busy)
+            return Error(StatusCodes.Status503ServiceUnavailable, "tmdb_image_busy");
         if (result.Status != TmdbImageFetchStatus.Success || result.Content is null)
             return Error(StatusCodes.Status502BadGateway, "tmdb_image_unavailable");
 

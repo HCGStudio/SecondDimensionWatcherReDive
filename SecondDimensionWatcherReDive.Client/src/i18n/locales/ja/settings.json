@@ -254,6 +254,7 @@
       "warning": "アクセストークンは今すぐコピーしてください。このページを離れると再表示できません。",
       "usernameLabel": "ユーザー名",
       "tokenLabel": "アクセストークン",
+      "copyAria": "{{label}}をコピー",
       "dismiss": "保存しました"
     },
     "list": {

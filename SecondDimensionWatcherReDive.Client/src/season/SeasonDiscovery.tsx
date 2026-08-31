@@ -2,6 +2,7 @@ import React from "react";
 import { useTranslation } from "react-i18next";
 
 import {
+  AlertTriangle,
   Check,
   ChevronLeft,
   ChevronRight,
@@ -206,8 +207,6 @@ export const SeasonDiscovery: React.FC = () => {
     return map;
   }, [seasonData]);
 
-  if (error) return null;
-
   return (
     <div className="mb-10">
       <span
@@ -271,7 +270,26 @@ export const SeasonDiscovery: React.FC = () => {
         </div>
       </div>
 
-      {isLoading ? (
+      {error ? (
+        <div
+          role="alert"
+          className="flex flex-col items-start gap-3 rounded-lg border border-error/30 bg-error/10 p-4 text-sm text-error sm:flex-row sm:items-center sm:justify-between"
+        >
+          <span className="inline-flex items-center gap-2">
+            <AlertTriangle size={16} aria-hidden="true" />
+            {t("loadFailed")}
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onRefresh}
+            disabled={refreshing}
+          >
+            <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} />
+            {t("refresh")}
+          </Button>
+        </div>
+      ) : isLoading ? (
         <div className="flex justify-center py-8">
           <Spinner />
         </div>
