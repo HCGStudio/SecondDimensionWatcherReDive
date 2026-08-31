@@ -42,6 +42,7 @@
     "error": "The library search could not be loaded",
     "unidentified": "Unidentified",
     "score": "release score",
+    "morePaths": "+{{count}} more paths",
     "next": "Next page"
   },
   "integrity": {

@@ -125,6 +125,7 @@ internal static class Converter
             item.IsWatched,
             item.PlaybackPositionSeconds,
             item.VirtualPaths,
+            item.VirtualPathCount,
             item.ReleaseScore,
             item.ScoreReasons,
             item.PublishedAt);

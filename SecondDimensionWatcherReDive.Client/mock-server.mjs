@@ -1,7 +1,7 @@
 // Mock API server for frontend development/testing.
 // Run with: yarn mock (or: node mock-server.mjs)
 // Then run: yarn start — the Parcel proxy forwards /api/* to this server.
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 
 const PORT = parseInt(process.env.MOCK_PORT ?? "5097", 10);
@@ -1113,6 +1113,26 @@ let systemSettings = {
     restartRequired: true,
     pendingRestart: false,
   },
+  notifications: {
+    webhookEnabled: false,
+    webPushEnabled: false,
+    webPushSubject: "",
+    vapidPublicKey: "",
+    vapidPrivateKey: { isConfigured: false, source: "none" },
+    events: [
+      "releaseMatched",
+      "downloadPendingConfirmation",
+      "downloadCompleted",
+      "downloadFailed",
+      "incidentOpened",
+      "metadataNeedsReview",
+      "diskSpaceLow",
+    ],
+    quietHoursStart: null,
+    quietHoursEnd: null,
+    timeZoneId: "UTC",
+    webhookUrl: { isConfigured: false, source: "none" },
+  },
 };
 
 const deploymentSecrets = {
@@ -1121,7 +1141,13 @@ const deploymentSecrets = {
   codex: { isConfigured: false, source: "none" },
   tmdb: { isConfigured: true, source: "deployment" },
   torrent: { isConfigured: false, source: "none" },
+  webhook: { isConfigured: false, source: "none" },
 };
+
+let notificationDeliveries = [];
+let webPushSubscriptions = [];
+const mockVapidPublicKey =
+  "BGb1EKTo02dge1GKm7kU8hSQowk4T8Qnpl8dOB1nrnSQJnrhc6OdQ3a4gtyGTkera6bMWIp9cKAlEdN_BA6gGQM";
 
 function applySecretMutation(current, mutation, deploymentValue) {
   if (!mutation || mutation.operation === "keep") return current;
@@ -1536,6 +1562,63 @@ function vfsResolve(rawPath) {
   return { entry: match, isDirectory: false };
 }
 
+const mockTodoStates = new Map();
+
+function currentMockTodos() {
+  const anime = [...animations.values()];
+  const base = [
+    anime[0] && {
+      key: `automation:${anime[0].id}`,
+      type: "ReleaseMatched",
+      priority: "Normal",
+      title: anime[0].title,
+      detail: "A notify-only subscription matched this release.",
+      deepLink: `/todo?focus=automation:${anime[0].id}`,
+      resourceId: anime[0].id,
+      occurredAt: anime[0].publishTime,
+    },
+    anime[1] && {
+      key: `automation:${anime[1].id}`,
+      type: "DownloadPendingConfirmation",
+      priority: "High",
+      title: anime[1].title,
+      detail: "A matched release is waiting for download confirmation.",
+      deepLink: `/todo?focus=automation:${anime[1].id}`,
+      resourceId: anime[1].id,
+      occurredAt: anime[1].publishTime,
+    },
+    ...mockIncidents
+      .filter((incident) => !incident.resolvedAt)
+      .map((incident) => ({
+        key: `incident:${incident.id}`,
+        type: incident.type === "diskSpaceLow" ? "DiskSpaceLow" : "Incident",
+        priority: incident.severity === "critical" ? "Critical" : "High",
+        title: incident.title,
+        detail: incident.detail,
+        deepLink:
+          incident.type === "diskSpaceLow"
+            ? "/incidents?type=diskSpaceLow"
+            : `/incidents?focus=${incident.id}`,
+        resourceId: incident.id,
+        occurredAt: incident.detectedAt,
+      })),
+  ].filter(Boolean);
+
+  return base
+    .map((item) => ({
+      ...item,
+      readAt: mockTodoStates.get(item.key)?.readAt ?? null,
+      snoozedUntil: mockTodoStates.get(item.key)?.snoozedUntil ?? null,
+    }))
+    .sort((left, right) => {
+      const rank = { Normal: 0, High: 1, Critical: 2 };
+      return (
+        rank[right.priority] - rank[left.priority] ||
+        new Date(right.occurredAt) - new Date(left.occurredAt)
+      );
+    });
+}
+
 // ---------------------------------------------------------------------------
 // Router
 // ---------------------------------------------------------------------------
@@ -1729,11 +1812,202 @@ async function route(method, pathname, searchParams, req, res) {
         systemSettings.pendingRestart = systemSettings.nfs.pendingRestart;
       }
 
+      if (body.notifications) {
+        const generateVapidKeys =
+          body.notifications.generateVapidKeys &&
+          !systemSettings.notifications.vapidPrivateKey.isConfigured;
+        systemSettings.notifications = {
+          webhookEnabled: body.notifications.webhookEnabled,
+          webPushEnabled: body.notifications.webPushEnabled,
+          webPushSubject: body.notifications.webPushSubject,
+          vapidPublicKey: generateVapidKeys
+            ? mockVapidPublicKey
+            : systemSettings.notifications.vapidPublicKey,
+          vapidPrivateKey: generateVapidKeys
+            ? { isConfigured: true, source: "runtime" }
+            : systemSettings.notifications.vapidPrivateKey,
+          events: [...body.notifications.events],
+          quietHoursStart: body.notifications.quietHoursStart,
+          quietHoursEnd: body.notifications.quietHoursEnd,
+          timeZoneId: body.notifications.timeZoneId,
+          webhookUrl: applySecretMutation(
+            systemSettings.notifications.webhookUrl,
+            body.notifications.webhookUrl,
+            deploymentSecrets.webhook,
+          ),
+        };
+      }
+
       systemSettings.revision += 1;
       return json(res, systemSettings);
     } catch (error) {
       return json(res, { error: error.message }, 400);
     }
+  }
+
+  if (
+    method === "GET" &&
+    pathname === "/api/notifications/web-push/config"
+  ) {
+    return json(res, {
+      enabled: systemSettings.notifications.webPushEnabled,
+      vapidPublicKey: systemSettings.notifications.vapidPublicKey,
+    });
+  }
+
+  if (
+    method === "GET" &&
+    pathname === "/api/notifications/web-push/subscriptions"
+  ) {
+    return json(
+      res,
+      webPushSubscriptions.map(({ endpoint: _endpoint, ...summary }) => summary),
+    );
+  }
+
+  if (
+    method === "POST" &&
+    pathname === "/api/notifications/web-push/subscriptions"
+  ) {
+    if (!systemSettings.notifications.webPushEnabled)
+      return json(res, { message: "Enable Web Push first" }, 409);
+    const body = await readBody(req);
+    const now = new Date().toISOString();
+    let subscription = webPushSubscriptions.find(
+      (item) => item.endpoint === body.endpoint,
+    );
+    if (subscription) {
+      subscription.updatedAt = now;
+      subscription.lastError = null;
+    } else {
+      subscription = {
+        id: randomUUID(),
+        endpoint: body.endpoint,
+        endpointOrigin: new URL(body.endpoint).origin,
+        endpointHash: createHash("sha256").update(body.endpoint).digest("hex"),
+        createdAt: now,
+        updatedAt: now,
+        lastSuccessAt: null,
+        lastFailureAt: null,
+        lastError: null,
+      };
+      webPushSubscriptions.unshift(subscription);
+    }
+    const { endpoint: _endpoint, ...summary } = subscription;
+    return json(res, summary);
+  }
+
+  if (
+    method === "POST" &&
+    pathname ===
+      "/api/notifications/web-push/subscriptions/remove-current"
+  ) {
+    const body = await readBody(req);
+    webPushSubscriptions = webPushSubscriptions.filter(
+      (item) => item.endpoint !== body.endpoint,
+    );
+    res.writeHead(204);
+    return res.end();
+  }
+
+  const webPushDeleteMatch = pathname.match(
+    /^\/api\/notifications\/web-push\/subscriptions\/([^/]+)$/,
+  );
+  if (method === "DELETE" && webPushDeleteMatch) {
+    const before = webPushSubscriptions.length;
+    webPushSubscriptions = webPushSubscriptions.filter(
+      (item) => item.id !== webPushDeleteMatch[1],
+    );
+    res.writeHead(before === webPushSubscriptions.length ? 404 : 204);
+    return res.end();
+  }
+
+  if (method === "POST" && pathname === "/api/notifications/test") {
+    const webhookReady =
+      systemSettings.notifications.webhookEnabled &&
+      systemSettings.notifications.webhookUrl.isConfigured;
+    const webPushReady =
+      systemSettings.notifications.webPushEnabled &&
+      webPushSubscriptions.length > 0;
+    if (!webhookReady && !webPushReady)
+      return json(res, { message: "Configure a destination first" }, 409);
+    const eventId = randomUUID();
+    const channels = [
+      ...(webhookReady ? ["Webhook"] : []),
+      ...webPushSubscriptions
+        .filter(() => webPushReady)
+        .map(() => "WebPush"),
+    ];
+    notificationDeliveries.unshift(
+      ...channels.map((channel, index) => ({
+        id: index === 0 ? eventId : randomUUID(),
+        eventId,
+        channel,
+        type: "test",
+        status: "Delivered",
+        attemptCount: 1,
+        occurredAt: new Date().toISOString(),
+        lastAttemptAt: new Date().toISOString(),
+        deliveredAt: new Date().toISOString(),
+        lastError: null,
+      })),
+    );
+    return json(res, { eventId }, 202);
+  }
+
+  if (method === "GET" && pathname === "/api/notifications/deliveries") {
+    const take = Math.min(
+      100,
+      Math.max(1, Number(searchParams.get("take")) || 20),
+    );
+    return json(res, notificationDeliveries.slice(0, take));
+  }
+
+  if (method === "GET" && pathname === "/api/todos") {
+    const includeRead = searchParams.get("includeRead") === "true";
+    const includeSnoozed = searchParams.get("includeSnoozed") === "true";
+    const skip = Math.max(0, Number(searchParams.get("skip")) || 0);
+    const take = Math.min(
+      200,
+      Math.max(1, Number(searchParams.get("take")) || 50),
+    );
+    const focus = searchParams.get("focus");
+    const now = Date.now();
+    const all = currentMockTodos();
+    const unreadCount = all.filter(
+      (item) =>
+        !item.readAt &&
+        (!item.snoozedUntil || new Date(item.snoozedUntil) <= now),
+    ).length;
+    const visible = all.filter(
+      (item) =>
+        (includeRead || !item.readAt) &&
+        (includeSnoozed ||
+          !item.snoozedUntil ||
+          new Date(item.snoozedUntil) <= now),
+    );
+    const items = visible.slice(skip, skip + take);
+    const focused = focus && all.find((item) => item.key === focus);
+    if (focused && !items.some((item) => item.key === focused.key))
+      items.unshift(focused);
+    return json(res, { items, totalCount: visible.length, unreadCount });
+  }
+
+  if (method === "PATCH" && pathname === "/api/todos/state") {
+    const body = await readBody(req);
+    const now = new Date().toISOString();
+    for (const key of body.keys ?? []) {
+      const state = mockTodoStates.get(key) ?? {
+        readAt: null,
+        snoozedUntil: null,
+      };
+      if (body.action === "markRead") state.readAt = now;
+      if (body.action === "markUnread") state.readAt = null;
+      if (body.action === "snooze") state.snoozedUntil = body.snoozedUntil;
+      if (body.action === "unsnooze") state.snoozedUntil = null;
+      mockTodoStates.set(key, state);
+    }
+    return empty(res, 204);
   }
 
   // --- Playback continuity ---
@@ -2289,6 +2563,7 @@ async function route(method, pathname, searchParams, req, res) {
           isWatched: false,
           playbackPositionSeconds: null,
           virtualPaths,
+          virtualPathCount: virtualPaths.length,
           releaseScore: 260 + (index % 5) * 55,
           scoreReasons: [
             `resolution:${itemResolution}:+200`,

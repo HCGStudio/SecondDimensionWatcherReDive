@@ -4,6 +4,7 @@ import { Link, useLocation, useNavigate } from "react-router";
 import { mutate } from "swr";
 
 import {
+  BellRing,
   Check,
   Clapperboard,
   Cog,
@@ -31,6 +32,7 @@ import i18n, {
 } from "../i18n";
 import { useIncidents } from "../incidents/hooks";
 import { cn } from "../lib/cn";
+import { useTodos } from "../todos/hooks";
 import { useToast } from "./ToastProvider";
 import {
   DropdownMenu,
@@ -49,9 +51,18 @@ interface NavItem {
   badge?: number;
 }
 
-const createNavItems = (incidentCount?: number): NavItem[] => [
+const createNavItems = (
+  incidentCount?: number,
+  todoCount?: number,
+): NavItem[] => [
   { icon: <Home size={16} />, labelKey: "nav.home", path: "/" },
   { icon: <Search size={16} />, labelKey: "nav.search", path: "/search" },
+  {
+    icon: <BellRing size={16} />,
+    labelKey: "nav.todo",
+    path: "/todo",
+    badge: todoCount,
+  },
   {
     icon: <Download size={16} />,
     labelKey: "nav.downloading",
@@ -255,8 +266,9 @@ export const AppHeader: React.FC = () => {
   const { t } = useTranslation();
   const { data: status } = useLoginStatus();
   const { data: incidents } = useIncidents({ take: 1 });
+  const { data: todos } = useTodos({ take: 1 });
   const navigate = useNavigate();
-  const items = createNavItems(incidents?.openCount);
+  const items = createNavItems(incidents?.openCount, todos?.unreadCount);
   const location = useLocation();
   const [searchQuery, setSearchQuery] = React.useState(
     location.pathname === "/search"
@@ -269,7 +281,6 @@ export const AppHeader: React.FC = () => {
       setSearchQuery(new URLSearchParams(location.search).get("q") ?? "");
     }
   }, [location.pathname, location.search]);
-
   return (
     <header className="sticky top-0 z-30 border-b border-border bg-surface/95 backdrop-blur">
       <nav className="flex h-14 items-center justify-between gap-2 px-4 sm:px-6">

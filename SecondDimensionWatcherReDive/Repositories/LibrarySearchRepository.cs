@@ -10,6 +10,8 @@ namespace SecondDimensionWatcherReDive.Repositories;
 public sealed class LibrarySearchRepository(Models.ApplicationContext context)
     : ILibrarySearchRepository
 {
+    private const int MaximumReturnedPathsPerRelease = 20;
+
     private sealed record SearchCursor(
         DateTimeOffset SnapshotUtc,
         string Signature,
@@ -54,6 +56,13 @@ public sealed class LibrarySearchRepository(Models.ApplicationContext context)
         DateTimeOffset PublishTime,
         Guid? SourceFeedId,
         string? ReleaseScoreReasonsJson);
+
+    private sealed class MappingPathRow
+    {
+        public Guid AnimationInfoId { get; init; }
+        public string VirtualPath { get; init; } = string.Empty;
+        public long TotalCount { get; init; }
+    }
 
     public async Task<LibrarySearchResult> SearchAsync(
         LibrarySearchRequest request,
@@ -187,13 +196,34 @@ public sealed class LibrarySearchRepository(Models.ApplicationContext context)
         var hasMore = page.Count > request.Take;
         if (hasMore) page.RemoveAt(page.Count - 1);
         var ids = page.Select(info => info.Id).ToArray();
-        var mappings = await context.FileMappings.AsNoTracking()
-            .Where(mapping => ids.Contains(mapping.AnimationInfoId))
-            .OrderBy(mapping => mapping.VirtualPath)
-            .ToListAsync(cancellationToken);
-        var mappingsByRelease = mappings
+        var mappingRows = ids.Length == 0
+            ? []
+            : await context.Database.SqlQuery<MappingPathRow>(
+                    $"""
+                     SELECT ranked."AnimationInfoId", ranked."VirtualPath", ranked."TotalCount"
+                     FROM (
+                         SELECT mapping."AnimationInfoId",
+                                mapping."VirtualPath",
+                                count(*) OVER (
+                                    PARTITION BY mapping."AnimationInfoId") AS "TotalCount",
+                                row_number() OVER (
+                                    PARTITION BY mapping."AnimationInfoId"
+                                    ORDER BY mapping."VirtualPath", mapping."Id") AS "RowNumber"
+                         FROM "FileMappings" AS mapping
+                         WHERE mapping."AnimationInfoId" = ANY ({ids})
+                     ) AS ranked
+                     WHERE ranked."RowNumber" <= {MaximumReturnedPathsPerRelease}
+                     ORDER BY ranked."AnimationInfoId", ranked."VirtualPath"
+                     """)
+                .ToListAsync(cancellationToken);
+        var mappingsByRelease = mappingRows
             .GroupBy(mapping => mapping.AnimationInfoId)
-            .ToDictionary(group => group.Key, group => group.Select(item => item.VirtualPath).ToList());
+            .ToDictionary(
+                group => group.Key,
+                group => group.Select(item => item.VirtualPath).ToList());
+        var mappingCountsByRelease = mappingRows
+            .GroupBy(mapping => mapping.AnimationInfoId)
+            .ToDictionary(group => group.Key, group => group.First().TotalCount);
         var progressByRelease = (await context.PlaybackProgresses.AsNoTracking()
                 .Where(progress => progress.UserId == request.UserId && ids.Contains(progress.AnimationInfoId))
                 .OrderByDescending(progress => progress.UpdatedAt)
@@ -222,6 +252,7 @@ public sealed class LibrarySearchRepository(Models.ApplicationContext context)
                 progress.Any(item => item.IsWatched),
                 progress.Count == 0 ? null : progress.Max(item => item.PositionSeconds),
                 mappingsByRelease.GetValueOrDefault(info.Id) ?? [],
+                mappingCountsByRelease.GetValueOrDefault(info.Id),
                 info.ReleaseScore,
                 ParseReasons(info.ReleaseScoreReasonsJson),
                 info.PublishTime);

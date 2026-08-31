@@ -59,8 +59,10 @@ public sealed class ReleaseUpgradeCoordinator(
             return await FailAsync(operation, "Candidate release disappeared after claim.", cancellationToken);
         if (next.IsDownloadFinished)
             return await ActivateAsync(operation.CandidateReleaseId, cancellationToken);
-        if (next.IsDownloadTracked)
+        if (next.IsDownloadTracked && next.DownloadCancellationId is null)
             return Result(true, "download_in_progress", false, true, operation, []);
+        if (next.DownloadCancellationId is not null)
+            return await FailAsync(operation, "Candidate download cancellation is in progress.", cancellationToken);
 
         var downloadAttemptId = Guid.NewGuid();
         IFileDownloadClient? client = null;
@@ -81,7 +83,8 @@ public sealed class ReleaseUpgradeCoordinator(
                     cancellationToken);
                 if (racedCandidate?.IsDownloadFinished == true)
                     return await ActivateAsync(operation.CandidateReleaseId, cancellationToken);
-                if (racedCandidate?.IsDownloadTracked == true)
+                if (racedCandidate?.IsDownloadTracked == true &&
+                    racedCandidate.DownloadCancellationId is null)
                     return Result(true, "download_in_progress", false, true, operation, []);
                 return await FailAsync(operation, "Candidate download state changed.", cancellationToken);
             }

@@ -318,6 +318,8 @@ namespace SecondDimensionWatcherReDive.Migrations
 
                     b.HasIndex("SourceFeedId");
 
+                    b.HasIndex("AutomationDisposition", "PublishTime");
+
                     b.HasIndex("FileStore", "StorePath")
                         .IsUnique()
                         .HasFilter("\"DownloadType\" = 'http://schemas.hcgstudio.com/ws/2023/06/sdw/downloadtype/media-library-import'");
@@ -667,6 +669,11 @@ namespace SecondDimensionWatcherReDive.Migrations
                         .HasMaxLength(2048)
                         .HasColumnType("character varying(2048)");
 
+                    b.Property<int>("Occurrence")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1);
+
                     b.Property<DateTimeOffset?>("ResolvedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -699,7 +706,10 @@ namespace SecondDimensionWatcherReDive.Migrations
 
                     b.HasIndex("ResolvedAt", "Type", "UpdatedAt");
 
-                    b.ToTable("Incidents");
+                    b.ToTable("Incidents", t =>
+                        {
+                            t.HasCheckConstraint("CK_Incidents_Occurrence_Positive", "\"Occurrence\" > 0");
+                        });
                 });
 
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.MediaLibrarySource", b =>
@@ -948,6 +958,87 @@ namespace SecondDimensionWatcherReDive.Migrations
 
                             t.HasCheckConstraint("CK_MigrationMarkers_Version_Positive", "\"Version\" > 0");
                         });
+                });
+
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.NotificationOutboxMessage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("AttemptCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Body")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<string>("Channel")
+                        .IsRequired()
+                        .HasMaxLength(24)
+                        .HasColumnType("character varying(24)");
+
+                    b.Property<string>("DeduplicationKey")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("DeepLink")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<DateTimeOffset?>("DeliveredAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("EventId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("LastAttemptAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<DateTimeOffset>("NextAttemptAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("OccurredAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("PayloadJson")
+                        .HasColumnType("jsonb");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(24)
+                        .HasColumnType("character varying(24)");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(48)
+                        .HasColumnType("character varying(48)");
+
+                    b.Property<Guid?>("WebPushSubscriptionId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DeduplicationKey")
+                        .IsUnique();
+
+                    b.HasIndex("WebPushSubscriptionId");
+
+                    b.HasIndex("Status", "NextAttemptAt");
+
+                    b.ToTable("NotificationOutboxMessages");
                 });
 
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.PlaybackPreference", b =>
@@ -1234,6 +1325,26 @@ namespace SecondDimensionWatcherReDive.Migrations
                         });
                 });
 
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.TodoItemState", b =>
+                {
+                    b.Property<string>("Key")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<DateTimeOffset?>("ReadAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("SnoozedUntil")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Key");
+
+                    b.ToTable("TodoItemStates");
+                });
+
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.WebDavToken", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1260,6 +1371,55 @@ namespace SecondDimensionWatcherReDive.Migrations
                         .IsUnique();
 
                     b.ToTable("WebDavTokens");
+                });
+
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.WebPushSubscription", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("EndpointHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<DateTimeOffset?>("LastFailureAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("LastSuccessAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ProtectedAuth")
+                        .IsRequired()
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)");
+
+                    b.Property<string>("ProtectedEndpoint")
+                        .IsRequired()
+                        .HasMaxLength(4096)
+                        .HasColumnType("character varying(4096)");
+
+                    b.Property<string>("ProtectedP256Dh")
+                        .IsRequired()
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EndpointHash")
+                        .IsUnique();
+
+                    b.ToTable("WebPushSubscriptions");
                 });
 
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.AnimationCatalogEntry", b =>

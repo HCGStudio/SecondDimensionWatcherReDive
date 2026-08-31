@@ -235,6 +235,35 @@ namespace SecondDimensionWatcherReDive.Migrations
                         onDelete: ReferentialAction.Cascade);
                 });
 
+            // This is an operational snapshot rather than an application entity.
+            // Keep every old file/directory identity so a rollback can restore
+            // NFS file handles even when an old-only branch disappeared during
+            // activation. Repository code reads and writes it with set-based SQL.
+            migrationBuilder.CreateTable(
+                name: "ReleaseUpgradeEntryIdentitySnapshots",
+                columns: table => new
+                {
+                    OperationId = table.Column<Guid>(type: "uuid", nullable: false),
+                    Path = table.Column<string>(type: "character varying(2048)", maxLength: 2048, nullable: false),
+                    EntryId = table.Column<Guid>(type: "uuid", nullable: false),
+                    IsDirectory = table.Column<bool>(type: "boolean", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey(
+                        "PK_ReleaseUpgradeEntryIdentitySnapshots",
+                        x => new { x.OperationId, x.Path });
+                    table.CheckConstraint(
+                        "CK_ReleaseUpgradeEntryIdentitySnapshots_Path_Canonical",
+                        "\"Path\" ~ '^/[^/]+(?:/[^/]+)*$' AND \"Path\" !~ '(^|/)\\.\\.?($|/)'");
+                    table.ForeignKey(
+                        name: "FK_ReleaseUpgradeEntryIdentitySnapshots_ReleaseUpgradeOperations_OperationId",
+                        column: x => x.OperationId,
+                        principalTable: "ReleaseUpgradeOperations",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
             migrationBuilder.AddCheckConstraint(
                 name: "CK_SubscriptionAutomationPolicies_MinimumUpgradeScore",
                 table: "SubscriptionAutomationPolicies",
@@ -354,6 +383,9 @@ namespace SecondDimensionWatcherReDive.Migrations
                 DROP INDEX IF EXISTS "IX_FileMappings_VirtualPath_Trgm";
                 DROP INDEX IF EXISTS "IX_AnimationInfo_ReleaseLanguages_Gin";
                 """);
+
+            migrationBuilder.DropTable(
+                name: "ReleaseUpgradeEntryIdentitySnapshots");
 
             migrationBuilder.DropTable(
                 name: "ReleaseUpgradeMappingSnapshots");

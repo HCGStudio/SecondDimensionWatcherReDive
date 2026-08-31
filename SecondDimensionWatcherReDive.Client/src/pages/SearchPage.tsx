@@ -304,6 +304,14 @@ export const SearchPage: React.FC = () => {
                         {path}
                       </p>
                     ))}
+                    {item.virtualPathCount > item.virtualPaths.length ? (
+                      <p className="mt-2 text-xs text-subtle">
+                        {t("results.morePaths", {
+                          count:
+                            item.virtualPathCount - item.virtualPaths.length,
+                        })}
+                      </p>
+                    ) : null}
                   </div>
                   <div className="shrink-0 text-left sm:text-right">
                     <p className="font-mono text-lg font-medium text-foreground">

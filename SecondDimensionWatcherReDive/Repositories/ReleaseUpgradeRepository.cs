@@ -433,6 +433,11 @@ public sealed partial class ReleaseUpgradeRepository(
             await writeContext.ReleaseUpgradeMappingSnapshots.AddRangeAsync(
                 snapshots,
                 cancellationToken);
+            await SnapshotEntryIdentitiesAsync(
+                writeContext,
+                operation.Id,
+                current.Id,
+                cancellationToken);
 
             var replacement = BuildCandidateReplacement(previous, next, candidate.Id);
             var reconciliation = await FileMappingSetReconciler.ReconcileAcrossOwnersAsync(
@@ -551,14 +556,6 @@ public sealed partial class ReleaseUpgradeRepository(
                 .ToListAsync(cancellationToken);
             if (!MappingSetsMatch(currentCandidateMappings, replacement.Mappings))
                 return new ReleaseUpgradeMutationResult(false, "mapping_changed", operation.ToRecord());
-            await TransferPlaybackProgressAsync(
-                writeContext,
-                BuildRollbackPlaybackTransfers(
-                    operation.CurrentReleaseId,
-                    operation.CandidateReleaseId,
-                    replacement),
-                cancellationToken);
-
             var desiredPreviousMappings = previous.Select(snapshot => new Models.FileMapping
             {
                 Id = snapshot.OriginalMappingId,
@@ -567,6 +564,21 @@ public sealed partial class ReleaseUpgradeRepository(
                 PhysicalPath = snapshot.PhysicalPath,
                 FileStore = snapshot.FileStore
             }).ToList();
+            var namespaceConflicts = await VirtualPathNamespaceGuard.FindConflictsAsync(
+                writeContext,
+                operation.CandidateReleaseId,
+                desiredPreviousMappings.Select(mapping => mapping.VirtualPath).ToArray(),
+                cancellationToken);
+            if (namespaceConflicts.Count > 0)
+                return new ReleaseUpgradeMutationResult(false, "mapping_conflict", operation.ToRecord());
+
+            await TransferPlaybackProgressAsync(
+                writeContext,
+                BuildRollbackPlaybackTransfers(
+                    operation.CurrentReleaseId,
+                    operation.CandidateReleaseId,
+                    replacement),
+                cancellationToken);
             var reconciliation = await FileMappingSetReconciler.ReconcileAcrossOwnersAsync(
                 writeContext,
                 [operation.CurrentReleaseId, operation.CandidateReleaseId],
@@ -588,6 +600,10 @@ public sealed partial class ReleaseUpgradeRepository(
             operation.CompletedAt = rolledBackAt;
             await writeContext.SaveChangesAsync(cancellationToken);
             await reconciliation.RestoreEntryIdentitiesAsync(writeContext, cancellationToken);
+            await RestoreEntryIdentitiesAsync(
+                writeContext,
+                operation.Id,
+                cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             return new ReleaseUpgradeMutationResult(true, "rolled_back", operation.ToRecord());
         });
@@ -631,6 +647,45 @@ public sealed partial class ReleaseUpgradeRepository(
             PhysicalPath = mapping.PhysicalPath,
             FileStore = mapping.FileStore
         };
+
+    private static Task SnapshotEntryIdentitiesAsync(
+        Models.ApplicationContext writeContext,
+        Guid operationId,
+        Guid currentReleaseId,
+        CancellationToken cancellationToken) =>
+        writeContext.Database.ExecuteSqlInterpolatedAsync(
+            $"""
+             INSERT INTO "ReleaseUpgradeEntryIdentitySnapshots"
+                 ("OperationId", "Path", "EntryId", "IsDirectory")
+             SELECT {operationId}, entry."Path", entry."EntryId", entry."IsDirectory"
+             FROM "FileSystemEntries" AS entry
+             WHERE EXISTS (
+                 SELECT 1
+                 FROM "FileMappings" AS mapping
+                 WHERE mapping."AnimationInfoId" = {currentReleaseId}
+                   AND (entry."Path" = mapping."VirtualPath"
+                        OR left(mapping."VirtualPath", length(entry."Path") + 1) = entry."Path" || '/'))
+             ON CONFLICT ("OperationId", "Path") DO UPDATE
+             SET "EntryId" = EXCLUDED."EntryId",
+                 "IsDirectory" = EXCLUDED."IsDirectory"
+             """,
+            cancellationToken);
+
+    private static Task RestoreEntryIdentitiesAsync(
+        Models.ApplicationContext writeContext,
+        Guid operationId,
+        CancellationToken cancellationToken) =>
+        writeContext.Database.ExecuteSqlInterpolatedAsync(
+            $"""
+             UPDATE "FileSystemEntries" AS entry
+             SET "EntryId" = snapshot."EntryId"
+             FROM "ReleaseUpgradeEntryIdentitySnapshots" AS snapshot
+             WHERE snapshot."OperationId" = {operationId}
+               AND snapshot."Path" = entry."Path"
+               AND snapshot."IsDirectory" = entry."IsDirectory"
+               AND snapshot."EntryId" <> entry."EntryId"
+             """,
+            cancellationToken);
 
     private static CandidateReplacementPlan BuildCandidateReplacement(
         IReadOnlyList<Models.FileMapping> previous,

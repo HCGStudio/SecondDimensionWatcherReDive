@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Caching.Distributed;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Framework.FileDownload;
+using SecondDimensionWatcherReDive.Framework.Notifications;
 using SecondDimensionWatcherReDive.Utils.FileStore;
 using SecondDimensionWatcherReDive.Utils.Incidents;
 
@@ -19,7 +20,8 @@ internal class AnimationInfoController(
     IDistributedCache distributedCache,
     IFileDownloadClientProvider fileDownloadClientProvider,
     IFileMapper fileMapper,
-    IIncidentReporter? incidentReporter = null)
+    IIncidentReporter? incidentReporter = null,
+    INotificationPublisher? notificationPublisher = null)
     : ControllerBase
 {
     [HttpGet]
@@ -204,6 +206,7 @@ internal class AnimationInfoController(
                     downloadClient,
                     downloadAttemptId,
                     remoteMayHaveAccepted: false);
+                await PublishDownloadFailureAsync(info, downloadAttemptId, cancellationToken);
                 return BadRequest();
             }
         }
@@ -222,10 +225,31 @@ internal class AnimationInfoController(
                 // Preserve the initiating exception. A conditional cleanup can
                 // be retried safely by the tracker or a later cancellation.
             }
+            await PublishDownloadFailureAsync(info, downloadAttemptId, cancellationToken);
             throw;
         }
 
         return Ok();
+    }
+
+    private async Task PublishDownloadFailureAsync(
+        Framework.DataRepository.AnimationInfo info,
+        Guid downloadAttemptId,
+        CancellationToken cancellationToken)
+    {
+        if (notificationPublisher is null)
+            return;
+        var current = await animationInfoRepository.FindByIdAsync(
+            info.Id,
+            cancellationToken);
+        if (current is null || current.IsDownloadTracked || current.IsDownloadFinished)
+            return;
+        await notificationPublisher.PublishAsync(new NotificationEvent(
+            NotificationEventType.DownloadFailed,
+            $"download-failed:{info.Id}:{downloadAttemptId}",
+            "Download failed to start",
+            info.Title,
+            info.Animation is null ? "/" : $"/anime/{info.Animation.TmdbId}"), cancellationToken);
     }
 
     [HttpPost("pause/{id:guid}")]
@@ -371,7 +395,10 @@ internal class AnimationInfoController(
         await animationInfoRepository.TryCancelDownloadAsync(
             info.Id,
             downloadAttemptId,
-            terminalDisposition: null,
+            terminalDisposition: info.AutomationDisposition ==
+                SubscriptionAutomationDisposition.AutoDownloadFailed
+                    ? SubscriptionAutomationDisposition.AutoDownloadFailed
+                    : null,
             cleanup.Token);
     }
 

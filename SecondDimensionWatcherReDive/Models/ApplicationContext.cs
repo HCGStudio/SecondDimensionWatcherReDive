@@ -40,10 +40,97 @@ public class ApplicationContext : DbContext
     public DbSet<ApplicationSettings> ApplicationSettings { get; set; }
     public DbSet<ReleaseUpgradeOperation> ReleaseUpgradeOperations { get; set; }
     public DbSet<ReleaseUpgradeMappingSnapshot> ReleaseUpgradeMappingSnapshots { get; set; }
+    public DbSet<NotificationOutboxMessage> NotificationOutboxMessages { get; set; }
+    public DbSet<TodoItemState> TodoItemStates { get; set; }
+    public DbSet<WebPushSubscription> WebPushSubscriptions { get; set; }
     public DbSet<AuthenticationState> AuthenticationStates { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<NotificationOutboxMessage>()
+            .HasIndex(message => message.DeduplicationKey)
+            .IsUnique();
+
+        modelBuilder.Entity<NotificationOutboxMessage>()
+            .HasIndex(message => new { message.Status, message.NextAttemptAt });
+
+        modelBuilder.Entity<NotificationOutboxMessage>()
+            .HasIndex(message => message.WebPushSubscriptionId);
+
+        modelBuilder.Entity<NotificationOutboxMessage>()
+            .Property(message => message.DeduplicationKey)
+            .HasMaxLength(256);
+
+        modelBuilder.Entity<NotificationOutboxMessage>()
+            .Property(message => message.Type)
+            .HasConversion<string>()
+            .HasMaxLength(48);
+
+        modelBuilder.Entity<NotificationOutboxMessage>()
+            .Property(message => message.Channel)
+            .HasConversion<string>()
+            .HasMaxLength(24);
+
+        modelBuilder.Entity<NotificationOutboxMessage>()
+            .Property(message => message.Status)
+            .HasConversion<string>()
+            .HasMaxLength(24);
+
+        modelBuilder.Entity<NotificationOutboxMessage>()
+            .Property(message => message.Title)
+            .HasMaxLength(256);
+
+        modelBuilder.Entity<NotificationOutboxMessage>()
+            .Property(message => message.Body)
+            .HasMaxLength(2048);
+
+        modelBuilder.Entity<NotificationOutboxMessage>()
+            .Property(message => message.DeepLink)
+            .HasMaxLength(2048);
+
+        modelBuilder.Entity<NotificationOutboxMessage>()
+            .Property(message => message.PayloadJson)
+            .HasColumnType("jsonb");
+
+        modelBuilder.Entity<NotificationOutboxMessage>()
+            .Property(message => message.LastError)
+            .HasMaxLength(2048);
+
+        modelBuilder.Entity<TodoItemState>()
+            .HasKey(state => state.Key);
+
+        modelBuilder.Entity<TodoItemState>()
+            .Property(state => state.Key)
+            .HasMaxLength(128);
+
+        modelBuilder.Entity<WebPushSubscription>()
+            .Property(subscription => subscription.Id)
+            .ValueGeneratedNever();
+
+        modelBuilder.Entity<WebPushSubscription>()
+            .HasIndex(subscription => subscription.EndpointHash)
+            .IsUnique();
+
+        modelBuilder.Entity<WebPushSubscription>()
+            .Property(subscription => subscription.EndpointHash)
+            .HasMaxLength(64);
+
+        modelBuilder.Entity<WebPushSubscription>()
+            .Property(subscription => subscription.ProtectedEndpoint)
+            .HasMaxLength(4096);
+
+        modelBuilder.Entity<WebPushSubscription>()
+            .Property(subscription => subscription.ProtectedP256Dh)
+            .HasMaxLength(1024);
+
+        modelBuilder.Entity<WebPushSubscription>()
+            .Property(subscription => subscription.ProtectedAuth)
+            .HasMaxLength(1024);
+
+        modelBuilder.Entity<WebPushSubscription>()
+            .Property(subscription => subscription.LastError)
+            .HasMaxLength(256);
+
         modelBuilder.Entity<AuthenticationState>()
             .Property(state => state.Id)
             .ValueGeneratedNever();
@@ -56,7 +143,6 @@ public class ApplicationContext : DbContext
             .ToTable(table => table.HasCheckConstraint(
                 "CK_AuthenticationStates_Singleton",
                 "\"Id\" = 1"));
-
         modelBuilder.Entity<ApplicationSettings>()
             .Property(settings => settings.Id)
             .ValueGeneratedNever();
@@ -333,6 +419,15 @@ public class ApplicationContext : DbContext
             .Property(incident => incident.LastRetryError)
             .HasMaxLength(2048);
 
+        modelBuilder.Entity<Incident>()
+            .Property(incident => incident.Occurrence)
+            .HasDefaultValue(1);
+
+        modelBuilder.Entity<Incident>()
+            .ToTable(table => table.HasCheckConstraint(
+                "CK_Incidents_Occurrence_Positive",
+                "\"Occurrence\" > 0"));
+
         modelBuilder.Entity<WebDavToken>()
             .HasIndex(t => t.Username)
             .IsUnique();
@@ -486,6 +581,9 @@ public class ApplicationContext : DbContext
             .Property(info => info.AutomationDisposition)
             .HasConversion<string>()
             .HasMaxLength(32);
+
+        modelBuilder.Entity<AnimationInfo>()
+            .HasIndex(info => new { info.AutomationDisposition, info.PublishTime });
 
         modelBuilder.Entity<AnimationInfo>()
             .HasOne<Feed>()

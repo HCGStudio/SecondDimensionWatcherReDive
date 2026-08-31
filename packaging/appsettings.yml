@@ -26,6 +26,7 @@ OutboundHttp:
   MaxFeedBytes: 4194304
   MaxTorrentBytes: 8388608
   MaxFeedItems: 1000
+  # 私网 RSS / Webhook / Web Push 端点仅通过精确主机名或 CIDR 显式放行。
   AllowedPrivateHosts: []
   AllowedPrivateNetworks: []
 
@@ -113,6 +114,23 @@ Incidents:
   Disk:
     MinimumAvailableBytes: 5368709120 # 5 GiB
     MinimumAvailablePercent: 5
+
+# 通知 Outbox（默认关闭）。Webhook URL、Web Push 订阅能力凭据及 VAPID 私钥会使用
+# Data Protection 加密保存且 API 不会回显明文；建议在网页设置中生成/配置，远端必须 HTTPS。
+Notifications:
+  Webhook:
+    Enabled: false
+    Url: ""
+  WebPush:
+    Enabled: false
+    Subject: ""
+    VapidPublicKey: ""
+    VapidPrivateKey: ""
+  Events: "ReleaseMatched,DownloadPendingConfirmation,DownloadCompleted,DownloadFailed,IncidentOpened,MetadataNeedsReview,DiskSpaceLow"
+  QuietHours:
+    Start:
+    End:
+    TimeZone: "UTC"
 
 # NFSv4 只读导出（可选，默认关闭）
 # 客户端示例: sudo mount -t nfs4 -o vers=4,nolock,port=2049 host:/ /mnt

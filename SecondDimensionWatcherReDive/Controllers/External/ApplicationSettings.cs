@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using SecondDimensionWatcherReDive.Configuration;
+using SecondDimensionWatcherReDive.Framework.Notifications;
 
 namespace SecondDimensionWatcherReDive.Controllers.External;
 
@@ -74,6 +75,18 @@ internal sealed record NfsSettingsResponse(
     bool RestartRequired,
     bool PendingRestart);
 
+internal sealed record NotificationSettingsResponse(
+    bool WebhookEnabled,
+    bool WebPushEnabled,
+    string WebPushSubject,
+    string VapidPublicKey,
+    SecretStateResponse VapidPrivateKey,
+    IReadOnlyList<NotificationEventType> Events,
+    TimeSpan? QuietHoursStart,
+    TimeSpan? QuietHoursEnd,
+    string TimeZoneId,
+    SecretStateResponse WebhookUrl);
+
 internal sealed record ApplicationSettingsResponse(
     long Revision,
     bool PendingRestart,
@@ -82,77 +95,89 @@ internal sealed record ApplicationSettingsResponse(
     TorrentSettingsResponse Torrent,
     MediaLibrarySettingsResponse MediaLibrary,
     IncidentSettingsResponse Incidents,
-    NfsSettingsResponse Nfs);
+    NfsSettingsResponse Nfs,
+    NotificationSettingsResponse Notifications);
 
 internal sealed record SecretMutationRequest(
-    [property: Required] SecretMutationOperation? Operation,
+    [Required] SecretMutationOperation? Operation,
     string? Value);
 
 internal sealed record OpenAiSettingsPatchRequest(
-    [property: Required] string? BaseUrl,
-    [property: Required] OpenAiApiMode? ApiMode,
-    [property: Required] string? Model,
-    [property: Required] int? MaxTokens,
+    [Required] string? BaseUrl,
+    [Required] OpenAiApiMode? ApiMode,
+    [Required] string? Model,
+    [Required] int? MaxTokens,
     SecretMutationRequest? ApiKey);
 
 internal sealed record AnthropicSettingsPatchRequest(
-    [property: Required] string? BaseUrl,
-    [property: Required] string? Model,
-    [property: Required] int? MaxTokens,
-    [property: Required] string? ApiVersion,
+    [Required] string? BaseUrl,
+    [Required] string? Model,
+    [Required] int? MaxTokens,
+    [Required] string? ApiVersion,
     SecretMutationRequest? ApiKey);
 
 internal sealed record CodexAppServerSettingsPatchRequest(
-    [property: Required] string? Endpoint,
+    [Required] string? Endpoint,
     string? Model,
-    [property: Required] string? PermissionProfile,
-    [property: Required] int? TimeoutSeconds,
+    [Required] string? PermissionProfile,
+    [Required] int? TimeoutSeconds,
     SecretMutationRequest? Token);
 
 internal sealed record InferenceSettingsPatchRequest(
-    [property: Required] int? RateLimitDelayMs);
+    [Required] int? RateLimitDelayMs);
 
 internal sealed record AiSettingsPatchRequest(
-    [property: Required] AiExecutionMode? ExecutionMode,
-    [property: Required] BuiltInAiProvider? Provider,
-    [property: Required] OpenAiSettingsPatchRequest? OpenAI,
-    [property: Required] AnthropicSettingsPatchRequest? Anthropic,
-    [property: Required] CodexAppServerSettingsPatchRequest? CodexAppServer,
-    [property: Required] InferenceSettingsPatchRequest? Inference);
+    [Required] AiExecutionMode? ExecutionMode,
+    [Required] BuiltInAiProvider? Provider,
+    [Required] OpenAiSettingsPatchRequest? OpenAI,
+    [Required] AnthropicSettingsPatchRequest? Anthropic,
+    [Required] CodexAppServerSettingsPatchRequest? CodexAppServer,
+    [Required] InferenceSettingsPatchRequest? Inference);
 
 internal sealed record TmdbSettingsPatchRequest(SecretMutationRequest? ApiKey);
 
 internal sealed record TorrentSettingsPatchRequest(
-    [property: Required] string? Url,
+    [Required] string? Url,
     string? UserName,
     string? UserAgent,
     SecretMutationRequest? Password);
 
 internal sealed record MediaLibrarySettingsPatchRequest(
-    [property: Required] IReadOnlyList<string>? AllowedRoots,
-    [property: Required] TimeSpan? ScanInterval,
-    [property: Required] TimeSpan? SettlingPeriod,
-    [property: Required] TimeSpan? MissingGracePeriod);
+    [Required] IReadOnlyList<string>? AllowedRoots,
+    [Required] TimeSpan? ScanInterval,
+    [Required] TimeSpan? SettlingPeriod,
+    [Required] TimeSpan? MissingGracePeriod);
 
 internal sealed record IncidentDiskSettingsPatchRequest(
-    [property: Required] long? MinimumAvailableBytes,
-    [property: Required] double? MinimumAvailablePercent);
+    [Required] long? MinimumAvailableBytes,
+    [Required] double? MinimumAvailablePercent);
 
 internal sealed record IncidentSettingsPatchRequest(
-    [property: Required] TimeSpan? DownloadStalledAfter,
-    [property: Required] TimeSpan? ReportThrottle,
-    [property: Required] TimeSpan? ReconciliationInterval,
-    [property: Required] IncidentDiskSettingsPatchRequest? Disk);
+    [Required] TimeSpan? DownloadStalledAfter,
+    [Required] TimeSpan? ReportThrottle,
+    [Required] TimeSpan? ReconciliationInterval,
+    [Required] IncidentDiskSettingsPatchRequest? Disk);
 
 internal sealed record NfsSettingsPatchRequest(
-    [property: Required] bool? Enabled,
-    [property: Required] int? Port,
-    [property: Required] string? BindAddress,
-    [property: Required] int? LeaseSeconds,
-    [property: Required] int? MaxConnections,
-    [property: Required] int? IdleTimeoutSeconds,
-    [property: Required] bool? AllowAnonymous,
-    [property: Required] IReadOnlyList<string>? AllowedNetworks);
+    [Required] bool? Enabled,
+    [Required] int? Port,
+    [Required] string? BindAddress,
+    [Required] int? LeaseSeconds,
+    [Required] int? MaxConnections,
+    [Required] int? IdleTimeoutSeconds,
+    [Required] bool? AllowAnonymous,
+    [Required] IReadOnlyList<string>? AllowedNetworks);
+
+internal sealed record NotificationSettingsPatchRequest(
+    [Required] bool? WebhookEnabled,
+    [Required] bool? WebPushEnabled,
+    [Required] string? WebPushSubject,
+    [Required] IReadOnlyList<NotificationEventType>? Events,
+    TimeSpan? QuietHoursStart,
+    TimeSpan? QuietHoursEnd,
+    [Required] string? TimeZoneId,
+    SecretMutationRequest? WebhookUrl,
+    bool GenerateVapidKeys = false);
 
 internal sealed record PatchApplicationSettingsRequest(
     long ExpectedRevision,
@@ -161,4 +186,5 @@ internal sealed record PatchApplicationSettingsRequest(
     TorrentSettingsPatchRequest? Torrent,
     MediaLibrarySettingsPatchRequest? MediaLibrary,
     IncidentSettingsPatchRequest? Incidents,
-    NfsSettingsPatchRequest? Nfs);
+    NfsSettingsPatchRequest? Nfs,
+    NotificationSettingsPatchRequest? Notifications = null);

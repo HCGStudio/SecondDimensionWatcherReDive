@@ -9,6 +9,7 @@ import { AiSettingsSection } from "../components/settings/AiSettingsSection";
 import { DownloadSettingsSection } from "../components/settings/DownloadSettingsSection";
 import { HealthSettingsSection } from "../components/settings/HealthSettingsSection";
 import { MediaSettingsSection } from "../components/settings/MediaSettingsSection";
+import { NotificationSettingsSection } from "../components/settings/NotificationSettingsSection";
 import {
   SettingsNavigation,
   SettingsSectionId,
@@ -165,6 +166,13 @@ const ActiveSection: React.FC<ActiveSectionProps> = ({
       );
     case "access":
       return <AccessSettingsSection value={settings.nfs} onSave={onSave} />;
+    case "notifications":
+      return (
+        <NotificationSettingsSection
+          value={settings.notifications}
+          onSave={onSave}
+        />
+      );
     case "ai":
     default:
       return <AiSettingsSection value={settings.ai} onSave={onSave} />;

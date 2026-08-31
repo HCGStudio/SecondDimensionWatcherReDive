@@ -42,6 +42,7 @@
     "error": "ライブラリ検索を読み込めません",
     "unidentified": "未識別",
     "score": "リリーススコア",
+    "morePaths": "他 {{count}} 件のパス",
     "next": "次のページ"
   },
   "integrity": {

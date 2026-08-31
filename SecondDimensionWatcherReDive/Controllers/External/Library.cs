@@ -23,6 +23,7 @@ internal sealed record LibrarySearchItemResponse(
     bool IsWatched,
     double? PlaybackPositionSeconds,
     IReadOnlyList<string> VirtualPaths,
+    long VirtualPathCount,
     int ReleaseScore,
     IReadOnlyList<string> ScoreReasons,
     DateTimeOffset PublishedAt);

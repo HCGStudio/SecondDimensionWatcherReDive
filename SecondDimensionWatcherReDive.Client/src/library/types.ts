@@ -26,6 +26,7 @@ export interface LibrarySearchItem {
   isWatched: boolean;
   playbackPositionSeconds: number | null;
   virtualPaths: string[];
+  virtualPathCount: number;
   releaseScore: number;
   scoreReasons: string[];
   publishedAt: string;

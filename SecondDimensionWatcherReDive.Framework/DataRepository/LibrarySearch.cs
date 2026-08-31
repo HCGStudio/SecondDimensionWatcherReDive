@@ -66,6 +66,7 @@ public sealed record LibrarySearchItem(
     bool IsWatched,
     double? PlaybackPositionSeconds,
     IReadOnlyList<string> VirtualPaths,
+    long VirtualPathCount,
     int ReleaseScore,
     IReadOnlyList<string> ScoreReasons,
     DateTimeOffset PublishedAt);

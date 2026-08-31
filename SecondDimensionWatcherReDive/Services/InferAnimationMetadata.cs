@@ -1,6 +1,7 @@
 using SecondDimensionWatcherReDive.Framework.Inference;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Framework.Tasks;
+using SecondDimensionWatcherReDive.Framework.Notifications;
 using SecondDimensionWatcherReDive.AI.Abstractions;
 using SecondDimensionWatcherReDive.Inference.AI.Tools;
 using SecondDimensionWatcherReDive.Utils.FileStore;
@@ -17,7 +18,8 @@ public partial class InferAnimationMetadata(
     TmdbTool tmdbTool,
     ILogger<InferAnimationMetadata> logger,
     IIncidentReporter? incidentReporter = null,
-    IAIEngineStatus? aiEngineStatus = null)
+    IAIEngineStatus? aiEngineStatus = null,
+    INotificationPublisher? notificationPublisher = null)
     : ScheduledTaskBase
 {
     private const int MaxRetryCount = 3;
@@ -153,6 +155,17 @@ public partial class InferAnimationMetadata(
 
             LogInferenceCompleted(logger, item.Id, item.Title);
 
+            if (item.MetadataStatus == MetadataReviewStatus.LowConfidence
+                && notificationPublisher is not null)
+            {
+                await notificationPublisher.PublishAsync(new NotificationEvent(
+                    NotificationEventType.MetadataNeedsReview,
+                    $"metadata-review:{item.Id}:{item.StateVersion + 1}",
+                    "Metadata needs review",
+                    item.Title,
+                    $"/metadata-review?status=lowConfidence&focus={item.Id}"), cancellationToken);
+            }
+
             if (incidentReporter is not null)
             {
                 await incidentReporter.ResolveAsync(
@@ -227,6 +240,15 @@ public partial class InferAnimationMetadata(
             }
 
             LogInferenceFailed(logger, ex, item.Id, item.Title, item.AiRetryCount, MaxRetryCount);
+            if (retryCount >= MaxRetryCount && notificationPublisher is not null)
+            {
+                await notificationPublisher.PublishAsync(new NotificationEvent(
+                    NotificationEventType.MetadataNeedsReview,
+                    $"metadata-review-failed:{item.Id}:{item.StateVersion + 1}",
+                    "Metadata inference failed",
+                    item.Title,
+                    $"/metadata-review?status=failed&focus={item.Id}"), cancellationToken);
+            }
             if (retryCount >= MaxRetryCount && incidentReporter is not null)
             {
                 await incidentReporter.ReportAsync(new IncidentReport(

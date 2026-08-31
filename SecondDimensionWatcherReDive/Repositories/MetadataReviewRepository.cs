@@ -15,6 +15,7 @@ public class MetadataReviewRepository(
         MetadataReviewStatus status,
         int skip,
         int take,
+        Guid? focusId,
         CancellationToken cancellationToken)
     {
         var queueQuery = context.AnimationInfo
@@ -29,6 +30,18 @@ public class MetadataReviewRepository(
             .Skip(skip)
             .Take(take)
             .ToListAsync(cancellationToken);
+        if (focusId.HasValue && entities.All(info => info.Id != focusId.Value))
+        {
+            var focused = await context.AnimationInfo
+                .AsNoTracking()
+                .Include(info => info.Animation)
+                .Include(info => info.Group)
+                .SingleOrDefaultAsync(
+                    info => info.Id == focusId.Value && info.MetadataStatus == status,
+                    cancellationToken);
+            if (focused is not null)
+                entities.Insert(0, focused);
+        }
         var animationInfoIds = entities.Select(info => info.Id).ToArray();
 
         var mappingCounts = animationInfoIds.Length == 0
@@ -336,6 +349,9 @@ public class MetadataReviewRepository(
                     operation.ProposedGroupName,
                     cancellationToken);
 
+                await applyContext.TodoItemStates
+                    .Where(state => state.Key == "metadata:" + animationInfo.Id)
+                    .ExecuteDeleteAsync(cancellationToken);
                 animationInfo.Description = operation.ProposedDescription;
                 animationInfo.Animation = animation;
                 animationInfo.Group = group;
@@ -576,6 +592,9 @@ public class MetadataReviewRepository(
                     undoContext,
                     animationInfo);
                 var wasActiveRelease = animationInfo.IsActiveRelease;
+                await undoContext.TodoItemStates
+                    .Where(state => state.Key == "metadata:" + animationInfo.Id)
+                    .ExecuteDeleteAsync(cancellationToken);
                 animationInfo.Description = operation.PreviousDescription;
                 animationInfo.Animation = previousAnimation;
                 animationInfo.Group = previousGroup;
