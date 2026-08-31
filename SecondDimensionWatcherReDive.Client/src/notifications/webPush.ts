@@ -30,6 +30,24 @@ const keysEqual = (
 
 const getRegistration = () => navigator.serviceWorker.getRegistration("/");
 
+const registerCurrentWorker = () => {
+  const workerUrl = new URL("./pushServiceWorker.js", import.meta.url);
+  return navigator.serviceWorker.register(workerUrl, {
+    scope: "/",
+    type: "module",
+    updateViaCache: "none",
+  });
+};
+
+export const refreshWebPushServiceWorker = async (): Promise<void> => {
+  if (!isWebPushSupported()) return;
+  // Parcel fingerprints the worker URL. Re-register the current build whenever
+  // an installation already owns this scope so deployments can replace a
+  // worker whose previous fingerprinted asset is no longer on the server.
+  if (!(await getRegistration())) return;
+  await registerCurrentWorker();
+};
+
 export const getCurrentWebPushSubscription = async () => {
   if (!isWebPushSupported()) return null;
   const registration = await getRegistration();
@@ -41,11 +59,7 @@ export const enableWebPushForCurrentDevice = async (vapidPublicKey: string) => {
   const permission = await Notification.requestPermission();
   if (permission !== "granted") throw new Error("permissionDenied");
 
-  const workerUrl = new URL("./pushServiceWorker.js", import.meta.url);
-  const registration = await navigator.serviceWorker.register(workerUrl, {
-    scope: "/",
-    type: "module",
-  });
+  const registration = await registerCurrentWorker();
   const expectedKey = decodeBase64Url(vapidPublicKey);
   let subscription = await registration.pushManager.getSubscription();
   if (
