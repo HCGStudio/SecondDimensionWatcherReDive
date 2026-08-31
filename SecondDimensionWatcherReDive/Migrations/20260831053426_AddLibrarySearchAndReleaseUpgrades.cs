@@ -203,6 +203,11 @@ namespace SecondDimensionWatcherReDive.Migrations
                                      END)
                                  FROM "FileMappings" AS mapping
                                  WHERE mapping."AnimationInfoId" = info."Id"
+                                   AND mapping."VirtualPath" NOT LIKE '/unknown/%'
+                                   AND mapping."VirtualPath" ~ (
+                                       ' S' || lpad(info."Season"::text, 2, '0') ||
+                                       'E' || lpad(info."Episode"::text, 2, '0') ||
+                                       '( |\.|$)')
                                    AND lower(mapping."VirtualPath") ~
                                        '\.(mkv|mp4|avi|flv|wmv|webm|mov|m4v|ts|m2ts)$'),
                                  9223372036854775807) ASC,
