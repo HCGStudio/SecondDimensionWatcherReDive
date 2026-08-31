@@ -245,6 +245,18 @@ namespace SecondDimensionWatcherReDive.Migrations
                 END;
                 $$ LANGUAGE plpgsql;
 
+                CREATE FUNCTION sdw_animation_catalog_group_update() RETURNS trigger AS $$
+                BEGIN
+                    IF EXISTS (SELECT 1 FROM new_rows) THEN
+                        -- Group names are projected into both categorized and
+                        -- uncategorized episode pages even though they are not
+                        -- stored in the compact catalog aggregate.
+                        PERFORM sdw_bump_animation_catalog_revision();
+                    END IF;
+                    RETURN NULL;
+                END;
+                $$ LANGUAGE plpgsql;
+
                 CREATE TRIGGER "TR_AnimationInfo_CatalogInsert"
                 AFTER INSERT ON "AnimationInfo"
                 REFERENCING NEW TABLE AS new_rows
@@ -273,6 +285,11 @@ namespace SecondDimensionWatcherReDive.Migrations
                 AFTER DELETE ON "Animations"
                 REFERENCING OLD TABLE AS old_rows
                 FOR EACH STATEMENT EXECUTE FUNCTION sdw_animation_catalog_animation_delete();
+
+                CREATE TRIGGER "TR_AnimationGroups_CatalogUpdate"
+                AFTER UPDATE ON "AnimationGroups"
+                REFERENCING NEW TABLE AS new_rows
+                FOR EACH STATEMENT EXECUTE FUNCTION sdw_animation_catalog_group_update();
                 """);
         }
 
@@ -287,12 +304,14 @@ namespace SecondDimensionWatcherReDive.Migrations
                 DROP TRIGGER IF EXISTS "TR_AnimationInfo_CatalogTruncate" ON "AnimationInfo";
                 DROP TRIGGER IF EXISTS "TR_Animations_CatalogUpdate" ON "Animations";
                 DROP TRIGGER IF EXISTS "TR_Animations_CatalogDelete" ON "Animations";
+                DROP TRIGGER IF EXISTS "TR_AnimationGroups_CatalogUpdate" ON "AnimationGroups";
                 DROP FUNCTION IF EXISTS sdw_animation_info_catalog_insert();
                 DROP FUNCTION IF EXISTS sdw_animation_info_catalog_update();
                 DROP FUNCTION IF EXISTS sdw_animation_info_catalog_delete();
                 DROP FUNCTION IF EXISTS sdw_animation_info_catalog_truncate();
                 DROP FUNCTION IF EXISTS sdw_animation_catalog_animation_update();
                 DROP FUNCTION IF EXISTS sdw_animation_catalog_animation_delete();
+                DROP FUNCTION IF EXISTS sdw_animation_catalog_group_update();
                 DROP FUNCTION IF EXISTS sdw_refresh_animation_catalog(uuid[]);
                 DROP FUNCTION IF EXISTS sdw_bump_animation_catalog_revision();
                 """);

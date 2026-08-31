@@ -753,6 +753,7 @@ namespace SecondDimensionWatcherReDive.Migrations
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.PlaybackPreference", b =>
                 {
                     b.Property<Guid>("UserId")
+                        .ValueGeneratedNever()
                         .HasColumnType("uuid");
 
                     b.Property<string>("AudioLanguage")

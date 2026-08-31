@@ -40,7 +40,15 @@ namespace SecondDimensionWatcherReDive.Migrations
                 END $$;
 
                 CREATE TEMP TABLE sdw_conflicting_mappings ON COMMIT DROP AS
-                WITH conflicts AS (
+                WITH ordered_mappings AS (
+                    SELECT
+                        mapping."Id",
+                        mapping."AnimationInfoId",
+                        mapping."VirtualPath",
+                        lead(mapping."VirtualPath") OVER (
+                            ORDER BY mapping."VirtualPath" COLLATE "C") AS next_path
+                    FROM "FileMappings" AS mapping
+                ), conflicts AS (
                     SELECT
                         mapping."Id",
                         mapping."AnimationInfoId",
@@ -50,13 +58,9 @@ namespace SecondDimensionWatcherReDive.Migrations
                             ELSE regexp_replace(mapping."VirtualPath", '/[^/]+$', '')
                         END AS parent_path,
                         regexp_replace(mapping."VirtualPath", '^.*/', '') AS file_name
-                    FROM "FileMappings" AS mapping
-                    WHERE EXISTS (
-                        SELECT 1
-                        FROM "FileMappings" AS descendant
-                        WHERE descendant."Id" <> mapping."Id"
-                          AND left(descendant."VirtualPath", length(mapping."VirtualPath") + 1)
-                              = mapping."VirtualPath" || '/')
+                    FROM ordered_mappings AS mapping
+                    WHERE left(mapping.next_path, length(mapping."VirtualPath") + 1)
+                          = mapping."VirtualPath" || '/'
                 ), parsed AS (
                     SELECT
                         conflicts.*,
