@@ -926,7 +926,8 @@ public class AnimationInfoRepository(
             .ThenBy(info => info.Id)
             .Select(info => new PendingDownloadSubmission(
                 info.Id,
-                info.DownloadAttemptId!.Value))
+                info.DownloadAttemptId!.Value,
+                info.DownloadSubmissionLeaseId!.Value))
             .Take(take)
             .ToListAsync(cancellationToken);
     }
@@ -1071,7 +1072,7 @@ public class AnimationInfoRepository(
         });
     }
 
-    public async Task<DownloadCancellationLease?> TryBeginCancelDownloadAsync(
+    public Task<DownloadCancellationLease?> TryBeginCancelDownloadAsync(
         Guid id,
         Guid? downloadAttemptId,
         Guid cancellationAttemptId,
@@ -1079,6 +1080,50 @@ public class AnimationInfoRepository(
         TimeSpan cancellationLeaseDuration,
         bool removeFile,
         bool requireUnfinished,
+        SubscriptionAutomationDisposition? terminalDisposition,
+        CancellationToken cancellationToken) =>
+        TryBeginCancelDownloadCoreAsync(
+            id,
+            downloadAttemptId,
+            cancellationAttemptId,
+            cancellationLeaseId,
+            cancellationLeaseDuration,
+            removeFile,
+            requireUnfinished,
+            expectedExpiredSubmissionLeaseId: null,
+            terminalDisposition,
+            cancellationToken);
+
+    public Task<DownloadCancellationLease?> TryBeginExpiredDownloadSubmissionRecoveryAsync(
+        Guid id,
+        Guid downloadAttemptId,
+        Guid observedSubmissionLeaseId,
+        Guid cancellationAttemptId,
+        Guid cancellationLeaseId,
+        TimeSpan cancellationLeaseDuration,
+        SubscriptionAutomationDisposition? terminalDisposition,
+        CancellationToken cancellationToken) =>
+        TryBeginCancelDownloadCoreAsync(
+            id,
+            downloadAttemptId,
+            cancellationAttemptId,
+            cancellationLeaseId,
+            cancellationLeaseDuration,
+            removeFile: false,
+            requireUnfinished: true,
+            expectedExpiredSubmissionLeaseId: observedSubmissionLeaseId,
+            terminalDisposition,
+            cancellationToken);
+
+    private async Task<DownloadCancellationLease?> TryBeginCancelDownloadCoreAsync(
+        Guid id,
+        Guid? downloadAttemptId,
+        Guid cancellationAttemptId,
+        Guid cancellationLeaseId,
+        TimeSpan cancellationLeaseDuration,
+        bool removeFile,
+        bool requireUnfinished,
+        Guid? expectedExpiredSubmissionLeaseId,
         SubscriptionAutomationDisposition? terminalDisposition,
         CancellationToken cancellationToken)
     {
@@ -1106,6 +1151,11 @@ public class AnimationInfoRepository(
             var databaseNow = await writeContext.Database
                 .SqlQueryRaw<DateTimeOffset>("SELECT clock_timestamp() AS \"Value\"")
                 .SingleAsync(cancellationToken);
+
+            if (expectedExpiredSubmissionLeaseId is { } expectedLeaseId &&
+                (entity.DownloadSubmissionLeaseId != expectedLeaseId ||
+                 entity.DownloadSubmissionLeaseUntil > databaseNow))
+                return null;
 
             // A current release must not be deleted remotely while an upgrade
             // candidate has only a durable local start and has not yet been

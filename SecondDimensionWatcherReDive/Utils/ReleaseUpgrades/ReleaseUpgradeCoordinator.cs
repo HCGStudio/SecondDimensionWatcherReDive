@@ -109,14 +109,14 @@ public sealed class ReleaseUpgradeCoordinator(
 
         var cancellationAttemptId = Guid.NewGuid();
         var leaseRequestStartedAt = Stopwatch.GetTimestamp();
-        var cancellationLease = await animationInfoRepository.TryBeginCancelDownloadAsync(
+        var cancellationLease = await animationInfoRepository
+            .TryBeginExpiredDownloadSubmissionRecoveryAsync(
             info.Id,
             pendingSubmission.DownloadAttemptId,
+            pendingSubmission.SubmissionLeaseId,
             cancellationAttemptId,
             Guid.NewGuid(),
             DownloadCancellationLeaseDuration,
-            removeFile: false,
-            requireUnfinished: true,
             info.AutomationDisposition == SubscriptionAutomationDisposition.AutoDownloadQueued
                 ? SubscriptionAutomationDisposition.AutoDownloadFailed
                 : null,

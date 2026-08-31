@@ -15,7 +15,8 @@ public sealed record PendingDownloadCancellation(
 
 public sealed record PendingDownloadSubmission(
     Guid AnimationInfoId,
-    Guid DownloadAttemptId);
+    Guid DownloadAttemptId,
+    Guid SubmissionLeaseId);
 
 public interface IAnimationInfoRepository
 {
@@ -140,6 +141,16 @@ public interface IAnimationInfoRepository
         TimeSpan cancellationLeaseDuration,
         bool removeFile,
         bool requireUnfinished,
+        SubscriptionAutomationDisposition? terminalDisposition,
+        CancellationToken cancellationToken);
+
+    Task<DownloadCancellationLease?> TryBeginExpiredDownloadSubmissionRecoveryAsync(
+        Guid id,
+        Guid downloadAttemptId,
+        Guid observedSubmissionLeaseId,
+        Guid cancellationAttemptId,
+        Guid cancellationLeaseId,
+        TimeSpan cancellationLeaseDuration,
         SubscriptionAutomationDisposition? terminalDisposition,
         CancellationToken cancellationToken);
 
