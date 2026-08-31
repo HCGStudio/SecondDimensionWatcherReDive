@@ -35,7 +35,8 @@ public sealed partial class ReleaseUpgradeRepository(
         var candidatePairs =
             from current in context.AnimationInfo.AsNoTracking()
             from candidate in eligibleCandidates
-            let automatic = candidate.SourceFeedId != null &&
+            let automatic = current.ReleaseScoreReasonsJson != null &&
+                            candidate.SourceFeedId != null &&
                             context.SubscriptionAutomationPolicies.Any(policy =>
                                 policy.FeedId == candidate.SourceFeedId &&
                                 policy.EnableVersionUpgrade &&
@@ -137,7 +138,8 @@ public sealed partial class ReleaseUpgradeRepository(
         var candidatePairs =
             from current in currentReleases
             from candidate in eligibleCandidates
-            let automatic = candidate.SourceFeedId != null &&
+            let automatic = current.ReleaseScoreReasonsJson != null &&
+                            candidate.SourceFeedId != null &&
                             context.SubscriptionAutomationPolicies.Any(policy =>
                                 policy.FeedId == candidate.SourceFeedId &&
                                 policy.EnableVersionUpgrade &&
@@ -242,6 +244,20 @@ public sealed partial class ReleaseUpgradeRepository(
                 !await writeContext.FileMappings.AnyAsync(
                     mapping => mapping.AnimationInfoId == current.Id,
                     cancellationToken))
+                return null;
+
+            // Rows created before release scoring was introduced have no score
+            // provenance. Keep them available for an explicit manual replacement,
+            // but never let an automatic worker compare a newly scored candidate
+            // against their placeholder zero.
+            if (candidate.Automatic &&
+                (current.ReleaseScoreReasonsJson is null ||
+                 next.SourceFeedId is not { } sourceFeedId ||
+                 !await writeContext.SubscriptionAutomationPolicies.AnyAsync(
+                     policy => policy.FeedId == sourceFeedId &&
+                               policy.EnableVersionUpgrade &&
+                               next.ReleaseScore - current.ReleaseScore >= policy.MinimumUpgradeScore,
+                     cancellationToken)))
                 return null;
 
             await writeContext.ReleaseUpgradeOperations

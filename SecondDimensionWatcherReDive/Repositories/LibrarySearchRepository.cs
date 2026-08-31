@@ -470,7 +470,8 @@ public sealed class LibrarySearchRepository(Models.ApplicationContext context)
                 .ThenByDescending(info => info.PublishTime)
                 .FirstOrDefault();
             if (candidate is null) continue;
-            var automatic = candidate.SourceFeedId is { } feedId &&
+            var automatic = current.ReleaseScoreReasonsJson is not null &&
+                            candidate.SourceFeedId is { } feedId &&
                             policies.TryGetValue(feedId, out var policy) &&
                             policy.EnableVersionUpgrade &&
                             candidate.ReleaseScore - current.ReleaseScore >= policy.MinimumUpgradeScore;
