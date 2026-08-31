@@ -203,6 +203,22 @@ jobs:
           VERSION: ${{ needs.metadata.outputs.version }}
         run: |
           set -euo pipefail
+          inspect_image() {
+            local attempt
+            local output
+            for attempt in 1 2 3 4; do
+              if output=$(docker buildx imagetools inspect "$@"); then
+                printf '%s' "$output"
+                return 0
+              fi
+              if [ "$attempt" -eq 4 ]; then
+                echo "Failed to inspect the image after $attempt attempts" >&2
+                return 1
+              fi
+              echo "::warning::Image inspection attempt $attempt failed; retrying" >&2
+              sleep $((attempt * 5))
+            done
+          }
           test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
           [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]
@@ -255,7 +271,7 @@ jobs:
               ;;
           esac
 
-          manifest=$(docker buildx imagetools inspect "${IMAGE_REPOSITORY}@${IMAGE_DIGEST}" --raw)
+          manifest=$(inspect_image "${IMAGE_REPOSITORY}@${IMAGE_DIGEST}" --raw)
           resolved_digest="sha256:$(printf '%s' "$manifest" | sha256sum | cut -d ' ' -f1)"
           if [ "$resolved_digest" != "$IMAGE_DIGEST" ]; then
             echo "Resolved digest $resolved_digest differs from $IMAGE_DIGEST" >&2
@@ -276,7 +292,7 @@ jobs:
           validate_image_identity() {
             local digest="$1"
             local image_configs
-            image_configs=$(docker buildx imagetools inspect \
+            image_configs=$(inspect_image \
               "${IMAGE_REPOSITORY}@${digest}" --format '{{json .Image}}')
             jq -e --arg source "$SOURCE_SHA" --arg version "$VERSION" '
               type == "object" and
@@ -576,6 +592,22 @@ jobs:
           SOURCE_SHA: ${{ needs.metadata.outputs.commit_sha }}
         run: |
           set -euo pipefail
+          inspect_image() {
+            local attempt
+            local output
+            for attempt in 1 2 3 4; do
+              if output=$(docker buildx imagetools inspect "$@"); then
+                printf '%s' "$output"
+                return 0
+              fi
+              if [ "$attempt" -eq 4 ]; then
+                echo "Failed to inspect the image after $attempt attempts" >&2
+                return 1
+              fi
+              echo "::warning::Image inspection attempt $attempt failed; retrying" >&2
+              sleep $((attempt * 5))
+            done
+          }
           [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
           current_sha=$(git ls-remote --exit-code --heads origin "refs/heads/$DEFAULT_BRANCH" | cut -f1)
@@ -585,8 +617,8 @@ jobs:
             exit 0
           fi
 
-          manifest=$(docker buildx imagetools inspect "${IMAGE_REPOSITORY}@${IMAGE_DIGEST}" --raw)
-          version_manifest=$(docker buildx imagetools inspect "$IMAGE_TAG" --raw)
+          manifest=$(inspect_image "${IMAGE_REPOSITORY}@${IMAGE_DIGEST}" --raw)
+          version_manifest=$(inspect_image "$IMAGE_TAG" --raw)
           if [ "$version_manifest" != "$manifest" ]; then
             echo "$IMAGE_TAG no longer resolves to the published digest" >&2
             exit 1
@@ -594,9 +626,9 @@ jobs:
 
           moving_tag="${IMAGE_REPOSITORY}:prerelease-latest"
           docker buildx imagetools create --tag "$moving_tag" "${IMAGE_REPOSITORY}@${IMAGE_DIGEST}"
-          moving_manifest=$(docker buildx imagetools inspect "$moving_tag" --raw)
+          moving_manifest=$(inspect_image "$moving_tag" --raw)
           if [ "$moving_manifest" != "$manifest" ]; then
             echo "$moving_tag does not resolve to the published manifest" >&2
             exit 1
           fi
-          docker buildx imagetools inspect "$moving_tag"
+          inspect_image "$moving_tag"
