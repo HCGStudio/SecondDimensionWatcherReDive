@@ -25,23 +25,20 @@ public class RemoteTorrentDownloadClient(
         string additionalDownloadInfo,
         CancellationToken cancellationToken)
     {
-        using var content = new MultipartFormDataContent();
-        content.Add(new ByteArrayContent(cachedDownloadData), "torrent", $"{itemId}.torrent");
-        var basePath = Path.GetFullPath(configuration["FileStore:Local"] ?? "./download");
-        var savePath = Path.Combine(basePath, additionalDownloadInfo);
-        content.Add(new StringContent(savePath), "savepath");
-
         using var client = httpClientFactory.CreateClient(nameof(RemoteTorrentDownloadClient));
-        using var response = await client.PostAsync(
-            "/api/v2/torrents/add",
-            content,
+        var submission = await SubmitRemoteAsync(
+            client,
+            itemId,
+            cachedDownloadData,
+            additionalDownloadInfo,
             cancellationToken);
+        if (submission != RemoteSubmissionOutcome.Accepted)
+            return false;
 
-        if (response.IsSuccessStatusCode)
-            await remoteTorrentTrackRequest.Writer.WriteAsync(
-                new(itemId, additionalDownloadInfo));
-
-        return response.IsSuccessStatusCode;
+        await remoteTorrentTrackRequest.Writer.WriteAsync(
+            new(itemId, additionalDownloadInfo),
+            cancellationToken);
+        return true;
     }
 
     public override async Task<DownloadTaskReconciliationOutcome> EnsureDownloadTaskAsync(
@@ -163,7 +160,8 @@ public class RemoteTorrentDownloadClient(
         CancellationToken cancellationToken)
     {
         await remoteTorrentTrackRequest.Writer.WriteAsync(
-            new(itemId, additionalDownloadInfo));
+            new(itemId, additionalDownloadInfo),
+            cancellationToken);
     }
 
     public override async Task<bool> PauseDownloadTaskAsync(
