@@ -54,7 +54,7 @@
     "bundle:check": "node scripts/check-bundle-budget.mjs",
     "mock": "node mock-server.mjs",
     "dev": "node mock-server.mjs & parcel --no-cache",
-    "test": "tsx --test src/playback/mkv/*.test.ts"
+    "test": "tsx --test src/playback/mkv/*.test.ts src/pages/*.test.tsx scripts/*.test.mjs"
   },
   "source": "src/index.html",
   "@parcel/resolver-default": {

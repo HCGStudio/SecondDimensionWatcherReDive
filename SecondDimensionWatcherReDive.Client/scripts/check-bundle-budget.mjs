@@ -4,6 +4,7 @@ import path from "node:path";
 const distDirectory = path.resolve(process.argv[2] ?? "dist");
 const budgets = {
   initialJavaScriptBytes: 800_000,
+  homeRouteJavaScriptBytes: 800_000,
   asyncJavaScriptBytes: 650_000,
   ffmpegWasmBytes: 34_000_000,
 };
@@ -35,10 +36,21 @@ if (!entry) throw new Error(`Missing entry asset: ${entryName}`);
 const asyncJavaScript = assets
   .filter((asset) => asset.name.endsWith(".js") && asset.name !== entryName)
   .sort((left, right) => right.bytes - left.bytes);
+const mainPageJavaScript = assets.filter(
+  (asset) => asset.name.startsWith("MainPage.") && asset.name.endsWith(".js"),
+);
+const homeRouteJavaScriptBytes =
+  entry.bytes +
+  mainPageJavaScript.reduce((total, asset) => total + asset.bytes, 0);
 const wasmAssets = assets
   .filter((asset) => asset.name.endsWith(".wasm"))
   .sort((left, right) => right.bytes - left.bytes);
-const requiredRouteChunks = ["PlayerPage.", "ChatPage.", "MetadataReviewPage."];
+const requiredRouteChunks = [
+  "MainPage.",
+  "PlayerPage.",
+  "ChatPage.",
+  "MetadataReviewPage.",
+];
 const entrySource = await readFile(path.join(distDirectory, entryName), "utf8");
 
 const checks = [
@@ -47,6 +59,12 @@ const checks = [
     actual: entry.bytes,
     budget: budgets.initialJavaScriptBytes,
     passed: entry.bytes <= budgets.initialJavaScriptBytes,
+  },
+  {
+    name: "home route JavaScript (entry + MainPage chunks)",
+    actual: homeRouteJavaScriptBytes,
+    budget: budgets.homeRouteJavaScriptBytes,
+    passed: homeRouteJavaScriptBytes <= budgets.homeRouteJavaScriptBytes,
   },
   {
     name: "largest asynchronous JavaScript chunk",
@@ -82,6 +100,8 @@ const report = {
   generatedAt: new Date().toISOString(),
   budgets,
   entry,
+  mainPageJavaScript,
+  homeRouteJavaScriptBytes,
   asyncJavaScript,
   wasmAssets,
   checks,

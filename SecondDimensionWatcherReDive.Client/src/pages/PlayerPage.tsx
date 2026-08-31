@@ -46,6 +46,7 @@ import {
   PlaybackTarget,
 } from "../playback/types";
 import { PageTemplate } from "./PageTemplate";
+import { PlaybackErrorActions } from "./PlaybackErrorActions";
 
 import "media-captions/styles/captions.css";
 import "media-captions/styles/regions.css";
@@ -1006,7 +1007,14 @@ export const PlayerPage: React.FC = () => {
           icon={<AlertTriangle size={48} />}
           title={t("playFailed")}
           body={<p>{error}</p>}
-          actions={<Button onClick={goBack}>{t("back")}</Button>}
+          actions={
+            <PlaybackErrorActions
+              backLabel={t("back")}
+              retryLabel={t("retry")}
+              showRetry={linkError !== null}
+              onBack={goBack}
+            />
+          }
         />
       ) : playbackUrl && playbackContext ? (
         <>
