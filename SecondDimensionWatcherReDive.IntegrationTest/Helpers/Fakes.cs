@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Framework.FileStore;
 
@@ -48,47 +50,23 @@ internal sealed class FakeFileMappingRepository : IFileMappingRepository
         CancellationToken cancellationToken)
     {
         var normalized = virtualPath == "/" ? "/" : virtualPath.TrimEnd('/');
-        var mapping = Snapshot().FirstOrDefault(item => item.VirtualPath == normalized);
-        if (mapping is not null)
-            return Task.FromResult<FileSystemEntry?>(new FileSystemEntry(
-                normalized,
-                ParentPath(normalized),
-                Path.GetFileName(normalized),
-                IsDirectory: false,
-                mapping));
-
-        var prefix = normalized + "/";
-        return Task.FromResult(Snapshot().Any(item => item.VirtualPath.StartsWith(prefix, StringComparison.Ordinal))
-            ? new FileSystemEntry(
-                normalized,
-                ParentPath(normalized),
-                Path.GetFileName(normalized),
-                IsDirectory: true,
-                Mapping: null)
-            : null);
+        return Task.FromResult(BuildEntries().GetValueOrDefault(normalized));
     }
+
+    public Task<FileSystemEntry?> FindFileSystemEntryByIdAsync(
+        Guid entryId,
+        CancellationToken cancellationToken) =>
+        Task.FromResult(BuildEntries().Values.FirstOrDefault(entry => entry.EntryId == entryId));
 
     public Task<IReadOnlyList<FileSystemEntry>> GetImmediateChildrenAsync(
         string parentPath,
         CancellationToken cancellationToken)
     {
         ImmediateChildrenCalls.Add(parentPath);
-        var prefix = parentPath == "/" ? "/" : parentPath.TrimEnd('/') + "/";
-        var children = new Dictionary<string, FileSystemEntry>(StringComparer.Ordinal);
-        foreach (var mapping in Snapshot())
-        {
-            if (!mapping.VirtualPath.StartsWith(prefix, StringComparison.Ordinal)) continue;
-            var remainder = mapping.VirtualPath[prefix.Length..];
-            if (remainder.Length == 0) continue;
-            var slash = remainder.IndexOf('/');
-            var name = slash < 0 ? remainder : remainder[..slash];
-            var path = prefix == "/" ? "/" + name : prefix + name;
-            children[path] = slash < 0
-                ? new FileSystemEntry(path, parentPath, name, IsDirectory: false, mapping)
-                : new FileSystemEntry(path, parentPath, name, IsDirectory: true, Mapping: null);
-        }
-
-        return Task.FromResult<IReadOnlyList<FileSystemEntry>>(children.Values.ToList());
+        var normalized = parentPath == "/" ? "/" : parentPath.TrimEnd('/');
+        return Task.FromResult<IReadOnlyList<FileSystemEntry>>(BuildEntries().Values
+            .Where(entry => entry.ParentPath == normalized)
+            .ToList());
     }
 
     public Task<IReadOnlyList<FileMapping>> GetByVirtualPathPrefixAsync(string virtualPathPrefix, CancellationToken cancellationToken)
@@ -141,6 +119,58 @@ internal sealed class FakeFileMappingRepository : IFileMappingRepository
     {
         var slash = path.LastIndexOf('/');
         return slash <= 0 ? "/" : path[..slash];
+    }
+
+    private Dictionary<string, FileSystemEntry> BuildEntries()
+    {
+        var mappings = Snapshot();
+        var descendantCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var mapping in mappings)
+        {
+            for (var parent = ParentPath(mapping.VirtualPath);
+                 parent != "/";
+                 parent = ParentPath(parent))
+            {
+                descendantCounts[parent] = descendantCounts.GetValueOrDefault(parent) + 1;
+            }
+        }
+
+        var entries = descendantCounts.ToDictionary(
+            pair => pair.Key,
+            pair => CreateEntry(pair.Key, isDirectory: true, pair.Value, mapping: null),
+            StringComparer.Ordinal);
+        foreach (var mapping in mappings)
+        {
+            entries[mapping.VirtualPath] = CreateEntry(
+                mapping.VirtualPath,
+                isDirectory: false,
+                descendantFileCount: 1,
+                mapping);
+        }
+
+        return entries;
+    }
+
+    private static FileSystemEntry CreateEntry(
+        string path,
+        bool isDirectory,
+        int descendantFileCount,
+        FileMapping? mapping)
+    {
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(path));
+        var entryId = new Guid(hash.AsSpan(0, 16), bigEndian: true);
+        var cookieBits = BitConverter.ToUInt64(hash, 16) & long.MaxValue;
+        var cookie = cookieBits == 0 ? 1 : (long)cookieBits;
+        var slash = path.LastIndexOf('/');
+        return new FileSystemEntry(
+            entryId,
+            path,
+            ParentPath(path),
+            path[(slash + 1)..],
+            isDirectory,
+            descendantFileCount,
+            cookie,
+            mapping);
     }
 }
 
@@ -215,7 +245,9 @@ internal sealed class FakeFileExplorer : IFileExplorer
                 node.Name,
                 node.IsDirectory,
                 node.Mapping,
-                info));
+                info,
+                node.EntryId,
+                node.Cookie));
         }
 
         return results;
