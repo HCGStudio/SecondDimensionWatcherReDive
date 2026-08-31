@@ -39,14 +39,9 @@ export function Table<T extends Record<string, any>>({
         </thead>
         <tbody>
           {items.map((item, rowIdx) => (
-            <tr
-              key={rowIdx}
-              className="transition-colors hover:bg-canvas"
-            >
+            <tr key={rowIdx} className="transition-colors hover:bg-canvas">
               {columns.map((col, colIdx) => {
-                const value = col.field
-                  ? (item as any)[col.field]
-                  : item;
+                const value = col.field ? (item as any)[col.field] : item;
                 return (
                   <td
                     key={colIdx}

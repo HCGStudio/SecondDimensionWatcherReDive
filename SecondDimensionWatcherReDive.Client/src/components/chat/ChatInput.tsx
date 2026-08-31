@@ -1,6 +1,7 @@
-import { Send } from "lucide-react";
 import React, { useCallback, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+
+import { Send } from "lucide-react";
 
 import { Button } from "../ui/Button";
 

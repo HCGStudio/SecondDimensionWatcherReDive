@@ -1,7 +1,8 @@
-import { AlertTriangle } from "lucide-react";
 import React from "react";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router";
+
+import { AlertTriangle } from "lucide-react";
 
 import { useDownloadingAnimations } from "../animation/hooks";
 import { AnimationInfo } from "../components/AnimationInfo";

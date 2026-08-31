@@ -52,7 +52,9 @@
     "build": "rimraf dist && parcel build --no-source-maps",
     "mock": "node mock-server.mjs",
     "dev": "node mock-server.mjs & parcel --no-cache",
-    "test": "tsx --test src/playback/mkv/*.test.ts"
+    "test": "tsx --test src/playback/mkv/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "format:check": "prettier --check ."
   },
   "source": "src/index.html",
   "@parcel/resolver-default": {

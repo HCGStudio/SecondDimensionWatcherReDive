@@ -80,7 +80,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/HCGStudio/SecondDimensionWat
 - **容器部署** — Podman / Docker，含 qBittorrent 和 PostgreSQL
 - **通用 tar.gz** — 适用于任意 Linux 发行版
 
-详见 **[服务器部署指南](docs/server-deployment.md)** | **[容器部署指南](docs/container-deployment.md)**
+详见 **[服务器部署指南](docs/server-deployment.md)** | **[容器部署指南](docs/container-deployment.md)** | **[发布流程](docs/release-process.md)**
 
 ### 配置
 

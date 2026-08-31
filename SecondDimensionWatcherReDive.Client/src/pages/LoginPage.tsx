@@ -106,12 +106,11 @@ export const LoginPage: React.FC = () => {
               <FormRow
                 label={t("repeatPassword")}
                 isInvalid={
-                  (password !== passwordConfirm && passwordConfirm.length > 0) ||
+                  (password !== passwordConfirm &&
+                    passwordConfirm.length > 0) ||
                   registerFailed
                 }
-                error={[
-                  registerFailed ? t("registerFailed") : t("mismatch"),
-                ]}
+                error={[registerFailed ? t("registerFailed") : t("mismatch")]}
               >
                 <PasswordInput
                   placeholder={t("repeatPassword")}

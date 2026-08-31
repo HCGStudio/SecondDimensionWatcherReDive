@@ -1,6 +1,7 @@
-import { MessageSquare, Plus, Trash2 } from "lucide-react";
 import React from "react";
 import { useTranslation } from "react-i18next";
+
+import { MessageSquare, Plus, Trash2 } from "lucide-react";
 
 import { ChatConversation } from "../../chat/types";
 import { cn } from "../../lib/cn";

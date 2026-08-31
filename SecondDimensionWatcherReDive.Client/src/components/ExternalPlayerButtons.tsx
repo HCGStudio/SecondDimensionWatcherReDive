@@ -1,6 +1,7 @@
-import { ExternalLink } from "lucide-react";
 import React from "react";
 import { useTranslation } from "react-i18next";
+
+import { ExternalLink } from "lucide-react";
 
 import { Button } from "./ui/Button";
 

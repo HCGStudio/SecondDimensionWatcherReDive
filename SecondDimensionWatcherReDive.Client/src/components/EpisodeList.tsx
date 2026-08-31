@@ -16,10 +16,7 @@ import { Button } from "./ui/Button";
 import { EmptyPrompt } from "./ui/EmptyPrompt";
 
 type EpisodeSort =
-  | "published-desc"
-  | "published-asc"
-  | "episode-asc"
-  | "episode-desc";
+  "published-desc" | "published-asc" | "episode-asc" | "episode-desc";
 
 const DEFAULT_EPISODE_SORT: EpisodeSort = "published-desc";
 const EPISODE_SORT_STORAGE_KEY = "sdw.episode-list.sort";
