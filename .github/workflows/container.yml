@@ -92,6 +92,12 @@ jobs:
   build:
     name: Build checked artifacts
     needs: metadata
+    # The manual-only verifier is an indirect skipped ancestor on workflow_run.
+    # A status function is required here so GitHub does not inject success() and
+    # silently skip this job after metadata has explicitly accepted that path.
+    if: >-
+      !cancelled() &&
+      needs.metadata.result == 'success'
     uses: ./.github/workflows/build.yml
     permissions:
       contents: read
@@ -104,6 +110,10 @@ jobs:
   publish_version:
     name: Publish immutable prerelease
     needs: [metadata, build]
+    if: >-
+      !cancelled() &&
+      needs.metadata.result == 'success' &&
+      needs.build.result == 'success'
     permissions:
       contents: write
       packages: write
@@ -404,6 +414,10 @@ jobs:
   promote_moving:
     name: Promote prerelease-latest
     needs: [metadata, publish_version]
+    if: >-
+      !cancelled() &&
+      needs.metadata.result == 'success' &&
+      needs.publish_version.result == 'success'
     permissions:
       contents: read
       packages: write
