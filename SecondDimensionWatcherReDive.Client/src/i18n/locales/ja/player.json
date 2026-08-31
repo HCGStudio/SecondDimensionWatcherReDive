@@ -7,6 +7,7 @@
   "unknownFile": "不明なファイル",
   "unknownAnime": "不明なアニメ",
   "back": "戻る",
+  "retry": "再読み込みして再試行",
   "useExternalHint": "再生位置は端末間で同期されます。再生できない場合はローカルプレーヤーをお試しください。",
   "openInExternal": "ローカルプレーヤーで開く：",
   "continue": {

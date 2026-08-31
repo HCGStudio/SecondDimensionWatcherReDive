@@ -17,8 +17,12 @@ async function authenticate(page: Page): Promise<void> {
   }, auth);
 }
 
+const isFfmpegRequest = (url: string): boolean =>
+  /(?:ffmpeg|transcoder)(?:[./-]|$)/i.test(new URL(url).pathname);
+
 test.describe("production boundary journeys", () => {
   test("serves the optimized production bundle through SPA fallback", async ({
+    page,
     request,
   }) => {
     const routeResponse = await request.get("/metadata-review", {
@@ -40,6 +44,64 @@ test.describe("production boundary journeys", () => {
     expect(assetResponse.ok()).toBeTruthy();
     expect(assetResponse.headers()["content-type"]).toContain("javascript");
     expect(assetResponse.headers()["cache-control"]).toContain("immutable");
+
+    await authenticate(page);
+    const requestedAssets: string[] = [];
+    page.on("request", (requested) => requestedAssets.push(requested.url()));
+    await page.goto("/metadata-review");
+    await expect(
+      page.getByRole("heading", { name: "Metadata review center" }),
+    ).toBeVisible();
+    expect(
+      requestedAssets.some((url) =>
+        /\/MetadataReviewPage\.[a-f0-9]{8,}\.js(?:\?.*)?$/i.test(url),
+      ),
+    ).toBeTruthy();
+    expect(requestedAssets.some(isFfmpegRequest)).toBeFalsy();
+  });
+
+  test("recovers from a missing lazy chunk by reloading without prefetching FFmpeg", async ({
+    page,
+  }) => {
+    await authenticate(page);
+    const requestedAssets: string[] = [];
+    let failedChunkRequests = 0;
+    page.on("request", (requested) => requestedAssets.push(requested.url()));
+    await page.route(
+      /\/SettingsPage\.[a-f0-9]{8,}\.js(?:\?.*)?$/i,
+      async (route) => {
+        if (failedChunkRequests === 0) {
+          failedChunkRequests += 1;
+          await route.fulfill({
+            status: 404,
+            contentType: "text/plain",
+            body: "simulated stale chunk",
+          });
+          return;
+        }
+        await route.continue();
+      },
+    );
+
+    await page.goto("/settings");
+    await expect(
+      page.getByRole("heading", {
+        name: "Something went wrong",
+      }),
+    ).toBeVisible();
+    expect(failedChunkRequests).toBe(1);
+    expect(requestedAssets.some(isFfmpegRequest)).toBeFalsy();
+
+    await page.getByRole("button", { name: "Retry" }).click();
+    await expect(
+      page.getByRole("heading", { name: "System settings" }),
+    ).toBeVisible();
+    expect(
+      requestedAssets.filter((url) =>
+        /\/SettingsPage\.[a-f0-9]{8,}\.js(?:\?.*)?$/i.test(url),
+      ),
+    ).toHaveLength(2);
+    expect(requestedAssets.some(isFfmpegRequest)).toBeFalsy();
   });
 
   test("registers, signs out locally, and signs back in", async ({ page }) => {
