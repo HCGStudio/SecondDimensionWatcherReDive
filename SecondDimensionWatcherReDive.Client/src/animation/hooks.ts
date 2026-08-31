@@ -40,9 +40,17 @@ const useRevisionBoundPages = <T extends ICursorPage>(
   const revision = useCatalogRevision();
   const currentRevision = revision.data?.revision;
   const pages = useSWRInfinite<T>((_pageIndex, previousPage) => {
-    if (currentRevision === undefined) return null;
     const url = getUrl(previousPage);
-    return url === null ? null : `${url}&catalogRevision=${currentRevision}`;
+    if (url === null) return null;
+
+    // Do not make the catalog itself depend on the lightweight revision probe.
+    // A rolling deployment, transient proxy miss, or temporarily unavailable
+    // probe must not leave every catalog page permanently paused. Once the
+    // revision is available it becomes part of the SWR key and refreshes the
+    // page against the current catalog generation.
+    return currentRevision === undefined
+      ? url
+      : `${url}&catalogRevision=${currentRevision}`;
   }, fetcher);
   const previousRevision = useRef<number | undefined>(undefined);
   useEffect(() => {
