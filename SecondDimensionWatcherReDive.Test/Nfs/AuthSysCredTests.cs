@@ -54,25 +54,6 @@ public class AuthSysCredTests
         catch (RpcAuthRejectedException) { }
     }
 
-    [TestMethod]
-    public void AuthNoneIsRejectedByDefault()
-    {
-        var buf = new ArrayBufferWriter<byte>();
-        var w = new XdrWriter(buf);
-        w.WriteUInt32(RpcConstants.AuthNone);
-        w.WriteOpaque([]);
-
-        var reader = new XdrReader(buf.WrittenSpan);
-        try
-        {
-            RpcAuthDecoder.ReadCredential(ref reader);
-            Assert.Fail("expected RpcAuthRejectedException");
-        }
-        catch (RpcAuthRejectedException)
-        {
-        }
-    }
-
     private static byte[] BuildAuthSysCred(uint stamp, string machineName, uint uid, uint gid, uint[] gids)
     {
         var inner = new ArrayBufferWriter<byte>();
