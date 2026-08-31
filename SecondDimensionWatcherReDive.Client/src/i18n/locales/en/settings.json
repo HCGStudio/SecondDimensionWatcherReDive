@@ -180,6 +180,10 @@
         "port": "Port",
         "leaseSeconds": "Lease duration (seconds)",
         "maxConnections": "Maximum connections",
+        "idleTimeoutSeconds": "Idle timeout (seconds)",
+        "allowedNetworks": "Allowed client CIDRs",
+        "allowAnonymous": "Allow AUTH_NONE clients",
+        "allowAnonymousHelp": "Disabled by default. Only enable this for a deliberately isolated trusted network.",
         "restartHelp": "NFS binds its listening port when the application starts. Changes are saved now and used after a restart."
       }
     }

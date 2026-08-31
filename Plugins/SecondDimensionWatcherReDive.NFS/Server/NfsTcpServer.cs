@@ -13,6 +13,7 @@ internal sealed partial class NfsTcpServer(
     ILogger<NfsTcpServer> logger)
 {
     private TcpListener? _listener;
+    private NfsNetworkPolicy? _networkPolicy;
 
     public int BoundPort { get; private set; }
 
@@ -22,6 +23,7 @@ internal sealed partial class NfsTcpServer(
             return;
 
         var opts = options.Value;
+        var networkPolicy = new NfsNetworkPolicy(opts.AllowedNetworks);
         if (!IPAddress.TryParse(opts.BindAddress, out var address))
             throw new InvalidOperationException(
                 $"Invalid Nfs:BindAddress '{opts.BindAddress}'");
@@ -29,6 +31,7 @@ internal sealed partial class NfsTcpServer(
         var listener = new TcpListener(address, opts.Port);
         listener.Start();
         _listener = listener;
+        _networkPolicy = networkPolicy;
         BoundPort = ((IPEndPoint)listener.LocalEndpoint).Port;
         LogServerStarted(logger, address.ToString(), BoundPort);
     }
@@ -36,9 +39,10 @@ internal sealed partial class NfsTcpServer(
     public async Task RunAsync(CancellationToken cancellationToken)
     {
         Bind();
+        var opts = options.Value;
+        var networkPolicy = _networkPolicy!;
         var listener = _listener!;
 
-        var opts = options.Value;
         using var connectionLimit = new SemaphoreSlim(opts.MaxConnections);
         try
         {
@@ -57,15 +61,24 @@ internal sealed partial class NfsTcpServer(
                     throw;
                 }
 
+                if (client.Client.RemoteEndPoint is not IPEndPoint remoteEndPoint ||
+                    !networkPolicy.IsAllowed(remoteEndPoint.Address))
+                {
+                    LogClientRejected(logger, client.Client.RemoteEndPoint?.ToString() ?? "unknown");
+                    client.Dispose();
+                    connectionLimit.Release();
+                    continue;
+                }
+
                 _ = Task.Run(
-                    () => HandleClientAsync(client, connectionLimit, cancellationToken),
-                    cancellationToken);
+                    () => HandleClientAsync(client, connectionLimit, cancellationToken));
             }
         }
         finally
         {
             listener.Stop();
             _listener = null;
+            _networkPolicy = null;
             BoundPort = 0;
             LogServerStopped(logger);
         }
@@ -82,7 +95,8 @@ internal sealed partial class NfsTcpServer(
             await using var stream = client.GetStream();
             var handler = new NfsConnectionHandler(
                 scopeFactory,
-                loggerFactory.CreateLogger<NfsConnectionHandler>());
+                loggerFactory.CreateLogger<NfsConnectionHandler>(),
+                options.Value);
             await handler.RunAsync(stream, cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -107,4 +121,7 @@ internal sealed partial class NfsTcpServer(
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "NFS client handler crashed")]
     private static partial void LogClientFailed(ILogger logger, Exception ex);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Rejected NFS client outside the allowlist: {RemoteEndPoint}")]
+    private static partial void LogClientRejected(ILogger logger, string remoteEndPoint);
 }

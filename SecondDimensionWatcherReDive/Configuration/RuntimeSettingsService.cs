@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
+using SecondDimensionWatcherReDive.Framework.Networking;
 using SecondDimensionWatcherReDive.Repositories;
 
 namespace SecondDimensionWatcherReDive.Configuration;
@@ -304,8 +305,29 @@ public sealed partial class RuntimeSettingsService : IRuntimeSettingsInitializer
     private bool HasPendingRestart(RuntimeSettingsValues? desired = null)
     {
         desired ??= Merge(DeploymentValues(), _persistedOverrides);
-        return _runningValues is not null && desired.Nfs != _runningValues.Nfs;
+        return _runningValues is not null && !NfsValuesEqual(desired.Nfs, _runningValues.Nfs);
     }
+
+    private static bool NfsValuesEqual(NfsSettingsValues left, NfsSettingsValues right)
+    {
+        return left.Enabled == right.Enabled
+               && left.Port == right.Port
+               && string.Equals(left.BindAddress.Trim(), right.BindAddress.Trim(), StringComparison.OrdinalIgnoreCase)
+               && left.LeaseSeconds == right.LeaseSeconds
+               && left.MaxConnections == right.MaxConnections
+               && left.IdleTimeoutSeconds == right.IdleTimeoutSeconds
+               && left.AllowAnonymous == right.AllowAnonymous
+               && NormalizeNetworks(left.AllowedNetworks)
+                   .SequenceEqual(NormalizeNetworks(right.AllowedNetworks), StringComparer.Ordinal);
+    }
+
+    private static IEnumerable<string> NormalizeNetworks(IEnumerable<string> networks) =>
+        networks
+            .Select(network => IpCidrRange.TryParse(network, requirePrefix: true, out var parsed)
+                ? parsed.ToString()
+                : network.Trim().ToLowerInvariant())
+            .Distinct(StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal);
 
     private static RuntimeSettingsOverrides ApplyValues(
         RuntimeSettingsOverrides current,

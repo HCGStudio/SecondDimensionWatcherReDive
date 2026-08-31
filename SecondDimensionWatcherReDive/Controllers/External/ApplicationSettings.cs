@@ -68,6 +68,9 @@ internal sealed record NfsSettingsResponse(
     string BindAddress,
     int LeaseSeconds,
     int MaxConnections,
+    int IdleTimeoutSeconds,
+    bool AllowAnonymous,
+    IReadOnlyList<string> AllowedNetworks,
     bool RestartRequired,
     bool PendingRestart);
 
@@ -146,7 +149,10 @@ internal sealed record NfsSettingsPatchRequest(
     [property: Required] int? Port,
     [property: Required] string? BindAddress,
     [property: Required] int? LeaseSeconds,
-    [property: Required] int? MaxConnections);
+    [property: Required] int? MaxConnections,
+    [property: Required] int? IdleTimeoutSeconds,
+    [property: Required] bool? AllowAnonymous,
+    [property: Required] IReadOnlyList<string>? AllowedNetworks);
 
 internal sealed record PatchApplicationSettingsRequest(
     long ExpectedRevision,

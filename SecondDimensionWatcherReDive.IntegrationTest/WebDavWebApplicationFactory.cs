@@ -124,6 +124,7 @@ internal sealed class WebDavWebApplicationFactory : WebApplicationFactory<Migrat
             services.RemoveAll<IFileExplorer>();
             services.RemoveAll<IWebDavTokenRepository>();
             services.RemoveAll<IApplicationSettingsRepository>();
+            services.RemoveAll<IAuthenticationStateRepository>();
 
             services.AddSingleton(FileStoreMock.Object);
             services.AddSingleton(FileStoreProviderMock.Object);
@@ -132,6 +133,7 @@ internal sealed class WebDavWebApplicationFactory : WebApplicationFactory<Migrat
             services.AddSingleton<IWebDavTokenRepository>(_ =>
                 new FakeWebDavTokenRepository(TestUserName, BCrypt.Net.BCrypt.HashPassword(TestPassword)));
             services.AddSingleton<IApplicationSettingsRepository, FakeApplicationSettingsRepository>();
+            services.AddSingleton<IAuthenticationStateRepository, FakeAuthenticationStateRepository>();
         });
     }
 
@@ -168,7 +170,9 @@ internal sealed class WebDavWebApplicationFactory : WebApplicationFactory<Migrat
         var keyBytes = Encoding.ASCII.GetBytes(JwtSecret);
         var creds = new SigningCredentials(new SymmetricSecurityKey(keyBytes), SecurityAlgorithms.HmacSha256);
         var token = new JwtSecurityToken(
-            claims: new[] { new Claim(ClaimTypes.Name, TestUserName) },
+            issuer: "SecondDimensionWatcherReDive",
+            audience: "SecondDimensionWatcherReDive.Client",
+            claims: [new Claim(ClaimTypes.Name, TestUserName)],
             expires: DateTime.UtcNow.AddMinutes(10),
             signingCredentials: creds);
         var jwt = new JwtSecurityTokenHandler().WriteToken(token);
@@ -233,5 +237,20 @@ internal sealed class WebDavWebApplicationFactory : WebApplicationFactory<Migrat
                 return Task.FromResult<ApplicationSettings?>(_settings);
             }
         }
+    }
+
+    private sealed class FakeAuthenticationStateRepository : IAuthenticationStateRepository
+    {
+        private string? _passwordHash;
+
+        public Task<string?> GetPasswordHashAsync(CancellationToken cancellationToken) =>
+            Task.FromResult(Volatile.Read(ref _passwordHash));
+
+        public Task<bool> TryClaimPasswordAsync(
+            string passwordHash,
+            Guid claimId,
+            DateTimeOffset registeredAt,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(Interlocked.CompareExchange(ref _passwordHash, passwordHash, null) is null);
     }
 }

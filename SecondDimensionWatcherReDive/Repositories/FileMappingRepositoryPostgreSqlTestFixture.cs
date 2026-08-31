@@ -30,7 +30,8 @@ internal sealed class FileMappingRepositoryPostgreSqlTestFixture(string connecti
         if (migrations.Length < 2)
             throw new InvalidOperationException("At least two migrations are required for an upgrade test.");
 
-        var previousMigration = migrations[^2];
+        var previousMigration = migrations.Single(migration =>
+            migration.EndsWith("_AddApplicationSettings", StringComparison.Ordinal));
         var latestMigration = migrations[^1];
 
         await context.Database.EnsureDeletedAsync(cancellationToken);

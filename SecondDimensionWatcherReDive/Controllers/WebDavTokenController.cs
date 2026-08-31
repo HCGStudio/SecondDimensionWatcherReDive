@@ -4,13 +4,16 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
+using SecondDimensionWatcherReDive.Auth;
 
 namespace SecondDimensionWatcherReDive.Controllers;
 
 [ApiController]
 [Route("api/webdav-tokens")]
 [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
-internal partial class WebDavTokenController(IWebDavTokenRepository repository) : ControllerBase
+internal partial class WebDavTokenController(
+    IWebDavTokenRepository repository,
+    IDeviceTokenHasher tokenHasher) : ControllerBase
 {
     private const string UsernameAlphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
     private const int GeneratedUsernameLength = 8;
@@ -43,7 +46,7 @@ internal partial class WebDavTokenController(IWebDavTokenRepository repository) 
             return Conflict(new { error = "Username already exists." });
 
         var plaintext = GenerateToken();
-        var hash = BCrypt.Net.BCrypt.HashPassword(plaintext);
+        var hash = tokenHasher.Hash(plaintext);
         var description = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim();
         var record = new WebDavToken(Guid.NewGuid(), username, hash, description, DateTimeOffset.UtcNow);
 

@@ -34,9 +34,23 @@ public class ApplicationContext : DbContext
     public DbSet<PlaybackPreference> PlaybackPreferences { get; set; }
     public DbSet<MediaLibrarySource> MediaLibrarySources { get; set; }
     public DbSet<ApplicationSettings> ApplicationSettings { get; set; }
+    public DbSet<AuthenticationState> AuthenticationStates { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<AuthenticationState>()
+            .Property(state => state.Id)
+            .ValueGeneratedNever();
+
+        modelBuilder.Entity<AuthenticationState>()
+            .Property(state => state.PasswordHash)
+            .HasMaxLength(128);
+
+        modelBuilder.Entity<AuthenticationState>()
+            .ToTable(table => table.HasCheckConstraint(
+                "CK_AuthenticationStates_Singleton",
+                "\"Id\" = 1"));
+
         modelBuilder.Entity<ApplicationSettings>()
             .Property(settings => settings.Id)
             .ValueGeneratedNever();
