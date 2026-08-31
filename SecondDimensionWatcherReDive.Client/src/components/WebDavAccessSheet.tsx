@@ -1,7 +1,8 @@
-import { Copy, ExternalLink, HardDrive } from "lucide-react";
 import React from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { useNavigate } from "react-router";
+
+import { Copy, ExternalLink, HardDrive } from "lucide-react";
 
 import { useToast } from "./ToastProvider";
 import { Button } from "./ui/Button";
@@ -172,8 +173,13 @@ const CredentialRow: React.FC<CredentialRowProps> = ({
   return (
     <div className="flex items-center gap-2 rounded-md border border-border-light bg-canvas px-3 py-2">
       <div className="min-w-0 flex-1">
-        <div className="text-xs uppercase tracking-wide text-subtle">{label}</div>
-        <div className="truncate font-mono text-sm text-foreground" title={value}>
+        <div className="text-xs uppercase tracking-wide text-subtle">
+          {label}
+        </div>
+        <div
+          className="truncate font-mono text-sm text-foreground"
+          title={value}
+        >
           {value}
         </div>
       </div>

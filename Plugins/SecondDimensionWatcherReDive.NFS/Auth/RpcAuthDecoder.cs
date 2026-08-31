@@ -5,7 +5,7 @@ namespace SecondDimensionWatcherReDive.NFS.Auth;
 
 internal static class RpcAuthDecoder
 {
-    public static AuthSysCred ReadCredential(ref XdrReader reader)
+    public static AuthSysCred ReadCredential(ref XdrReader reader, bool allowAnonymous = false)
     {
         var flavor = reader.ReadUInt32();
         var body = reader.ReadOpaque();
@@ -14,7 +14,8 @@ internal static class RpcAuthDecoder
 
         return flavor switch
         {
-            RpcConstants.AuthNone => AuthSysCred.Anonymous,
+            RpcConstants.AuthNone when allowAnonymous => AuthSysCred.Anonymous,
+            RpcConstants.AuthNone => throw new RpcAuthRejectedException("AUTH_NONE is disabled"),
             RpcConstants.AuthSys => DecodeAuthSys(body),
             _ => throw new RpcAuthRejectedException($"Unsupported credential flavor {flavor}")
         };

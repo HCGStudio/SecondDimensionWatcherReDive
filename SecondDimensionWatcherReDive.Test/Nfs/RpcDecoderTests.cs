@@ -20,7 +20,7 @@ public class RpcDecoderTests
             verifier: VerifierAuthNone(),
             body: [0xCA, 0xFE]);
 
-        var (header, bodyOffset) = RpcDecoder.DecodeCall(bytes);
+        var (header, bodyOffset) = RpcDecoder.DecodeCall(bytes, allowAnonymous: true);
         Assert.AreEqual(0xDEADBEEFu, header.Xid);
         Assert.AreEqual(100003u, header.Program);
         Assert.AreEqual(4u, header.Version);

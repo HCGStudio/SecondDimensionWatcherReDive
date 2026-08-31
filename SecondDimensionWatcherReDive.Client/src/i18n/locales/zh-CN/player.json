@@ -7,6 +7,7 @@
   "unknownFile": "未知文件",
   "unknownAnime": "未知动画",
   "back": "返回",
+  "retry": "刷新重试",
   "useExternalHint": "播放进度会跨设备同步；若网页无法播放，可尝试本地播放器。",
   "openInExternal": "使用本地播放器打开：",
   "continue": {

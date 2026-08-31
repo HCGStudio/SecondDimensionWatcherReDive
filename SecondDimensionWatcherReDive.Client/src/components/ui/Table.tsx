@@ -96,20 +96,18 @@ export function Table<T extends Record<string, any>>({
                 key={rowKey?.(item, rowIdx) ?? rowIdx}
                 className="transition-colors hover:bg-canvas"
               >
-                {columns.map((col, colIdx) => {
-                  return (
-                    <td
-                      key={colIdx}
-                      className={cn(
-                        "border-b border-border-light px-4 py-3 text-sm",
-                        col.truncateText && "max-w-0 truncate",
-                      )}
-                      style={col.width ? { width: col.width } : undefined}
-                    >
-                      {renderValue(item, col)}
-                    </td>
-                  );
-                })}
+                {columns.map((col, colIdx) => (
+                  <td
+                    key={colIdx}
+                    className={cn(
+                      "border-b border-border-light px-4 py-3 text-sm",
+                      col.truncateText && "max-w-0 truncate",
+                    )}
+                    style={col.width ? { width: col.width } : undefined}
+                  >
+                    {renderValue(item, col)}
+                  </td>
+                ))}
               </tr>
             ))}
           </tbody>

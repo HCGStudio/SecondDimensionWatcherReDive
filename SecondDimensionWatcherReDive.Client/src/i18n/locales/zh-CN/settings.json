@@ -180,6 +180,10 @@
         "port": "端口",
         "leaseSeconds": "租约时长（秒）",
         "maxConnections": "最大连接数",
+        "idleTimeoutSeconds": "空闲超时（秒）",
+        "allowedNetworks": "允许的客户端 CIDR",
+        "allowAnonymous": "允许 AUTH_NONE 客户端",
+        "allowAnonymousHelp": "默认关闭。仅应在明确隔离的可信网络中开启。",
         "restartHelp": "NFS 在应用启动时绑定监听端口。本区更改会被保存，但需要重启应用后才会使用。"
       }
     }

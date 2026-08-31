@@ -4,11 +4,34 @@ public interface IAnimationInfoRepository
 {
     Task<PagedResult<AnimationInfo>> GetPagedAsync(int skip, int take, CancellationToken cancellationToken);
 
-    Task<AnimationGroupedResult> GetGroupedAsync(CancellationToken cancellationToken);
+    Task<long> GetAnimationCatalogRevisionAsync(CancellationToken cancellationToken) =>
+        Task.FromResult(1L);
+
+    Task<AnimationCatalogPage> GetAnimationCatalogPageAsync(
+        AnimationCatalogCursor? cursor,
+        int take,
+        CancellationToken cancellationToken);
+
+    Task<AnimationInfoSummaryPage> GetUncategorizedPageAsync(
+        AnimationInfoCursor? cursor,
+        int take,
+        CancellationToken cancellationToken);
+
+    Task<AnimationEpisodePage?> GetAnimationEpisodesPageAsync(
+        string tmdbId,
+        AnimationInfoCursor? cursor,
+        int take,
+        CancellationToken cancellationToken);
 
     Task<PagedResult<AnimationInfo>> GetDownloadingPagedAsync(int skip, int take, CancellationToken cancellationToken);
 
     Task<PagedResult<AnimationInfo>> GetDownloadedPagedAsync(int skip, int take, CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<AnimationInfo>> GetDownloadedMigrationBatchAsync(
+        DateTimeOffset? beforePublishTime,
+        Guid? beforeId,
+        int take,
+        CancellationToken cancellationToken);
 
     Task<AnimationInfo?> FindByIdAsync(Guid id, CancellationToken cancellationToken);
 

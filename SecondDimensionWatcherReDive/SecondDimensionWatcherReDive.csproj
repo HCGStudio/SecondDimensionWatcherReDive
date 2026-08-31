@@ -31,12 +31,14 @@
         <PackageReference Include="Microsoft.Extensions.Hosting.Systemd" Version="10.0.11" />
         <PackageReference Include="NetEscapades.Configuration.Yaml" Version="3.1.0" />
         <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="10.0.11" />
+        <PackageReference Include="StackExchange.Redis" Version="2.7.27" />
         <PackageReference Include="Swashbuckle.AspNetCore" Version="10.2.3" />
     </ItemGroup>
 
     <ItemGroup>
       <InternalsVisibleTo Include="SecondDimensionWatcherReDive.Test" />
       <InternalsVisibleTo Include="SecondDimensionWatcherReDive.IntegrationTest" />
+      <InternalsVisibleTo Include="DynamicProxyGenAssembly2" />
     </ItemGroup>
 
     <ItemGroup>

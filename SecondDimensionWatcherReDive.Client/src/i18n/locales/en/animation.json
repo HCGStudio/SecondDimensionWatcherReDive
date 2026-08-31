@@ -8,6 +8,7 @@
   "episodeSummary_one": "{{episodeCount}} episode · {{releaseCount}} releases",
   "episodeSummary_other": "{{episodeCount}} episodes · {{releaseCount}} releases",
   "back": "Back",
+  "loadMore": "Load more",
   "episodeList": {
     "controlsLabel": "Episode filters and sorting",
     "episodeFilter": "Episode",

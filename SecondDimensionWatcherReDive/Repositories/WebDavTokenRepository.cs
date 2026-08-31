@@ -33,6 +33,20 @@ public class WebDavTokenRepository(Models.ApplicationContext context) : IWebDavT
         await context.SaveChangesAsync(cancellationToken);
     }
 
+    public async Task<bool> UpdateHashAsync(
+        Guid id,
+        string expectedHash,
+        string newHash,
+        CancellationToken cancellationToken)
+    {
+        var updated = await context.WebDavTokens
+            .Where(token => token.Id == id && token.TokenHash == expectedHash)
+            .ExecuteUpdateAsync(
+                setters => setters.SetProperty(token => token.TokenHash, newHash),
+                cancellationToken);
+        return updated == 1;
+    }
+
     public async Task<bool> RemoveByIdAsync(Guid id, CancellationToken cancellationToken)
     {
         var entity = await context.WebDavTokens.FindAsync([id], cancellationToken);

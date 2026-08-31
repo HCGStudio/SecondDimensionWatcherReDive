@@ -4,28 +4,28 @@ import { useNavigate, useParams } from "react-router";
 
 import { AlertTriangle, ArrowLeft, Bell, Clapperboard } from "lucide-react";
 
-import { IAnimationWithEpisodes } from "../animation/IAnimationGrouped";
-import { useGroupedAnimations } from "../animation/hooks";
+import { IAnimationCatalogItem } from "../animation/IAnimationCatalog";
+import {
+  useAnimationCatalog,
+  useAnimationEpisodes,
+  useUncategorizedAnimations,
+} from "../animation/hooks";
 import { tmdbImageUrl } from "../animation/tmdbImage";
 import { AnimationInfo } from "../components/AnimationInfo";
 import { ContinueWatching } from "../components/ContinueWatching";
-import { EpisodeCount, EpisodeList } from "../components/EpisodeList";
+import { EpisodeList } from "../components/EpisodeList";
 import { ResilientPoster } from "../components/ResilientPoster";
+import { Button } from "../components/ui/Button";
 import { EmptyPrompt } from "../components/ui/EmptyPrompt";
 import { Spinner } from "../components/ui/Spinner";
 import { PageTemplate } from "./PageTemplate";
 
 const AnimeCard: React.FC<{
-  anime: IAnimationWithEpisodes;
+  anime: IAnimationCatalogItem;
   onClick: () => void;
 }> = ({ anime, onClick }) => {
   const { t } = useTranslation("animation");
   const posterUrl = tmdbImageUrl(anime.posterPath, "w300");
-  const automationAttentionCount = anime.episodes.filter((episode) =>
-    ["Notified", "PendingConfirmation", "AutoDownloadFailed"].includes(
-      episode.automationDisposition ?? "",
-    ),
-  ).length;
 
   return (
     <button
@@ -52,12 +52,18 @@ const AnimeCard: React.FC<{
         </div>
         <div className="space-y-1 text-xs">
           <p className="text-muted">
-            <EpisodeCount episodes={anime.episodes} />
+            {t("episodeSummary", {
+              count: anime.episodeCount,
+              episodeCount: anime.episodeCount,
+              releaseCount: anime.releaseCount,
+            })}
           </p>
-          {automationAttentionCount > 0 ? (
+          {anime.automationAttentionCount > 0 ? (
             <p className="inline-flex items-center gap-1 text-warning">
               <Bell size={12} />
-              {t("automationAttention", { count: automationAttentionCount })}
+              {t("automationAttention", {
+                count: anime.automationAttentionCount,
+              })}
             </p>
           ) : null}
         </div>
@@ -70,7 +76,8 @@ export const EpisodeListPage: React.FC = () => {
   const { t } = useTranslation(["animation", "errors"]);
   const { tmdbId } = useParams<{ tmdbId: string }>();
   const navigate = useNavigate();
-  const { data, error } = useGroupedAnimations();
+  const { data, error, size, setSize, isValidating } =
+    useAnimationEpisodes(tmdbId);
 
   if (error) {
     return (
@@ -94,7 +101,7 @@ export const EpisodeListPage: React.FC = () => {
     );
   }
 
-  const anime = data.animations.find((a) => a.tmdbId === tmdbId);
+  const anime = data[0]?.animation;
 
   if (!anime) {
     return (
@@ -137,12 +144,30 @@ export const EpisodeListPage: React.FC = () => {
             </p>
           ) : null}
           <p className="mt-2 text-sm text-muted">
-            <EpisodeCount episodes={anime.episodes} />
+            {t("animation:episodeSummary", {
+              count: anime.episodeCount,
+              episodeCount: anime.episodeCount,
+              releaseCount: anime.releaseCount,
+            })}
           </p>
         </div>
       </div>
 
-      <EpisodeList key={anime.tmdbId} episodes={anime.episodes} />
+      <EpisodeList
+        key={anime.tmdbId}
+        episodes={data.flatMap((page) => page.episodes)}
+      />
+      {data[data.length - 1]?.nextCursor ? (
+        <div className="mt-5 flex justify-center">
+          <Button
+            variant="outline"
+            disabled={isValidating}
+            onClick={() => void setSize(size + 1)}
+          >
+            {t("animation:loadMore")}
+          </Button>
+        </div>
+      ) : null}
     </PageTemplate>
   );
 };
@@ -150,7 +175,11 @@ export const EpisodeListPage: React.FC = () => {
 export const MainPage: React.FC = () => {
   const { t } = useTranslation(["animation", "errors"]);
   const navigate = useNavigate();
-  const { data, error } = useGroupedAnimations();
+  const catalog = useAnimationCatalog();
+  const uncategorized = useUncategorizedAnimations();
+  const data = catalog.data;
+  const uncategorizedData = uncategorized.data;
+  const error = catalog.error ?? uncategorized.error;
 
   if (error) {
     return (
@@ -164,7 +193,7 @@ export const MainPage: React.FC = () => {
     );
   }
 
-  if (!data) {
+  if (!data || !uncategorizedData) {
     return (
       <PageTemplate>
         <div className="flex justify-center py-8">
@@ -177,35 +206,68 @@ export const MainPage: React.FC = () => {
   return (
     <PageTemplate>
       <ContinueWatching />
-      {data.animations.length > 0 ? (
+      {data.flatMap((page) => page.items).length > 0 ? (
         <>
           <h2 className="mb-5 font-serif text-xl font-medium text-foreground">
             {t("animation:sectionTitle")}
           </h2>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {data.animations.map((anime) => (
-              <AnimeCard
-                key={anime.tmdbId}
-                anime={anime}
-                onClick={() => navigate(`/anime/${anime.tmdbId}`)}
-              />
-            ))}
+            {data
+              .flatMap((page) => page.items)
+              .map((anime) => (
+                <AnimeCard
+                  key={anime.tmdbId}
+                  anime={anime}
+                  onClick={() => navigate(`/anime/${anime.tmdbId}`)}
+                />
+              ))}
           </div>
+          {data[data.length - 1]?.nextCursor ? (
+            <div className="mt-5 flex justify-center">
+              <Button
+                variant="outline"
+                disabled={catalog.isValidating}
+                onClick={() => void catalog.setSize(catalog.size + 1)}
+              >
+                {t("animation:loadMore")}
+              </Button>
+            </div>
+          ) : null}
         </>
       ) : null}
 
-      {data.uncategorized.length > 0 ? (
-        <div className={data.animations.length > 0 ? "mt-10" : ""}>
+      {uncategorizedData.flatMap((page) => page.items).length > 0 ? (
+        <div
+          className={
+            data.flatMap((page) => page.items).length > 0 ? "mt-10" : ""
+          }
+        >
           <h2 className="mb-5 font-serif text-xl font-medium text-foreground">
             {t("animation:uncategorized")}
           </h2>
-          {data.uncategorized.map((item) => (
-            <AnimationInfo value={item} key={item.id} />
-          ))}
+          {uncategorizedData
+            .flatMap((page) => page.items)
+            .map((item) => (
+              <AnimationInfo value={item} key={item.id} />
+            ))}
+          {uncategorizedData[uncategorizedData.length - 1]?.nextCursor ? (
+            <div className="mt-5 flex justify-center">
+              <Button
+                variant="outline"
+                disabled={uncategorized.isValidating}
+                onClick={() =>
+                  void uncategorized.setSize(uncategorized.size + 1)
+                }
+              >
+                {t("animation:loadMore")}
+              </Button>
+            </div>
+          ) : null}
         </div>
       ) : null}
 
-      {data.animations.length === 0 && data.uncategorized.length === 0 ? (
+      {data.flatMap((page) => page.items).length === 0 &&
+      uncategorizedData.flatMap((page) => page.items).length === 0 ? (
         <EmptyPrompt
           icon={<Clapperboard size={48} />}
           title={<h2>{t("animation:empty.main.title")}</h2>}
