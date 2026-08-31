@@ -18,7 +18,6 @@ internal sealed class LogicalDataTransferController(
     ILogicalDataTransferRepository repository) : ControllerBase
 {
     private const int SupportedFormatVersion = 1;
-    private const int MaximumItemsPerCategory = 10_000;
     private static readonly Guid CurrentUserId = Guid.Empty;
     private static readonly string ApplicationVersion =
         typeof(LogicalDataTransferController).Assembly
@@ -34,12 +33,34 @@ internal sealed class LogicalDataTransferController(
         if (!TryParseCategories(categories, out var selected))
             return BadRequest(new { error = "Unknown data category." });
 
-        var bundle = await repository.ExportAsync(
-            selected,
-            CurrentUserId,
-            ApplicationVersion,
-            cancellationToken);
-        var envelope = new External.LogicalDataExportEnvelope(bundle, Digest(bundle));
+        LogicalDataBundle bundle;
+        try
+        {
+            bundle = await repository.ExportAsync(
+                selected,
+                CurrentUserId,
+                ApplicationVersion,
+                cancellationToken);
+        }
+        catch (LogicalDataExportLimitException exception)
+        {
+            return StatusCode(StatusCodes.Status413PayloadTooLarge, new { error = exception.Message });
+        }
+
+        var digest = Digest(bundle);
+        var envelope = new External.LogicalDataExportEnvelope(bundle, digest);
+        // Validate the larger import representation, including the longest conflict
+        // strategy name, so every successful export fits the import request limit.
+        var importBytes = JsonSerializer.SerializeToUtf8Bytes(
+            new External.LogicalDataImportRequest(
+                bundle,
+                digest,
+                LogicalImportConflictStrategy.Overwrite),
+            External.AppJsonSerializerContext.Default.LogicalDataImportRequest);
+        if (importBytes.Length > LogicalDataTransferLimits.MaximumPayloadBytes)
+            return StatusCode(
+                StatusCodes.Status413PayloadTooLarge,
+                new { error = $"Logical export exceeds {LogicalDataTransferLimits.MaximumPayloadBytes} bytes." });
         var bytes = JsonSerializer.SerializeToUtf8Bytes(
             envelope,
             External.AppJsonSerializerContext.Default.LogicalDataExportEnvelope);
@@ -49,7 +70,7 @@ internal sealed class LogicalDataTransferController(
     }
 
     [HttpPost("import")]
-    [RequestSizeLimit(10 * 1024 * 1024)]
+    [RequestSizeLimit(LogicalDataTransferLimits.MaximumPayloadBytes)]
     public async Task<IActionResult> ImportAsync(
         [FromBody] External.LogicalDataImportRequest request,
         CancellationToken cancellationToken)
@@ -133,13 +154,13 @@ internal sealed class LogicalDataTransferController(
             error = "Logical export was created by an incompatible application major version.";
             return false;
         }
-        if (bundle.Feeds.Count > MaximumItemsPerCategory ||
-            bundle.AutomationPolicies.Count > MaximumItemsPerCategory ||
-            bundle.FileNameRules.Count > MaximumItemsPerCategory ||
-            bundle.MetadataCorrections.Count > MaximumItemsPerCategory ||
-            bundle.PlaybackProgress.Count > MaximumItemsPerCategory)
+        if (bundle.Feeds.Count > LogicalDataTransferLimits.MaximumItemsPerCategory ||
+            bundle.AutomationPolicies.Count > LogicalDataTransferLimits.MaximumItemsPerCategory ||
+            bundle.FileNameRules.Count > LogicalDataTransferLimits.MaximumItemsPerCategory ||
+            bundle.MetadataCorrections.Count > LogicalDataTransferLimits.MaximumItemsPerCategory ||
+            bundle.PlaybackProgress.Count > LogicalDataTransferLimits.MaximumItemsPerCategory)
         {
-            error = $"A logical export category exceeds {MaximumItemsPerCategory} items.";
+            error = $"A logical export category exceeds {LogicalDataTransferLimits.MaximumItemsPerCategory} items.";
             return false;
         }
         if ((!bundle.Categories.HasFlag(LogicalDataCategory.Feeds) && bundle.Feeds.Count > 0) ||

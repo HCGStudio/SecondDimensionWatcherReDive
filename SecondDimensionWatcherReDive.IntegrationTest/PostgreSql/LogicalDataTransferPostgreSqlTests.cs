@@ -1,5 +1,9 @@
+using System.Data.Common;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.Extensions.DependencyInjection;
 using Moq;
+using Npgsql;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Repositories;
 using SecondDimensionWatcherReDive.Utils.FileStore;
@@ -549,6 +553,245 @@ public sealed class LogicalDataTransferPostgreSqlTests
         Assert.AreEqual("Existing", (await verification.Feeds.SingleAsync()).Name);
     }
 
+    [TestMethod]
+    public async Task MetadataImportReusesSharedAnimationWithoutMutatingGlobalFieldsAndUndoIsLossless()
+    {
+        var animation = Animation("tv:shared", "Target Canonical Name");
+        animation.OriginalName = "Target Original";
+        animation.PosterPath = "/target.jpg";
+        var targetId = Guid.NewGuid();
+        var siblingId = Guid.NewGuid();
+        var publishedAt = DateTimeOffset.UtcNow.AddDays(-1);
+        const string TargetUrl = "https://example.com/shared-target.torrent";
+        const string TargetPath = "/Target Canonical Name/Group/target.mkv";
+        const string SiblingPath = "/Target Canonical Name/Group/sibling.mkv";
+
+        await using (var seed = new Models.ApplicationContext(Options))
+        {
+            var target = Release(targetId, TargetUrl, publishedAt);
+            target.Animation = animation;
+            var sibling = Release(
+                siblingId,
+                "https://example.com/shared-sibling.torrent",
+                publishedAt.AddMinutes(1));
+            sibling.Animation = animation;
+            seed.AddRange(
+                animation,
+                target,
+                sibling,
+                Mapping(targetId, TargetPath),
+                Mapping(siblingId, SiblingPath));
+            await seed.SaveChangesAsync();
+        }
+
+        var operationId = Guid.NewGuid();
+        var bundle = new LogicalDataBundle(
+            1,
+            DateTimeOffset.UtcNow,
+            "1.0.0",
+            LogicalDataCategory.MetadataCorrections,
+            [],
+            [],
+            [],
+            [
+                new LogicalMetadataCorrection(
+                    operationId,
+                    TargetUrl,
+                    "[Group] Example - 02",
+                    publishedAt,
+                    animation.TmdbId,
+                    "Foreign Backup Name",
+                    "Foreign Original",
+                    "/foreign.jpg",
+                    "imported correction",
+                    1,
+                    2,
+                    null,
+                    DateTimeOffset.UtcNow)
+            ],
+            [],
+            null);
+
+        await using (var importing = new Models.ApplicationContext(Options))
+        {
+            var result = await Repository(importing).ImportAsync(
+                bundle,
+                LogicalImportConflictStrategy.Overwrite,
+                Guid.Empty,
+                CancellationToken.None);
+            Assert.AreEqual(1, result.Added);
+        }
+
+        await using (var verification = new Models.ApplicationContext(Options))
+        {
+            var shared = await verification.Animations.SingleAsync();
+            Assert.AreEqual("Target Canonical Name", shared.Name);
+            Assert.AreEqual("Target Original", shared.OriginalName);
+            Assert.AreEqual("/target.jpg", shared.PosterPath);
+            Assert.AreEqual(2, await verification.AnimationInfo.CountAsync(info => info.Animation == shared));
+            Assert.AreEqual(
+                SiblingPath,
+                (await verification.FileMappings.SingleAsync(mapping =>
+                    mapping.AnimationInfoId == siblingId)).VirtualPath);
+        }
+
+        await using (var undoContext = new Models.ApplicationContext(Options))
+        {
+            var undone = await new MetadataReviewRepository(undoContext, Options).UndoAsync(
+                operationId,
+                1,
+                CancellationToken.None);
+            Assert.AreEqual(MetadataReviewMutationOutcome.Success, undone.Outcome);
+        }
+
+        await using var afterUndo = new Models.ApplicationContext(Options);
+        var canonical = await afterUndo.Animations.SingleAsync();
+        Assert.AreEqual("Target Canonical Name", canonical.Name);
+        Assert.AreEqual("Target Original", canonical.OriginalName);
+        Assert.AreEqual("/target.jpg", canonical.PosterPath);
+        Assert.AreEqual(
+            SiblingPath,
+            (await afterUndo.FileMappings.SingleAsync(mapping =>
+                mapping.AnimationInfoId == siblingId)).VirtualPath);
+    }
+
+    [TestMethod]
+    public async Task ProductionRetryStrategyRetriesWithFreshScopedStateAndCommitsOnce()
+    {
+        var transientFailure = new FailFirstConnectionInterceptor();
+        var mapperScopes = 0;
+        var services = new ServiceCollection();
+        services.AddDbContext<Models.ApplicationContext>(options =>
+            options.UseNpgsql(
+                    Database.GetConnectionString(),
+                    npgsql => npgsql.EnableRetryOnFailure(
+                        2,
+                        TimeSpan.Zero,
+                        null))
+                .AddInterceptors(transientFailure));
+        services.AddScoped<IFileMapper>(_ =>
+        {
+            Interlocked.Increment(ref mapperScopes);
+            return Mock.Of<IFileMapper>();
+        });
+        services.AddScoped<LogicalDataTransferWorker>();
+        services.AddScoped<ILogicalDataTransferRepository, LogicalDataTransferRepository>();
+        await using var provider = services.BuildServiceProvider();
+        await using var requestScope = provider.CreateAsyncScope();
+        var repository = requestScope.ServiceProvider
+            .GetRequiredService<ILogicalDataTransferRepository>();
+        var bundle = new LogicalDataBundle(
+            1,
+            DateTimeOffset.UtcNow,
+            "1.0.0",
+            LogicalDataCategory.Feeds,
+            [new LogicalFeed(
+                Guid.NewGuid(),
+                "https://example.com/retried.xml",
+                "Retried",
+                DateTimeOffset.UtcNow)],
+            [],
+            [],
+            [],
+            [],
+            null);
+
+        var result = await repository.ImportAsync(
+            bundle,
+            LogicalImportConflictStrategy.Fail,
+            Guid.Empty,
+            CancellationToken.None);
+
+        Assert.AreEqual(1, result.Added);
+        Assert.IsGreaterThanOrEqualTo(2, transientFailure.Attempts);
+        Assert.IsGreaterThanOrEqualTo(2, mapperScopes,
+            "Every execution-strategy retry must resolve a fresh scoped worker graph.");
+        await using var verification = new Models.ApplicationContext(Options);
+        Assert.AreEqual(1, await verification.Feeds.CountAsync(feed =>
+            feed.Url == "https://example.com/retried.xml"));
+    }
+
+    [TestMethod]
+    public async Task ExportUsesOneRepeatableReadSnapshotAcrossCategories()
+    {
+        var feed = new Models.Feed
+        {
+            Id = Guid.NewGuid(),
+            Url = "https://example.com/snapshot.xml",
+            Name = "Snapshot",
+            CreatedAt = DateTimeOffset.UtcNow
+        };
+        await using (var seed = new Models.ApplicationContext(Options))
+        {
+            seed.Feeds.Add(feed);
+            await seed.SaveChangesAsync();
+        }
+
+        var barrier = new BlockAfterFeedReadInterceptor();
+        var exportOptions = new DbContextOptionsBuilder<Models.ApplicationContext>()
+            .UseNpgsql(Database.GetConnectionString())
+            .AddInterceptors(barrier)
+            .Options;
+        await using var exporting = new Models.ApplicationContext(exportOptions);
+        var exportTask = Repository(exporting).ExportAsync(
+            LogicalDataCategory.Feeds | LogicalDataCategory.AutomationPolicies,
+            Guid.Empty,
+            "1.0.0",
+            CancellationToken.None);
+
+        await barrier.FeedRead.WaitAsync(TimeSpan.FromSeconds(10));
+        await using (var writer = new Models.ApplicationContext(Options))
+        {
+            writer.SubscriptionAutomationPolicies.Add(new Models.SubscriptionAutomationPolicy
+            {
+                FeedId = feed.Id,
+                SubtitleGroups = [],
+                Resolutions = [],
+                Codecs = [],
+                Languages = [],
+                ExcludedKeywords = [],
+                Mode = SubscriptionAutomationMode.ManualConfirm,
+                CreatedAt = DateTimeOffset.UtcNow,
+                UpdatedAt = DateTimeOffset.UtcNow
+            });
+            await writer.SaveChangesAsync();
+        }
+        barrier.Release();
+
+        var bundle = await exportTask;
+        Assert.HasCount(1, bundle.Feeds);
+        Assert.HasCount(0, bundle.AutomationPolicies,
+            "A policy committed after the first export query must not appear in the same bundle.");
+    }
+
+    [TestMethod]
+    public async Task ExportRefusesMoreItemsThanTheImporterAccepts()
+    {
+        await using (var seed = new Models.ApplicationContext(Options))
+        {
+            var createdAt = DateTimeOffset.UtcNow;
+            seed.Feeds.AddRange(Enumerable.Range(
+                    0,
+                    LogicalDataTransferLimits.MaximumItemsPerCategory + 1)
+                .Select(index => new Models.Feed
+                {
+                    Id = Guid.NewGuid(),
+                    Url = $"https://example.com/limit/{index}",
+                    Name = $"Feed {index}",
+                    CreatedAt = createdAt.AddTicks(index)
+                }));
+            await seed.SaveChangesAsync();
+        }
+
+        await using var exporting = new Models.ApplicationContext(Options);
+        await Assert.ThrowsAsync<LogicalDataExportLimitException>(() =>
+            Repository(exporting).ExportAsync(
+                LogicalDataCategory.Feeds,
+                Guid.Empty,
+                "1.0.0",
+                CancellationToken.None));
+    }
+
     private static Models.Animation Animation(string tmdbId, string name) =>
         new()
         {
@@ -585,8 +828,56 @@ public sealed class LogicalDataTransferPostgreSqlTests
             FileStore = "local"
         };
 
-    private static LogicalDataTransferRepository Repository(
+    private static LogicalDataTransferWorker Repository(
         Models.ApplicationContext context,
         IFileMapper? fileMapper = null) =>
         new(context, fileMapper ?? Mock.Of<IFileMapper>());
+
+    private sealed class FailFirstConnectionInterceptor : DbConnectionInterceptor
+    {
+        private int _attempts;
+
+        public int Attempts => Volatile.Read(ref _attempts);
+
+        public override ValueTask<InterceptionResult> ConnectionOpeningAsync(
+            DbConnection connection,
+            ConnectionEventData eventData,
+            InterceptionResult result,
+            CancellationToken cancellationToken = default)
+        {
+            if (Interlocked.Increment(ref _attempts) == 1)
+                throw new NpgsqlException(
+                    "Synthetic transient connection failure.",
+                    new TimeoutException());
+            return ValueTask.FromResult(result);
+        }
+    }
+
+    private sealed class BlockAfterFeedReadInterceptor : DbCommandInterceptor
+    {
+        private readonly TaskCompletionSource _feedRead = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _release = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _blocked;
+
+        public Task FeedRead => _feedRead.Task;
+
+        public void Release() => _release.TrySetResult();
+
+        public override async ValueTask<DbDataReader> ReaderExecutedAsync(
+            DbCommand command,
+            CommandExecutedEventData eventData,
+            DbDataReader result,
+            CancellationToken cancellationToken = default)
+        {
+            if (command.CommandText.Contains("FROM \"Feeds\"", StringComparison.Ordinal) &&
+                Interlocked.Exchange(ref _blocked, 1) == 0)
+            {
+                _feedRead.TrySetResult();
+                await _release.Task.WaitAsync(cancellationToken);
+            }
+            return result;
+        }
+    }
 }

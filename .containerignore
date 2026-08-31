@@ -8,7 +8,8 @@
 **/obj/
 SecondDimensionWatcherReDive.Test/
 packaging/
-deployments/
+deployments/*
+!deployments/sdw-backup
 docs/
 SecondDimensionWatcherReDive.Client/dist/
 SecondDimensionWatcherReDive.Client/.parcel-cache/

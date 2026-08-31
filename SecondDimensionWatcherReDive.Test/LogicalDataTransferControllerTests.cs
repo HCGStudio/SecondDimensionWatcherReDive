@@ -111,6 +111,55 @@ public sealed class LogicalDataTransferControllerTests
         Assert.AreEqual(1, result.Added);
     }
 
+    [TestMethod]
+    public async Task ExportRejectsARepositoryCategoryOverflow()
+    {
+        var repository = new Mock<ILogicalDataTransferRepository>();
+        repository.Setup(item => item.ExportAsync(
+                It.IsAny<LogicalDataCategory>(),
+                Guid.Empty,
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new LogicalDataExportLimitException("too many items"));
+
+        var action = await Controller(repository.Object)
+            .ExportAsync("feeds", CancellationToken.None);
+
+        var result = Assert.IsInstanceOfType<ObjectResult>(action);
+        Assert.AreEqual(StatusCodes.Status413PayloadTooLarge, result.StatusCode);
+    }
+
+    [TestMethod]
+    public async Task ExportRejectsABundleThatCannotFitTheImportRequestLimit()
+    {
+        var repository = new Mock<ILogicalDataTransferRepository>();
+        repository.Setup(item => item.ExportAsync(
+                LogicalDataCategory.Feeds,
+                Guid.Empty,
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((LogicalDataCategory categories, Guid _, string version, CancellationToken _) =>
+            {
+                var bundle = Bundle(version, categories);
+                return bundle with
+                {
+                    Feeds =
+                    [
+                        bundle.Feeds[0] with
+                        {
+                            Name = new string('x', LogicalDataTransferLimits.MaximumPayloadBytes)
+                        }
+                    ]
+                };
+            });
+
+        var action = await Controller(repository.Object)
+            .ExportAsync("feeds", CancellationToken.None);
+
+        var result = Assert.IsInstanceOfType<ObjectResult>(action);
+        Assert.AreEqual(StatusCodes.Status413PayloadTooLarge, result.StatusCode);
+    }
+
     private static LogicalDataTransferController Controller(
         ILogicalDataTransferRepository repository) =>
         new(repository)

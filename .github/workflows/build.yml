@@ -16,6 +16,9 @@ permissions:
   contents: read
 
 jobs:
+  backup-restore:
+    uses: ./.github/workflows/backup-restore.yml
+
   test:
     runs-on: ubuntu-latest
     steps:
@@ -42,9 +45,24 @@ jobs:
             **/TestResults/*.trx
             **/TestResults/**/coverage.cobertura.xml
 
+  quality_gate:
+    name: Required quality gate
+    if: always()
+    needs: [test, backup-restore]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require tests and rollback-safe backup drill
+        env:
+          BACKUP_RESULT: ${{ needs.backup-restore.result }}
+          TEST_RESULT: ${{ needs.test.result }}
+        run: |
+          set -euo pipefail
+          test "$TEST_RESULT" = success
+          test "$BACKUP_RESULT" = success
+
   build-frontend:
     if: github.event_name != 'pull_request'
-    needs: test
+    needs: quality_gate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -110,6 +128,7 @@ jobs:
             --self-contained false \
             /p:Version=${VERSION} \
             -o publish
+          printf '%s\n' "$VERSION" > publish/VERSION
 
       - name: Install nfpm
         run: |
@@ -257,8 +276,8 @@ jobs:
     # NativeAOT cross-compile is not supported, so each architecture builds on a
     # native runner. ubuntu-24.04-arm is GA for public repos; private repos pay
     # for arm minutes — switch to a self-hosted arm runner if that becomes an
-    # issue. The job depends on `test` only (no frontend artifact needed).
-    needs: test
+    # issue. The job needs the quality gate but no frontend artifact.
+    needs: quality_gate
     strategy:
       fail-fast: false
       matrix:

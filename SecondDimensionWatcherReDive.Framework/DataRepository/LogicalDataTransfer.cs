@@ -2,6 +2,12 @@ using System.Text.Json.Serialization;
 
 namespace SecondDimensionWatcherReDive.Framework.DataRepository;
 
+public static class LogicalDataTransferLimits
+{
+    public const int MaximumItemsPerCategory = 10_000;
+    public const int MaximumPayloadBytes = 10 * 1024 * 1024;
+}
+
 [Flags]
 [JsonConverter(typeof(JsonStringEnumConverter<LogicalDataCategory>))]
 public enum LogicalDataCategory
@@ -103,3 +109,5 @@ public sealed record LogicalImportResult(
     IReadOnlyList<string> Messages);
 
 public sealed class LogicalDataImportConflictException(string message) : InvalidOperationException(message);
+
+public sealed class LogicalDataExportLimitException(string message) : InvalidOperationException(message);

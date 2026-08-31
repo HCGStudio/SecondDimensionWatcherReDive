@@ -3,12 +3,73 @@ set -Eeuo pipefail
 
 umask 077
 
-readonly BACKUP_FORMAT_VERSION=1
+readonly BACKUP_FORMAT_VERSION=2
+readonly MIGRATION_LOCK_KEY=6000016593017852465
 backup_temp_dir=""
 backup_partial_archive=""
 backup_partial_checksum=""
+restore_candidate_database=""
+migration_lease_active=false
+restore_staging_paths=()
+restore_state_rollback_active=false
+restore_config_destination=""
+restore_password_destination=""
+restore_key_ring_destination=""
+restore_plugin_destination=""
+restore_state_timestamp=""
+restore_config_had_original=false
+restore_password_had_original=false
+restore_key_ring_had_original=false
+restore_plugin_had_original=false
+
+release_migration_lease() {
+    if [[ "${migration_lease_active}" == true ]]; then
+        printf '\\q\n' >&"${SDW_MIGRATION_LEASE[1]}" 2>/dev/null || true
+        wait "${SDW_MIGRATION_LEASE_PID}" 2>/dev/null || true
+        migration_lease_active=false
+    fi
+}
 
 cleanup() {
+    release_migration_lease
+    if [[ -n "${restore_candidate_database}" ]] && command -v dropdb >/dev/null 2>&1; then
+        dropdb --if-exists --force \
+            --maintenance-db="${PGMAINTENANCEDATABASE:-postgres}" \
+            -- "${restore_candidate_database}" >/dev/null 2>&1 || true
+        restore_candidate_database=""
+    fi
+    if [[ "${restore_state_rollback_active}" == true ]]; then
+        rm -f -- "${restore_config_destination}" "${restore_password_destination}" 2>/dev/null || true
+        if [[ "${restore_config_had_original}" == true ]]; then
+            install -m 0600 \
+                "${restore_config_destination}.pre-restore-${restore_state_timestamp}" \
+                "${restore_config_destination}" 2>/dev/null || true
+        fi
+        if [[ "${restore_password_had_original}" == true ]]; then
+            install -m 0600 \
+                "${restore_password_destination}.pre-restore-${restore_state_timestamp}" \
+                "${restore_password_destination}" 2>/dev/null || true
+        fi
+        rm -rf -- "${restore_key_ring_destination}" "${restore_plugin_destination}" \
+            2>/dev/null || true
+        if [[ "${restore_key_ring_had_original}" == true ]]; then
+            mv -- "${restore_key_ring_destination}.pre-restore-${restore_state_timestamp}" \
+                "${restore_key_ring_destination}" 2>/dev/null || true
+        fi
+        if [[ "${restore_plugin_had_original}" == true ]]; then
+            mv -- "${restore_plugin_destination}.pre-restore-${restore_state_timestamp}" \
+                "${restore_plugin_destination}" 2>/dev/null || true
+        fi
+        restore_state_rollback_active=false
+    fi
+    local staging_path
+    for staging_path in "${restore_staging_paths[@]}"; do
+        case "${staging_path}" in
+            *.sdw-restore-[0-9]*.partial)
+                rm -rf -- "${staging_path}" 2>/dev/null || true
+                ;;
+        esac
+    done
     case "${backup_temp_dir}" in
         "${TMPDIR:-/tmp}"/sdw-backup.*)
             [[ -d "${backup_temp_dir}" ]] && rm -rf -- "${backup_temp_dir}"
@@ -22,19 +83,24 @@ cleanup() {
     fi
 }
 
-notify_failure() {
+finish() {
     local status=$?
+    trap - EXIT
+    cleanup
     if [[ ${status} -ne 0 && -n "${SDW_BACKUP_FAILURE_WEBHOOK:-}" ]] && command -v curl >/dev/null 2>&1; then
-        curl --silent --show-error --fail --max-time 10 \
-            --header 'Content-Type: application/json' \
-            --data '{"event":"sdw_backup_failed"}' \
-            "${SDW_BACKUP_FAILURE_WEBHOOK}" >/dev/null 2>&1 || true
+        local webhook_url=${SDW_BACKUP_FAILURE_WEBHOOK//\\/\\\\}
+        webhook_url=${webhook_url//\"/\\\"}
+        # Feed the secret-bearing URL through stdin so it is absent from process
+        # arguments and diagnostics. Only the fixed event body is on argv.
+        printf 'url = "%s"\n' "${webhook_url}" |
+            curl --config - --silent --show-error --fail --max-time 10 \
+                --header 'Content-Type: application/json' \
+                --data '{"event":"sdw_backup_failed"}' >/dev/null 2>&1 || true
     fi
-    return "${status}"
+    exit "${status}"
 }
 
-trap notify_failure ERR
-trap cleanup EXIT
+trap finish EXIT
 
 usage() {
     cat <<'EOF'
@@ -53,6 +119,7 @@ Create options:
   --retention-days DAYS     Delete completed backups older than DAYS
   --app-version VERSION     Application version written to non-secret metadata
   --age-recipient RECIPIENT Encrypt the final archive with age
+  --migration-lock-held     Pre-migration hook already holds the SDWMIGR1 lease
 
 Restore options:
   --config-destination FILE
@@ -63,18 +130,32 @@ Restore options:
   --expected-schema MIGRATION
   --age-identity FILE
   --safety-directory DIR    Write a pre-restore database dump here
+  --postgres-available-bytes BYTES
+                            Free bytes measured on the PostgreSQL default tablespace
 
 PostgreSQL is read from PGHOST/PGPORT/PGUSER/PGPASSWORD/PGDATABASE. If those
 are absent, ConnectionStrings__sdw may contain an ASP.NET semicolon connection
 string. PGMAINTENANCEDATABASE defaults to postgres and is used only to replace
-the target database during restore. Restore requires a target-owning role with
-CREATEDB (or a superuser). Secrets are never printed.
+the target database during restore. Restore requires a superuser, or a role
+with CREATEDB plus membership in the target owner role. Secrets are never printed.
 EOF
 }
 
 die() {
     printf 'sdw-backup: %s\n' "$1" >&2
     exit 1
+}
+
+validate_failure_webhook() {
+    if [[ -n "${SDW_BACKUP_FAILURE_WEBHOOK:-}" ]]; then
+        command -v curl >/dev/null 2>&1 ||
+            die "failure webhook is configured but curl is unavailable"
+        [[ ${#SDW_BACKUP_FAILURE_WEBHOOK} -le 2048 &&
+           "${SDW_BACKUP_FAILURE_WEBHOOK}" =~ ^https?:// &&
+           "${SDW_BACKUP_FAILURE_WEBHOOK}" != *$'\n'* &&
+           "${SDW_BACKUP_FAILURE_WEBHOOK}" != *$'\r'* ]] ||
+            die "failure webhook URL is invalid"
+    fi
 }
 
 require_command() {
@@ -114,6 +195,39 @@ parse_connection_string() {
     export PGHOST PGPORT="${PGPORT:-5432}" PGUSER PGPASSWORD="${PGPASSWORD:-}" PGDATABASE
 }
 
+acquire_migration_lease() {
+    local database=$1 already_held=$2 line acquired=false
+    if [[ "${already_held}" == true ]]; then
+        return
+    fi
+    [[ "${already_held}" == false ]] || die "invalid migration-lock-held state"
+
+    coproc SDW_MIGRATION_LEASE {
+        psql --no-psqlrc --quiet --tuples-only --no-align \
+            --set=ON_ERROR_STOP=1 --dbname "${database}"
+    }
+    migration_lease_active=true
+    printf 'SELECT pg_advisory_lock(%s);\n\\echo SDW_MIGRATION_LEASE_ACQUIRED\n' \
+        "${MIGRATION_LOCK_KEY}" >&"${SDW_MIGRATION_LEASE[1]}"
+    while IFS= read -r line <&"${SDW_MIGRATION_LEASE[0]}"; do
+        if [[ "${line}" == SDW_MIGRATION_LEASE_ACQUIRED ]]; then
+            acquired=true
+            break
+        fi
+    done
+    [[ "${acquired}" == true ]] || die "could not acquire the PostgreSQL migration lease"
+}
+
+assert_migration_lease_held() {
+    local database=$1 held
+    held=$(psql --no-psqlrc --quiet --tuples-only --no-align \
+        --set=ON_ERROR_STOP=1 --dbname "${database}" --command \
+        "SELECT NOT pg_try_advisory_lock(${MIGRATION_LOCK_KEY})") ||
+        die "cannot verify the PostgreSQL migration lease"
+    held=${held//$'\n'/}
+    [[ "${held}" == t ]] || die "PostgreSQL migration lease was not held"
+}
+
 validate_output_directory() {
     local directory=$1
     [[ -n "${directory}" && "${directory}" != "/" ]] || die "refusing unsafe backup output directory"
@@ -145,10 +259,21 @@ safe_token() {
 }
 
 database_schema_version() {
-    local schema
-    schema=$(psql --no-psqlrc --tuples-only --no-align --command \
-        'SELECT "MigrationId" FROM "__EFMigrationsHistory" ORDER BY "MigrationId" DESC LIMIT 1' \
-        2>/dev/null || true)
+    local database=${1:-${PGDATABASE}} history schema
+    history=$(psql --no-psqlrc --tuples-only --no-align --set=ON_ERROR_STOP=1 \
+        --dbname "${database}" --command \
+        "SELECT to_regclass('\"__EFMigrationsHistory\"') IS NOT NULL") ||
+        die "cannot inspect database migration history"
+    history=${history//$'\n'/}
+    case "${history}" in
+        f) printf 'uninitialized'; return ;;
+        t) ;;
+        *) die "database returned an invalid migration-history state" ;;
+    esac
+    schema=$(psql --no-psqlrc --tuples-only --no-align --set=ON_ERROR_STOP=1 \
+        --dbname "${database}" --command \
+        'SELECT "MigrationId" FROM "__EFMigrationsHistory" ORDER BY "MigrationId" DESC LIMIT 1') ||
+        die "cannot read database schema version"
     schema=${schema//$'\n'/}
     if [[ -z "${schema}" ]]; then
         printf 'uninitialized'
@@ -156,6 +281,17 @@ database_schema_version() {
         safe_token "${schema}" || die "database returned an unsafe schema version"
         printf '%s' "${schema}"
     fi
+}
+
+database_size_bytes() {
+    local database=${1:-${PGDATABASE}} size
+    size=$(psql --no-psqlrc --tuples-only --no-align --set=ON_ERROR_STOP=1 \
+        --dbname "${database}" --command 'SELECT pg_database_size(current_database())') ||
+        die "cannot inspect database size"
+    size=${size//$'\n'/}
+    [[ "${size}" =~ ^[0-9]+$ && ${#size} -le 18 ]] ||
+        die "database returned an invalid size"
+    printf '%s' "${size}"
 }
 
 copy_plugin_manifests() {
@@ -202,6 +338,7 @@ create_backup() {
     local retention_days="${SDW_BACKUP_RETENTION_DAYS:-14}"
     local app_version="${SDW_APP_VERSION:-}"
     local age_recipient="${SDW_BACKUP_AGE_RECIPIENT:-}"
+    local migration_lock_held="${SDW_MIGRATION_LOCK_HELD:-false}"
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -213,6 +350,7 @@ create_backup() {
             --retention-days) retention_days=$2; shift 2 ;;
             --app-version) app_version=$2; shift 2 ;;
             --age-recipient) age_recipient=$2; shift 2 ;;
+            --migration-lock-held) migration_lock_held=true; shift ;;
             *) die "unknown create option: $1" ;;
         esac
     done
@@ -238,19 +376,37 @@ create_backup() {
 
     local stage="${backup_temp_dir}/stage"
     mkdir -p "${stage}/state/config" "${stage}/state/data-protection-keys"
+
+    # Serialize schema migrations with the same cluster-wide lease as application
+    # startup. A pre-migration hook explicitly opts out because its parent process
+    # already owns this lease on a dedicated session.
+    acquire_migration_lease "${PGDATABASE}" "${migration_lock_held}"
+    assert_migration_lease_held "${PGDATABASE}"
+    local schema schema_after database_bytes
+    schema=$(database_schema_version "${PGDATABASE}")
+    pg_dump --format=custom --compress=6 --no-owner --no-acl --no-tablespaces \
+        --file "${stage}/database.dump"
+    pg_restore --list "${stage}/database.dump" >/dev/null
+    assert_migration_lease_held "${PGDATABASE}"
+    schema_after=$(database_schema_version "${PGDATABASE}")
+    [[ "${schema_after}" == "${schema}" ]] ||
+        die "database schema changed during backup"
+    database_bytes=$(database_size_bytes "${PGDATABASE}")
+
+    # Data Protection key files are append-only. Copying them after the database
+    # snapshot produces a safe superset for every encrypted value in the dump.
     install -m 0600 -- "${config}" "${stage}/state/config/appsettings.yml"
     install -m 0600 -- "${password_file}" "${stage}/state/password.json"
     cp -a -- "${key_ring}/." "${stage}/state/data-protection-keys/"
     find "${stage}/state/data-protection-keys" -type d -exec chmod 0700 {} +
     find "${stage}/state/data-protection-keys" -type f -exec chmod 0600 {} +
     copy_plugin_manifests "${plugin_dir}" "${stage}/state/plugin-manifests"
+    assert_migration_lease_held "${PGDATABASE}"
+    release_migration_lease
     validate_stage_paths "${stage}"
 
-    pg_dump --format=custom --compress=6 --no-owner --no-acl --file "${stage}/database.dump"
-    pg_restore --list "${stage}/database.dump" >/dev/null
-    local created schema stage_bytes required_bytes
+    local created stage_bytes required_bytes
     created=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-    schema=$(database_schema_version)
     stage_bytes=$(du -sb "${stage}" | awk '{print $1}')
     required_bytes=$((stage_bytes * 2 + 67108864))
     {
@@ -259,6 +415,7 @@ create_backup() {
         printf 'application_version=%s\n' "${app_version}"
         printf 'schema_version=%s\n' "${schema}"
         printf 'required_free_bytes=%s\n' "${required_bytes}"
+        printf 'database_bytes=%s\n' "${database_bytes}"
         printf 'media_files_included=false\n'
     } >"${stage}/manifest.env"
     (
@@ -435,16 +592,19 @@ prepare_archive() {
     ) || die "backup checksum verification failed"
     pg_restore --list "${backup_temp_dir}/extracted/database.dump" >/dev/null ||
         die "PostgreSQL dump verification failed"
-    local format required created application schema media_scope
+    local format required database_bytes created application schema media_scope
     format=$(manifest_value "${backup_temp_dir}/extracted/manifest.env" format_version)
     [[ "${format}" == "${BACKUP_FORMAT_VERSION}" ]] || die "unsupported backup format"
     required=$(manifest_value "${backup_temp_dir}/extracted/manifest.env" required_free_bytes)
+    database_bytes=$(manifest_value "${backup_temp_dir}/extracted/manifest.env" database_bytes)
     created=$(manifest_value "${backup_temp_dir}/extracted/manifest.env" created_utc)
     application=$(manifest_value "${backup_temp_dir}/extracted/manifest.env" application_version)
     schema=$(manifest_value "${backup_temp_dir}/extracted/manifest.env" schema_version)
     media_scope=$(manifest_value "${backup_temp_dir}/extracted/manifest.env" media_files_included)
     [[ "${required}" =~ ^[0-9]+$ && ${#required} -le 18 ]] ||
         die "backup has invalid space metadata"
+    [[ "${database_bytes}" =~ ^[0-9]+$ && ${#database_bytes} -le 18 ]] ||
+        die "backup has invalid database size metadata"
     [[ "${created}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] ||
         die "backup has invalid timestamp metadata"
     safe_token "${application}" && safe_token "${schema}" ||
@@ -511,38 +671,197 @@ prepare_database_replacement() {
         die "PostgreSQL role must own the target and have CREATEDB, or be superuser"
 }
 
-replace_database_from_archive() {
-    local archive=$1 maintenance_database=${PGMAINTENANCEDATABASE:-postgres}
-    local database_owner database_encoding database_collation database_ctype
+postgresql_available_bytes() {
+    local database=$1 override=$2 path value
+    if [[ -n "${override}" ]]; then
+        [[ "${override}" =~ ^[0-9]+$ && ${#override} -le 18 ]] ||
+            die "PostgreSQL available bytes must be a non-negative integer"
+        printf '%s' "${override}"
+        return
+    fi
+
+    path=$(psql --no-psqlrc --dbname "${database}" --tuples-only --no-align \
+        --set=ON_ERROR_STOP=1 --command \
+        "SELECT CASE WHEN tablespace.spcname = 'pg_default'
+                     THEN current_setting('data_directory') || '/base'
+                     ELSE pg_tablespace_location(tablespace.oid)
+                END
+           FROM pg_database AS database
+           JOIN pg_tablespace AS tablespace ON tablespace.oid = database.dattablespace
+          WHERE database.datname = current_database()") ||
+        die "cannot inspect the PostgreSQL default tablespace"
+    path=${path//$'\n'/}
+    [[ -n "${path}" ]] || die "PostgreSQL returned an empty tablespace path"
+    [[ -d "${path}" ]] ||
+        die "PostgreSQL storage is remote; provide --postgres-available-bytes from database-host monitoring"
+    value=$(available_bytes "${path}") || die "cannot inspect PostgreSQL storage capacity"
+    [[ "${value}" =~ ^[0-9]+$ ]] || die "PostgreSQL storage returned invalid capacity"
+    printf '%s' "${value}"
+}
+
+restore_candidate_from_archive() {
+    local archive=$1 backup_schema=$2 postgres_available=$3
+    local maintenance_database=${PGMAINTENANCEDATABASE:-postgres}
+    local database_owner database_encoding database_collation database_ctype database_tablespace
     database_owner=$(psql --no-psqlrc --dbname "${PGDATABASE}" \
         --tuples-only --no-align --set=ON_ERROR_STOP=1 --command \
-        "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = current_database()")
+        "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = current_database()") ||
+        die "cannot inspect target database owner"
     database_encoding=$(psql --no-psqlrc --dbname "${PGDATABASE}" \
         --tuples-only --no-align --set=ON_ERROR_STOP=1 --command \
-        "SELECT pg_encoding_to_char(encoding) FROM pg_database WHERE datname = current_database()")
+        "SELECT pg_encoding_to_char(encoding) FROM pg_database WHERE datname = current_database()") ||
+        die "cannot inspect target database encoding"
     database_collation=$(psql --no-psqlrc --dbname "${PGDATABASE}" \
         --tuples-only --no-align --set=ON_ERROR_STOP=1 --command \
-        "SELECT datcollate FROM pg_database WHERE datname = current_database()")
+        "SELECT datcollate FROM pg_database WHERE datname = current_database()") ||
+        die "cannot inspect target database collation"
     database_ctype=$(psql --no-psqlrc --dbname "${PGDATABASE}" \
         --tuples-only --no-align --set=ON_ERROR_STOP=1 --command \
-        "SELECT datctype FROM pg_database WHERE datname = current_database()")
+        "SELECT datctype FROM pg_database WHERE datname = current_database()") ||
+        die "cannot inspect target database character classification"
+    database_tablespace=$(psql --no-psqlrc --dbname "${PGDATABASE}" \
+        --tuples-only --no-align --set=ON_ERROR_STOP=1 --command \
+        "SELECT tablespace.spcname
+           FROM pg_database AS database
+           JOIN pg_tablespace AS tablespace ON tablespace.oid = database.dattablespace
+          WHERE database.datname = current_database()") ||
+        die "cannot inspect target database tablespace"
     [[ -n "${database_owner}" && -n "${database_encoding}" &&
-       -n "${database_collation}" && -n "${database_ctype}" ]] ||
+       -n "${database_collation}" && -n "${database_ctype}" &&
+       -n "${database_tablespace}" ]] ||
         die "target database properties are unavailable"
 
-    # pg_restore --clean only drops objects present in the archive. Recreate the
-    # database so objects introduced after the backup cannot survive a replacement
-    # restore and conflict with the restored EF migration history.
-    dropdb --force --maintenance-db="${maintenance_database}" -- "${PGDATABASE}"
-    createdb --maintenance-db="${maintenance_database}" \
-        --template=template0 \
-        --owner="${database_owner}" \
-        --encoding="${database_encoding}" \
-        --lc-collate="${database_collation}" \
-        --lc-ctype="${database_ctype}" \
-        -- "${PGDATABASE}"
-    pg_restore --exit-on-error --no-owner --no-acl \
-        --dbname "${PGDATABASE}" "${archive}"
+    local manifest_database_bytes required_database_bytes
+    manifest_database_bytes=$(manifest_value "${backup_temp_dir}/extracted/manifest.env" database_bytes)
+    required_database_bytes=$((manifest_database_bytes + manifest_database_bytes / 4 + 67108864))
+    [[ "${postgres_available}" -gt "${required_database_bytes}" ]] ||
+        die "insufficient PostgreSQL tablespace capacity for a rollback-safe candidate restore"
+
+    restore_candidate_database="sdw_restore_$(date -u +%Y%m%d%H%M%S)_$$"
+    local candidate_exists
+    candidate_exists=$(psql --no-psqlrc --dbname "${maintenance_database}" \
+        --tuples-only --no-align --set=ON_ERROR_STOP=1 \
+        --set=candidate="${restore_candidate_database}" <<'SQL'
+SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = :'candidate');
+SQL
+    ) ||
+        die "cannot inspect candidate database name"
+    [[ "${candidate_exists}" == f ]] || die "generated candidate database already exists"
+
+    local -a create_options=(
+        --maintenance-db="${maintenance_database}"
+        --template=template0
+        --owner="${database_owner}"
+        --encoding="${database_encoding}"
+        --lc-collate="${database_collation}"
+        --lc-ctype="${database_ctype}")
+    # Explicitly naming pg_default unnecessarily requires CREATE privilege on
+    # that tablespace. Custom target tablespaces do need to be preserved.
+    if [[ "${database_tablespace}" != pg_default ]]; then
+        create_options+=(--tablespace="${database_tablespace}")
+    fi
+    createdb "${create_options[@]}" -- "${restore_candidate_database}" ||
+        die "cannot create restore candidate database"
+    pg_restore --exit-on-error --single-transaction --no-owner --no-acl \
+        --role="${database_owner}" --dbname "${restore_candidate_database}" "${archive}" ||
+        die "candidate database restore failed"
+
+    [[ "$(database_schema_version "${restore_candidate_database}")" == "${backup_schema}" ]] ||
+        die "candidate database schema does not match the backup"
+
+    local wrong_owners invalid_indexes app_access
+    wrong_owners=$(psql --no-psqlrc --dbname "${restore_candidate_database}" \
+        --tuples-only --no-align --set=ON_ERROR_STOP=1 --set=owner="${database_owner}" <<'SQL'
+        SELECT
+             (SELECT count(*) FROM pg_class AS object
+               JOIN pg_namespace AS namespace ON namespace.oid = object.relnamespace
+              WHERE namespace.nspname NOT IN ('pg_catalog', 'information_schema')
+                AND namespace.nspname !~ '^pg_toast'
+                AND object.relkind IN ('r','p','v','m','S','f')
+                AND pg_get_userbyid(object.relowner) <> :'owner')
+           + (SELECT count(*) FROM pg_proc AS object
+               JOIN pg_namespace AS namespace ON namespace.oid = object.pronamespace
+              WHERE namespace.nspname NOT IN ('pg_catalog', 'information_schema')
+                AND namespace.nspname !~ '^pg_toast'
+                AND pg_get_userbyid(object.proowner) <> :'owner')
+           + (SELECT count(*) FROM pg_type AS object
+               JOIN pg_namespace AS namespace ON namespace.oid = object.typnamespace
+              WHERE namespace.nspname NOT IN ('pg_catalog', 'information_schema')
+                AND namespace.nspname !~ '^pg_toast'
+                AND pg_get_userbyid(object.typowner) <> :'owner')
+           + (SELECT count(*) FROM pg_namespace AS object
+              WHERE object.nspname NOT IN ('public', 'pg_catalog', 'information_schema')
+                AND object.nspname !~ '^pg_toast'
+                AND pg_get_userbyid(object.nspowner) <> :'owner')
+           + (SELECT count(*) FROM pg_extension AS object
+              WHERE object.extname <> 'plpgsql'
+                AND pg_get_userbyid(object.extowner) <> :'owner');
+SQL
+    ) ||
+        die "cannot validate restored object ownership"
+    [[ "${wrong_owners}" == 0 ]] || die "candidate database contains objects not owned by the application role"
+
+    invalid_indexes=$(psql --no-psqlrc --dbname "${restore_candidate_database}" \
+        --tuples-only --no-align --set=ON_ERROR_STOP=1 --command \
+        'SELECT count(*) FROM pg_index WHERE NOT indisvalid OR NOT indisready') ||
+        die "cannot validate candidate indexes"
+    [[ "${invalid_indexes}" == 0 ]] || die "candidate database contains invalid indexes"
+    app_access=$(psql --no-psqlrc --dbname "${restore_candidate_database}" \
+        --tuples-only --no-align --set=ON_ERROR_STOP=1 --set=owner="${database_owner}" <<'SQL'
+         SET ROLE :"owner";
+         SELECT CASE WHEN has_schema_privilege(current_user, 'public', 'USAGE')
+                           AND has_schema_privilege(current_user, 'public', 'CREATE')
+                           AND NOT EXISTS (
+                               SELECT 1 FROM pg_class AS object
+                               JOIN pg_namespace AS namespace ON namespace.oid = object.relnamespace
+                              WHERE namespace.nspname = 'public'
+                                AND object.relkind IN ('r','p','S')
+                                AND NOT has_table_privilege(current_user, object.oid, 'SELECT'))
+                     THEN 'yes' ELSE 'no' END;
+SQL
+    ) ||
+        die "application role cannot access the candidate database"
+    app_access=${app_access##*$'\n'}
+    [[ "${app_access}" == yes ]] || die "candidate database failed application-role readiness checks"
+}
+
+switch_candidate_database() {
+    local maintenance_database=${PGMAINTENANCEDATABASE:-postgres}
+    local previous_database="sdw_previous_$(date -u +%Y%m%d%H%M%S)_$$" active_connections
+    active_connections=$(psql --no-psqlrc --dbname "${maintenance_database}" \
+        --tuples-only --no-align --set=ON_ERROR_STOP=1 --set=target="${PGDATABASE}" \
+        --set=candidate="${restore_candidate_database}" <<'SQL'
+SELECT count(*) FROM pg_stat_activity
+ WHERE datname IN (:'target', :'candidate') AND pid <> pg_backend_pid();
+SQL
+    ) ||
+        die "cannot inspect active database connections"
+    [[ "${active_connections}" == 0 ]] ||
+        die "target database still has active connections; stop the application before restore"
+
+    psql --no-psqlrc --dbname "${maintenance_database}" --set=ON_ERROR_STOP=1 \
+        --set=target="${PGDATABASE}" --set=previous="${previous_database}" \
+        >/dev/null <<'SQL' ||
+ALTER DATABASE :"target" RENAME TO :"previous";
+SQL
+        die "could not preserve the original database before switching"
+    if ! psql --no-psqlrc --dbname "${maintenance_database}" --set=ON_ERROR_STOP=1 \
+        --set=candidate="${restore_candidate_database}" --set=target="${PGDATABASE}" \
+        >/dev/null <<'SQL'
+ALTER DATABASE :"candidate" RENAME TO :"target";
+SQL
+    then
+        psql --no-psqlrc --dbname "${maintenance_database}" --set=ON_ERROR_STOP=1 \
+            --set=previous="${previous_database}" --set=target="${PGDATABASE}" \
+            >/dev/null <<'SQL' ||
+ALTER DATABASE :"previous" RENAME TO :"target";
+SQL
+            die "candidate switch failed and automatic database-name rollback also failed"
+        die "candidate switch failed; original database name was restored"
+    fi
+    restore_candidate_database=""
+    restore_state_rollback_active=false
+    printf 'original database retained as %s for rollback\n' "${previous_database}" >&2
 }
 
 restore_backup() {
@@ -557,6 +876,7 @@ restore_backup() {
     local expected_schema="${SDW_EXPECTED_SCHEMA_VERSION:-}"
     local identity="${SDW_BACKUP_AGE_IDENTITY:-}"
     local safety_directory="${SDW_BACKUP_DIRECTORY:-/var/lib/sdw-redive/backups}"
+    local postgres_available="${SDW_POSTGRESQL_AVAILABLE_BYTES:-}"
     local confirmed=false allow_version_mismatch=false
 
     while [[ $# -gt 0 ]]; do
@@ -569,6 +889,7 @@ restore_backup() {
             --expected-schema) expected_schema=$2; shift 2 ;;
             --age-identity) identity=$2; shift 2 ;;
             --safety-directory) safety_directory=$2; shift 2 ;;
+            --postgres-available-bytes) postgres_available=$2; shift 2 ;;
             --allow-version-mismatch) allow_version_mismatch=true; shift ;;
             --confirm-replace) confirmed=true; shift ;;
             *) die "unknown restore option: $1" ;;
@@ -586,6 +907,10 @@ restore_backup() {
     prepare_database_replacement
     prepare_archive "${archive}" "${identity}"
 
+    local maintenance_database=${PGMAINTENANCEDATABASE:-postgres}
+    acquire_migration_lease "${maintenance_database}" false
+    assert_migration_lease_held "${maintenance_database}"
+
     local extracted="${backup_temp_dir}/extracted"
     local manifest="${extracted}/manifest.env"
     local backup_version backup_schema
@@ -594,12 +919,22 @@ restore_backup() {
     if [[ "${allow_version_mismatch}" != true ]]; then
         [[ -n "${expected_version}" ]] ||
             die "--expected-version is required unless --allow-version-mismatch is explicit"
-        [[ "$(major_version "${backup_version}")" == "$(major_version "${expected_version}")" ]] ||
+        local backup_major expected_major
+        backup_major=$(major_version "${backup_version}") ||
+            die "backup application version is invalid"
+        expected_major=$(major_version "${expected_version}") ||
+            die "expected application version is invalid"
+        [[ "${backup_major}" == "${expected_major}" ]] ||
             die "backup application major version is incompatible"
     fi
-    if [[ -n "${expected_schema}" && "${backup_schema}" != "${expected_schema}" ]]; then
+    [[ -n "${expected_schema}" ]] ||
+        die "--expected-schema is required for fail-closed application compatibility"
+    safe_token "${expected_schema}" || die "expected schema contains unsupported characters"
+    if [[ "${backup_schema}" != "${expected_schema}" ]]; then
         die "backup schema is incompatible with the requested schema"
     fi
+
+    postgres_available=$(postgresql_available_bytes "${PGDATABASE}" "${postgres_available}")
 
     local restored_config required_bytes destination_parent probe
     restored_config=$(find "${extracted}/state/config" -maxdepth 1 -type f -print -quit)
@@ -624,44 +959,80 @@ restore_backup() {
     local timestamp safety_dump
     timestamp=$(date -u +%Y%m%dT%H%M%SZ)
     safety_dump="${safety_directory}/pre-restore-${timestamp}-$$.dump"
-    pg_dump --format=custom --compress=6 --no-owner --no-acl --file "${safety_dump}.partial"
+    pg_dump --format=custom --compress=6 --no-owner --no-acl --no-tablespaces \
+        --file "${safety_dump}.partial"
     chmod 0600 "${safety_dump}.partial"
     mv "${safety_dump}.partial" "${safety_dump}"
 
-    replace_database_from_archive "${extracted}/database.dump"
-    [[ "$(database_schema_version)" == "${backup_schema}" ]] ||
-        die "restored database schema does not match the backup"
+    restore_candidate_from_archive \
+        "${extracted}/database.dump" "${backup_schema}" "${postgres_available}"
+
+    # Prepare every state artifact before the database-name switch. Each staged
+    # path lives beside its destination, so the final rename is same-filesystem.
+    local config_partial="${config_destination}.sdw-restore-$$.partial"
+    local password_partial="${password_destination}.sdw-restore-$$.partial"
+    local key_ring_partial="${key_ring_destination}.sdw-restore-$$.partial"
+    local plugin_partial="${plugin_destination}.sdw-restore-$$.partial"
+    [[ ! -e "${config_partial}" && ! -L "${config_partial}" &&
+       ! -e "${password_partial}" && ! -L "${password_partial}" &&
+       ! -e "${key_ring_partial}" && ! -L "${key_ring_partial}" &&
+       ! -e "${plugin_partial}" && ! -L "${plugin_partial}" ]] ||
+        die "restore staging path already exists"
+    restore_staging_paths=(
+        "${config_partial}" "${password_partial}"
+        "${key_ring_partial}" "${plugin_partial}")
+    install -m 0600 "${restored_config}" "${config_partial}"
+    install -m 0600 "${extracted}/state/password.json" "${password_partial}"
+    mkdir -m 0700 "${key_ring_partial}"
+    cp -a "${extracted}/state/data-protection-keys/." "${key_ring_partial}/"
+    find "${key_ring_partial}" -type d -exec chmod 0700 {} +
+    find "${key_ring_partial}" -type f -exec chmod 0600 {} +
+    mkdir -m 0700 "${plugin_partial}"
+    if [[ -d "${extracted}/state/plugin-manifests" &&
+          ! -f "${extracted}/state/plugin-manifests/none" ]]; then
+        cp -a "${extracted}/state/plugin-manifests/." "${plugin_partial}/"
+    fi
 
     if [[ -f "${config_destination}" ]]; then
+        restore_config_had_original=true
         install -m 0600 "${config_destination}" "${config_destination}.pre-restore-${timestamp}"
     fi
     if [[ -f "${password_destination}" ]]; then
+        restore_password_had_original=true
         install -m 0600 "${password_destination}" "${password_destination}.pre-restore-${timestamp}"
     fi
-    install -m 0600 "${restored_config}" "${config_destination}.partial"
-    mv "${config_destination}.partial" "${config_destination}"
-    install -m 0600 "${extracted}/state/password.json" "${password_destination}.partial"
-    mv "${password_destination}.partial" "${password_destination}"
+    restore_config_destination="${config_destination}"
+    restore_password_destination="${password_destination}"
+    restore_key_ring_destination="${key_ring_destination}"
+    restore_plugin_destination="${plugin_destination}"
+    restore_state_timestamp="${timestamp}"
+    restore_state_rollback_active=true
+    mv "${config_partial}" "${config_destination}"
+    mv "${password_partial}" "${password_destination}"
 
     if [[ -d "${key_ring_destination}" ]]; then
+        restore_key_ring_had_original=true
         mv "${key_ring_destination}" "${key_ring_destination}.pre-restore-${timestamp}"
     fi
-    mkdir -p "${key_ring_destination}"
-    chmod 0700 "${key_ring_destination}"
-    cp -a "${extracted}/state/data-protection-keys/." "${key_ring_destination}/"
-    find "${key_ring_destination}" -type f -exec chmod 0600 {} +
+    mv "${key_ring_partial}" "${key_ring_destination}"
 
-    if [[ -d "${extracted}/state/plugin-manifests" &&
-          ! -f "${extracted}/state/plugin-manifests/none" ]]; then
-        mkdir -p "${plugin_destination}"
-        cp -a "${extracted}/state/plugin-manifests/." "${plugin_destination}/"
+    if [[ -d "${plugin_destination}" ]]; then
+        restore_plugin_had_original=true
+        mv "${plugin_destination}" "${plugin_destination}.pre-restore-${timestamp}"
     fi
+    mv "${plugin_partial}" "${plugin_destination}"
+    assert_migration_lease_held "${maintenance_database}"
+    switch_candidate_database
+    restore_state_rollback_active=false
+    restore_staging_paths=()
+    release_migration_lease
     printf 'restore completed; restart the application and run its health check\n'
 }
 
 command=${1:-}
 [[ -n "${command}" ]] || { usage; exit 1; }
 shift
+validate_failure_webhook
 case "${command}" in
     create) create_backup "$@" ;;
     list) list_backups "$@" ;;

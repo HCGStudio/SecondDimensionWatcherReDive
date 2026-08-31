@@ -1,4 +1,6 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using System.Data;
 using System.Security.Cryptography;
 using System.Text;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
@@ -7,10 +9,53 @@ using DataFileMapping = SecondDimensionWatcherReDive.Framework.DataRepository.Fi
 
 namespace SecondDimensionWatcherReDive.Repositories;
 
-public sealed class LogicalDataTransferRepository(
+public sealed class LogicalDataTransferRepository(IServiceScopeFactory scopeFactory)
+    : ILogicalDataTransferRepository
+{
+    public Task<LogicalDataBundle> ExportAsync(
+        LogicalDataCategory categories,
+        Guid userId,
+        string applicationVersion,
+        CancellationToken cancellationToken) =>
+        ExecuteWithFreshScopeAsync(
+            (worker, token) => worker.ExportAsync(categories, userId, applicationVersion, token),
+            cancellationToken);
+
+    public Task<LogicalImportResult> ImportAsync(
+        LogicalDataBundle bundle,
+        LogicalImportConflictStrategy conflictStrategy,
+        Guid userId,
+        CancellationToken cancellationToken) =>
+        ExecuteWithFreshScopeAsync(
+            (worker, token) => worker.ImportAsync(bundle, conflictStrategy, userId, token),
+            cancellationToken);
+
+    private async Task<TResult> ExecuteWithFreshScopeAsync<TResult>(
+        Func<LogicalDataTransferWorker, CancellationToken, Task<TResult>> operation,
+        CancellationToken cancellationToken)
+    {
+        await using var strategyScope = scopeFactory.CreateAsyncScope();
+        var strategyContext = strategyScope.ServiceProvider
+            .GetRequiredService<Models.ApplicationContext>();
+        var strategy = strategyContext.Database.CreateExecutionStrategy();
+
+        return await strategy.ExecuteAsync(
+            async token =>
+            {
+                // A failed Npgsql attempt can leave both EF tracking state and scoped
+                // collaborators unusable. Resolve the complete attempt graph again.
+                await using var attemptScope = scopeFactory.CreateAsyncScope();
+                var worker = attemptScope.ServiceProvider
+                    .GetRequiredService<LogicalDataTransferWorker>();
+                return await operation(worker, token);
+            },
+            cancellationToken);
+    }
+}
+
+internal sealed class LogicalDataTransferWorker(
     Models.ApplicationContext context,
     IFileMapper fileMapper)
-    : ILogicalDataTransferRepository
 {
     private const int FormatVersion = 1;
 
@@ -20,10 +65,15 @@ public sealed class LogicalDataTransferRepository(
         string applicationVersion,
         CancellationToken cancellationToken)
     {
+        await using var transaction = await context.Database.BeginTransactionAsync(
+            IsolationLevel.RepeatableRead,
+            cancellationToken);
+
         var feeds = categories.HasFlag(LogicalDataCategory.Feeds)
             ? await context.Feeds.AsNoTracking()
                 .OrderBy(feed => feed.CreatedAt)
                 .Select(feed => new LogicalFeed(feed.Id, feed.Url, feed.Name, feed.CreatedAt))
+                .Take(LogicalDataTransferLimits.MaximumItemsPerCategory + 1)
                 .ToListAsync(cancellationToken)
             : [];
 
@@ -42,6 +92,7 @@ public sealed class LogicalDataTransferRepository(
                     policy.Mode,
                     policy.CreatedAt,
                     policy.UpdatedAt))
+                .Take(LogicalDataTransferLimits.MaximumItemsPerCategory + 1)
                 .ToListAsync(cancellationToken)
             : [];
 
@@ -59,6 +110,7 @@ public sealed class LogicalDataTransferRepository(
                          rule.Pattern,
                          rule.Description,
                          rule.CreatedAt))
+                .Take(LogicalDataTransferLimits.MaximumItemsPerCategory + 1)
                 .ToListAsync(cancellationToken)
             : [];
 
@@ -82,6 +134,7 @@ public sealed class LogicalDataTransferRepository(
                     operation.ProposedEpisode,
                     operation.ProposedGroupName,
                     operation.AppliedAt!.Value))
+                .Take(LogicalDataTransferLimits.MaximumItemsPerCategory + 1)
                 .ToListAsync(cancellationToken)
             : [];
 
@@ -96,6 +149,7 @@ public sealed class LogicalDataTransferRepository(
                     item.IsWatched,
                     item.UpdatedAt,
                     item.WatchedAt))
+                .Take(LogicalDataTransferLimits.MaximumItemsPerCategory + 1)
                 .ToListAsync(cancellationToken)
             : [];
 
@@ -114,7 +168,7 @@ public sealed class LogicalDataTransferRepository(
                 .FirstOrDefaultAsync(cancellationToken);
         }
 
-        return new LogicalDataBundle(
+        var result = new LogicalDataBundle(
             FormatVersion,
             DateTimeOffset.UtcNow,
             applicationVersion,
@@ -125,6 +179,9 @@ public sealed class LogicalDataTransferRepository(
             corrections,
             progress,
             preferences);
+        EnsureExportCountLimits(result);
+        await transaction.CommitAsync(cancellationToken);
+        return result;
     }
 
     public async Task<LogicalImportResult> ImportAsync(
@@ -370,14 +427,14 @@ public sealed class LogicalDataTransferRepository(
                 animation = new Models.Animation
                 {
                     Id = Guid.NewGuid(),
-                    TmdbId = imported.AnimationTmdbId
+                    TmdbId = imported.AnimationTmdbId,
+                    Name = imported.AnimationName,
+                    OriginalName = imported.AnimationOriginalName,
+                    PosterPath = imported.AnimationPosterPath
                 };
                 context.Animations.Add(animation);
                 animations.Add(animation.TmdbId, animation);
             }
-            animation.Name = imported.AnimationName;
-            animation.OriginalName = imported.AnimationOriginalName;
-            animation.PosterPath = imported.AnimationPosterPath;
 
             Models.AnimationGroup? group = null;
             if (!string.IsNullOrWhiteSpace(imported.GroupName) &&
@@ -622,6 +679,17 @@ public sealed class LogicalDataTransferRepository(
     {
         var digest = SHA256.HashData(Encoding.UTF8.GetBytes(value));
         return $"{kind}:{Convert.ToHexString(digest.AsSpan(0, 8))}";
+    }
+
+    private static void EnsureExportCountLimits(LogicalDataBundle bundle)
+    {
+        if (bundle.Feeds.Count > LogicalDataTransferLimits.MaximumItemsPerCategory ||
+            bundle.AutomationPolicies.Count > LogicalDataTransferLimits.MaximumItemsPerCategory ||
+            bundle.FileNameRules.Count > LogicalDataTransferLimits.MaximumItemsPerCategory ||
+            bundle.MetadataCorrections.Count > LogicalDataTransferLimits.MaximumItemsPerCategory ||
+            bundle.PlaybackProgress.Count > LogicalDataTransferLimits.MaximumItemsPerCategory)
+            throw new LogicalDataExportLimitException(
+                $"A logical export category exceeds {LogicalDataTransferLimits.MaximumItemsPerCategory} items.");
     }
 
     private static void ApplyPolicy(

@@ -57,5 +57,8 @@ find /var/lib/sdw-redive/data-protection-keys -type f \
     -exec chown sdw-redive:sdw-redive {} + \
     -exec chmod 0600 {} +
 
-# Reload systemd
-systemctl daemon-reload
+# Package-image roots do not necessarily run systemd. On a real host, malformed
+# units and daemon failures must still fail package installation.
+if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
+    systemctl daemon-reload
+fi

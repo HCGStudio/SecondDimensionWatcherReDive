@@ -1,3 +1,5 @@
+ARG VERSION
+
 # Stage 1: Build frontend
 FROM node:24 AS frontend-build
 WORKDIR /app
@@ -8,6 +10,7 @@ RUN yarn build
 
 # Stage 2: Build backend
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS backend-build
+ARG VERSION
 WORKDIR /src
 COPY SecondDimensionWatcherReDive.slnx .
 COPY VERSION .
@@ -17,19 +20,22 @@ COPY Plugins/ Plugins/
 COPY Share/ Share/
 COPY --from=frontend-build /app/dist SecondDimensionWatcherReDive/wwwroot/
 RUN dotnet restore SecondDimensionWatcherReDive/SecondDimensionWatcherReDive.csproj
-RUN dotnet publish SecondDimensionWatcherReDive/SecondDimensionWatcherReDive.csproj \
-    -c Release -o /app --no-restore \
-    /p:Version="$(tr -d '[:space:]' < VERSION)"
+RUN effective_version="${VERSION:-$(tr -d '[:space:]' < VERSION)}" \
+    && dotnet publish SecondDimensionWatcherReDive/SecondDimensionWatcherReDive.csproj \
+        -c Release -o /app --no-restore \
+        /p:Version="${effective_version}" \
+    && printf '%s\n' "${effective_version}" > /app/VERSION
 
 # Stage 3: Runtime
 FROM mcr.microsoft.com/dotnet/aspnet:10.0
 WORKDIR /app
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends postgresql-client \
+    && apt-get install -y --no-install-recommends postgresql-client curl \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=backend-build /app .
 COPY deployments/sdw-backup /usr/local/bin/sdw-backup
-COPY VERSION /usr/lib/sdw-redive/VERSION
+RUN mkdir -p /usr/lib/sdw-redive \
+    && install -m 0644 /app/VERSION /usr/lib/sdw-redive/VERSION
 EXPOSE 8080
 # Optional: read-only NFSv4 export (set Nfs:Enabled=true to activate; publish port at run time).
 EXPOSE 2049
