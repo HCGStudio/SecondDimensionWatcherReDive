@@ -5,6 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Important Rules
 
 - **NEVER use `npm` or `npx`**. This project uses Yarn Berry (PnP). Always use `yarn` for all frontend commands.
+- **NEVER add regression checks in any form**. Do not add regression tests, test-only scripts, workflow contract assertions, or equivalent guards.
 - **NEVER reference `ApplicationContext` directly** outside of `Repositories/` implementations, `Program.cs` (DI + migrations), and EF Core migration files. All data access goes through repository interfaces defined in `Framework/DataRepository/`.
 - **Async method conventions in interfaces**: All interface methods returning `Task` or `Task<T>` must (1) have names ending with `Async`, (2) accept a `CancellationToken cancellationToken` parameter, and (3) must NOT have default values on `CancellationToken` in interface definitions. The parameter must be named `cancellationToken` (not `ct`).
 
@@ -103,7 +104,7 @@ The codebase uses a three-tier model architecture with repository interfaces for
 - `IChatRepository` — conversation CRUD (create, list, delete, update title), message persistence (add single/batch, list, count), full conversation retrieval with messages
 - `IFileMappingRepository` — add batch of mappings, find by virtual path, prefix query, existence check (per-path and per-`AnimationInfoId`), remove by `AnimationInfoId`
 - `IWebDavTokenRepository` — list all tokens (newest first), find by username, existence check by username, add, remove by id. Backs the per-device WebDAV Basic-auth flow
-- `IMigrationMarkerRepository` — `ExistsAsync(key)` / `SetAsync(key)` over the `MigrationMarkers` table; one-shot data migrations gate themselves on this
+- `IMigrationStateRepository` — durable versioned migration lifecycle (`pending/running/failed/completed`), checkpoint, timestamps, attempts, and last error over the `MigrationMarkers` table
 
 **Repository implementations** (`Repositories/`): EF Core implementations registered as scoped services, sharing the same `ApplicationContext` per request.
 
@@ -144,9 +145,9 @@ Channel-driven event processors (always running, end with BackgroundService suff
 One-shot data migrations (distinct from EF Core schema migrations) run once per database during startup, before the host begins serving requests.
 
 - `IMigrationTask` (Framework/Tasks/) — `Key` + `ExecuteAsync(CancellationToken)`. Implementations are registered as singletons and discovered via DI (`IEnumerable<IMigrationTask>`).
-- `MigrationTaskRunner` (`MigrationTasks/`) — iterates registered migrations, skips any whose `Key` is already in `MigrationMarkers`, runs the rest, and writes the marker on success. Failures abort startup so a half-migrated DB never serves traffic.
-- Invoked from `Program.cs` after `context.Database.MigrateAsync()` and before `app.RunAsync()`.
-- Current migrations: **MigrateFileMappings** — backfills `FileMapping` rows for previously-completed downloads (pages through `IAnimationInfoRepository.GetDownloadedPagedAsync`, skips records still pending AI inference to avoid racing `InferAnimationMetadata`'s mapping pass, calls `IFileMapper.MapDownloadAsync` per item).
+- `Program.cs` acquires a dedicated-session PostgreSQL advisory lock before both EF schema and data migrations. Other replicas wait on the same lock; the lock is released automatically if the process/connection dies.
+- `MigrationTaskRunner` (`MigrationTasks/`) records pending/running/failed/completed transitions, resumes stale running or failed attempts from their checkpoint, and only writes completed after the task returns successfully. Blocking failures abort before Kestrel and hosted services start.
+- Current migrations: **MigrateFileMappings v2** — backfills `FileMapping` rows in stable keyset-ordered batches, checkpoints every batch, skips records still pending AI inference, and treats an unsuccessful `IFileMapper` result as a blocking failure.
 
 ### AI Inference Pipeline
 

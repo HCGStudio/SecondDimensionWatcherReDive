@@ -1,4 +1,5 @@
-import { canCopyVideoCodecToMp4, isMkvPath } from "./support";
+import { chooseMkvPlaybackPlan, isMkvPath } from "./runtime";
+import { canCopyVideoCodecToMp4 } from "./support";
 
 type TestCallback = () => void | Promise<void>;
 type TestFunction = (name: string, callback: TestCallback) => void;
@@ -48,5 +49,32 @@ describe("canCopyVideoCodecToMp4", () => {
     strictEqual(canCopyVideoCodecToMp4("av1"), false);
     strictEqual(canCopyVideoCodecToMp4("hevc"), false);
     strictEqual(canCopyVideoCodecToMp4(null), false);
+  });
+});
+
+describe("chooseMkvPlaybackPlan", () => {
+  it("uses the lightweight proxy when both selected tracks are decodable", () => {
+    strictEqual(
+      chooseMkvPlaybackPlan({
+        videoCodec: "h264",
+        audioCodec: "aac",
+        videoDecodable: true,
+        audioDecodable: true,
+      }),
+      "mkvProxy",
+    );
+  });
+
+  it("uses FFmpeg only after direct playback has been ruled out", () => {
+    strictEqual(chooseMkvPlaybackPlan(null), "transcode");
+    strictEqual(
+      chooseMkvPlaybackPlan({
+        videoCodec: "hevc",
+        audioCodec: "aac",
+        videoDecodable: false,
+        audioDecodable: true,
+      }),
+      "transcode",
+    );
   });
 });

@@ -9,23 +9,24 @@ using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Framework.Tasks;
 using SecondDimensionWatcherReDive.Framework.Notifications;
 using SecondDimensionWatcherReDive.Utils.Incidents;
+using SecondDimensionWatcherReDive.Utils.Http;
+using SecondDimensionWatcherReDive.Utils.Feed;
 
 namespace SecondDimensionWatcherReDive.Services;
 
 /// <summary>
 ///     The SyncFeed class is responsible for synchronizing feeds at regular intervals.
 /// </summary>
-public partial class SyncFeed(
+internal partial class SyncFeed(
     IServiceProvider serviceProvider,
     ILogger<SyncFeed> logger,
-    IHttpClientFactory httpClientFactory,
+    ISafeOutboundHttpFetcher outboundFetcher,
     IServiceScopeFactory scopeFactory,
     ISubscriptionAutomationMatcher automationMatcher,
     IIncidentReporter? incidentReporter = null,
     INotificationPublisher? notificationPublisher = null)
     : ScheduledTaskBase
 {
-    private readonly HttpClient _httpClient = httpClientFactory.CreateClient("Feed");
     private static readonly JsonSerializerOptions ExplanationJsonOptions = new(JsonSerializerDefaults.Web);
 
     public override string Id => "SyncFeed";
@@ -37,23 +38,35 @@ public partial class SyncFeed(
         await Task.WhenAll(feeds.Select(f => ProcessFeed(f, cancellationToken)));
     }
 
-    private readonly record struct TorrentData(byte[] CachedDownloadData, string Hash, long? PayloadSizeBytes);
+    internal readonly record struct TorrentData(byte[] CachedDownloadData, string Hash, long? PayloadSizeBytes);
 
     private async Task<TorrentData> DownloadTorrentData(
         AnimationAddRequest request,
         CancellationToken cancellationToken)
     {
-        var data = await _httpClient.GetByteArrayAsync(request.DownloadUrl, cancellationToken);
+        var data = await outboundFetcher.GetBytesAsync(
+            request.DownloadUrl,
+            OutboundPayloadKind.Torrent,
+            cancellationToken);
         if (data.Length == 0)
         {
             throw new InvalidTorrentDataException(request.DownloadUrl);
         }
+        return ParseTorrentData(data, request.DownloadUrl);
+    }
+
+    internal static TorrentData ParseTorrentData(byte[] data, string url)
+    {
         var parser = new BencodeParser();
         BDictionary info;
+        TorrentBencodeValidationResult validation;
         try
         {
+            validation = TorrentBencodeComplexityValidator.Validate(data);
+            if (!validation.HasInfoValue)
+                throw new InvalidTorrentDataException(url, "info dictionary is missing");
             info = parser.Parse<BDictionary>(data).Get<BDictionary>("info")
-                ?? throw new InvalidTorrentDataException(request.DownloadUrl, "info dictionary is missing");
+                ?? throw new InvalidTorrentDataException(url, "info dictionary is missing");
         }
         catch (InvalidTorrentDataException)
         {
@@ -61,15 +74,13 @@ public partial class SyncFeed(
         }
         catch (Exception exception)
         {
-            throw new InvalidTorrentDataException(request.DownloadUrl, exception.Message);
+            throw new InvalidTorrentDataException(url, exception.Message);
         }
 
-        var payloadSize = GetTorrentPayloadSize(info, request.DownloadUrl);
-        var hash = BitConverter
-            .ToString(SHA1.HashData(
-                info.EncodeAsBytes()))
-            .Replace("-", "")
-            .ToLower();
+        var payloadSize = GetTorrentPayloadSize(info, url);
+        var hash = Convert.ToHexString(SHA1.HashData(
+                data.AsSpan(validation.InfoValueOffset, validation.InfoValueLength)))
+            .ToLowerInvariant();
         return new TorrentData(data, hash, payloadSize);
     }
 
@@ -204,7 +215,7 @@ public partial class SyncFeed(
                 if (incidentReporter is not null)
                     await incidentReporter.ResolveAsync(
                         IncidentType.FeedFailure,
-                        request.DownloadUrl,
+                        CreateDownloadIncidentSourceId(request.DownloadUrl),
                         cancellationToken);
 
                 if (policy?.Mode == SubscriptionAutomationMode.AutoDownload)
@@ -235,7 +246,7 @@ public partial class SyncFeed(
                             IncidentSeverity.Error,
                             "Feed item contains invalid torrent data",
                             e.Message,
-                            request.DownloadUrl),
+                            CreateDownloadIncidentSourceId(request.DownloadUrl)),
                         cancellationToken);
                 }
             }
@@ -407,6 +418,12 @@ public partial class SyncFeed(
                     cancellationToken);
             }
         }
+    }
+
+    internal static string CreateDownloadIncidentSourceId(string downloadUrl)
+    {
+        var digest = SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(downloadUrl));
+        return $"torrent-url:{Convert.ToHexString(digest).ToLowerInvariant()}";
     }
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "{Message}")]

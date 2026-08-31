@@ -18,6 +18,7 @@
     "account": "Account",
     "language": "Language",
     "logout": "Sign out",
+    "logoutFailed": "Signed out locally, but remote refresh-token revocation could not be confirmed.",
     "login": "Sign in"
   },
   "languages": {

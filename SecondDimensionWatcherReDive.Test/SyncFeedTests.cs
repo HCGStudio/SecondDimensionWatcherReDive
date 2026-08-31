@@ -10,6 +10,7 @@ using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Framework.Notifications;
 using SecondDimensionWatcherReDive.Services;
 using SecondDimensionWatcherReDive.Utils.Feed;
+using SecondDimensionWatcherReDive.Utils.Http;
 
 namespace SecondDimensionWatcherReDive.Test;
 
@@ -56,13 +57,12 @@ public class SyncFeedTests
             .Returns(_mockDownloadProvider.Object);
 
         var mockServiceProvider = new Mock<IServiceProvider>();
-        var mockHttpClientFactory = new Mock<IHttpClientFactory>();
-        mockHttpClientFactory.Setup(f => f.CreateClient("Feed")).Returns(new HttpClient());
+        var outboundFetcher = new Mock<ISafeOutboundHttpFetcher>();
 
         _syncFeed = new SyncFeed(
             mockServiceProvider.Object,
             Mock.Of<ILogger<SyncFeed>>(),
-            mockHttpClientFactory.Object,
+            outboundFetcher.Object,
             mockScopeFactory.Object,
             new SubscriptionAutomationMatcher(new SubscriptionReleaseMetadataExtractor()),
             notificationPublisher: _mockNotificationPublisher.Object);

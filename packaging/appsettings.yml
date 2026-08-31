@@ -8,6 +8,42 @@ ConnectionStrings:
 # JWT 签名密钥（首次安装时自动生成）
 JwtSecret: "<Please fill this with a 32 length random string>"
 
+Authentication:
+  Issuer: "SecondDimensionWatcherReDive"
+  Audience: "SecondDimensionWatcherReDive.Client"
+  AccessTokenMinutes: 10
+  RefreshTokenDays: 30
+  RefreshTokenReuseGraceSeconds: 3
+  PlaybackLinkMinutes: 15
+
+OutboundHttp:
+  MaxRedirects: 3
+  TotalTimeoutSeconds: 30
+  ConnectTimeoutSeconds: 10
+  HappyEyeballsDelayMilliseconds: 250
+  FirstByteTimeoutSeconds: 15
+  MaxConcurrentRequests: 4
+  MaxFeedBytes: 4194304
+  MaxTorrentBytes: 8388608
+  MaxFeedItems: 1000
+  AllowedPrivateHosts: []
+  AllowedPrivateNetworks: []
+
+RateLimit:
+  AuthPermitLimit: 10
+  BasicPermitLimit: 20
+  BasicWindowSeconds: 60
+  LogoutPermitLimit: 60
+  LogoutWindowSeconds: 60
+  AiPermitLimit: 30
+
+# Loopback reverse proxies are trusted by default. For a proxy on another host or
+# container, add only its exact address or smallest network, never client networks.
+ReverseProxy:
+  ForwardLimit: 1
+  KnownProxies: []
+  KnownNetworks: []
+
 # qBittorrent Web API 地址（必填）
 # UserName / Password 留空表示 qBittorrent 未启用鉴权（或已通过白名单放行本机）
 Torrent:
@@ -96,9 +132,14 @@ Notifications:
 Nfs:
   Enabled: false
   Port: 2049
-  BindAddress: "0.0.0.0"
+  BindAddress: "127.0.0.1"
   LeaseSeconds: 90
   MaxConnections: 32
+  IdleTimeoutSeconds: 120
+  AllowAnonymous: false
+  AllowedNetworks:
+    - "127.0.0.0/8"
+    - "::1/128"
 
 # Valkey / Redis 分布式缓存（可选，留空则使用内存缓存）
 # Valkey:

@@ -1,49 +1,187 @@
-name: Container Build & Publish
+name: Publish verified mainline
 
 on:
-  push:
-    branches: [ "main" ]
+  workflow_run:
+    workflows: [Verify]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
-    inputs:
-      release_version:
-        description: 'Release version (leave empty for pre-release)'
-        required: false
-        type: string
 
 permissions:
   contents: read
-  packages: write
+
+concurrency:
+  group: publish-mainline
+  cancel-in-progress: false
+  queue: max
 
 jobs:
-  build-and-push:
+  verify_manual_run:
+    name: Verify manual run
+    if: github.event_name == 'workflow_dispatch'
+    uses: ./.github/workflows/verify.yml
+    permissions:
+      contents: read
+
+  metadata:
+    name: Resolve verified source
+    needs: verify_manual_run
+    if: >-
+      always() &&
+      ((github.event_name == 'workflow_dispatch' && needs.verify_manual_run.result == 'success') ||
+       (github.event_name == 'workflow_run' &&
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_branch == github.event.repository.default_branch &&
+        github.event.workflow_run.head_repository.full_name == github.repository))
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    outputs:
+      commit_sha: ${{ steps.metadata.outputs.commit_sha }}
+      image_repository: ${{ steps.metadata.outputs.image_repository }}
+      version: ${{ steps.metadata.outputs.version }}
+    steps:
+      - name: Select verified commit
+        id: source
+        env:
+          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          DISPATCH_REF: ${{ github.ref }}
+          DISPATCH_SHA: ${{ github.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          HEAD_REPOSITORY: ${{ github.event.workflow_run.head_repository.full_name }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_EVENT: ${{ github.event.workflow_run.event }}
+          VERIFIED_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = workflow_run ]; then
+            test "$CONCLUSION" = success
+            test "$RUN_EVENT" = push
+            test "$HEAD_BRANCH" = "$DEFAULT_BRANCH"
+            test "$HEAD_REPOSITORY" = "$REPOSITORY"
+            commit_sha="$VERIFIED_SHA"
+          elif [ "$EVENT_NAME" = workflow_dispatch ]; then
+            test "$DISPATCH_REF" = "refs/heads/$DEFAULT_BRANCH"
+            commit_sha="$DISPATCH_SHA"
+          else
+            echo "Unsupported publication event: $EVENT_NAME" >&2
+            exit 1
+          fi
+          [[ "$commit_sha" =~ ^[0-9a-f]{40}$ ]]
+          echo "commit_sha=$commit_sha" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.source.outputs.commit_sha }}
+
+      - name: Compute prerelease metadata
+        id: metadata
+        env:
+          COMMIT_SHA: ${{ steps.source.outputs.commit_sha }}
+          GH_TOKEN: ${{ github.token }}
+          PACKAGE_OWNER: ${{ github.repository_owner }}
+          PACKAGE_OWNER_TYPE: ${{ github.event.repository.owner.type }}
+          REPOSITORY_OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$COMMIT_SHA"
+          base_version=$(tr -d '[:space:]' < VERSION)
+          case "$PACKAGE_OWNER_TYPE" in
+            Organization)
+              package_versions="orgs/${PACKAGE_OWNER}/packages/container/sdw-redive/versions?per_page=100"
+              ;;
+            User)
+              package_versions="users/${PACKAGE_OWNER}/packages/container/sdw-redive/versions?per_page=100"
+              ;;
+            *)
+              echo "Unsupported package owner type: $PACKAGE_OWNER_TYPE" >&2
+              exit 1
+              ;;
+          esac
+          registry_tags="$RUNNER_TEMP/registry-tags"
+          package_api_url="https://api.github.com/${package_versions}"
+          if ! package_status=$(curl --silent --show-error \
+            --output /dev/null \
+            --write-out '%{http_code}' \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header 'Accept: application/vnd.github+json' \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            "$package_api_url"); then
+            echo "Could not inspect the container package" >&2
+            exit 1
+          fi
+          case "$package_status" in
+            200)
+              gh api --paginate "$package_versions" \
+                --jq '.[].metadata.container.tags[]?' > "$registry_tags"
+              ;;
+            404)
+              : > "$registry_tags"
+              ;;
+            *)
+              echo "GitHub returned HTTP $package_status while inspecting the container package" >&2
+              exit 1
+              ;;
+          esac
+          version=$(PRERELEASE_TAG_NAMES_FILE="$registry_tags" \
+            .github/scripts/next-prerelease-version.sh "$base_version")
+          image_repository="ghcr.io/$(printf '%s/sdw-redive' "$REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
+
+          echo "commit_sha=$COMMIT_SHA" >> "$GITHUB_OUTPUT"
+          echo "image_repository=$image_repository" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build checked artifacts
+    needs: metadata
+    # The manual-only verifier is an indirect skipped ancestor on workflow_run.
+    # A status function is required here so GitHub does not inject success() and
+    # silently skip this job after metadata has explicitly accepted that path.
+    if: >-
+      !cancelled() &&
+      needs.metadata.result == 'success'
+    uses: ./.github/workflows/build.yml
+    permissions:
+      contents: read
+      packages: write
+    with:
+      commit_sha: ${{ needs.metadata.outputs.commit_sha }}
+      image_repository: ${{ needs.metadata.outputs.image_repository }}
+      version: ${{ needs.metadata.outputs.version }}
+
+  publish_version:
+    name: Publish immutable prerelease
+    needs: [metadata, build]
+    if: >-
+      !cancelled() &&
+      needs.metadata.result == 'success' &&
+      needs.build.result == 'success'
+    permissions:
+      contents: write
+      packages: write
+    runs-on: ubuntu-latest
+    outputs:
+      image_digest: ${{ steps.publish.outputs.image_digest }}
+      image_tag: ${{ steps.publish.outputs.image_tag }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.metadata.outputs.commit_sha }}
 
-      - name: Compute image name and version
-        run: |
-          REGISTRY="ghcr.io"
-          RELEASE_VERSION="${{ github.event.inputs.release_version }}"
-          IMAGE_NAME=$(echo "${{ github.repository_owner }}/sdw-redive" | tr '[:upper:]' '[:lower:]')
+      - name: Download checked release bundle
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.build.outputs.bundle_name }}
+          path: release/
 
-          if [ -n "$RELEASE_VERSION" ]; then
-            VERSION="$RELEASE_VERSION"
-            TAG1="${REGISTRY}/${IMAGE_NAME}:${VERSION}"
-            TAG2="${REGISTRY}/${IMAGE_NAME}:latest"
-          else
-            BASE_VERSION=$(cat VERSION | tr -d '[:space:]')
-            VERSION="${BASE_VERSION}.${{ github.run_number }}"
-            TAG1="${REGISTRY}/${IMAGE_NAME}:pre-${VERSION}"
-            TAG2="${REGISTRY}/${IMAGE_NAME}:prerelease-latest"
-          fi
-
-          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
-          echo "IMAGE_NAME=${IMAGE_NAME}" >> "$GITHUB_ENV"
-          echo "TAG1=${TAG1}" >> "$GITHUB_ENV"
-          echo "TAG2=${TAG2}" >> "$GITHUB_ENV"
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v4
+      - name: Verify package checksums
+        working-directory: release
+        run: sha256sum --check SHA256SUMS
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -53,17 +191,412 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          password: ${{ github.token }}
 
-      - name: Build and push
-        uses: docker/build-push-action@v7
+      - name: Publish immutable image and verified prerelease
+        id: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IMAGE_DIGEST: ${{ needs.build.outputs.image_digest }}
+          IMAGE_REPOSITORY: ${{ needs.metadata.outputs.image_repository }}
+          SOURCE_SHA: ${{ needs.metadata.outputs.commit_sha }}
+          VERSION: ${{ needs.metadata.outputs.version }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+
+          release_tag="pre-${VERSION}"
+          registry_tag="$release_tag"
+          image_tag="${IMAGE_REPOSITORY}:${release_tag}"
+          if ! release_status=$(curl --silent --show-error \
+            --output "$RUNNER_TEMP/release-status.json" \
+            --write-out '%{http_code}' \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header 'Accept: application/vnd.github+json' \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/$release_tag"); then
+            echo "Could not determine whether Release $release_tag exists" >&2
+            exit 1
+          fi
+          case "$release_status" in
+            200)
+              echo "Release $release_tag already exists; refusing to overwrite it" >&2
+              exit 1
+              ;;
+            404) ;;
+            *)
+              echo "GitHub returned HTTP $release_status while checking Release $release_tag" >&2
+              exit 1
+              ;;
+          esac
+
+          if ! ref_status=$(curl --silent --show-error \
+            --output "$RUNNER_TEMP/ref-status.json" \
+            --write-out '%{http_code}' \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header 'Accept: application/vnd.github+json' \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/git/ref/tags/$release_tag"); then
+            echo "Could not determine whether tag $release_tag exists" >&2
+            exit 1
+          fi
+          case "$ref_status" in
+            200)
+              echo "Tag $release_tag already exists; refusing to reuse it" >&2
+              exit 1
+              ;;
+            404) ;;
+            *)
+              echo "GitHub returned HTTP $ref_status while checking tag $release_tag" >&2
+              exit 1
+              ;;
+          esac
+
+          manifest=$(docker buildx imagetools inspect "${IMAGE_REPOSITORY}@${IMAGE_DIGEST}" --raw)
+          resolved_digest="sha256:$(printf '%s' "$manifest" | sha256sum | cut -d ' ' -f1)"
+          if [ "$resolved_digest" != "$IMAGE_DIGEST" ]; then
+            echo "Resolved digest $resolved_digest differs from $IMAGE_DIGEST" >&2
+            exit 1
+          fi
+          if ! jq -e -f .github/scripts/validate-container-index.jq \
+            <<< "$manifest" >/dev/null; then
+            echo "Candidate is not a strict amd64/arm64 OCI index with matching attestations" >&2
+            exit 1
+          fi
+
+          prospective_manifest=$(docker buildx imagetools create --dry-run "${IMAGE_REPOSITORY}@${IMAGE_DIGEST}")
+          if [ "$prospective_manifest" != "$manifest" ]; then
+            echo "Immutable tag dry-run differs from the validated manifest" >&2
+            exit 1
+          fi
+
+          validate_image_identity() {
+            local digest="$1"
+            local image_configs
+            image_configs=$(docker buildx imagetools inspect \
+              "${IMAGE_REPOSITORY}@${digest}" --format '{{json .Image}}')
+            jq -e --arg source "$SOURCE_SHA" --arg version "$VERSION" '
+              type == "object" and
+              ([keys[]] | sort) == ["linux/amd64", "linux/arm64"] and
+              .["linux/amd64"].architecture == "amd64" and
+              .["linux/amd64"].os == "linux" and
+              .["linux/arm64"].architecture == "arm64" and
+              .["linux/arm64"].os == "linux" and
+              all(.[];
+                .config.Labels["org.opencontainers.image.revision"] == $source and
+                .config.Labels["org.opencontainers.image.version"] == $version)
+            ' <<< "$image_configs" >/dev/null
+          }
+
+          if ! validate_image_identity "$IMAGE_DIGEST"; then
+            echo "Candidate configs do not match source $SOURCE_SHA and version $VERSION" >&2
+            exit 1
+          fi
+
+          registry_repository="${IMAGE_REPOSITORY#ghcr.io/}"
+          if [ "$registry_repository" = "$IMAGE_REPOSITORY" ]; then
+            echo "Unexpected image repository: $IMAGE_REPOSITORY" >&2
+            exit 1
+          fi
+          registry_token_response=$(curl --fail --silent --show-error \
+            --user "${GITHUB_ACTOR}:${GH_TOKEN}" \
+            --get 'https://ghcr.io/token' \
+            --data-urlencode 'service=ghcr.io' \
+            --data-urlencode "scope=repository:${registry_repository}:pull,push")
+          registry_token=$(jq -er '.token // .access_token' <<< "$registry_token_response")
+
+          get_registry_manifest() {
+            local headers_path="$1"
+            local body_path="$2"
+            local status
+            if ! status=$(curl --silent --show-error \
+              --dump-header "$headers_path" \
+              --output "$body_path" \
+              --write-out '%{http_code}' \
+              --header "Authorization: Bearer $registry_token" \
+              --header 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json' \
+              "https://ghcr.io/v2/${registry_repository}/manifests/${registry_tag}"); then
+              echo "Could not query $image_tag" >&2
+              return 1
+            fi
+            printf '%s' "$status"
+          }
+
+          validate_registry_manifest() {
+            local headers_path="$1"
+            local body_path="$2"
+            local body_digest
+            local header_digest
+            header_digest=$(tr -d '\r' < "$headers_path" | \
+              awk 'tolower($1) == "docker-content-digest:" { print $2 }' | tail -n 1)
+            body_digest="sha256:$(sha256sum "$body_path" | cut -d ' ' -f1)"
+            if [[ ! "$header_digest" =~ ^sha256:[0-9a-f]{64}$ ]] || \
+               [ "$header_digest" != "$body_digest" ]; then
+              echo "$image_tag returned an invalid Docker-Content-Digest" >&2
+              return 1
+            fi
+            if ! jq -e -f .github/scripts/validate-container-index.jq \
+              "$body_path" >/dev/null; then
+              echo "$image_tag is not a strict amd64/arm64 OCI index with matching attestations" >&2
+              return 1
+            fi
+            if ! validate_image_identity "$body_digest"; then
+              echo "$image_tag cannot be proven to match source $SOURCE_SHA and version $VERSION" >&2
+              return 1
+            fi
+            printf '%s' "$body_digest"
+          }
+
+          preflight_status=$(get_registry_manifest \
+            "$RUNNER_TEMP/preflight-version-headers" \
+            "$RUNNER_TEMP/preflight-version-manifest.json")
+          case "$preflight_status" in
+            200)
+              validate_registry_manifest \
+                "$RUNNER_TEMP/preflight-version-headers" \
+                "$RUNNER_TEMP/preflight-version-manifest.json" >/dev/null
+              ;;
+            404) ;;
+            *)
+              echo "GHCR returned HTTP $preflight_status while checking $image_tag" >&2
+              exit 1
+              ;;
+          esac
+
+          release_marker="<!-- sdw-publish-run:${GITHUB_RUN_ID}:${GITHUB_RUN_ATTEMPT} -->"
+          created_release_id=""
+          cleanup() {
+            status=$?
+            trap - EXIT
+            if [ "$status" -ne 0 ]; then
+              # Keep the immutable Git tag as a consumed version reservation.
+              # A retry must advance instead of attaching this version to a
+              # different source after a partial registry or Release failure.
+              cleanup_release_id="$created_release_id"
+              if [ -z "$cleanup_release_id" ]; then
+                candidate_release=$(gh api \
+                  "repos/${GITHUB_REPOSITORY}/releases/tags/$release_tag" \
+                  2>/dev/null || true)
+                if jq -e --arg tag "$release_tag" --arg marker "$release_marker" '
+                  .tag_name == $tag and ((.body // "") | contains($marker))
+                ' <<< "$candidate_release" >/dev/null 2>&1; then
+                  cleanup_release_id=$(jq -er '.id | select(type == "number") | tostring' \
+                    <<< "$candidate_release")
+                fi
+              fi
+              if [[ "$cleanup_release_id" =~ ^[0-9]+$ ]]; then
+                owned_release=$(gh api \
+                  "repos/${GITHUB_REPOSITORY}/releases/$cleanup_release_id" \
+                  2>/dev/null || true)
+                if jq -e --arg tag "$release_tag" --arg marker "$release_marker" '
+                  .tag_name == $tag and ((.body // "") | contains($marker))
+                ' <<< "$owned_release" >/dev/null 2>&1; then
+                  gh api --method DELETE \
+                    "repos/${GITHUB_REPOSITORY}/releases/$cleanup_release_id" \
+                    >/dev/null 2>&1 || true
+                fi
+              fi
+            fi
+            exit "$status"
+          }
+          trap cleanup EXIT
+
+          if ! gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+            --field ref="refs/tags/$release_tag" \
+            --field sha="$SOURCE_SHA" >/dev/null; then
+            echo "Could not atomically create $release_tag; another ref may have won the race" >&2
+            exit 1
+          fi
+          tag_sha=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/$release_tag" --jq '.object.sha')
+          if [ "$tag_sha" != "$SOURCE_SHA" ]; then
+            echo "Created tag $release_tag does not point to $SOURCE_SHA" >&2
+            exit 1
+          fi
+
+          locked_status=$(get_registry_manifest \
+            "$RUNNER_TEMP/locked-version-headers" \
+            "$RUNNER_TEMP/locked-version-manifest.json")
+          case "$locked_status" in
+            200)
+              IMAGE_DIGEST=$(validate_registry_manifest \
+                "$RUNNER_TEMP/locked-version-headers" \
+                "$RUNNER_TEMP/locked-version-manifest.json")
+              manifest=$(< "$RUNNER_TEMP/locked-version-manifest.json")
+              echo "::notice::Reusing verified immutable image $image_tag at $IMAGE_DIGEST"
+              ;;
+            404)
+              docker buildx imagetools create \
+                --tag "$image_tag" \
+                --metadata-file "$RUNNER_TEMP/version-metadata.json" \
+                "${IMAGE_REPOSITORY}@${IMAGE_DIGEST}"
+              tagged_digest=$(jq -er '."containerimage.descriptor".digest' "$RUNNER_TEMP/version-metadata.json")
+              if [ "$tagged_digest" != "$IMAGE_DIGEST" ]; then
+                echo "$image_tag resolved to $tagged_digest instead of $IMAGE_DIGEST" >&2
+                exit 1
+              fi
+              ;;
+            *)
+              echo "GHCR returned HTTP $locked_status while checking $image_tag" >&2
+              exit 1
+              ;;
+          esac
+
+          final_status=$(get_registry_manifest \
+            "$RUNNER_TEMP/final-version-headers" \
+            "$RUNNER_TEMP/final-version-manifest.json")
+          if [ "$final_status" != 200 ]; then
+            echo "GHCR returned HTTP $final_status after publishing $image_tag" >&2
+            exit 1
+          fi
+          final_digest=$(validate_registry_manifest \
+            "$RUNNER_TEMP/final-version-headers" \
+            "$RUNNER_TEMP/final-version-manifest.json")
+          tagged_manifest=$(< "$RUNNER_TEMP/final-version-manifest.json")
+          if [ "$final_digest" != "$IMAGE_DIGEST" ] || \
+             [ "$tagged_manifest" != "$manifest" ]; then
+            echo "$image_tag does not resolve to the validated manifest" >&2
+            exit 1
+          fi
+
+          release_body="${release_marker}"$'\n\n'"Container: ${IMAGE_REPOSITORY}@${IMAGE_DIGEST}"
+          created_release_id=$(gh api --method POST \
+            "repos/${GITHUB_REPOSITORY}/releases" \
+            --field tag_name="$release_tag" \
+            --field name="Pre-release ${VERSION}" \
+            --field body="$release_body" \
+            --raw-field make_latest=false \
+            --field draft=true \
+            --field prerelease=true \
+            --field generate_release_notes=true \
+            --jq '.id')
+          [[ "$created_release_id" =~ ^[0-9]+$ ]]
+          draft_release=$(gh api \
+            "repos/${GITHUB_REPOSITORY}/releases/$created_release_id")
+          jq -e --argjson id "$created_release_id" \
+            --arg tag "$release_tag" --arg marker "$release_marker" '
+            .id == $id and .tag_name == $tag and .draft == true and
+            .prerelease == true and ((.body // "") | contains($marker))
+          ' <<< "$draft_release" >/dev/null
+
+          shopt -s nullglob
+          release_assets=(release/*)
+          if [ "${#release_assets[@]}" -eq 0 ]; then
+            echo "Release bundle contains no assets" >&2
+            exit 1
+          fi
+          for asset in "${release_assets[@]}"; do
+            if [ ! -f "$asset" ]; then
+              echo "Release asset is not a regular file: $asset" >&2
+              exit 1
+            fi
+            asset_name="${asset##*/}"
+            encoded_name=$(jq -rn --arg name "$asset_name" '$name | @uri')
+            if ! upload_status=$(curl --silent --show-error \
+              --output "$RUNNER_TEMP/release-upload.json" \
+              --write-out '%{http_code}' \
+              --request POST \
+              --header "Authorization: Bearer $GH_TOKEN" \
+              --header 'Accept: application/vnd.github+json' \
+              --header 'X-GitHub-Api-Version: 2022-11-28' \
+              --header 'Content-Type: application/octet-stream' \
+              --data-binary "@$asset" \
+              "https://uploads.github.com/repos/${GITHUB_REPOSITORY}/releases/${created_release_id}/assets?name=${encoded_name}"); then
+              echo "Could not upload Release asset $asset_name" >&2
+              exit 1
+            fi
+            if [ "$upload_status" != 201 ] || \
+               ! jq -e --arg name "$asset_name" \
+                 '.name == $name and (.id | type == "number")' \
+                 "$RUNNER_TEMP/release-upload.json" >/dev/null; then
+              echo "GitHub rejected Release asset $asset_name with HTTP $upload_status" >&2
+              exit 1
+            fi
+          done
+
+          published_release=$(gh api --method PATCH \
+            "repos/${GITHUB_REPOSITORY}/releases/$created_release_id" \
+            --field draft=false \
+            --field prerelease=true \
+            --raw-field make_latest=false)
+          jq -e --argjson id "$created_release_id" --arg tag "$release_tag" \
+            --arg marker "$release_marker" '
+            .id == $id and .tag_name == $tag and .draft == false and
+            .prerelease == true and ((.body // "") | contains($marker))
+          ' <<< "$published_release" >/dev/null
+
+          published_tag_sha=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/$release_tag" --jq '.object.sha')
+          if [ "$published_tag_sha" != "$SOURCE_SHA" ]; then
+            echo "Published tag $release_tag no longer points to $SOURCE_SHA" >&2
+            exit 1
+          fi
+
+          echo "image_digest=$IMAGE_DIGEST" >> "$GITHUB_OUTPUT"
+          echo "image_tag=$image_tag" >> "$GITHUB_OUTPUT"
+          trap - EXIT
+
+  promote_moving:
+    name: Promote prerelease-latest
+    needs: [metadata, publish_version]
+    if: >-
+      !cancelled() &&
+      needs.metadata.result == 'success' &&
+      needs.publish_version.result == 'success'
+    permissions:
+      contents: read
+      packages: write
+    runs-on: ubuntu-latest
+    concurrency:
+      group: container-moving-prerelease
+      queue: max
+    steps:
+      - uses: actions/checkout@v7
         with:
-          context: .
-          file: ./Containerfile
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: |
-            ${{ env.TAG1 }}
-            ${{ env.TAG2 }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          fetch-depth: 0
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Promote moving tag from the published version
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          IMAGE_DIGEST: ${{ needs.publish_version.outputs.image_digest }}
+          IMAGE_REPOSITORY: ${{ needs.metadata.outputs.image_repository }}
+          IMAGE_TAG: ${{ needs.publish_version.outputs.image_tag }}
+          SOURCE_SHA: ${{ needs.metadata.outputs.commit_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          current_sha=$(git ls-remote --exit-code --heads origin "refs/heads/$DEFAULT_BRANCH" | cut -f1)
+          [[ "$current_sha" =~ ^[0-9a-f]{40}$ ]]
+          if [ "$current_sha" != "$SOURCE_SHA" ]; then
+            echo "::notice::Not updating prerelease-latest because the default branch moved from $SOURCE_SHA to $current_sha"
+            exit 0
+          fi
+
+          manifest=$(docker buildx imagetools inspect "${IMAGE_REPOSITORY}@${IMAGE_DIGEST}" --raw)
+          version_manifest=$(docker buildx imagetools inspect "$IMAGE_TAG" --raw)
+          if [ "$version_manifest" != "$manifest" ]; then
+            echo "$IMAGE_TAG no longer resolves to the published digest" >&2
+            exit 1
+          fi
+
+          moving_tag="${IMAGE_REPOSITORY}:prerelease-latest"
+          docker buildx imagetools create --tag "$moving_tag" "${IMAGE_REPOSITORY}@${IMAGE_DIGEST}"
+          moving_manifest=$(docker buildx imagetools inspect "$moving_tag" --raw)
+          if [ "$moving_manifest" != "$manifest" ]; then
+            echo "$moving_tag does not resolve to the published manifest" >&2
+            exit 1
+          fi
+          docker buildx imagetools inspect "$moving_tag"

@@ -4,20 +4,66 @@ import { createBrowserRouter } from "react-router";
 import { RouterProvider } from "react-router/dom";
 
 import { ProtectedRoute } from "./components/ProtectedRoute";
-import { ChatPage } from "./pages/ChatPage";
-import { DownloadedPage } from "./pages/DownloadedPage";
-import { DownloadingPage } from "./pages/DownloadingPage";
 import { ErrorPage } from "./pages/ErrorPage";
-import { FeedsPage } from "./pages/FeedsPage";
-import { FilesPage } from "./pages/FilesPage";
-import { IncidentsPage } from "./pages/IncidentsPage";
-import { LoginPage } from "./pages/LoginPage";
-import { EpisodeListPage, MainPage } from "./pages/MainPage";
-import { MetadataReviewPage } from "./pages/MetadataReviewPage";
-import { PlayerPage } from "./pages/PlayerPage";
-import { SettingsPage } from "./pages/SettingsPage";
-import { TasksPage } from "./pages/TasksPage";
-import { TodoPage } from "./pages/TodoPage";
+import { RouteLoadingBoundary } from "./routes/RouteLoadingBoundary";
+import {
+  loadChatPage,
+  loadDownloadedPage,
+  loadDownloadingPage,
+  loadFeedsPage,
+  loadFilesPage,
+  loadIncidentsPage,
+  loadLoginPage,
+  loadMainPage,
+  loadMetadataReviewPage,
+  loadPlayerPage,
+  loadSettingsPage,
+  loadTasksPage,
+  loadTodoPage,
+} from "./routes/pageLoaders";
+
+const ChatPage = React.lazy(async () => ({
+  default: (await loadChatPage()).ChatPage,
+}));
+const DownloadedPage = React.lazy(async () => ({
+  default: (await loadDownloadedPage()).DownloadedPage,
+}));
+const DownloadingPage = React.lazy(async () => ({
+  default: (await loadDownloadingPage()).DownloadingPage,
+}));
+const FeedsPage = React.lazy(async () => ({
+  default: (await loadFeedsPage()).FeedsPage,
+}));
+const FilesPage = React.lazy(async () => ({
+  default: (await loadFilesPage()).FilesPage,
+}));
+const IncidentsPage = React.lazy(async () => ({
+  default: (await loadIncidentsPage()).IncidentsPage,
+}));
+const LoginPage = React.lazy(async () => ({
+  default: (await loadLoginPage()).LoginPage,
+}));
+const MainPage = React.lazy(async () => ({
+  default: (await loadMainPage()).MainPage,
+}));
+const EpisodeListPage = React.lazy(async () => ({
+  default: (await loadMainPage()).EpisodeListPage,
+}));
+const MetadataReviewPage = React.lazy(async () => ({
+  default: (await loadMetadataReviewPage()).MetadataReviewPage,
+}));
+const PlayerPage = React.lazy(async () => ({
+  default: (await loadPlayerPage()).PlayerPage,
+}));
+const SettingsPage = React.lazy(async () => ({
+  default: (await loadSettingsPage()).SettingsPage,
+}));
+const TasksPage = React.lazy(async () => ({
+  default: (await loadTasksPage()).TasksPage,
+}));
+const TodoPage = React.lazy(async () => ({
+  default: (await loadTodoPage()).TodoPage,
+}));
 
 const router = createBrowserRouter([
   {
@@ -167,5 +213,9 @@ export const Main: React.FC = () => {
   React.useEffect(() => {
     document.title = `${t("appName")} Re:Dive`;
   }, [t]);
-  return <RouterProvider router={router} />;
+  return (
+    <RouteLoadingBoundary>
+      <RouterProvider router={router} />
+    </RouteLoadingBoundary>
+  );
 };

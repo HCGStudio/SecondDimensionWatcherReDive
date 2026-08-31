@@ -1,4 +1,5 @@
 ﻿using Microsoft.EntityFrameworkCore;
+using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Framework.FileDownload;
 using SecondDimensionWatcherReDive.Framework.Inference;
 
@@ -24,7 +25,7 @@ public class ApplicationContext : DbContext
     public DbSet<FileMapping> FileMappings { get; set; }
     public DbSet<FileNameRegexRule> FileNameRegexRules { get; set; }
     public DbSet<SubscriptionAutomationPolicy> SubscriptionAutomationPolicies { get; set; }
-    public DbSet<MigrationMarker> MigrationMarkers { get; set; }
+    public DbSet<MigrationExecutionState> MigrationStates { get; set; }
     public DbSet<WebDavToken> WebDavTokens { get; set; }
     public DbSet<MetadataReviewOperation> MetadataReviewOperations { get; set; }
     public DbSet<MetadataReviewMappingSnapshot> MetadataReviewMappingSnapshots { get; set; }
@@ -35,6 +36,7 @@ public class ApplicationContext : DbContext
     public DbSet<ApplicationSettings> ApplicationSettings { get; set; }
     public DbSet<NotificationOutboxMessage> NotificationOutboxMessages { get; set; }
     public DbSet<TodoItemState> TodoItemStates { get; set; }
+    public DbSet<AuthenticationState> AuthenticationStates { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -86,6 +88,18 @@ public class ApplicationContext : DbContext
             .Property(state => state.Key)
             .HasMaxLength(128);
 
+        modelBuilder.Entity<AuthenticationState>()
+            .Property(state => state.Id)
+            .ValueGeneratedNever();
+
+        modelBuilder.Entity<AuthenticationState>()
+            .Property(state => state.PasswordHash)
+            .HasMaxLength(128);
+
+        modelBuilder.Entity<AuthenticationState>()
+            .ToTable(table => table.HasCheckConstraint(
+                "CK_AuthenticationStates_Singleton",
+                "\"Id\" = 1"));
         modelBuilder.Entity<ApplicationSettings>()
             .Property(settings => settings.Id)
             .ValueGeneratedNever();
@@ -187,8 +201,35 @@ public class ApplicationContext : DbContext
             .HasIndex(snapshot => new { snapshot.OperationId, snapshot.Kind, snapshot.VirtualPath })
             .IsUnique();
 
-        modelBuilder.Entity<MigrationMarker>()
-            .HasKey(m => m.Key);
+        modelBuilder.Entity<MigrationExecutionState>(migration =>
+        {
+            migration.ToTable("MigrationMarkers");
+            migration.HasKey(state => new { state.Key, state.Version });
+            migration.Property(state => state.Key).HasMaxLength(256);
+            migration.Property(state => state.Version).HasDefaultValue(1);
+            migration.Property(state => state.Status)
+                .HasDefaultValue(MigrationExecutionStatus.Completed)
+                .HasSentinel((MigrationExecutionStatus)(-1));
+            migration.Property(state => state.UpdatedAt)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP");
+            migration.Property(state => state.AttemptCount)
+                .HasDefaultValue(1)
+                .HasSentinel(-1);
+            migration.Property(state => state.Checkpoint).HasMaxLength(4096);
+            migration.Property(state => state.LastErrorSummary).HasMaxLength(4096);
+            migration.ToTable(table =>
+            {
+                table.HasCheckConstraint(
+                    "CK_MigrationMarkers_Version_Positive",
+                    "\"Version\" > 0");
+                table.HasCheckConstraint(
+                    "CK_MigrationMarkers_AttemptCount_NonNegative",
+                    "\"AttemptCount\" >= 0");
+                table.HasCheckConstraint(
+                    "CK_MigrationMarkers_Status_Range",
+                    "\"Status\" BETWEEN 0 AND 3");
+            });
+        });
 
         modelBuilder.Entity<Incident>()
             .HasIndex(incident => incident.Fingerprint)

@@ -52,5 +52,9 @@ find /var/lib/sdw-redive/data-protection-keys -type f \
     -exec chown sdw-redive:sdw-redive {} + \
     -exec chmod 0600 {} +
 
-# Reload systemd
-systemctl daemon-reload
+# Package images and CI install roots do not always boot systemd as PID 1. Skip
+# the reload only there; a real systemd host must surface malformed units and
+# other daemon-reload failures to the package manager.
+if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
+    systemctl daemon-reload
+fi

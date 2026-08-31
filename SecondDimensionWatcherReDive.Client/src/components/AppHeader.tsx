@@ -1,6 +1,7 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router";
+import { mutate } from "swr";
 
 import {
   BellRing,
@@ -21,6 +22,8 @@ import {
 } from "lucide-react";
 
 import { useLoginStatus } from "../auth/hooks";
+import { clearAuth, getAuthResult } from "../auth/httpClient";
+import { revokeSession } from "../auth/utils";
 import i18n, {
   type SupportedLanguage,
   languageLabels,
@@ -29,6 +32,7 @@ import i18n, {
 import { useIncidents } from "../incidents/hooks";
 import { cn } from "../lib/cn";
 import { useTodos } from "../todos/hooks";
+import { useToast } from "./ToastProvider";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -175,6 +179,8 @@ const MobileNavMenu: React.FC<{ items: NavItem[] }> = ({ items }) => {
 
 const UserMenu: React.FC = () => {
   const { t, i18n: i18nInstance } = useTranslation();
+  const { addToast } = useToast();
+  const navigate = useNavigate();
   const resolved = (
     i18nInstance.resolvedLanguage ??
     i18nInstance.language ??
@@ -186,9 +192,29 @@ const UserMenu: React.FC = () => {
     ? (resolved as SupportedLanguage)
     : "zh-cn";
 
-  const onLogout = () => {
-    localStorage.removeItem("auth");
-    location.reload();
+  const onLogout = async () => {
+    const session = getAuthResult();
+    clearAuth();
+    const revocation = session
+      ? revokeSession(session).then(
+          () => true,
+          () => false,
+        )
+      : Promise.resolve(true);
+    await Promise.all([
+      mutate("/api/auth/verify", undefined, { revalidate: false }),
+      // An authenticated session proves registration already completed. Keep the
+      // login route from briefly presenting stale first-run registration state.
+      mutate(
+        "/api/auth/allowRegister",
+        { allow: false },
+        { revalidate: false },
+      ),
+    ]);
+    navigate("/login", { replace: true });
+    if (!(await revocation)) {
+      addToast({ title: t("user.logoutFailed"), color: "danger" });
+    }
   };
 
   return (
@@ -220,7 +246,7 @@ const UserMenu: React.FC = () => {
           </DropdownMenuItem>
         ))}
         <DropdownMenuSeparator />
-        <DropdownMenuItem color="danger" onSelect={onLogout}>
+        <DropdownMenuItem color="danger" onSelect={() => void onLogout()}>
           {t("user.logout")}
         </DropdownMenuItem>
       </DropdownMenuContent>

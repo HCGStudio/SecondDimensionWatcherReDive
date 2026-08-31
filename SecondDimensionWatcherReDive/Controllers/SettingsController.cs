@@ -216,17 +216,31 @@ internal sealed class SettingsController(IRuntimeSettingsService settingsService
         if (request.BindAddress is null) AddRequired("nfs.bindAddress");
         if (request.LeaseSeconds is null) AddRequired("nfs.leaseSeconds");
         if (request.MaxConnections is null) AddRequired("nfs.maxConnections");
+        if (request.IdleTimeoutSeconds is null) AddRequired("nfs.idleTimeoutSeconds");
+        if (request.AllowAnonymous is null) AddRequired("nfs.allowAnonymous");
+        if (request.AllowedNetworks is null) AddRequired("nfs.allowedNetworks");
         return request.Enabled is not null
                && request.Port is not null
                && request.BindAddress is not null
                && request.LeaseSeconds is not null
                && request.MaxConnections is not null
+               && request.IdleTimeoutSeconds is not null
+               && request.AllowAnonymous is not null
+               && request.AllowedNetworks is not null
             ? new NfsSettingsValues(
                 request.Enabled.Value,
                 request.Port.Value,
                 request.BindAddress,
                 request.LeaseSeconds.Value,
                 request.MaxConnections.Value)
+            {
+                IdleTimeoutSeconds = request.IdleTimeoutSeconds.Value,
+                AllowAnonymous = request.AllowAnonymous.Value,
+                AllowedNetworks = request.AllowedNetworks
+                    .Select(value => value.Trim())
+                    .Where(value => value.Length > 0)
+                    .ToArray()
+            }
             : null;
     }
 
@@ -319,6 +333,9 @@ internal sealed class SettingsController(IRuntimeSettingsService settingsService
                 values.Nfs.BindAddress,
                 values.Nfs.LeaseSeconds,
                 values.Nfs.MaxConnections,
+                values.Nfs.IdleTimeoutSeconds,
+                values.Nfs.AllowAnonymous,
+                values.Nfs.AllowedNetworks,
                 RestartRequired: true,
                 state.PendingRestart),
             new NotificationSettingsResponse(

@@ -21,7 +21,30 @@ export const refreshJwtToken = async (
     },
     body: JSON.stringify(oldToken),
   });
-  return (await response.json()) as IAuthResult;
+  const result = (await response.json()) as IAuthResult;
+  if (!response.ok || !result.success) throw new Error("Refresh failed");
+  return result;
+};
+
+export const revokeSession = async (auth: IAuthResult): Promise<void> => {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5_000);
+  try {
+    const response = await fetch("/api/auth/logout", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${auth.token}`,
+      },
+      body: JSON.stringify({ refreshToken: auth.refreshToken }),
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      throw new Error(`Logout failed (${response.status})`);
+    }
+  } finally {
+    clearTimeout(timeout);
+  }
 };
 
 export const register = async (

@@ -16,6 +16,7 @@ import { IFileStoreListResult } from "../file/IFileStoreListResult";
 import { useFileList } from "../file/hooks";
 import { setPlaybackWatched } from "../playback/api";
 import { usePlaybackStates } from "../playback/hooks";
+import { preloadPlayerPage } from "../routes/pageLoaders";
 import { useToast } from "./ToastProvider";
 import { Button } from "./ui/Button";
 import { Spinner } from "./ui/Spinner";
@@ -164,6 +165,8 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({ animationId }) => {
                       variant="icon"
                       size="sm"
                       aria-label={t("browser.play")}
+                      onMouseEnter={preloadPlayerPage}
+                      onFocus={preloadPlayerPage}
                       onClick={() => onPlay(path)}
                     >
                       <Play size={16} />

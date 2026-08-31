@@ -10,6 +10,7 @@ namespace SecondDimensionWatcherReDive.IntegrationTest.PostgreSql;
 /// Testcontainers owns container cleanup even when a test fails or the run is cancelled.
 /// </summary>
 [TestClass]
+[DoNotParallelize]
 public sealed class FileMappingRepositoryPostgreSqlTests
 {
     private static readonly PostgreSqlContainer Database = new PostgreSqlBuilder("postgres:17-alpine")
@@ -19,7 +20,6 @@ public sealed class FileMappingRepositoryPostgreSqlTests
         .Build();
 
     private static FileMappingRepositoryPostgreSqlTestFixture Fixture = null!;
-    private static TodoRepositoryPostgreSqlTestFixture TodoFixture = null!;
 
     [ClassInitialize]
     public static async Task InitializeAsync(TestContext _)
@@ -27,7 +27,6 @@ public sealed class FileMappingRepositoryPostgreSqlTests
         await Database.StartAsync();
         Fixture = new FileMappingRepositoryPostgreSqlTestFixture(Database.GetConnectionString());
         await Fixture.InitializeAsync(CancellationToken.None);
-        TodoFixture = new TodoRepositoryPostgreSqlTestFixture(Database.GetConnectionString());
     }
 
     [ClassCleanup]
@@ -37,7 +36,6 @@ public sealed class FileMappingRepositoryPostgreSqlTests
     public async Task ResetDatabaseAsync()
     {
         await Fixture.ResetAsync(CancellationToken.None);
-        await TodoFixture.ResetAsync(CancellationToken.None);
     }
 
     [TestMethod]
@@ -92,130 +90,24 @@ public sealed class FileMappingRepositoryPostgreSqlTests
     }
 
     [TestMethod]
-    public async Task RecurringIncident_GetsFreshTodoState_WhileFirstOccurrenceKeepsLegacyKey()
+    public async Task PreviousSchema_UpgradesToLatest_WithoutLosingExistingData()
     {
-        var now = DateTimeOffset.UtcNow;
-        var incidentId = Guid.NewGuid();
-        var first = await TodoFixture.UpsertIncidentAsync(
-            Incident(incidentId, now),
-            CancellationToken.None);
+        var result = await Fixture.UpgradeFromPreviousMigrationAsync(CancellationToken.None);
 
-        Assert.AreEqual(1, first.Occurrence);
-        var firstKey = $"incident:{incidentId}";
-        var initialTodos = await TodoFixture.GetTodosAsync(
-            false, false, now, 0, 10, CancellationToken.None);
-        Assert.HasCount(1, initialTodos.Items);
-        Assert.AreEqual(firstKey, initialTodos.Items[0].Key);
-
-        await TodoFixture.SetTodoStateAsync(
-            [firstKey],
-            now,
-            true,
-            now.AddHours(1),
-            true,
-            CancellationToken.None);
-        var hidden = await TodoFixture.GetTodosAsync(
-            false, false, now, 0, 10, CancellationToken.None);
-        Assert.AreEqual(0, hidden.TotalCount);
-        Assert.AreEqual(0, hidden.UnreadCount);
-
-        await TodoFixture.ResolveIncidentAsync(
-            first.Fingerprint,
-            now.AddMinutes(1),
-            CancellationToken.None);
-        var reopened = await TodoFixture.UpsertIncidentAsync(
-            Incident(Guid.NewGuid(), now.AddMinutes(2)),
-            CancellationToken.None);
-        var duplicateReport = await TodoFixture.UpsertIncidentAsync(
-            Incident(Guid.NewGuid(), now.AddMinutes(3)),
-            CancellationToken.None);
-
-        Assert.AreEqual(incidentId, reopened.Id);
-        Assert.AreEqual(2, reopened.Occurrence);
-        Assert.AreEqual(2, duplicateReport.Occurrence);
-        var currentTodos = await TodoFixture.GetTodosAsync(
-            false, false, now.AddMinutes(3), 0, 10, CancellationToken.None);
-        Assert.HasCount(1, currentTodos.Items);
-        Assert.AreEqual($"incident:{incidentId}:2", currentTodos.Items[0].Key);
-        Assert.IsNull(currentTodos.Items[0].ReadAt);
-        Assert.IsNull(currentTodos.Items[0].SnoozedUntil);
-        Assert.AreEqual(1, currentTodos.UnreadCount);
-        Assert.AreEqual(1, await TodoFixture.GetTodoStateCountAsync(CancellationToken.None));
-    }
-
-    [TestMethod]
-    public async Task TodoQuery_FiltersCountsAndPaginatesAcrossSourcesInPostgreSql()
-    {
-        var now = DateTimeOffset.UtcNow;
-        var automationIds = new List<Guid>();
-        for (var index = 0; index < 4; index++)
-        {
-            automationIds.Add(await TodoFixture.SeedAnimationInfoAsync(
-                $"automation-{index}",
-                now.AddMinutes(-index),
-                SubscriptionAutomationDisposition.Notified,
-                MetadataReviewStatus.Identified,
-                CancellationToken.None));
-        }
-        var metadataId = await TodoFixture.SeedAnimationInfoAsync(
-            "metadata",
-            now.AddMinutes(-5),
-            null,
-            MetadataReviewStatus.LowConfidence,
-            CancellationToken.None);
-        var incident = await TodoFixture.UpsertIncidentAsync(
-            Incident(Guid.NewGuid(), now.AddMinutes(-6)),
-            CancellationToken.None);
-
-        await TodoFixture.SetTodoStateAsync(
-            [$"automation:{automationIds[0]}"],
-            now,
-            true,
-            null,
-            false,
-            CancellationToken.None);
-        await TodoFixture.SetTodoStateAsync(
-            [$"metadata:{metadataId}"],
-            null,
-            false,
-            now.AddHours(1),
-            true,
-            CancellationToken.None);
-
-        var firstPage = await TodoFixture.GetTodosAsync(
-            false, false, now, 0, 2, CancellationToken.None);
-        var secondPage = await TodoFixture.GetTodosAsync(
-            false, false, now, 2, 2, CancellationToken.None);
-        var allStates = await TodoFixture.GetTodosAsync(
-            true, true, now, 0, 10, CancellationToken.None);
-
-        Assert.AreEqual(4, firstPage.TotalCount);
-        Assert.AreEqual(4, firstPage.UnreadCount);
-        Assert.HasCount(2, firstPage.Items);
-        Assert.HasCount(2, secondPage.Items);
-        Assert.AreEqual(6, allStates.TotalCount);
-        Assert.AreEqual(4, allStates.UnreadCount);
-        Assert.HasCount(6, allStates.Items);
-        CollectionAssert.Contains(
-            allStates.Items.Select(item => item.Key).ToList(),
-            $"incident:{incident.Id}");
+        Assert.AreNotEqual(result.PreviousMigration, result.LatestMigration);
+        Assert.AreEqual(result.LatestMigration, result.AppliedMigrations[^1]);
+        Assert.IsTrue(result.MarkerSurvived);
+        Assert.AreEqual("jsonb", result.ValuesJsonType);
+        CollectionAssert.IsSubsetOf(
+            new[]
+            {
+                "CK_ApplicationSettings_Revision_Positive",
+                "CK_ApplicationSettings_Singleton"
+            },
+            result.CheckConstraints);
     }
 
     private static FileMapping Mapping(Guid animationInfoId, string virtualPath) =>
         new(Guid.NewGuid(), animationInfoId, virtualPath, "/physical/" + Guid.NewGuid(), "local");
 
-    private static Incident Incident(Guid id, DateTimeOffset occurredAt) => new(
-        id,
-        "feedfailure:integration-test",
-        IncidentType.FeedFailure,
-        IncidentSeverity.Error,
-        "Feed failed",
-        "The feed could not be loaded.",
-        "https://example.test/feed",
-        occurredAt,
-        occurredAt,
-        null,
-        0,
-        null,
-        null);
 }

@@ -1,6 +1,7 @@
-import { ChevronDown } from "lucide-react";
 import React from "react";
 import { useTranslation } from "react-i18next";
+
+import { ChevronDown } from "lucide-react";
 
 import { AiModel } from "../../chat/types";
 import {

@@ -86,6 +86,9 @@ export interface NfsSettings {
   bindAddress: string;
   leaseSeconds: number;
   maxConnections: number;
+  idleTimeoutSeconds: number;
+  allowAnonymous: boolean;
+  allowedNetworks: string[];
   restartRequired: boolean;
   pendingRestart: boolean;
 }

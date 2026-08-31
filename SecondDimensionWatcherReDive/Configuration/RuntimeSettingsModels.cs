@@ -3,6 +3,7 @@ using System.Net;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Configuration;
 using SecondDimensionWatcherReDive.Framework.Notifications;
+using SecondDimensionWatcherReDive.Framework.Networking;
 
 namespace SecondDimensionWatcherReDive.Configuration;
 
@@ -129,7 +130,14 @@ internal sealed record NfsSettingsValues(
     int Port,
     string BindAddress,
     int LeaseSeconds,
-    int MaxConnections);
+    int MaxConnections)
+{
+    public int IdleTimeoutSeconds { get; init; } = 120;
+
+    public bool AllowAnonymous { get; init; }
+
+    public IReadOnlyList<string> AllowedNetworks { get; init; } = ["127.0.0.0/8", "::1/128"];
+}
 
 internal sealed record NotificationSettingsValues(
     bool WebhookEnabled,
@@ -267,9 +275,15 @@ internal static class RuntimeSettingsDefaults
             new NfsSettingsValues(
                 configuration.GetValue<bool?>("Nfs:Enabled") ?? false,
                 configuration.GetValue<int?>("Nfs:Port") ?? 2049,
-                configuration["Nfs:BindAddress"] ?? "0.0.0.0",
+                configuration["Nfs:BindAddress"] ?? "127.0.0.1",
                 configuration.GetValue<int?>("Nfs:LeaseSeconds") ?? 90,
-                configuration.GetValue<int?>("Nfs:MaxConnections") ?? 32),
+                configuration.GetValue<int?>("Nfs:MaxConnections") ?? 32)
+            {
+                IdleTimeoutSeconds = configuration.GetValue<int?>("Nfs:IdleTimeoutSeconds") ?? 120,
+                AllowAnonymous = configuration.GetValue<bool?>("Nfs:AllowAnonymous") ?? false,
+                AllowedNetworks = configuration.GetSection("Nfs:AllowedNetworks").Get<string[]>()
+                                  ?? ["127.0.0.0/8", "::1/128"]
+            },
             new NotificationSettingsValues(
                 configuration.GetValue<bool?>("Notifications:Webhook:Enabled") ?? false,
                 ReadNotificationEvents(configuration["Notifications:Events"]),
@@ -428,6 +442,20 @@ internal static class RuntimeSettingsValidator
             Add(errors, "nfs.bindAddress", "The bind address must be an IP address.");
         RequireRange(errors, "nfs.leaseSeconds", values.Nfs.LeaseSeconds, 1, int.MaxValue);
         RequireRange(errors, "nfs.maxConnections", values.Nfs.MaxConnections, 1, int.MaxValue);
+        RequireRange(errors, "nfs.idleTimeoutSeconds", values.Nfs.IdleTimeoutSeconds, 1, 3600);
+        if (values.Nfs.AllowedNetworks.Count == 0)
+            Add(errors, "nfs.allowedNetworks", "At least one non-empty CIDR is required.");
+        for (var index = 0; index < values.Nfs.AllowedNetworks.Count; index++)
+        {
+            var network = values.Nfs.AllowedNetworks[index];
+            if (string.IsNullOrWhiteSpace(network))
+            {
+                Add(errors, $"nfs.allowedNetworks.{index}", "The value must be a valid IPv4 or IPv6 CIDR.");
+                continue;
+            }
+            if (!IpCidrRange.TryParse(network, requirePrefix: true, out _))
+                Add(errors, $"nfs.allowedNetworks.{index}", "The value must be a valid IPv4 or IPv6 CIDR.");
+        }
 
         if (values.Notifications.Events.Count == 0)
             Add(errors, "notifications.events", "Select at least one notification event.");
@@ -652,6 +680,11 @@ internal static class RuntimeSettingsFlattener
         flattened["Nfs:BindAddress"] = values.Nfs.BindAddress;
         flattened["Nfs:LeaseSeconds"] = values.Nfs.LeaseSeconds.ToString(CultureInfo.InvariantCulture);
         flattened["Nfs:MaxConnections"] = values.Nfs.MaxConnections.ToString(CultureInfo.InvariantCulture);
+        flattened["Nfs:IdleTimeoutSeconds"] =
+            values.Nfs.IdleTimeoutSeconds.ToString(CultureInfo.InvariantCulture);
+        flattened["Nfs:AllowAnonymous"] = values.Nfs.AllowAnonymous.ToString(CultureInfo.InvariantCulture);
+        for (var index = 0; index < values.Nfs.AllowedNetworks.Count; index++)
+            flattened[$"Nfs:AllowedNetworks:{index}"] = values.Nfs.AllowedNetworks[index];
 
         flattened["Notifications:Webhook:Enabled"] =
             values.Notifications.WebhookEnabled.ToString(CultureInfo.InvariantCulture);

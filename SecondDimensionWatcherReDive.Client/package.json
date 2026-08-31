@@ -32,7 +32,9 @@
   "devDependencies": {
     "@parcel/core": "^2.16.4",
     "@parcel/transformer-inline-string": "2.16.4",
+    "@playwright/test": "^1.62.1",
     "@trivago/prettier-plugin-sort-imports": "^6.0.2",
+    "@types/node": "^24",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.5",
     "@yarnpkg/sdks": "^3.3.1",
@@ -50,9 +52,16 @@
   "scripts": {
     "start": "parcel --no-cache",
     "build": "rimraf dist && parcel build --no-source-maps",
+    "build:budget": "yarn build && yarn bundle:check",
+    "bundle:check": "node scripts/check-bundle-budget.mjs",
     "mock": "node mock-server.mjs",
+    "serve:e2e": "node ../deployments/ci/frontend-artifact-server.mjs dist",
     "dev": "node mock-server.mjs & parcel --no-cache",
-    "test": "tsx --test src/playback/mkv/*.test.ts src/todos/*.test.ts"
+    "test": "yarn test:unit",
+    "test:unit": "tsx --test src/auth/*.test.ts src/playback/*.test.ts src/playback/mkv/*.test.ts src/pages/*.test.tsx scripts/*.test.mjs",
+    "test:e2e": "playwright test",
+    "typecheck": "tsc --noEmit",
+    "format:check": "prettier --check ."
   },
   "source": "src/index.html",
   "@parcel/resolver-default": {
