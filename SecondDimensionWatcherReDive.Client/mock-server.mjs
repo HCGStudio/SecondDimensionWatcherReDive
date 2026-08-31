@@ -2481,7 +2481,6 @@ async function route(method, pathname, searchParams, req, res) {
   if (method === "GET" && pathname === "/api/animationinfo/grouped") {
     const all = [...animations.values()];
     const grouped = new Map();
-    const uncategorized = [];
     for (const item of all) {
       if (item.animation && item.animation.tmdbId) {
         const key = item.animation.tmdbId;
@@ -2495,30 +2494,102 @@ async function route(method, pathname, searchParams, req, res) {
           });
         }
         grouped.get(key).episodes.push(item);
-      } else {
-        uncategorized.push(item);
       }
     }
-    const animationsList = [...grouped.values()]
+    const items = [...grouped.values()]
       .map((g) => {
         g.episodes.sort(
           (a, b) =>
             new Date(b.publishTime).getTime() -
               new Date(a.publishTime).getTime() || b.id.localeCompare(a.id),
         );
-        g.episodeCount = g.episodes.length;
-        return g;
+        const episodeCount = new Set(
+          g.episodes
+            .filter((episode) => episode.episode != null)
+            .map((episode) => `${episode.season ?? ""}:${episode.episode}`),
+        ).size;
+        return {
+          tmdbId: g.tmdbId,
+          name: g.name,
+          originalName: g.originalName,
+          posterPath: g.posterPath,
+          episodeCount,
+          releaseCount: g.episodes.length,
+          automationAttentionCount: g.episodes.filter((episode) =>
+            ["Notified", "PendingConfirmation", "AutoDownloadFailed"].includes(
+              episode.automationDisposition ?? "",
+            ),
+          ).length,
+          latestPublishTime: g.episodes[0].publishTime,
+        };
       })
-      .sort((a, b) => {
-        const aMax = Math.max(
-          ...a.episodes.map((e) => new Date(e.publishTime).getTime()),
-        );
-        const bMax = Math.max(
-          ...b.episodes.map((e) => new Date(e.publishTime).getTime()),
-        );
-        return bMax - aMax;
-      });
-    return json(res, { animations: animationsList, uncategorized });
+      .sort(
+        (a, b) =>
+          new Date(b.latestPublishTime).getTime() -
+            new Date(a.latestPublishTime).getTime() ||
+          b.tmdbId.localeCompare(a.tmdbId),
+      );
+    const take = parseInt(searchParams.get("take") ?? "24", 10);
+    const offset = parseInt(searchParams.get("cursor") ?? "0", 10);
+    return json(res, {
+      items: items.slice(offset, offset + take),
+      nextCursor: offset + take < items.length ? String(offset + take) : null,
+    });
+  }
+
+  if (method === "GET" && pathname === "/api/animationinfo/uncategorized") {
+    const items = [...animations.values()]
+      .filter((item) => !item.animation?.tmdbId)
+      .sort(
+        (a, b) =>
+          new Date(b.publishTime).getTime() -
+            new Date(a.publishTime).getTime() || b.id.localeCompare(a.id),
+      );
+    const take = parseInt(searchParams.get("take") ?? "24", 10);
+    const offset = parseInt(searchParams.get("cursor") ?? "0", 10);
+    return json(res, {
+      items: items.slice(offset, offset + take),
+      nextCursor: offset + take < items.length ? String(offset + take) : null,
+    });
+  }
+
+  const episodeCatalogMatch = pathname.match(
+    /^\/api\/animationinfo\/grouped\/([^/]+)\/episodes$/,
+  );
+  if (method === "GET" && episodeCatalogMatch) {
+    const tmdbId = decodeURIComponent(episodeCatalogMatch[1]);
+    const episodes = [...animations.values()]
+      .filter((item) => item.animation?.tmdbId === tmdbId)
+      .sort(
+        (a, b) =>
+          new Date(b.publishTime).getTime() -
+            new Date(a.publishTime).getTime() || b.id.localeCompare(a.id),
+      );
+    if (episodes.length === 0) return json(res, {}, 404);
+    const take = parseInt(searchParams.get("take") ?? "50", 10);
+    const offset = parseInt(searchParams.get("cursor") ?? "0", 10);
+    const episodeCount = new Set(
+      episodes
+        .filter((episode) => episode.episode != null)
+        .map((episode) => `${episode.season ?? ""}:${episode.episode}`),
+    ).size;
+    const first = episodes[0];
+    return json(res, {
+      animation: {
+        ...first.animation,
+        episodeCount,
+        releaseCount: episodes.length,
+        automationAttentionCount: episodes.filter((episode) =>
+          ["Notified", "PendingConfirmation", "AutoDownloadFailed"].includes(
+            episode.automationDisposition ?? "",
+          ),
+        ).length,
+        latestPublishTime: first.publishTime,
+      },
+      episodes: episodes.slice(offset, offset + take),
+      nextCursor:
+        offset + take < episodes.length ? String(offset + take) : null,
+    });
   }
 
   if (method === "GET" && pathname === "/api/animationinfo/downloading") {

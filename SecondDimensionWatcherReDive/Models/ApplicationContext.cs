@@ -17,12 +17,16 @@ public class ApplicationContext : DbContext
     public DbSet<Animation> Animations { get; set; }
     public DbSet<AnimationGroup> AnimationGroups { get; set; }
     public DbSet<AnimationInfo> AnimationInfo { get; set; }
+    public DbSet<AnimationCatalogEntry> AnimationCatalogEntries { get; set; }
+    public DbSet<AnimationCatalogState> AnimationCatalogStates { get; set; }
     public DbSet<Feed> Feeds { get; set; }
     public DbSet<SeasonBangumi> SeasonBangumis { get; set; }
     public DbSet<BangumiSubgroup> BangumiSubgroups { get; set; }
     public DbSet<ChatConversation> ChatConversations { get; set; }
     public DbSet<ChatMessage> ChatMessages { get; set; }
     public DbSet<FileMapping> FileMappings { get; set; }
+    public DbSet<FileSystemEntry> FileSystemEntries { get; set; }
+    public DbSet<FileSystemDirectoryState> FileSystemDirectoryStates { get; set; }
     public DbSet<FileNameRegexRule> FileNameRegexRules { get; set; }
     public DbSet<SubscriptionAutomationPolicy> SubscriptionAutomationPolicies { get; set; }
     public DbSet<MigrationExecutionState> MigrationStates { get; set; }
@@ -164,6 +168,49 @@ public class ApplicationContext : DbContext
             .HasIndex(animation => animation.TmdbId)
             .IsUnique();
 
+        modelBuilder.Entity<AnimationCatalogEntry>()
+            .HasKey(entry => entry.AnimationId);
+
+        modelBuilder.Entity<AnimationCatalogEntry>()
+            .HasOne(entry => entry.Animation)
+            .WithOne()
+            .HasForeignKey<AnimationCatalogEntry>(entry => entry.AnimationId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<AnimationCatalogEntry>()
+            .HasIndex(entry => entry.TmdbId)
+            .IsUnique();
+
+        modelBuilder.Entity<AnimationCatalogEntry>()
+            .HasIndex(entry => new { entry.LatestPublishTime, entry.TmdbId })
+            .IsDescending();
+
+        modelBuilder.Entity<AnimationCatalogEntry>()
+            .ToTable(table =>
+            {
+                table.HasCheckConstraint(
+                    "CK_AnimationCatalogEntries_Counts",
+                    "\"EpisodeCount\" >= 0 AND \"ReleaseCount\" > 0 AND \"AutomationAttentionCount\" >= 0");
+            });
+
+        modelBuilder.Entity<AnimationCatalogState>()
+            .HasKey(state => state.Id);
+
+        modelBuilder.Entity<AnimationCatalogState>()
+            .Property(state => state.Id)
+            .ValueGeneratedNever();
+
+        modelBuilder.Entity<AnimationCatalogState>()
+            .ToTable(table =>
+            {
+                table.HasCheckConstraint(
+                    "CK_AnimationCatalogStates_Singleton",
+                    "\"Id\" = 1");
+                table.HasCheckConstraint(
+                    "CK_AnimationCatalogStates_Revision_Positive",
+                    "\"Revision\" > 0");
+            });
+
         modelBuilder.Entity<AnimationGroup>()
             .HasIndex(group => group.Name)
             .IsUnique();
@@ -183,6 +230,12 @@ public class ApplicationContext : DbContext
 
         modelBuilder.Entity<AnimationInfo>()
             .HasIndex(info => new { info.MetadataStatus, info.PublishTime });
+
+        modelBuilder.Entity<AnimationInfo>()
+            .HasIndex("AnimationId", "PublishTime", "Id");
+
+        modelBuilder.Entity<AnimationInfo>()
+            .HasIndex(info => new { info.MediaLibraryMissingSince, info.PublishTime, info.Id });
 
         modelBuilder.Entity<AnimationInfo>()
             .HasIndex(info => info.CurrentMetadataReviewOperationId)
@@ -345,6 +398,10 @@ public class ApplicationContext : DbContext
             .HasKey(preference => preference.UserId);
 
         modelBuilder.Entity<PlaybackPreference>()
+            .Property(preference => preference.UserId)
+            .ValueGeneratedNever();
+
+        modelBuilder.Entity<PlaybackPreference>()
             .Property(preference => preference.SubtitleLanguage)
             .HasMaxLength(64);
 
@@ -370,6 +427,67 @@ public class ApplicationContext : DbContext
 
         modelBuilder.Entity<FileMapping>()
             .HasIndex(m => m.AnimationInfoId);
+
+        modelBuilder.Entity<FileMapping>()
+            .ToTable(table => table.HasCheckConstraint(
+                "CK_FileMappings_VirtualPath_Canonical",
+                "\"VirtualPath\" ~ '^/[^/]+(?:/[^/]+)*$' AND \"VirtualPath\" !~ '(^|/)\\.\\.?($|/)'"));
+
+        modelBuilder.Entity<MetadataReviewMappingSnapshot>()
+            .ToTable(table => table.HasCheckConstraint(
+                "CK_MetadataReviewMappingSnapshots_VirtualPath_Canonical",
+                "\"VirtualPath\" ~ '^/[^/]+(?:/[^/]+)*$' AND \"VirtualPath\" !~ '(^|/)\\.\\.?($|/)'"));
+
+        modelBuilder.Entity<FileSystemEntry>()
+            .HasKey(entry => entry.Path);
+
+        modelBuilder.Entity<FileSystemEntry>()
+            .Property(entry => entry.EntryId)
+            .HasDefaultValueSql("gen_random_uuid()");
+
+        modelBuilder.Entity<FileSystemEntry>()
+            .Property(entry => entry.Cookie)
+            .HasDefaultValueSql("nextval('sdw_file_system_entry_cookie_seq')");
+
+        modelBuilder.Entity<FileSystemEntry>()
+            .HasIndex(entry => entry.EntryId)
+            .IsUnique();
+
+        modelBuilder.Entity<FileSystemEntry>()
+            .HasIndex(entry => entry.Cookie)
+            .IsUnique();
+
+        modelBuilder.Entity<FileSystemEntry>()
+            .HasIndex(entry => new { entry.ParentPath, entry.IsDirectory, entry.Name })
+            .IsDescending(false, true, false);
+
+        modelBuilder.Entity<FileSystemEntry>()
+            .HasIndex(entry => new { entry.ParentPath, entry.Cookie });
+
+        modelBuilder.Entity<FileSystemEntry>()
+            .HasIndex(entry => entry.FileMappingId)
+            .IsUnique()
+            .HasFilter("\"FileMappingId\" IS NOT NULL");
+
+        modelBuilder.Entity<FileSystemEntry>()
+            .HasOne(entry => entry.FileMapping)
+            .WithOne()
+            .HasForeignKey<FileSystemEntry>(entry => entry.FileMappingId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<FileSystemEntry>()
+            .ToTable(table => table.HasCheckConstraint(
+                "CK_FileSystemEntries_NodeShape",
+                "(\"IsDirectory\" AND \"FileMappingId\" IS NULL AND \"DescendantFileCount\" > 0) OR " +
+                "(NOT \"IsDirectory\" AND \"FileMappingId\" IS NOT NULL AND \"DescendantFileCount\" = 1)"));
+
+        modelBuilder.Entity<FileSystemDirectoryState>()
+            .HasKey(state => state.Path);
+
+        modelBuilder.Entity<FileSystemDirectoryState>()
+            .ToTable(table => table.HasCheckConstraint(
+                "CK_FileSystemDirectoryStates_Generation_Positive",
+                "\"Generation\" > 0"));
 
         modelBuilder.Entity<FileNameRegexRule>()
             .HasIndex(rule => new { rule.AnimationId, rule.Pattern })
