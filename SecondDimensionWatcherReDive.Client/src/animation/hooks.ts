@@ -39,14 +39,11 @@ const useRevisionBoundPages = <T extends ICursorPage>(
 ) => {
   const revision = useCatalogRevision();
   const currentRevision = revision.data?.revision;
-  const pages = useSWRInfinite<T>(
-    (_pageIndex, previousPage) => {
-      if (currentRevision === undefined) return null;
-      const url = getUrl(previousPage);
-      return url === null ? null : `${url}&catalogRevision=${currentRevision}`;
-    },
-    fetcher,
-  );
+  const pages = useSWRInfinite<T>((_pageIndex, previousPage) => {
+    if (currentRevision === undefined) return null;
+    const url = getUrl(previousPage);
+    return url === null ? null : `${url}&catalogRevision=${currentRevision}`;
+  }, fetcher);
   const previousRevision = useRef<number | undefined>(undefined);
   useEffect(() => {
     if (currentRevision === undefined) return;
