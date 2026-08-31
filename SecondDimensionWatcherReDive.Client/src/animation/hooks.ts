@@ -47,7 +47,7 @@ const useRevisionBoundPages = <T extends ICursorPage>(
     },
     fetcher,
   );
-  const previousRevision = useRef<number>();
+  const previousRevision = useRef<number | undefined>(undefined);
   useEffect(() => {
     if (currentRevision === undefined) return;
     if (
