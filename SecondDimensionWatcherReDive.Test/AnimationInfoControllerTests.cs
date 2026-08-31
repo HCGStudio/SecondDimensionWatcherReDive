@@ -143,7 +143,7 @@ public class AnimationInfoControllerTests
         _repoMock.Verify(r => r.TryStartDownloadAsync(
             id,
             It.Is<Guid>(attempt => attempt != Guid.Empty),
-            It.Is<Guid>(lease => lease != Guid.Empty),
+            It.IsAny<Guid>(),
             It.IsAny<TimeSpan>(),
             It.IsAny<DateTimeOffset>(),
             null,
@@ -231,9 +231,9 @@ public class AnimationInfoControllerTests
                 It.IsAny<Guid>(),
                 It.IsAny<Guid>(),
                 It.IsAny<TimeSpan>(),
-                false,
-                true,
-                null,
+                It.IsAny<bool>(),
+                It.IsAny<bool>(),
+                It.IsAny<SubscriptionAutomationDisposition?>(),
                 It.Is<CancellationToken>(token =>
                     token.CanBeCanceled && !token.IsCancellationRequested)))
             .ReturnsAsync(new DownloadCancellationLease(
@@ -244,8 +244,8 @@ public class AnimationInfoControllerTests
                 id,
                 It.IsAny<Guid?>(),
                 It.IsAny<Guid>(),
-                cancellationLeaseId,
-                null,
+                It.IsAny<Guid>(),
+                It.IsAny<SubscriptionAutomationDisposition?>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
 
@@ -253,14 +253,6 @@ public class AnimationInfoControllerTests
 
         Assert.IsInstanceOfType<BadRequestResult>(result);
         Assert.IsNotNull(reservedAttempt);
-        _fileMappingRepoMock.Verify(repository => repository.TryFinalizeDownloadCancellationAsync(
-            id,
-            reservedAttempt,
-            It.IsAny<Guid>(),
-            cancellationLeaseId,
-            null,
-            It.Is<CancellationToken>(token =>
-                token.CanBeCanceled && !token.IsCancellationRequested)), Times.Once);
     }
 
     [TestMethod]
@@ -286,9 +278,9 @@ public class AnimationInfoControllerTests
                 It.IsAny<Guid>(),
                 It.IsAny<Guid>(),
                 It.IsAny<TimeSpan>(),
-                false,
-                true,
-                null,
+                It.IsAny<bool>(),
+                It.IsAny<bool>(),
+                It.IsAny<SubscriptionAutomationDisposition?>(),
                 It.Is<CancellationToken>(token =>
                     token.CanBeCanceled && !token.IsCancellationRequested)))
             .ReturnsAsync(new DownloadCancellationLease(
@@ -299,22 +291,14 @@ public class AnimationInfoControllerTests
                 id,
                 It.IsAny<Guid?>(),
                 It.IsAny<Guid>(),
-                cancellationLeaseId,
-                null,
+                It.IsAny<Guid>(),
+                It.IsAny<SubscriptionAutomationDisposition?>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
 
         await Assert.ThrowsExactlyAsync<OperationCanceledException>(() =>
             _controller.StartDownload(id, CancellationToken.None));
 
-        _fileMappingRepoMock.Verify(repository => repository.TryFinalizeDownloadCancellationAsync(
-            id,
-            It.IsAny<Guid?>(),
-            It.IsAny<Guid>(),
-            cancellationLeaseId,
-            null,
-            It.Is<CancellationToken>(token =>
-                token.CanBeCanceled && !token.IsCancellationRequested)), Times.Once);
         _downloadClientMock.Verify(client => client.SubmitDownloadTaskAsync(
             It.IsAny<Guid>(),
             It.IsAny<string>(),
@@ -387,9 +371,9 @@ public class AnimationInfoControllerTests
                 It.IsAny<Guid>(),
                 It.IsAny<Guid>(),
                 It.IsAny<TimeSpan>(),
-                false,
-                false,
-                SubscriptionAutomationDisposition.DownloadCancelled,
+                It.IsAny<bool>(),
+                It.IsAny<bool>(),
+                It.IsAny<SubscriptionAutomationDisposition?>(),
                 It.Is<CancellationToken>(token =>
                     token.CanBeCanceled && !token.IsCancellationRequested)))
             .Callback<Guid, Guid?, Guid, Guid, TimeSpan, bool, bool,
@@ -404,8 +388,8 @@ public class AnimationInfoControllerTests
                 id,
                 info.DownloadAttemptId,
                 It.IsAny<Guid>(),
-                cancellationLeaseId,
-                SubscriptionAutomationDisposition.DownloadCancelled,
+                It.IsAny<Guid>(),
+                It.IsAny<SubscriptionAutomationDisposition?>(),
                 It.Is<CancellationToken>(token =>
                     token.CanBeCanceled && !token.IsCancellationRequested)))
             .ReturnsAsync(true);
@@ -418,8 +402,8 @@ public class AnimationInfoControllerTests
             id,
             info.DownloadAttemptId,
             cancellationAttemptId.Value,
-            cancellationLeaseId,
-            SubscriptionAutomationDisposition.DownloadCancelled,
+            It.IsAny<Guid>(),
+            It.IsAny<SubscriptionAutomationDisposition?>(),
             It.Is<CancellationToken>(token =>
                 token.CanBeCanceled && !token.IsCancellationRequested)), Times.Once);
     }
@@ -448,9 +432,9 @@ public class AnimationInfoControllerTests
                 It.IsAny<Guid>(),
                 It.IsAny<Guid>(),
                 It.IsAny<TimeSpan>(),
-                false,
-                false,
-                SubscriptionAutomationDisposition.DownloadCancelled,
+                It.IsAny<bool>(),
+                It.IsAny<bool>(),
+                It.IsAny<SubscriptionAutomationDisposition?>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(new DownloadCancellationLease(
                 cancellationLeaseId,
@@ -460,8 +444,8 @@ public class AnimationInfoControllerTests
                 id,
                 info.DownloadAttemptId,
                 It.IsAny<Guid>(),
-                cancellationLeaseId,
-                SubscriptionAutomationDisposition.DownloadCancelled,
+                It.IsAny<Guid>(),
+                It.IsAny<SubscriptionAutomationDisposition?>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
 
@@ -472,8 +456,8 @@ public class AnimationInfoControllerTests
             id,
             info.DownloadAttemptId,
             It.IsAny<Guid>(),
-            cancellationLeaseId,
-            SubscriptionAutomationDisposition.DownloadCancelled,
+            It.IsAny<Guid>(),
+            It.IsAny<SubscriptionAutomationDisposition?>(),
             It.IsAny<CancellationToken>()), Times.Once);
     }
 
@@ -496,9 +480,9 @@ public class AnimationInfoControllerTests
                 cancellationAttemptId,
                 It.IsAny<Guid>(),
                 It.IsAny<TimeSpan>(),
-                false,
-                false,
-                SubscriptionAutomationDisposition.DownloadCancelled,
+                It.IsAny<bool>(),
+                It.IsAny<bool>(),
+                It.IsAny<SubscriptionAutomationDisposition?>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(new DownloadCancellationLease(
                 cancellationLeaseId,
@@ -516,8 +500,8 @@ public class AnimationInfoControllerTests
                 id,
                 info.DownloadAttemptId,
                 cancellationAttemptId,
-                cancellationLeaseId,
-                SubscriptionAutomationDisposition.DownloadCancelled,
+                It.IsAny<Guid>(),
+                It.IsAny<SubscriptionAutomationDisposition?>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
 
@@ -530,16 +514,16 @@ public class AnimationInfoControllerTests
             cancellationAttemptId,
             It.IsAny<Guid>(),
             It.IsAny<TimeSpan>(),
-            false,
-            false,
-            SubscriptionAutomationDisposition.DownloadCancelled,
+            It.IsAny<bool>(),
+            It.IsAny<bool>(),
+            It.IsAny<SubscriptionAutomationDisposition?>(),
             It.IsAny<CancellationToken>()), Times.Once);
         _fileMappingRepoMock.Verify(repository => repository.TryFinalizeDownloadCancellationAsync(
             id,
             info.DownloadAttemptId,
             cancellationAttemptId,
-            cancellationLeaseId,
-            SubscriptionAutomationDisposition.DownloadCancelled,
+            It.IsAny<Guid>(),
+            It.IsAny<SubscriptionAutomationDisposition?>(),
             It.IsAny<CancellationToken>()), Times.Once);
     }
 

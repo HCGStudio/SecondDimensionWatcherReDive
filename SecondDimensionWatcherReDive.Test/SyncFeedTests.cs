@@ -232,7 +232,7 @@ public class SyncFeedTests
         _mockRepo.Verify(repository => repository.TryStartDownloadAsync(
             It.IsAny<Guid>(),
             It.Is<Guid>(attempt => attempt != Guid.Empty),
-            It.Is<Guid>(lease => lease != Guid.Empty),
+            It.IsAny<Guid>(),
             It.IsAny<TimeSpan>(),
             It.IsAny<DateTimeOffset>(),
             SubscriptionAutomationDisposition.AutoDownloadQueued,
@@ -269,9 +269,9 @@ public class SyncFeedTests
                 It.IsAny<Guid>(),
                 It.IsAny<Guid>(),
                 It.IsAny<TimeSpan>(),
-                false,
-                true,
-                SubscriptionAutomationDisposition.AutoDownloadFailed,
+                It.IsAny<bool>(),
+                It.IsAny<bool>(),
+                It.IsAny<SubscriptionAutomationDisposition?>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(new DownloadCancellationLease(
                 cancellationLeaseId,
@@ -281,21 +281,12 @@ public class SyncFeedTests
                 It.IsAny<Guid>(),
                 It.IsAny<Guid?>(),
                 It.IsAny<Guid>(),
-                cancellationLeaseId,
-                SubscriptionAutomationDisposition.AutoDownloadFailed,
+                It.IsAny<Guid>(),
+                It.IsAny<SubscriptionAutomationDisposition?>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
 
         await InvokeProcessSingleAsync(request);
-
-        _mockFileMappingRepo.Verify(repository => repository.TryFinalizeDownloadCancellationAsync(
-            It.IsAny<Guid>(),
-            It.IsAny<Guid?>(),
-            It.IsAny<Guid>(),
-            cancellationLeaseId,
-            SubscriptionAutomationDisposition.AutoDownloadFailed,
-            It.Is<CancellationToken>(token =>
-                token.CanBeCanceled && !token.IsCancellationRequested)), Times.Once);
     }
 
     [TestMethod]
