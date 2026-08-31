@@ -52,7 +52,9 @@ public class FileExplorer(
             node.IsDirectory,
             node.Mapping,
             node.Mapping is not null
-                && infoByPath.TryGetValue(node.Mapping.PhysicalPath, out var info)
+                && infoByPath.TryGetValue(
+                    new FileStorePath(node.Mapping.FileStore, node.Mapping.PhysicalPath),
+                    out var info)
                     ? info
                     : null,
             node.EntryId,
@@ -115,11 +117,11 @@ public class FileExplorer(
         return await store.OpenReadStreamAsync(mapping.PhysicalPath, cancellationToken);
     }
 
-    private async Task<IReadOnlyDictionary<string, FileStoreInfo>> StatFilesAsync(
+    private async Task<IReadOnlyDictionary<FileStorePath, FileStoreInfo>> StatFilesAsync(
         IReadOnlyList<FileSystemEntry> nodes,
         CancellationToken cancellationToken)
     {
-        var infoByPath = new Dictionary<string, FileStoreInfo>(StringComparer.Ordinal);
+        var infoByPath = new Dictionary<FileStorePath, FileStoreInfo>();
         foreach (var group in nodes
                      .Where(node => !node.IsDirectory && node.Mapping is not null)
                      .GroupBy(node => node.Mapping!.FileStore, StringComparer.Ordinal))
@@ -133,7 +135,7 @@ public class FileExplorer(
                     group.Select(node => node.Mapping!.PhysicalPath).ToArray(),
                     cancellationToken);
                 foreach (var pair in batch)
-                    infoByPath[pair.Key] = pair.Value;
+                    infoByPath[new FileStorePath(group.Key, pair.Key)] = pair.Value;
             }
             catch (Exception) when (!cancellationToken.IsCancellationRequested)
             {
@@ -144,6 +146,8 @@ public class FileExplorer(
 
         return infoByPath;
     }
+
+    private readonly record struct FileStorePath(string FileStore, string PhysicalPath);
 
     private static string NormalizeDirectory(string path)
     {

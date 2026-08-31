@@ -49,9 +49,13 @@ internal sealed class NfsVfsAdapter(
                 : null;
         }
 
-        var entry = await mappingRepository.FindFileSystemEntryByIdAsync(
-            handle.EntryId,
-            cancellationToken);
+        var entry = handle.LegacyVirtualPath is { } legacyVirtualPath
+            ? await mappingRepository.FindFileSystemEntryAsync(
+                legacyVirtualPath,
+                cancellationToken)
+            : await mappingRepository.FindFileSystemEntryByIdAsync(
+                handle.EntryId,
+                cancellationToken);
         if (entry is null) return null;
 
         var actualKind = entry.IsDirectory ? NfsHandleKind.Directory : NfsHandleKind.File;
@@ -110,7 +114,7 @@ internal sealed class NfsVfsAdapter(
             cancellationToken);
         if (entry is null) return null;
         return await ResolveAsync(
-            new NfsFileHandle(
+            NfsFileHandle.ForStableEntry(
                 entry.IsDirectory ? NfsHandleKind.Directory : NfsHandleKind.File,
                 entry.EntryId),
             cancellationToken);

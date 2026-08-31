@@ -47,22 +47,47 @@ internal sealed partial class QueryAnimationsTool(
 
         var take = Math.Clamp(param.Take ?? 20, 1, 50);
         var cursor = param.GroupedCursor;
-        var animationPage = cursor?.AnimationsComplete == true
-            ? new AnimationCatalogPage([], null)
-            : await animationInfoRepository.GetAnimationCatalogPageAsync(
+        var queryAnimations = cursor?.AnimationsComplete != true;
+        var queryUncategorized = cursor?.UncategorizedComplete != true;
+        if (cursor is not null
+            && ((queryAnimations && cursor.Animations is null)
+                || (queryUncategorized && cursor.Uncategorized is null)))
+        {
+            return new ToolFailureResult(
+                "Invalid grouped_cursor; restart without grouped_cursor");
+        }
+
+        if (cursor?.Animations is { } animationCursor
+            && cursor.Uncategorized is { } uncategorizedCursor
+            && animationCursor.Revision != uncategorizedCursor.Revision)
+        {
+            return new ToolFailureResult(
+                "The grouped catalog cursor contains inconsistent revisions; restart without grouped_cursor");
+        }
+
+        var animationPage = queryAnimations
+            ? await animationInfoRepository.GetAnimationCatalogPageAsync(
                 cursor?.Animations,
                 take,
-                cancellationToken);
-        var uncategorizedPage = cursor?.UncategorizedComplete == true
-            ? new AnimationInfoSummaryPage([], null)
-            : await animationInfoRepository.GetUncategorizedPageAsync(
+                cancellationToken)
+            : null;
+        var uncategorizedPage = queryUncategorized
+            ? await animationInfoRepository.GetUncategorizedPageAsync(
                 cursor?.Uncategorized,
                 take,
-                cancellationToken);
-        if (animationPage.CursorInvalidated || uncategorizedPage.CursorInvalidated)
+                cancellationToken)
+            : null;
+        if (animationPage?.CursorInvalidated == true
+            || uncategorizedPage?.CursorInvalidated == true
+            || (animationPage is not null
+                && uncategorizedPage is not null
+                && animationPage.Revision != uncategorizedPage.Revision))
+        {
             return new ToolFailureResult(
                 "The grouped catalog changed while it was being paged; restart without grouped_cursor");
-        var animations = animationPage.Items.Select(item => new AnimationGroupItem(
+        }
+
+        var animations = (animationPage?.Items ?? []).Select(item => new AnimationGroupItem(
                 item.TmdbId,
                 item.Name,
                 item.OriginalName,
@@ -71,16 +96,14 @@ internal sealed partial class QueryAnimationsTool(
                 item.ReleaseCount,
                 item.AutomationAttentionCount))
             .ToList();
-        var uncategorized = uncategorizedPage.Items.Select(ToSummary).ToList();
-        var animationsComplete = cursor?.AnimationsComplete == true
-                                 || animationPage.NextCursor is null;
-        var uncategorizedComplete = cursor?.UncategorizedComplete == true
-                                    || uncategorizedPage.NextCursor is null;
+        var uncategorized = (uncategorizedPage?.Items ?? []).Select(ToSummary).ToList();
+        var animationsComplete = !queryAnimations || animationPage!.NextCursor is null;
+        var uncategorizedComplete = !queryUncategorized || uncategorizedPage!.NextCursor is null;
         var nextCursor = animationsComplete && uncategorizedComplete
             ? null
             : new AnimationGroupedCursor(
-                animationPage.NextCursor,
-                uncategorizedPage.NextCursor,
+                animationPage?.NextCursor,
+                uncategorizedPage?.NextCursor,
                 animationsComplete,
                 uncategorizedComplete);
         return new ToolSuccessResult<AnimationGroupedToolResult>(

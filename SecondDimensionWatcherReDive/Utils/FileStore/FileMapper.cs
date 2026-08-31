@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Numerics;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Framework.FileDownload;
 using SecondDimensionWatcherReDive.Framework.FileStore;
@@ -553,8 +555,7 @@ public partial class FileMapper(
         CancellationToken cancellationToken)
     {
         var result = mappings.ToList();
-        var maximumAttempts = Math.Max(128, checked(result.Count * 16));
-        for (var attempt = 0; attempt < maximumAttempts; attempt++)
+        while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var batchConflict = FindBatchConflict(result);
@@ -589,9 +590,6 @@ public partial class FileMapper(
             result[proposedIndex] = result[proposedIndex] with { VirtualPath = adjustedPath };
             warnings?.Add("collisionAdjusted");
         }
-
-        throw new InvalidOperationException(
-            "The virtual-path namespace could not be resolved within the bounded collision budget.");
     }
 
     private static (int TargetIndex, int OtherIndex)? FindBatchConflict(
@@ -651,9 +649,15 @@ public partial class FileMapper(
             if (open > 0 && stem[open - 1] == ' ')
             {
                 var numberPart = stem[(open + 1)..^1];
-                if (int.TryParse(numberPart, out var current))
+                if (BigInteger.TryParse(
+                        numberPart,
+                        NumberStyles.None,
+                        CultureInfo.InvariantCulture,
+                        out var current))
                 {
-                    var newStem = stem[..(open + 1)] + (current + 1) + ")";
+                    var newStem = stem[..(open + 1)]
+                                  + (current + BigInteger.One).ToString(CultureInfo.InvariantCulture)
+                                  + ")";
                     return (dir.Length > 0 ? dir + "/" : "/") + newStem + ext;
                 }
             }

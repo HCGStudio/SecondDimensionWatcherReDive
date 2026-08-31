@@ -155,7 +155,7 @@ internal sealed partial class NfsCompoundDispatcher(
         if (resolved is null)
             return WriteStatus(writer, NfsConstants.ErrNoEnt);
 
-        ctx.CurrentFh = new NfsFileHandle(resolved.Kind, resolved.EntryId);
+        ctx.CurrentFh = NfsFileHandle.ForStableEntry(resolved.Kind, resolved.EntryId);
         return WriteOk(writer);
     }
 
@@ -171,7 +171,7 @@ internal sealed partial class NfsCompoundDispatcher(
             return WriteStatus(writer, NfsConstants.ErrStale);
         ctx.CurrentFh = parent.Kind == NfsHandleKind.Root
             ? NfsFileHandle.Root
-            : new NfsFileHandle(parent.Kind, parent.EntryId);
+            : NfsFileHandle.ForStableEntry(parent.Kind, parent.EntryId);
         return WriteOk(writer);
     }
 
@@ -248,7 +248,7 @@ internal sealed partial class NfsCompoundDispatcher(
         var directoryBytes = 0L;
         foreach (var child in page.Items)
         {
-            var childHandle = new NfsFileHandle(child.Kind, child.EntryId);
+            var childHandle = NfsFileHandle.ForStableEntry(child.Kind, child.EntryId);
             var attrs = BuildAttrSource(ctx, childHandle, child.Size, child.MTime);
 
             var directoryInfoBuffer = new ArrayBufferWriter<byte>();
@@ -376,7 +376,7 @@ internal sealed partial class NfsCompoundDispatcher(
         if (resolved.Kind != NfsHandleKind.File)
             return WriteStatus(writer, NfsConstants.ErrIsDir);
 
-        ctx.CurrentFh = new NfsFileHandle(NfsHandleKind.File, resolved.EntryId);
+        ctx.CurrentFh = NfsFileHandle.ForStableEntry(NfsHandleKind.File, resolved.EntryId);
         var stateId = opens.Allocate(op.ClientId, ctx.CurrentFh.ToBytes());
 
         writer.WriteUInt32(NfsConstants.Ok);
