@@ -54,6 +54,7 @@ public sealed class LibrarySearchRepository(Models.ApplicationContext context)
         int? ExpectedEpisodeCount,
         bool IsDownloadFinished,
         bool IsActiveRelease,
+        Guid? DownloadCancellationId,
         int ReleaseScore,
         DateTimeOffset PublishTime,
         Guid? SourceFeedId,
@@ -405,6 +406,7 @@ public sealed class LibrarySearchRepository(Models.ApplicationContext context)
                 info.ExpectedEpisodeCount,
                 info.IsDownloadFinished,
                 info.IsActiveRelease,
+                info.DownloadCancellationId,
                 info.ReleaseScore,
                 info.PublishTime,
                 info.SourceFeedId,
@@ -417,6 +419,13 @@ public sealed class LibrarySearchRepository(Models.ApplicationContext context)
             .ToHashSetAsync(cancellationToken);
         var policies = await context.SubscriptionAutomationPolicies.AsNoTracking()
             .ToDictionaryAsync(policy => policy.FeedId, cancellationToken);
+        var unavailableCandidateIds = await context.ReleaseUpgradeOperations.AsNoTracking()
+            .Where(operation =>
+                releaseIds.Contains(operation.CandidateReleaseId) &&
+                operation.Status != ReleaseUpgradeStatus.Failed)
+            .Select(operation => operation.CandidateReleaseId)
+            .Distinct()
+            .ToHashSetAsync(cancellationToken);
 
         return releases
             .Where(info => info.Season is > 0)
@@ -426,7 +435,7 @@ public sealed class LibrarySearchRepository(Models.ApplicationContext context)
                 info.AnimationName,
                 Season = info.Season!.Value
             })
-            .Select(group => BuildIntegrity(group, mappedIds, policies))
+            .Select(group => BuildIntegrity(group, mappedIds, policies, unavailableCandidateIds))
             .OrderBy(item => item.AnimationName)
             .ThenBy(item => item.Season)
             .ToList();
@@ -435,7 +444,8 @@ public sealed class LibrarySearchRepository(Models.ApplicationContext context)
     private static LibraryIntegritySummary BuildIntegrity(
         IEnumerable<IntegrityRelease> source,
         IReadOnlySet<Guid> mappedIds,
-        IReadOnlyDictionary<Guid, Models.SubscriptionAutomationPolicy> policies)
+        IReadOnlyDictionary<Guid, Models.SubscriptionAutomationPolicy> policies,
+        IReadOnlySet<Guid> unavailableCandidateIds)
     {
         var releases = source.ToList();
         var first = releases[0];
@@ -465,7 +475,11 @@ public sealed class LibrarySearchRepository(Models.ApplicationContext context)
                 .FirstOrDefault();
             if (current is null) continue;
             var candidate = episodeGroup
-                .Where(info => info.Id != current.Id && info.ReleaseScore > current.ReleaseScore)
+                .Where(info =>
+                    !info.IsActiveRelease &&
+                    info.DownloadCancellationId is null &&
+                    !unavailableCandidateIds.Contains(info.Id) &&
+                    info.ReleaseScore > current.ReleaseScore)
                 .OrderByDescending(info => info.ReleaseScore)
                 .ThenByDescending(info => info.PublishTime)
                 .FirstOrDefault();
