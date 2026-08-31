@@ -487,6 +487,51 @@ jobs:
           echo "digest=$manifest_digest" >> "$GITHUB_OUTPUT"
           docker buildx imagetools inspect "${IMAGE_REPOSITORY}@${manifest_digest}"
 
+  container_smoke:
+    name: Candidate runtime smoke (${{ matrix.arch }})
+    needs: container
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.commit_sha }}
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Pull exact multi-architecture candidate
+        env:
+          IMAGE_DIGEST: ${{ needs.container.outputs.digest }}
+          IMAGE_REPOSITORY: ${{ inputs.image_repository }}
+        run: |
+          set -euo pipefail
+          [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          docker pull "${IMAGE_REPOSITORY}@${IMAGE_DIGEST}"
+
+      - name: Verify architecture, migrations, HTTP, and SPA
+        env:
+          EXPECTED_ARCHITECTURE: ${{ matrix.arch }}
+          IMAGE_DIGEST: ${{ needs.container.outputs.digest }}
+          IMAGE_REPOSITORY: ${{ inputs.image_repository }}
+        run: >-
+          bash .github/scripts/container-runtime-smoke.sh
+          "${IMAGE_REPOSITORY}@${IMAGE_DIGEST}" "$EXPECTED_ARCHITECTURE"
+
   validate_artifacts:
     name: Validate complete artifact set
     needs:
@@ -495,6 +540,7 @@ jobs:
       - portable_package
       - fuse_packages
       - container
+      - container_smoke
     permissions:
       contents: read
       packages: read

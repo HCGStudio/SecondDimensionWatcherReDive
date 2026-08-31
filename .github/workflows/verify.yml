@@ -123,80 +123,11 @@ jobs:
         if: matrix.smoke
         shell: bash
         env:
+          EXPECTED_ARCHITECTURE: ${{ matrix.arch }}
           VERIFY_IMAGE: sdw-redive:verify-${{ matrix.arch }}
-        run: |
-          set -Eeuo pipefail
-
-          network="sdw-verify-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          database="sdw-verify-db-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          application="sdw-verify-app-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-
-          cleanup() {
-            status=$?
-            if [ "$status" -ne 0 ]; then
-              docker logs "$database" 2>&1 || true
-              docker logs "$application" 2>&1 || true
-            fi
-            docker rm -f "$application" "$database" >/dev/null 2>&1 || true
-            docker network rm "$network" >/dev/null 2>&1 || true
-            exit "$status"
-          }
-          trap cleanup EXIT
-
-          docker network create "$network"
-          docker run --detach \
-            --name "$database" \
-            --network "$network" \
-            --network-alias postgres \
-            --env POSTGRES_USER=sdw \
-            --env POSTGRES_PASSWORD=sdw_ci_password \
-            --env POSTGRES_DB=sdw \
-            postgres:16-alpine
-
-          for attempt in {1..30}; do
-            if docker exec "$database" pg_isready --username sdw --dbname sdw; then
-              break
-            fi
-            if [ "$attempt" -eq 30 ]; then
-              echo "PostgreSQL did not become ready" >&2
-              exit 1
-            fi
-            sleep 2
-          done
-
-          docker run --detach \
-            --name "$application" \
-            --network "$network" \
-            --publish 127.0.0.1:5097:8080 \
-            --env ASPNETCORE_URLS=http://+:8080 \
-            --env ConnectionStrings__sdw='Host=postgres;Username=sdw;Password=sdw_ci_password;Database=sdw' \
-            --env JwtSecret='ci-only-secret-at-least-32-characters' \
-            --env PasswordFile=/tmp/password.json \
-            --env DataProtection__KeyRingPath=/tmp/data-protection-keys \
-            --env FileStore__Local=/tmp/downloads \
-            --env DisableCors=true \
-            "$VERIFY_IMAGE"
-
-          for attempt in {1..60}; do
-            if curl --fail --silent --show-error http://127.0.0.1:5097/ > homepage.html; then
-              break
-            fi
-            if ! docker inspect --format '{{.State.Running}}' "$application" | grep --quiet true; then
-              echo "Application container exited before becoming healthy" >&2
-              exit 1
-            fi
-            if [ "$attempt" -eq 60 ]; then
-              echo "Application did not become healthy" >&2
-              exit 1
-            fi
-            sleep 2
-          done
-
-          migration_count=$(docker exec "$database" \
-            psql --username sdw --dbname sdw --tuples-only --no-align \
-            --command 'SELECT COUNT(*) FROM "__EFMigrationsHistory";')
-          test "$migration_count" -gt 0
-          grep --fixed-strings --quiet '<div id=app></div>' homepage.html
+        run: >-
+          bash .github/scripts/container-runtime-smoke.sh
+          "$VERIFY_IMAGE" "$EXPECTED_ARCHITECTURE"
 
   quality_gate:
     name: Quality gate

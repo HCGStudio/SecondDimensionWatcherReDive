@@ -18,7 +18,7 @@
 
 1. 所有 Linux、Windows、portable 和 FUSE 制品使用同一版本与 commit 构建；
 2. amd64 使用 `ubuntu-latest`、arm64 使用 `ubuntu-24.04-arm` 分别按 digest 构建，再合并成本次 run 专用的 `candidate-<commit>-<run>` 候选；
-3. 检查全部预期文件、SHA-256 校验和以及 `linux/amd64`、`linux/arm64` manifest；
+3. 检查全部预期文件、SHA-256 校验和以及 `linux/amd64`、`linux/arm64` manifest，并在两个原生 runner 上按最终 candidate digest 拉取镜像，分别验证实际架构、PostgreSQL 迁移、HTTP 与 SPA；
 4. 通过 GitHub refs API 以 create-only 操作把 `pre-<version>` Git tag 绑定到已验证提交，取得该版本的发布锁；
 5. 创建或安全复用同名不可变镜像标签，上传附件并发布 prerelease；
 6. 最后在串行 promotion job 中更新 `prerelease-latest`，并逐字节复核其 raw manifest。
