@@ -7,6 +7,17 @@ if [[ -z "$image" || -z "$deb_package" || ! -f "$deb_package" ]]; then
     echo "usage: $0 IMAGE /path/to/sdw-redive.deb" >&2
     exit 2
 fi
+if ! command -v apt-get >/dev/null 2>&1; then
+    echo "delivery smoke requires apt-get to resolve Debian package dependencies" >&2
+    exit 2
+fi
+deb_package="$(realpath "$deb_package")"
+declared_dependencies="$(dpkg-deb --field "$deb_package" Depends)"
+if ! grep -Eq '(^|,)[[:space:]]*aspnetcore-runtime-10\.0([[:space:]]|\(|,|$)' \
+    <<<"$declared_dependencies"; then
+    echo "Debian package does not declare aspnetcore-runtime-10.0: $declared_dependencies" >&2
+    exit 2
+fi
 if dpkg-query -W -f='${db:Status-Status}' sdw-redive 2>/dev/null | grep -q '^installed$'; then
     echo "refusing to overwrite an existing sdw-redive installation" >&2
     exit 2
@@ -39,7 +50,9 @@ cleanup() {
     docker rm --force "$database_container" >/dev/null 2>&1
     docker network rm "$network" >/dev/null 2>&1
     if [[ "$package_installed" == "1" ]]; then
-        sudo dpkg --purge sdw-redive >/dev/null 2>&1
+        sudo env DEBIAN_FRONTEND=noninteractive \
+            apt-get purge --yes sdw-redive >/dev/null 2>&1 ||
+            sudo dpkg --purge sdw-redive >/dev/null 2>&1
     fi
     if [[ "$account_created" == "1" ]]; then
         sudo userdel sdw-redive >/dev/null 2>&1
@@ -129,11 +142,24 @@ docker exec "$database_container" psql --username postgres --dbname sdw_containe
     "SELECT to_regclass('\"ApplicationSettings\"') IS NOT NULL;" | grep -qx t
 docker rm --force "$application_container" >/dev/null
 
+sudo apt-get update
 package_installed=1
 account_created=1
-sudo dpkg --force-depends --install "$deb_package" >"$smoke_root/dpkg.log" 2>&1
+# The unprivileged runner shell owns smoke_root and intentionally captures apt's output.
+# shellcheck disable=SC2024
+if ! sudo env DEBIAN_FRONTEND=noninteractive \
+    apt-get install --yes --no-install-recommends "$deb_package" \
+    >"$smoke_root/apt-install.log" 2>&1; then
+    cat "$smoke_root/apt-install.log" >&2
+    exit 1
+fi
 dpkg-query -W -f='${db:Status-Status}\n' sdw-redive | grep -qx installed
+dpkg-query -W -f='${db:Status-Status}\n' aspnetcore-runtime-10.0 | grep -qx installed
+sudo apt-get check
+/usr/bin/dotnet --list-runtimes | grep -Eq '^Microsoft\.AspNetCore\.App 10\.'
 
+# The unprivileged runner shell intentionally captures the service process output.
+# shellcheck disable=SC2024
 sudo --user=sdw-redive env \
     ASPNETCORE_URLS=http://127.0.0.1:15099 \
     ASPNETCORE_ENVIRONMENT=Production \
@@ -155,8 +181,9 @@ docker exec "$database_container" psql --username postgres --dbname sdw_package 
 kill "$package_pid"
 wait "$package_pid" 2>/dev/null || true
 package_pid=""
-sudo dpkg --purge sdw-redive >/dev/null
+sudo env DEBIAN_FRONTEND=noninteractive apt-get purge --yes sdw-redive >/dev/null
 package_installed=0
 test "$(dpkg-query -W -f='${db:Status-Status}' sdw-redive 2>/dev/null || true)" != "installed"
+sudo apt-get check
 
 echo "Container and Debian package delivery smoke passed"

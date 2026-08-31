@@ -45,6 +45,9 @@ jobs:
         with:
           node-version: "24"
 
+      - name: Test coverage aggregation gate
+        run: node --test deployments/ci/check-dotnet-coverage.test.mjs
+
       - name: Enforce gradual coverage floor
         shell: bash
         run: |
@@ -189,6 +192,28 @@ jobs:
         uses: actions/setup-dotnet@v6
         with:
           dotnet-version: "10.0.x"
+
+      - name: Ensure APT can resolve the ASP.NET Core runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          if apt-cache show aspnetcore-runtime-10.0 >/dev/null 2>&1; then
+            exit 0
+          fi
+
+          source /etc/os-release
+          if [[ "$ID" != "ubuntu" || ! "$VERSION_ID" =~ ^[0-9]+\.[0-9]+$ ]]; then
+            echo "unsupported runner for Microsoft package feed: $ID $VERSION_ID" >&2
+            exit 1
+          fi
+          feed_package="$RUNNER_TEMP/packages-microsoft-prod.deb"
+          curl --fail --location --silent --show-error \
+            "https://packages.microsoft.com/config/ubuntu/${VERSION_ID}/packages-microsoft-prod.deb" \
+            --output "$feed_package"
+          sudo dpkg --install "$feed_package"
+          sudo apt-get update
+          apt-cache show aspnetcore-runtime-10.0 >/dev/null
 
       - name: Download verified frontend
         uses: actions/download-artifact@v8
