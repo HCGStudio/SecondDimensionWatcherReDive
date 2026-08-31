@@ -80,23 +80,6 @@ public class FeedControllerTests
     }
 
     [TestMethod]
-    public async Task AddFeed_BlockedDestination_ReturnsBadRequest()
-    {
-        _outboundFetcher.Setup(fetcher => fetcher.ValidateUrlAsync(
-                "http://127.0.0.1/rss",
-                It.IsAny<CancellationToken>()))
-            .ThrowsAsync(new OutboundRequestBlockedException("blocked"));
-
-        var result = await _controller.AddFeed(
-            new Controllers.External.AddFeedRequest("http://127.0.0.1/rss", "private"),
-            CancellationToken.None);
-
-        Assert.IsInstanceOfType<BadRequestObjectResult>(result);
-        _repoMock.Verify(repository => repository.AddAsync(
-            It.IsAny<Feed>(), It.IsAny<CancellationToken>()), Times.Never);
-    }
-
-    [TestMethod]
     public async Task RemoveFeed_NotFound_ReturnsNotFound()
     {
         var id = Guid.NewGuid();

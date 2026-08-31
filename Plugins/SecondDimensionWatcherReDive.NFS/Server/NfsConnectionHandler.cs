@@ -19,25 +19,21 @@ internal sealed partial class NfsConnectionHandler(
         {
             while (!cancellationToken.IsCancellationRequested)
             {
-                using var idleTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                idleTimeout.CancelAfter(TimeSpan.FromSeconds(options.IdleTimeoutSeconds));
-                RpcRecord? record;
+                using var requestTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                requestTimeout.CancelAfter(TimeSpan.FromSeconds(options.IdleTimeoutSeconds));
                 try
                 {
-                    record = await RpcRecordReader.ReadAsync(
-                        stream, RpcConstants.MaxRequestBytes, idleTimeout.Token);
-                }
-                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-                {
-                    LogConnectionIdle(logger, options.IdleTimeoutSeconds);
-                    return;
-                }
-                using (record)
-                {
+                    using var record = await RpcRecordReader.ReadAsync(
+                        stream, RpcConstants.MaxRequestBytes, requestTimeout.Token);
                     if (record is null)
                         return;
 
-                    await HandleRequestAsync(stream, record.Memory, cancellationToken);
+                    await HandleRequestAsync(stream, record.Memory, requestTimeout.Token);
+                }
+                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                {
+                    LogRequestDeadlineExceeded(logger, options.IdleTimeoutSeconds);
+                    return;
                 }
             }
         }
@@ -164,6 +160,6 @@ internal sealed partial class NfsConnectionHandler(
     private static partial void LogMalformedCall(ILogger logger, Exception ex);
 
     [LoggerMessage(Level = LogLevel.Debug,
-        Message = "NFS connection closed after {IdleTimeoutSeconds} seconds idle")]
-    private static partial void LogConnectionIdle(ILogger logger, int idleTimeoutSeconds);
+        Message = "NFS connection closed after its {RequestTimeoutSeconds} second request deadline")]
+    private static partial void LogRequestDeadlineExceeded(ILogger logger, int requestTimeoutSeconds);
 }

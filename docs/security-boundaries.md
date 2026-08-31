@@ -34,11 +34,11 @@ JWT 现在强制校验签名算法、`exp`、issuer 与 audience。Refresh token
 
 新设备 token 使用带 pepper 的 HMAC-SHA-256，不再为每次 Range 请求执行 BCrypt。旧 BCrypt token 仍可使用，并会在第一次成功鉴权后原地迁移。请长期保存 `WebDavTokens:Pepper`；未配置时会回退到 `JwtSecret`。更换 pepper 会使已经迁移的设备 token 失效，需要重新签发。
 
-登录/注册/refresh、Basic 认证失败（以及迁移期 legacy BCrypt 校验）和 AI 接口分别有按来源 IP 的固定窗口限流。成功的现代 HMAC Basic 认证不消耗失败额度，VFS/WebDAV 的 Range 数据面也不受固定请求数限流。阈值位于 `RateLimit`。应用只接受来自 loopback 或 `ReverseProxy:KnownProxies` / `KnownNetworks` 明确信任代理的 `X-Forwarded-For` 与 `X-Forwarded-Proto`，并在认证限流前还原客户端地址。不要信任客户端所在网段；代理跨容器或跨主机时，只配置代理自身的精确地址或最小网段。
+登录/注册/refresh、logout、Basic 认证失败（以及迁移期 legacy BCrypt 校验）和 AI 接口分别有按来源 IP 的独立固定窗口限流。成功的现代 HMAC Basic 认证不消耗失败额度，VFS/WebDAV 的 Range 数据面也不受固定请求数限流。阈值位于 `RateLimit`。配置 Valkey/Redis 时，Basic 失败额度由所有副本共享，存储不可用时会 fail closed；内存模式只适合单副本。应用只接受来自 loopback 或 `ReverseProxy:KnownProxies` / `KnownNetworks` 明确信任代理的 `X-Forwarded-For` 与 `X-Forwarded-Proto`，并在认证限流前还原客户端地址。不要信任客户端所在网段；代理跨容器或跨主机时，只配置代理自身的精确地址或最小网段。
 
 ## NFS
 
-NFS 仍默认关闭；启用时默认只监听 `127.0.0.1`，只接受 `AllowedNetworks` 中的客户端，120 秒无请求会关闭连接。无资源访问能力的 NFS NULL procedure 始终允许标准 `AUTH_NONE` 探测；COMPOUND 默认仍要求 `AUTH_SYS`，只有显式启用 `AllowAnonymous` 才接受 `AUTH_NONE`。如果确需通过局域网导出，必须同时设置明确的监听地址和最小客户端 CIDR。例如：
+NFS 仍默认关闭；启用时默认只监听 `127.0.0.1`，只接受 `AllowedNetworks` 中的客户端，每个 RPC 请求（包括读取、执行和写回）必须在默认 120 秒内完成。无资源访问能力的 NFS NULL procedure 始终允许标准 `AUTH_NONE` 探测；COMPOUND 默认仍要求 `AUTH_SYS`，只有显式启用 `AllowAnonymous` 才接受 `AUTH_NONE`。如果确需通过局域网导出，必须同时设置明确的监听地址和最小客户端 CIDR。例如：
 
 ```yaml
 Nfs:

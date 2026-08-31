@@ -73,21 +73,6 @@ public class AuthSysCredTests
         }
     }
 
-    [TestMethod]
-    public void AuthNoneCanBeExplicitlyEnabled()
-    {
-        var buf = new ArrayBufferWriter<byte>();
-        var w = new XdrWriter(buf);
-        w.WriteUInt32(RpcConstants.AuthNone);
-        w.WriteOpaque([]);
-
-        var reader = new XdrReader(buf.WrittenSpan);
-        var cred = RpcAuthDecoder.ReadCredential(ref reader, allowAnonymous: true);
-        Assert.AreEqual(0u, cred.Uid);
-        Assert.AreEqual(0u, cred.Gid);
-        Assert.AreEqual(string.Empty, cred.MachineName);
-    }
-
     private static byte[] BuildAuthSysCred(uint stamp, string machineName, uint uid, uint gid, uint[] gids)
     {
         var inner = new ArrayBufferWriter<byte>();

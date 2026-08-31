@@ -131,11 +131,18 @@ builder.Services.AddOptions<TrustedProxyOptions>()
     .ValidateOnStart();
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
     TrustedProxyConfiguration.Apply(options, trustedProxyOptions));
+static string RateLimitPartitionKey(HttpContext context)
+{
+    var address = context.Connection.RemoteIpAddress;
+    if (address?.IsIPv4MappedToIPv6 is true)
+        address = address.MapToIPv4();
+    return address?.ToString() ?? "unknown";
+}
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
     options.AddPolicy("auth", context => RateLimitPartition.GetFixedWindowLimiter(
-        context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        RateLimitPartitionKey(context),
         _ => new FixedWindowRateLimiterOptions
         {
             PermitLimit = builder.Configuration.GetValue("RateLimit:AuthPermitLimit", 10),
@@ -143,8 +150,18 @@ builder.Services.AddRateLimiter(options =>
             QueueLimit = 0,
             AutoReplenishment = true
         }));
+    options.AddPolicy("logout", context => RateLimitPartition.GetFixedWindowLimiter(
+        RateLimitPartitionKey(context),
+        _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = builder.Configuration.GetValue("RateLimit:LogoutPermitLimit", 60),
+            Window = TimeSpan.FromSeconds(
+                builder.Configuration.GetValue("RateLimit:LogoutWindowSeconds", 60)),
+            QueueLimit = 0,
+            AutoReplenishment = true
+        }));
     options.AddPolicy("ai", context => RateLimitPartition.GetFixedWindowLimiter(
-        context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        RateLimitPartitionKey(context),
         _ => new FixedWindowRateLimiterOptions
         {
             PermitLimit = builder.Configuration.GetValue("RateLimit:AiPermitLimit", 30),
@@ -200,6 +217,10 @@ builder.Services.AddAuthentication(options =>
     BasicAuthenticationHandler.SchemeName, _ => { });
 
 //Add distributed cache (Valkey / Redis or in-memory fallback)
+builder.Services.AddOptions<BasicAuthenticationRateLimitOptions>()
+    .BindConfiguration(BasicAuthenticationRateLimitOptions.SectionName)
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
 var valkeyConnection = builder.Configuration["Valkey:ConnectionString"];
 if (!string.IsNullOrEmpty(valkeyConnection))
 {
@@ -214,17 +235,19 @@ if (!string.IsNullOrEmpty(valkeyConnection))
     builder.Services.AddSingleton<IRefreshTokenStorage>(_ => new RedisRefreshTokenStorage(
         redisConnectionProvider,
         builder.Configuration["Valkey:InstanceName"] ?? "sdw-redive:"));
+    builder.Services.AddSingleton<IBasicAuthenticationAttemptStore>(serviceProvider =>
+        new RedisBasicAuthenticationAttemptStore(
+            redisConnectionProvider,
+            builder.Configuration["Valkey:InstanceName"] ?? "sdw-redive:",
+            serviceProvider.GetRequiredService<IOptions<BasicAuthenticationRateLimitOptions>>()));
 }
 else
 {
     builder.Services.AddDistributedMemoryCache();
     builder.Services.AddSingleton<IRefreshTokenStorage, MemoryRefreshTokenStorage>();
+    builder.Services.AddSingleton<IBasicAuthenticationAttemptStore, MemoryBasicAuthenticationAttemptStore>();
 }
 builder.Services.AddMemoryCache();
-builder.Services.AddOptions<BasicAuthenticationRateLimitOptions>()
-    .BindConfiguration(BasicAuthenticationRateLimitOptions.SectionName)
-    .ValidateDataAnnotations()
-    .ValidateOnStart();
 builder.Services.AddSingleton<BasicAuthenticationAttemptLimiter>();
 builder.Services.AddSingleton<RefreshTokenStore>();
 builder.Services.AddSingleton<IDeviceTokenHasher>(_ => new DeviceTokenHasher(

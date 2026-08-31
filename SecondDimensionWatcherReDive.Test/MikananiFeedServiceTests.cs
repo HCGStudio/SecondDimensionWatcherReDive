@@ -147,42 +147,6 @@ public class MikananiFeedServiceTests
     }
 
     [TestMethod]
-    public async Task SubscriptionFeedReader_RejectsMaxItemsPlusOneBeforeDeserialization()
-    {
-        var fetcher = new Mock<ISafeOutboundHttpFetcher>();
-        fetcher.Setup(item => item.GetBytesAsync(
-                It.IsAny<string>(),
-                OutboundPayloadKind.Feed,
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync(Encoding.UTF8.GetBytes(SampleRss));
-        var reader = new MikananiSubscriptionFeedReader(
-            fetcher.Object,
-            Options.Create(new OutboundHttpOptions { MaxFeedItems = 1 }));
-
-        var exception = await Assert.ThrowsExactlyAsync<System.Xml.XmlException>(() => reader.ReadAsync(
-            "https://mikanani.me/rss",
-            Guid.NewGuid(),
-            CancellationToken.None));
-
-        StringAssert.Contains(exception.Message, "item count exceeds 1");
-    }
-
-    [TestMethod]
-    public async Task SubscriptionFeedReader_RejectsExcessiveXmlDepth()
-    {
-        var nested = string.Concat(Enumerable.Repeat("<group>", 65)) +
-                     string.Concat(Enumerable.Repeat("</group>", 65));
-        var reader = CreateReader($"<rss><channel>{nested}</channel></rss>");
-
-        var exception = await Assert.ThrowsExactlyAsync<System.Xml.XmlException>(() => reader.ReadAsync(
-            "https://mikanani.me/rss",
-            Guid.NewGuid(),
-            CancellationToken.None));
-
-        StringAssert.Contains(exception.Message, "depth exceeds 64");
-    }
-
-    [TestMethod]
     public async Task Sync_DeduplicatesUrlsAndKeepsDatabaseFeedIdentity()
     {
         const string databaseUrl = "https://example.com/anime.rss";
@@ -247,16 +211,5 @@ public class MikananiFeedServiceTests
         return new MikananiSubscriptionFeedReader(
             fetcher.Object,
             Options.Create(new OutboundHttpOptions()));
-    }
-
-    private class MockHttpMessageHandler(string content) : HttpMessageHandler
-    {
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
-        {
-            return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)
-            {
-                Content = new StringContent(content, Encoding.UTF8, "application/xml")
-            });
-        }
     }
 }

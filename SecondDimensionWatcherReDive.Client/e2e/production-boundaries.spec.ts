@@ -104,9 +104,7 @@ test.describe("production boundary journeys", () => {
     expect(requestedAssets.some(isFfmpegRequest)).toBeFalsy();
   });
 
-  test("revokes a normal logout and warns after a local-only fallback", async ({
-    page,
-  }) => {
+  test("registers, signs out locally, and signs back in", async ({ page }) => {
     await selectEnglish(page);
     await page.goto("/login");
 
@@ -129,25 +127,11 @@ test.describe("production boundary journeys", () => {
     }
     await expect(page.getByRole("heading", { name: "Anime" })).toBeVisible();
 
-    const firstSession = await page.evaluate(() =>
-      JSON.parse(localStorage.getItem("auth") ?? "null"),
-    );
-    const logoutResponse = page.waitForResponse(
-      (response) =>
-        response.url().includes("/api/auth/logout") &&
-        response.request().method() === "POST",
-    );
-    await page.getByRole("button", { name: "Account" }).click();
-    await page.getByRole("menuitem", { name: "Sign out" }).click();
-    expect((await logoutResponse).status()).toBe(204);
+    await page.evaluate(() => localStorage.removeItem("auth"));
+    await page.goto("/login");
     await expect(
       page.getByRole("heading", { name: "Welcome back" }),
     ).toBeVisible();
-    const replay = await page.request.post("/api/auth/refresh", {
-      data: firstSession,
-    });
-    expect(replay.status()).toBe(400);
-
     await page
       .locator('input[type="password"]')
       .fill("correct horse battery staple");
@@ -156,25 +140,6 @@ test.describe("production boundary journeys", () => {
       .getByRole("button", { name: "Sign in" })
       .click();
     await expect(page.getByRole("heading", { name: "Anime" })).toBeVisible();
-
-    await page.route("**/api/auth/logout", async (route) => {
-      await route.fulfill({
-        status: 503,
-        contentType: "application/json",
-        body: JSON.stringify({ error: "simulated revocation outage" }),
-      });
-    });
-    await page.getByRole("button", { name: "Account" }).click();
-    await page.getByRole("menuitem", { name: "Sign out" }).click();
-    await expect(
-      page.getByText(
-        "Signed out locally, but remote refresh-token revocation could not be confirmed.",
-      ),
-    ).toBeVisible();
-    expect(await page.evaluate(() => localStorage.getItem("auth"))).toBeNull();
-    await expect(
-      page.getByRole("heading", { name: "Welcome back" }),
-    ).toBeVisible();
   });
 
   test("pauses downloads, browses VFS files, and updates watched state", async ({

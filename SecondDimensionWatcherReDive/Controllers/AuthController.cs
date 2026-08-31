@@ -158,7 +158,8 @@ internal partial class AuthController : ControllerBase
 
     [HttpPost("logout")]
     [AllowAnonymous]
-    [DisableRateLimiting]
+    [EnableRateLimiting("logout")]
+    [RequestSizeLimit(1024)]
     public async Task<IActionResult> Logout(
         [FromBody] External.RevokeTokenRequest request,
         CancellationToken cancellationToken)

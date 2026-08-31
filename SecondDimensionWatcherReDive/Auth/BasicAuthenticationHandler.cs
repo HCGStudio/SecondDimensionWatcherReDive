@@ -1,9 +1,7 @@
-using System.ComponentModel.DataAnnotations;
 using System.Net.Http.Headers;
 using System.Security.Claims;
 using System.Text;
 using System.Text.Encodings.Web;
-using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
@@ -49,12 +47,12 @@ internal sealed class BasicAuthenticationHandler : AuthenticationHandler<Authent
         }
         catch (FormatException)
         {
-            return RejectAuthenticationAttempt("Malformed Basic credentials.");
+            return await RejectAuthenticationAttemptAsync("Malformed Basic credentials.");
         }
 
         var separator = decoded.IndexOf(':');
         if (separator < 0)
-            return RejectAuthenticationAttempt("Malformed Basic credentials.");
+            return await RejectAuthenticationAttemptAsync("Malformed Basic credentials.");
 
         var username = decoded[..separator];
         var password = decoded[(separator + 1)..];
@@ -62,7 +60,7 @@ internal sealed class BasicAuthenticationHandler : AuthenticationHandler<Authent
         var repository = Context.RequestServices.GetRequiredService<IWebDavTokenRepository>();
         var record = await repository.FindByUsernameAsync(username, Context.RequestAborted);
         if (record is null)
-            return RejectAuthenticationAttempt("Invalid credentials.");
+            return await RejectAuthenticationAttemptAsync("Invalid credentials.");
 
         bool verified;
         var attemptAlreadyCounted = false;
@@ -75,7 +73,7 @@ internal sealed class BasicAuthenticationHandler : AuthenticationHandler<Authent
             var cacheKey = _tokenHasher.VerificationCacheKey(record.Id, password);
             if (!_verificationCache.TryGetValue(cacheKey, out verified))
             {
-                if (!TryConsumeAuthenticationAttempt())
+                if (!await TryConsumeAuthenticationAttemptAsync())
                     return AuthenticateResult.Fail("Too many Basic authentication attempts.");
                 attemptAlreadyCounted = true;
 
@@ -103,7 +101,7 @@ internal sealed class BasicAuthenticationHandler : AuthenticationHandler<Authent
         if (!verified)
             return attemptAlreadyCounted
                 ? AuthenticateResult.Fail("Invalid credentials.")
-                : RejectAuthenticationAttempt("Invalid credentials.");
+                : await RejectAuthenticationAttemptAsync("Invalid credentials.");
 
         var identity = new ClaimsIdentity([new Claim(ClaimTypes.Name, username)], Scheme.Name);
         var principal = new ClaimsPrincipal(identity);
@@ -123,15 +121,17 @@ internal sealed class BasicAuthenticationHandler : AuthenticationHandler<Authent
         return Task.CompletedTask;
     }
 
-    private AuthenticateResult RejectAuthenticationAttempt(string message)
-        => TryConsumeAuthenticationAttempt()
+    private async Task<AuthenticateResult> RejectAuthenticationAttemptAsync(string message)
+        => await TryConsumeAuthenticationAttemptAsync()
             ? AuthenticateResult.Fail(message)
             : AuthenticateResult.Fail("Too many Basic authentication attempts.");
 
-    private bool TryConsumeAuthenticationAttempt()
+    private async Task<bool> TryConsumeAuthenticationAttemptAsync()
     {
-        using var lease = _attemptLimiter.AttemptAcquire(Context.Connection.RemoteIpAddress);
-        if (lease.IsAcquired)
+        var result = await _attemptLimiter.AttemptAcquireAsync(
+            Context.Connection.RemoteIpAddress,
+            Context.RequestAborted);
+        if (result.IsAcquired)
             return true;
 
         Context.Items[BasicAuthenticationAttemptLimiter.RateLimitedItemKey] = true;
@@ -144,7 +144,7 @@ internal sealed class BasicAuthenticationHandler : AuthenticationHandler<Authent
                 context.Response.StatusCode = StatusCodes.Status429TooManyRequests;
             return Task.CompletedTask;
         }, Context);
-        if (lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfter))
+        if (result.RetryAfter is { } retryAfter)
         {
             Response.Headers.RetryAfter = Math.Max(
                 1,
@@ -153,50 +153,4 @@ internal sealed class BasicAuthenticationHandler : AuthenticationHandler<Authent
         }
         return false;
     }
-}
-
-internal sealed class BasicAuthenticationAttemptLimiter : IDisposable
-{
-    internal static readonly object RateLimitedItemKey = new();
-    private readonly PartitionedRateLimiter<string> _limiter;
-
-    public BasicAuthenticationAttemptLimiter(IOptions<BasicAuthenticationRateLimitOptions> options)
-        : this(
-            options.Value.BasicPermitLimit,
-            TimeSpan.FromSeconds(options.Value.BasicWindowSeconds))
-    {
-    }
-
-    internal BasicAuthenticationAttemptLimiter(int permitLimit, TimeSpan window)
-    {
-        if (permitLimit <= 0)
-            throw new InvalidOperationException("RateLimit:BasicPermitLimit must be positive.");
-        if (window <= TimeSpan.Zero)
-            throw new InvalidOperationException("RateLimit:BasicWindowSeconds must be positive.");
-
-        _limiter = PartitionedRateLimiter.Create<string, string>(partitionKey =>
-            RateLimitPartition.GetFixedWindowLimiter(partitionKey, _ => new FixedWindowRateLimiterOptions
-            {
-                PermitLimit = permitLimit,
-                Window = window,
-                QueueLimit = 0,
-                AutoReplenishment = true
-            }));
-    }
-
-    internal RateLimitLease AttemptAcquire(System.Net.IPAddress? remoteAddress)
-        => _limiter.AttemptAcquire(remoteAddress?.ToString() ?? "unknown");
-
-    public void Dispose() => _limiter.Dispose();
-}
-
-internal sealed class BasicAuthenticationRateLimitOptions
-{
-    internal const string SectionName = "RateLimit";
-
-    [Range(1, 10_000)]
-    public int BasicPermitLimit { get; set; } = 20;
-
-    [Range(1, 3_600)]
-    public int BasicWindowSeconds { get; set; } = 60;
 }

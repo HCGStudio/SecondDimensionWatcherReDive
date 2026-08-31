@@ -20,9 +20,8 @@ import {
   User,
 } from "lucide-react";
 
-import type { IAuthResult } from "../auth/IAuthResult";
 import { useLoginStatus } from "../auth/hooks";
-import { clearAuth } from "../auth/httpClient";
+import { clearAuth, getAuthResult } from "../auth/httpClient";
 import { revokeSession } from "../auth/utils";
 import i18n, {
   type SupportedLanguage,
@@ -183,15 +182,14 @@ const UserMenu: React.FC = () => {
     : "zh-cn";
 
   const onLogout = async () => {
-    const stored = localStorage.getItem("auth");
-    let revocationConfirmed = true;
-    try {
-      if (stored) await revokeSession(JSON.parse(stored) as IAuthResult);
-    } catch {
-      revocationConfirmed = false;
-    }
-
+    const session = getAuthResult();
     clearAuth();
+    const revocation = session
+      ? revokeSession(session).then(
+          () => true,
+          () => false,
+        )
+      : Promise.resolve(true);
     await Promise.all([
       mutate("/api/auth/verify", undefined, { revalidate: false }),
       // An authenticated session proves registration already completed. Keep the
@@ -203,7 +201,7 @@ const UserMenu: React.FC = () => {
       ),
     ]);
     navigate("/login", { replace: true });
-    if (!revocationConfirmed) {
+    if (!(await revocation)) {
       addToast({ title: t("user.logoutFailed"), color: "danger" });
     }
   };

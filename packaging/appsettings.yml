@@ -33,6 +33,8 @@ RateLimit:
   AuthPermitLimit: 10
   BasicPermitLimit: 20
   BasicWindowSeconds: 60
+  LogoutPermitLimit: 60
+  LogoutWindowSeconds: 60
   AiPermitLimit: 30
 
 # Loopback reverse proxies are trusted by default. For a proxy on another host or

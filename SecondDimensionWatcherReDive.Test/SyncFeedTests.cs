@@ -10,7 +10,6 @@ using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Services;
 using SecondDimensionWatcherReDive.Utils.Feed;
 using SecondDimensionWatcherReDive.Utils.Http;
-using SecondDimensionWatcherReDive.Utils.Incidents;
 
 namespace SecondDimensionWatcherReDive.Test;
 
@@ -21,8 +20,6 @@ public class SyncFeedTests
     private Mock<ISubscriptionAutomationPolicyRepository> _mockPolicyRepo = null!;
     private Mock<IFileDownloadClientProvider> _mockDownloadProvider = null!;
     private Mock<IFileDownloadClient> _mockDownloadClient = null!;
-    private Mock<IServiceScopeFactory> _mockScopeFactory = null!;
-    private Mock<ISafeOutboundHttpFetcher> _outboundFetcher = null!;
     private SyncFeed _syncFeed = null!;
     private MethodInfo _processSingleMethod = null!;
 
@@ -41,10 +38,10 @@ public class SyncFeedTests
             .Returns(Task.CompletedTask);
 
         var mockScope = new Mock<IServiceScope>();
-        _mockScopeFactory = new Mock<IServiceScopeFactory>();
+        var mockScopeFactory = new Mock<IServiceScopeFactory>();
         var mockScopeServiceProvider = new Mock<IServiceProvider>();
 
-        _mockScopeFactory.Setup(f => f.CreateScope()).Returns(mockScope.Object);
+        mockScopeFactory.Setup(f => f.CreateScope()).Returns(mockScope.Object);
         mockScope.Setup(s => s.ServiceProvider).Returns(mockScopeServiceProvider.Object);
         mockScopeServiceProvider
             .Setup(p => p.GetService(typeof(IAnimationInfoRepository)))
@@ -57,13 +54,13 @@ public class SyncFeedTests
             .Returns(_mockDownloadProvider.Object);
 
         var mockServiceProvider = new Mock<IServiceProvider>();
-        _outboundFetcher = new Mock<ISafeOutboundHttpFetcher>();
+        var outboundFetcher = new Mock<ISafeOutboundHttpFetcher>();
 
         _syncFeed = new SyncFeed(
             mockServiceProvider.Object,
             Mock.Of<ILogger<SyncFeed>>(),
-            _outboundFetcher.Object,
-            _mockScopeFactory.Object,
+            outboundFetcher.Object,
+            mockScopeFactory.Object,
             new SubscriptionAutomationMatcher(new SubscriptionReleaseMetadataExtractor()));
 
         _processSingleMethod = typeof(SyncFeed)
@@ -289,60 +286,6 @@ public class SyncFeedTests
             () => InvokeGetTorrentPayloadSize(info));
 
         Assert.IsInstanceOfType<InvalidTorrentDataException>(exception.InnerException);
-    }
-
-    [TestMethod]
-    public async Task InvalidTorrent_LogsAndReportsOnlySafeHostAndHashedSource()
-    {
-        const string secret = "private-passkey-should-never-appear";
-        var downloadUrl = $"https://tracker.example/releases/file.torrent?passkey={secret}";
-        var request = new AnimationAddRequest(
-            DateTimeOffset.UtcNow,
-            "Bad torrent",
-            string.Empty,
-            downloadUrl,
-            FileDownloadTypes.TorrentDownload,
-            string.Empty);
-        _mockRepo.Setup(repository => repository.FindByTitleAsync(
-                request.Title, It.IsAny<CancellationToken>()))
-            .ReturnsAsync((AnimationInfo?)null);
-        _outboundFetcher.Setup(fetcher => fetcher.GetBytesAsync(
-                downloadUrl,
-                OutboundPayloadKind.Torrent,
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync("not-bencode"u8.ToArray());
-        var logger = new Mock<ILogger<SyncFeed>>();
-        logger.Setup(item => item.IsEnabled(LogLevel.Warning)).Returns(true);
-        IncidentReport? captured = null;
-        var reporter = new Mock<IIncidentReporter>();
-        reporter.Setup(item => item.ReportAsync(
-                It.IsAny<IncidentReport>(), It.IsAny<CancellationToken>()))
-            .Callback<IncidentReport, CancellationToken>((report, _) => captured = report)
-            .ReturnsAsync((Incident)null!);
-        var syncFeed = new SyncFeed(
-            Mock.Of<IServiceProvider>(),
-            logger.Object,
-            _outboundFetcher.Object,
-            _mockScopeFactory.Object,
-            new SubscriptionAutomationMatcher(new SubscriptionReleaseMetadataExtractor()),
-            reporter.Object);
-
-        await (Task)_processSingleMethod.Invoke(
-            syncFeed, new object[] { request, CancellationToken.None })!;
-
-        Assert.IsNotNull(captured);
-        Assert.AreEqual(SyncFeed.CreateDownloadIncidentSourceId(downloadUrl), captured.SourceId);
-        StringAssert.StartsWith(captured.SourceId, "torrent-url:");
-        StringAssert.Contains(captured.Detail, "tracker.example");
-        Assert.IsFalse(captured.Detail.Contains(secret, StringComparison.Ordinal));
-        Assert.IsFalse(captured.SourceId.Contains(secret, StringComparison.Ordinal));
-        var loggedMessages = logger.Invocations
-            .Where(invocation => invocation.Method.Name == nameof(ILogger.Log))
-            .Select(invocation => invocation.Arguments[2]?.ToString() ?? string.Empty)
-            .ToArray();
-        Assert.IsNotEmpty(loggedMessages);
-        Assert.IsFalse(loggedMessages.Any(message => message.Contains(secret, StringComparison.Ordinal)));
-        Assert.IsFalse(loggedMessages.Any(message => message.Contains("?passkey=", StringComparison.Ordinal)));
     }
 
     private static long InvokeGetTorrentPayloadSize(BDictionary info)

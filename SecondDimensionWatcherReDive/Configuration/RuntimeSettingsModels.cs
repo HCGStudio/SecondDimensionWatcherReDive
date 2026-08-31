@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Net;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Configuration;
+using SecondDimensionWatcherReDive.Framework.Networking;
 
 namespace SecondDimensionWatcherReDive.Configuration;
 
@@ -414,12 +415,7 @@ internal static class RuntimeSettingsValidator
                 Add(errors, $"nfs.allowedNetworks.{index}", "The value must be a valid IPv4 or IPv6 CIDR.");
                 continue;
             }
-            var separator = network.LastIndexOf('/');
-            var addressText = separator < 0 ? string.Empty : network[..separator];
-            var prefixText = separator < 0 ? string.Empty : network[(separator + 1)..];
-            if (!IPAddress.TryParse(addressText, out var address) ||
-                !int.TryParse(prefixText, NumberStyles.None, CultureInfo.InvariantCulture, out var prefix) ||
-                prefix < 0 || prefix > (address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork ? 32 : 128))
+            if (!IpCidrRange.TryParse(network, requirePrefix: true, out _))
                 Add(errors, $"nfs.allowedNetworks.{index}", "The value must be a valid IPv4 or IPv6 CIDR.");
         }
 

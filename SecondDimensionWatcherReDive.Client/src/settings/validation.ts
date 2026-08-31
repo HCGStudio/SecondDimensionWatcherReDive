@@ -128,6 +128,13 @@ export const isIpCidr = (value: string): boolean => {
   if (separator <= 0) return false;
   const address = value.slice(0, separator);
   const prefix = Number(value.slice(separator + 1));
-  const maximum = address.includes(":") ? 128 : 32;
-  return isIpAddress(address) && isIntegerInRange(prefix, 0, maximum);
+  if (!isIpAddress(address)) return false;
+  if (!address.includes(":")) return isIntegerInRange(prefix, 0, 32);
+
+  const normalized = new URL(`http://[${address.split("%", 1)[0]}]/`).hostname
+    .slice(1, -1)
+    .toLowerCase();
+  return normalized.startsWith("::ffff:")
+    ? isIntegerInRange(prefix, 96, 128)
+    : isIntegerInRange(prefix, 0, 128);
 };

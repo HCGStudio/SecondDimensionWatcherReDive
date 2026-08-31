@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
+using SecondDimensionWatcherReDive.Framework.Networking;
 using SecondDimensionWatcherReDive.Repositories;
 
 namespace SecondDimensionWatcherReDive.Configuration;
@@ -322,7 +323,7 @@ public sealed partial class RuntimeSettingsService : IRuntimeSettingsInitializer
 
     private static IEnumerable<string> NormalizeNetworks(IEnumerable<string> networks) =>
         networks
-            .Select(network => System.Net.IPNetwork.TryParse(network.Trim(), out var parsed)
+            .Select(network => IpCidrRange.TryParse(network, requirePrefix: true, out var parsed)
                 ? parsed.ToString()
                 : network.Trim().ToLowerInvariant())
             .Distinct(StringComparer.Ordinal)

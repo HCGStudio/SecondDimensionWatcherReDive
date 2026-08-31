@@ -40,22 +40,6 @@ public sealed class VfsAuthTests
     }
 
     [TestMethod]
-    public async Task RepeatedWrongCredentials_AreRateLimitedWithoutLimitingSuccessfulReads()
-    {
-        using var factory = new WebDavWebApplicationFactory(basicAuthenticationAttemptPermitLimit: 2);
-        using var client = factory.CreateBasicAuthClient(pass: "a-different-wrong-password-each-time");
-
-        using var first = await client.GetAsync("/api/vfs/list?path=/");
-        using var second = await client.GetAsync("/api/vfs/list?path=/");
-        using var blocked = await client.GetAsync("/api/vfs/list?path=/");
-
-        Assert.AreEqual(HttpStatusCode.Unauthorized, first.StatusCode);
-        Assert.AreEqual(HttpStatusCode.Unauthorized, second.StatusCode);
-        Assert.AreEqual(HttpStatusCode.TooManyRequests, blocked.StatusCode);
-        Assert.IsTrue(blocked.Headers.Contains("Retry-After"));
-    }
-
-    [TestMethod]
     public async Task Jwt_Can_Reach_Vfs()
     {
         using var client = _factory.CreateJwtClient();

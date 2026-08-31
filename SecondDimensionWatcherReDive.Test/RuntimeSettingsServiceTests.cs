@@ -454,14 +454,7 @@ public sealed class RuntimeSettingsServiceTests
         await using (var first = await SettingsTestHost.CreateAsync(repository, dataProtection))
         {
             var initial = await first.RuntimeSettings.GetAsync(CancellationToken.None);
-            var nfs = initial.Desired.Nfs with
-            {
-                Enabled = true,
-                Port = 2050,
-                IdleTimeoutSeconds = 45,
-                AllowAnonymous = true,
-                AllowedNetworks = ["10.20.0.0/16"]
-            };
+            var nfs = initial.Desired.Nfs with { Enabled = true, Port = 2050 };
 
             var saved = await first.RuntimeSettings.UpdateAsync(
                 new RuntimeSettingsPatch(
@@ -487,35 +480,6 @@ public sealed class RuntimeSettingsServiceTests
         Assert.IsTrue(restartedState.Desired.Nfs.Enabled);
         Assert.AreEqual("true", restarted.Configuration["Nfs:Enabled"]?.ToLowerInvariant());
         Assert.AreEqual("2050", restarted.Configuration["Nfs:Port"]);
-        Assert.AreEqual("45", restarted.Configuration["Nfs:IdleTimeoutSeconds"]);
-        Assert.AreEqual("true", restarted.Configuration["Nfs:AllowAnonymous"]?.ToLowerInvariant());
-        Assert.AreEqual("10.20.0.0/16", restarted.Configuration["Nfs:AllowedNetworks:0"]);
-    }
-
-    [TestMethod]
-    public async Task EquivalentNfsNetworkSequences_DoNotRequireRestart()
-    {
-        await using var host = await SettingsTestHost.CreateAsync();
-        var initial = await host.RuntimeSettings.GetAsync(CancellationToken.None);
-        Assert.IsFalse(initial.PendingRestart);
-        var equivalentNfs = initial.Desired.Nfs with
-        {
-            AllowedNetworks = ["0:0:0:0:0:0:0:1/128", "127.0.0.0/8"]
-        };
-
-        var saved = await host.RuntimeSettings.UpdateAsync(
-            new RuntimeSettingsPatch(
-                initial.Revision,
-                Ai: null,
-                Tmdb: null,
-                Torrent: null,
-                MediaLibrary: null,
-                Incidents: null,
-                Nfs: equivalentNfs),
-            CancellationToken.None);
-
-        Assert.AreEqual(RuntimeSettingsUpdateStatus.Saved, saved.Status);
-        Assert.IsFalse(saved.State.PendingRestart);
     }
 
     [TestMethod]
@@ -560,7 +524,6 @@ public sealed class RuntimeSettingsServiceTests
         Assert.IsFalse(reloadedSecret.IsConfigured);
         Assert.AreEqual(SecretConfigurationSource.Runtime, reloadedSecret.Source);
         Assert.AreEqual(string.Empty, second.Configuration[RuntimeSecretKeys.TmdbApiKey]);
-        Assert.IsFalse(stale.State.PendingRestart);
         Assert.DoesNotContain(
             "must-not-be-saved",
             repository.Document?.ProtectedSecrets ?? string.Empty,

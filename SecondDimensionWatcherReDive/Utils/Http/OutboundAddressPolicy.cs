@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Sockets;
 using Microsoft.Extensions.Options;
 using SecondDimensionWatcherReDive.Configuration;
+using SecondDimensionWatcherReDive.Framework.Networking;
 
 namespace SecondDimensionWatcherReDive.Utils.Http;
 
@@ -26,7 +27,7 @@ internal sealed class OutboundAddressPolicy
 {
     private readonly IHostAddressResolver _resolver;
     private readonly HashSet<string> _allowedHosts;
-    private readonly IpNetworkRange[] _allowedNetworks;
+    private readonly IpCidrRange[] _allowedNetworks;
 
     public OutboundAddressPolicy(
         IOptions<OutboundHttpOptions> options,
@@ -38,7 +39,7 @@ internal sealed class OutboundAddressPolicy
             .Where(host => host.Length > 0)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
         _allowedNetworks = options.Value.AllowedPrivateNetworks
-            .Select(value => IpNetworkRange.Parse(value.Trim()))
+            .Select(ParseAllowedNetwork)
             .ToArray();
     }
 
@@ -163,6 +164,16 @@ internal sealed class OutboundAddressPolicy
                 $"The outbound host '{host}' resolved to a blocked network.");
     }
 
+    private static IpCidrRange ParseAllowedNetwork(string value)
+    {
+        if (IpCidrRange.TryParse(value, requirePrefix: false, out var network))
+            return network;
+        throw new OptionsValidationException(
+            OutboundHttpOptions.SectionName,
+            typeof(OutboundHttpOptions),
+            [$"Invalid private network allowlist entry '{value}'."]);
+    }
+
     private static IPAddress[] InterleaveAddressFamilies(IReadOnlyList<IPAddress> addresses)
     {
         if (addresses.Count < 2)
@@ -184,65 +195,4 @@ internal sealed class OutboundAddressPolicy
         return ordered.ToArray();
     }
 
-    private readonly record struct IpNetworkRange(byte[] Network, int PrefixLength)
-    {
-        internal static IpNetworkRange Parse(string value)
-        {
-            var separator = value.LastIndexOf('/');
-            var addressText = separator < 0 ? value : value[..separator];
-            if (!IPAddress.TryParse(addressText, out var address))
-                throw new OptionsValidationException(
-                    OutboundHttpOptions.SectionName,
-                    typeof(OutboundHttpOptions),
-                    [$"Invalid private network allowlist entry '{value}'."]);
-
-            address = address.IsIPv4MappedToIPv6 ? address.MapToIPv4() : address;
-            var maximumPrefix = address.AddressFamily == AddressFamily.InterNetwork ? 32 : 128;
-            var prefix = separator < 0
-                ? maximumPrefix
-                : int.TryParse(value[(separator + 1)..], out var parsed) ? parsed : -1;
-            if (prefix < 0 || prefix > maximumPrefix)
-                throw new OptionsValidationException(
-                    OutboundHttpOptions.SectionName,
-                    typeof(OutboundHttpOptions),
-                    [$"Invalid private network allowlist entry '{value}'."]);
-
-            var network = address.GetAddressBytes();
-            ApplyMask(network, prefix);
-            return new IpNetworkRange(network, prefix);
-        }
-
-        internal bool Contains(IPAddress input)
-        {
-            var address = input.IsIPv4MappedToIPv6 ? input.MapToIPv4() : input;
-            var bytes = address.GetAddressBytes();
-            if (bytes.Length != Network.Length)
-                return false;
-
-            var fullBytes = PrefixLength / 8;
-            var remainingBits = PrefixLength % 8;
-            if (!bytes.AsSpan(0, fullBytes).SequenceEqual(Network.AsSpan(0, fullBytes)))
-                return false;
-            if (remainingBits == 0)
-                return true;
-
-            var mask = (byte)(0xff << (8 - remainingBits));
-            return (bytes[fullBytes] & mask) == (Network[fullBytes] & mask);
-        }
-
-        private static void ApplyMask(Span<byte> bytes, int prefixLength)
-        {
-            var fullBytes = prefixLength / 8;
-            var remainingBits = prefixLength % 8;
-            if (fullBytes < bytes.Length)
-            {
-                if (remainingBits > 0)
-                {
-                    bytes[fullBytes] &= (byte)(0xff << (8 - remainingBits));
-                    fullBytes++;
-                }
-                bytes[fullBytes..].Clear();
-            }
-        }
-    }
 }

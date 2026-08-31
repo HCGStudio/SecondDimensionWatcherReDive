@@ -89,7 +89,7 @@ internal sealed class FileMappingRepositoryPostgreSqlTestFixture(string connecti
     {
         await using var context = new Models.ApplicationContext(_contextOptions);
         await context.Database.ExecuteSqlRawAsync(
-            "TRUNCATE TABLE \"AuthenticationStates\", \"FileMappings\", \"AnimationInfo\" RESTART IDENTITY CASCADE",
+            "TRUNCATE TABLE \"FileMappings\", \"AnimationInfo\" RESTART IDENTITY CASCADE",
             cancellationToken);
     }
 
@@ -147,27 +147,6 @@ internal sealed class FileMappingRepositoryPostgreSqlTestFixture(string connecti
             .OrderBy(info => info.Id)
             .Select(info => info.StateVersion)
             .ToArrayAsync(cancellationToken);
-    }
-
-    public async Task<bool> TryClaimPasswordAsync(
-        string passwordHash,
-        Guid claimId,
-        CancellationToken cancellationToken)
-    {
-        await using var context = new Models.ApplicationContext(_contextOptions);
-        var repository = new AuthenticationStateRepository(context);
-        return await repository.TryClaimPasswordAsync(
-            passwordHash,
-            claimId,
-            DateTimeOffset.UtcNow,
-            cancellationToken);
-    }
-
-    public async Task<string?> GetPasswordHashAsync(CancellationToken cancellationToken)
-    {
-        await using var context = new Models.ApplicationContext(_contextOptions);
-        var repository = new AuthenticationStateRepository(context);
-        return await repository.GetPasswordHashAsync(cancellationToken);
     }
 }
 

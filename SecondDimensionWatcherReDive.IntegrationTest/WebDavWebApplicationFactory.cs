@@ -11,7 +11,6 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Tokens;
 using Moq;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
@@ -29,9 +28,6 @@ internal sealed class WebDavWebApplicationFactory : WebApplicationFactory<Migrat
     public const string TestUserName = "sdwuser";
     public const string TestPassword = "test-pass";
     public const string JwtSecret = "integration-test-jwt-secret-must-be-long-enough-32-bytes";
-    public static string SharedDataProtectionKeyRingPath { get; } = Path.Combine(
-        Path.GetTempPath(),
-        $"sdw-integration-data-protection-{Environment.ProcessId}");
 
     static WebDavWebApplicationFactory()
     {
@@ -50,24 +46,17 @@ internal sealed class WebDavWebApplicationFactory : WebApplicationFactory<Migrat
         Environment.SetEnvironmentVariable("AI__Anthropic__ApiKey", string.Empty);
         Environment.SetEnvironmentVariable("TmdbApiKey", string.Empty);
         Environment.SetEnvironmentVariable("Valkey__ConnectionString", string.Empty);
-        Environment.SetEnvironmentVariable(
-            "DataProtection__KeyRingPath",
-            SharedDataProtectionKeyRingPath);
     }
 
     public List<FileMapping> Mappings { get; } = new();
     public Mock<IFileStore> FileStoreMock { get; } = new();
     public Mock<IFileStoreProvider> FileStoreProviderMock { get; } = new();
-    public Mock<IAnimationInfoRepository> AnimationInfoRepositoryMock { get; } = new();
-    public RecordingLoggerProvider Logs { get; } = new();
     public Helpers.FakeFileMappingRepository MappingRepository { get; }
 
     private readonly object _mappingsLock = new();
-    private readonly int? _basicAuthenticationAttemptPermitLimit;
 
-    public WebDavWebApplicationFactory(int? basicAuthenticationAttemptPermitLimit = null)
+    public WebDavWebApplicationFactory()
     {
-        _basicAuthenticationAttemptPermitLimit = basicAuthenticationAttemptPermitLimit;
         MappingRepository = new Helpers.FakeFileMappingRepository(Mappings);
         FileStoreMock.SetupGet(s => s.Name).Returns("local");
         FileStoreProviderMock
@@ -81,15 +70,12 @@ internal sealed class WebDavWebApplicationFactory : WebApplicationFactory<Migrat
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
-        builder.ConfigureLogging(logging => logging.AddFilter<RecordingLoggerProvider>(
-            "Microsoft.AspNetCore.Hosting.Diagnostics",
-            LogLevel.Trace));
 
         builder.ConfigureAppConfiguration((_, config) =>
         {
             // Defensive: also push the same values via in-memory config in case the
             // host reloads configuration after env vars have been read.
-            var testConfiguration = new Dictionary<string, string?>
+            config.AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["JwtSecret"] = JwtSecret,
                 ["ConnectionStrings:sdw"] = "Host=localhost;Database=test;Username=test;Password=test",
@@ -99,15 +85,8 @@ internal sealed class WebDavWebApplicationFactory : WebApplicationFactory<Migrat
                 ["AI:Anthropic:ApiKey"] = string.Empty,
                 ["TmdbApiKey"] = string.Empty,
                 ["Valkey:ConnectionString"] = string.Empty,
-                ["DataProtection:KeyRingPath"] = SharedDataProtectionKeyRingPath,
                 ["DisableCors"] = "false"
-            };
-            if (_basicAuthenticationAttemptPermitLimit is { } basicPermitLimit)
-            {
-                testConfiguration["RateLimit:BasicPermitLimit"] =
-                    basicPermitLimit.ToString(System.Globalization.CultureInfo.InvariantCulture);
-            }
-            config.AddInMemoryCollection(testConfiguration);
+            });
         });
 
         builder.ConfigureTestServices(services =>
@@ -146,7 +125,6 @@ internal sealed class WebDavWebApplicationFactory : WebApplicationFactory<Migrat
             services.RemoveAll<IWebDavTokenRepository>();
             services.RemoveAll<IApplicationSettingsRepository>();
             services.RemoveAll<IAuthenticationStateRepository>();
-            services.RemoveAll<IAnimationInfoRepository>();
 
             services.AddSingleton(FileStoreMock.Object);
             services.AddSingleton(FileStoreProviderMock.Object);
@@ -156,8 +134,6 @@ internal sealed class WebDavWebApplicationFactory : WebApplicationFactory<Migrat
                 new FakeWebDavTokenRepository(TestUserName, BCrypt.Net.BCrypt.HashPassword(TestPassword)));
             services.AddSingleton<IApplicationSettingsRepository, FakeApplicationSettingsRepository>();
             services.AddSingleton<IAuthenticationStateRepository, FakeAuthenticationStateRepository>();
-            services.AddSingleton(AnimationInfoRepositoryMock.Object);
-            services.AddSingleton<ILoggerProvider>(Logs);
         });
     }
 
@@ -171,8 +147,6 @@ internal sealed class WebDavWebApplicationFactory : WebApplicationFactory<Migrat
         FileStoreProviderMock
             .Setup(p => p.GetRequiredClient(It.IsAny<string>()))
             .Returns(FileStoreMock.Object);
-        AnimationInfoRepositoryMock.Reset();
-        Logs.Clear();
         FileStoreProviderMock
             .Setup(p => p.GetClient(It.IsAny<string>()))
             .Returns(FileStoreMock.Object);
@@ -198,12 +172,7 @@ internal sealed class WebDavWebApplicationFactory : WebApplicationFactory<Migrat
         var token = new JwtSecurityToken(
             issuer: "SecondDimensionWatcherReDive",
             audience: "SecondDimensionWatcherReDive.Client",
-            claims:
-            [
-                new Claim(ClaimTypes.Name, TestUserName),
-                new Claim("Id", Guid.Empty.ToString()),
-                new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString("N"))
-            ],
+            claims: [new Claim(ClaimTypes.Name, TestUserName)],
             expires: DateTime.UtcNow.AddMinutes(10),
             signingCredentials: creds);
         var jwt = new JwtSecurityTokenHandler().WriteToken(token);
@@ -283,37 +252,5 @@ internal sealed class WebDavWebApplicationFactory : WebApplicationFactory<Migrat
             DateTimeOffset registeredAt,
             CancellationToken cancellationToken) =>
             Task.FromResult(Interlocked.CompareExchange(ref _passwordHash, passwordHash, null) is null);
-    }
-
-    internal sealed class RecordingLoggerProvider : ILoggerProvider
-    {
-        private readonly System.Collections.Concurrent.ConcurrentQueue<string> _messages = new();
-
-        public IReadOnlyCollection<string> Messages => _messages.ToArray();
-
-        public ILogger CreateLogger(string categoryName) => new RecordingLogger(_messages);
-
-        public void Dispose() { }
-
-        public void Clear()
-        {
-            while (_messages.TryDequeue(out _)) { }
-        }
-
-        private sealed class RecordingLogger(
-            System.Collections.Concurrent.ConcurrentQueue<string> messages) : ILogger
-        {
-            public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
-
-            public bool IsEnabled(LogLevel logLevel) => true;
-
-            public void Log<TState>(
-                LogLevel logLevel,
-                EventId eventId,
-                TState state,
-                Exception? exception,
-                Func<TState, Exception?, string> formatter) =>
-                messages.Enqueue(formatter(state, exception));
-        }
     }
 }
