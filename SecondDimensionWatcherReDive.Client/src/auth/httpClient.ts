@@ -1,3 +1,4 @@
+import { ApiError, apiErrorFromResponse } from "../errors/apiError";
 import { IAuthResult } from "./IAuthResult";
 import { refreshJwtToken } from "./utils";
 
@@ -12,7 +13,9 @@ function readStoredAuth(value: string | null): IAuthResult | null {
     const parsed = JSON.parse(value) as Partial<IAuthResult>;
     return parsed.success === true &&
       typeof parsed.token === "string" &&
-      typeof parsed.refreshToken === "string"
+      parsed.token.length > 0 &&
+      typeof parsed.refreshToken === "string" &&
+      parsed.refreshToken.length > 0
       ? (parsed as IAuthResult)
       : null;
   } catch {
@@ -98,70 +101,70 @@ async function parseJsonSafe<T>(res: Response): Promise<T> {
   return (text ? JSON.parse(text) : undefined) as T;
 }
 
-export default async function fetcher<JSON = any>(
+function sendAuthenticatedRequest(
+  input: RequestInfo,
+  init: RequestInit | undefined,
+  token: string,
+): Promise<Response> {
+  const headers = new Headers(
+    input instanceof Request ? input.headers : undefined,
+  );
+  new Headers(init?.headers).forEach((value, name) => headers.set(name, value));
+  headers.set("Authorization", `Bearer ${token}`);
+  return fetch(input, { ...init, headers });
+}
+
+/**
+ * Fetch a response with the current bearer token, including the same single
+ * refresh-and-retry and auth-epoch fencing used by JSON API calls. Binary
+ * consumers such as authenticated poster loading can read the body directly.
+ */
+export async function authenticatedFetch(
   input: RequestInfo,
   init?: RequestInit,
-): Promise<JSON> {
+): Promise<Response> {
   if (authResult) {
     const requestSession = authResult;
-    const res = await fetch(input, {
-      ...init,
-      headers: {
-        ...init?.headers,
-        Authorization: `Bearer ${requestSession.token}`,
-      },
-    });
+    const response = await sendAuthenticatedRequest(
+      input,
+      init,
+      requestSession.token,
+    );
 
-    if (res.status !== 401) {
-      if (!res.ok) {
-        throw new Error(`${res.status}`);
-      }
-      return await parseJsonSafe<JSON>(res);
-    }
+    if (response.status !== 401) return response;
 
-    // Token expired — deduplicate concurrent refresh calls
-    if (!refreshPromise) {
-      beginRefresh(requestSession);
-    }
+    if (!refreshPromise) beginRefresh(requestSession);
 
     try {
       await refreshPromise;
     } catch {
       if (authResult && authResult !== requestSession)
-        return await fetcher<JSON>(input, init);
+        return await authenticatedFetch(input, init);
       if (authResult === requestSession) clearAuth();
       redirectToLogin();
-      throw new Error("Unauthorized");
+      throw new ApiError("unauthorized", 401);
     }
 
     const retrySession = authResult;
     if (!retrySession) {
       redirectToLogin();
-      throw new Error("Unauthorized");
+      throw new ApiError("unauthorized", 401);
     }
 
-    // Retry with new token
-    const retryRes = await fetch(input, {
-      ...init,
-      headers: {
-        ...init?.headers,
-        Authorization: `Bearer ${retrySession.token}`,
-      },
-    });
-
-    if (retryRes.status === 401) {
+    const retryResponse = await sendAuthenticatedRequest(
+      input,
+      init,
+      retrySession.token,
+    );
+    if (retryResponse.status === 401) {
       if (authResult !== retrySession && authResult)
-        return await fetcher<JSON>(input, init);
+        return await authenticatedFetch(input, init);
       clearAuth();
       redirectToLogin();
-      throw new Error("Unauthorized");
+      throw new ApiError("unauthorized", 401);
     }
 
-    if (!retryRes.ok) {
-      throw new Error(`${retryRes.status}`);
-    }
-
-    return await parseJsonSafe<JSON>(retryRes);
+    return retryResponse;
   }
 
   let storedValue: string | null = null;
@@ -174,13 +177,17 @@ export default async function fetcher<JSON = any>(
   if (storedAuth) {
     authEpoch++;
     authResult = storedAuth;
-    return await fetcher(input, init);
+    return await authenticatedFetch(input, init);
   }
 
-  // No auth available
-  const res = await fetch(input, init);
-  if (!res.ok) {
-    throw new Error(`${res.status}`);
-  }
-  return parseJsonSafe<JSON>(res);
+  return fetch(input, init);
+}
+
+export default async function fetcher<JSON = any>(
+  input: RequestInfo,
+  init?: RequestInit,
+): Promise<JSON> {
+  const response = await authenticatedFetch(input, init);
+  if (!response.ok) throw await apiErrorFromResponse(response);
+  return await parseJsonSafe<JSON>(response);
 }

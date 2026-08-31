@@ -7,7 +7,6 @@ import {
   CheckCircle2,
   Clock3,
   Edit3,
-  FileQuestion,
   Files,
   History,
   RefreshCw,
@@ -16,6 +15,7 @@ import {
 
 import { tmdbImageUrl } from "../animation/tmdbImage";
 import { MetadataReviewSheet } from "../components/MetadataReviewSheet";
+import { ResilientPoster } from "../components/ResilientPoster";
 import { useToast } from "../components/ToastProvider";
 import { Button } from "../components/ui/Button";
 import { EmptyPrompt } from "../components/ui/EmptyPrompt";
@@ -83,13 +83,40 @@ const StatusTabs: React.FC<StatusTabsProps> = ({
     >
       {REVIEW_STATUSES.map((status) => (
         <button
+          id={`metadata-review-tab-${status}`}
           key={status}
           type="button"
           role="tab"
           aria-selected={active === status}
+          aria-controls="metadata-review-panel"
+          tabIndex={active === status ? 0 : -1}
           onClick={() => onChange(status)}
+          onKeyDown={(event) => {
+            const currentIndex = REVIEW_STATUSES.indexOf(status);
+            let nextIndex: number | null = null;
+            if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+              nextIndex = (currentIndex + 1) % REVIEW_STATUSES.length;
+            } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+              nextIndex =
+                (currentIndex - 1 + REVIEW_STATUSES.length) %
+                REVIEW_STATUSES.length;
+            } else if (event.key === "Home") {
+              nextIndex = 0;
+            } else if (event.key === "End") {
+              nextIndex = REVIEW_STATUSES.length - 1;
+            }
+            if (nextIndex == null) return;
+            event.preventDefault();
+            const nextStatus = REVIEW_STATUSES[nextIndex];
+            onChange(nextStatus);
+            window.requestAnimationFrame(() =>
+              document
+                .getElementById(`metadata-review-tab-${nextStatus}`)
+                ?.focus(),
+            );
+          }}
           className={cn(
-            "flex min-w-0 items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+            "flex min-w-0 items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors focus:outline-hidden focus:ring-2 focus:ring-focus",
             active === status
               ? "bg-canvas text-foreground shadow-ring"
               : "text-muted hover:bg-canvas/60 hover:text-foreground",
@@ -121,7 +148,7 @@ function confidenceLabel(confidence: number | null): string | null {
 interface ReviewItemRowProps {
   item: MetadataReviewItem;
   focused: boolean;
-  onEdit: () => void;
+  onEdit: (trigger: HTMLButtonElement) => void;
 }
 
 const ReviewItemRow: React.FC<ReviewItemRowProps> = ({
@@ -143,20 +170,11 @@ const ReviewItemRow: React.FC<ReviewItemRowProps> = ({
       )}
     >
       <div className="flex items-start gap-4">
-        <div className="hidden h-24 w-16 shrink-0 overflow-hidden rounded-lg bg-canvas sm:block">
-          {poster ? (
-            <img
-              src={poster}
-              alt=""
-              className="h-full w-full object-cover"
-              loading="lazy"
-            />
-          ) : (
-            <div className="flex h-full items-center justify-center text-subtle">
-              <FileQuestion size={22} />
-            </div>
-          )}
-        </div>
+        <ResilientPoster
+          src={poster}
+          alt=""
+          className="hidden h-24 w-16 rounded-lg sm:flex"
+        />
 
         <div className="min-w-0 flex-1">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -200,7 +218,7 @@ const ReviewItemRow: React.FC<ReviewItemRowProps> = ({
               variant="outline"
               size="sm"
               className="shrink-0 self-start"
-              onClick={onEdit}
+              onClick={(event) => onEdit(event.currentTarget)}
             >
               <Edit3 size={15} />
               {t("item.review")}
@@ -358,6 +376,8 @@ export const MetadataReviewPage: React.FC = () => {
   const { addToast } = useToast();
   const [selectedItem, setSelectedItem] =
     React.useState<MetadataReviewItem | null>(null);
+  const reviewTriggerRef = React.useRef<HTMLButtonElement | null>(null);
+  const queueHeadingRef = React.useRef<HTMLHeadingElement | null>(null);
   const [undoing, setUndoing] = React.useState<Set<string>>(new Set());
 
   const updateLocation = React.useCallback(
@@ -416,6 +436,7 @@ export const MetadataReviewPage: React.FC = () => {
         }),
         color: "success",
       });
+      queueHeadingRef.current?.focus();
     },
     [addToast, mutate, t],
   );
@@ -478,10 +499,19 @@ export const MetadataReviewPage: React.FC = () => {
         onUndo={handleUndo}
       />
 
-      <section className="mt-8">
+      <section
+        id="metadata-review-panel"
+        role="tabpanel"
+        aria-labelledby={`metadata-review-tab-${status}`}
+        className="mt-8"
+      >
         <div className="mb-3 flex items-end justify-between gap-3">
           <div>
-            <h2 className="font-serif text-lg font-medium text-foreground">
+            <h2
+              ref={queueHeadingRef}
+              tabIndex={-1}
+              className="font-serif text-lg font-medium text-foreground focus:outline-hidden"
+            >
               {t(`queue.${status}.title`)}
             </h2>
             <p className="mt-1 text-sm text-muted">
@@ -503,6 +533,7 @@ export const MetadataReviewPage: React.FC = () => {
         <div className="overflow-hidden rounded-xl border border-border-light bg-surface shadow-whisper">
           {error ? (
             <EmptyPrompt
+              role="alert"
               icon={<AlertTriangle size={42} />}
               title={<h3>{t("errors.loadFailed")}</h3>}
               body={
@@ -537,7 +568,10 @@ export const MetadataReviewPage: React.FC = () => {
                   key={item.id}
                   item={item}
                   focused={focus === item.id}
-                  onEdit={() => setSelectedItem(item)}
+                  onEdit={(trigger) => {
+                    reviewTriggerRef.current = trigger;
+                    setSelectedItem(item);
+                  }}
                 />
               ))}
             </div>
@@ -561,6 +595,7 @@ export const MetadataReviewPage: React.FC = () => {
           if (!open) setSelectedItem(null);
         }}
         onApplied={handleApplied}
+        restoreFocusRef={reviewTriggerRef}
       />
     </PageTemplate>
   );

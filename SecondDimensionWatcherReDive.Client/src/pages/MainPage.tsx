@@ -2,13 +2,7 @@ import React from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useParams } from "react-router";
 
-import {
-  AlertTriangle,
-  ArrowLeft,
-  Bell,
-  Clapperboard,
-  Film,
-} from "lucide-react";
+import { AlertTriangle, ArrowLeft, Bell, Clapperboard } from "lucide-react";
 
 import { IAnimationCatalogItem } from "../animation/IAnimationCatalog";
 import {
@@ -20,6 +14,7 @@ import { tmdbImageUrl } from "../animation/tmdbImage";
 import { AnimationInfo } from "../components/AnimationInfo";
 import { ContinueWatching } from "../components/ContinueWatching";
 import { EpisodeList } from "../components/EpisodeList";
+import { ResilientPoster } from "../components/ResilientPoster";
 import { Button } from "../components/ui/Button";
 import { EmptyPrompt } from "../components/ui/EmptyPrompt";
 import { Spinner } from "../components/ui/Spinner";
@@ -34,21 +29,16 @@ const AnimeCard: React.FC<{
 
   return (
     <button
+      type="button"
       onClick={onClick}
-      className="group flex gap-4 rounded-lg border border-border bg-surface p-4 shadow-ring text-left transition-all hover:shadow-ring-brand hover:border-accent/30 cursor-pointer"
+      className="group flex cursor-pointer gap-4 rounded-lg border border-border bg-surface p-4 text-left shadow-ring transition-all hover:border-accent/30 hover:shadow-ring-brand focus:outline-hidden focus:ring-2 focus:ring-focus"
     >
-      {posterUrl ? (
-        <img
-          src={posterUrl}
-          alt={anime.name}
-          className="h-28 w-20 shrink-0 rounded-md object-cover bg-canvas"
-          loading="lazy"
-        />
-      ) : (
-        <div className="flex h-28 w-20 shrink-0 items-center justify-center rounded-md bg-canvas text-subtle">
-          <Film size={24} />
-        </div>
-      )}
+      <ResilientPoster
+        src={posterUrl}
+        alt={anime.name}
+        className="h-28 w-20 rounded-md"
+        allowManualRetry={false}
+      />
       <div className="flex min-w-0 flex-1 flex-col justify-between py-0.5">
         <div>
           <h3 className="font-serif text-base font-medium leading-heading text-foreground line-clamp-2 group-hover:text-accent transition-colors">
@@ -130,22 +120,20 @@ export const EpisodeListPage: React.FC = () => {
   return (
     <PageTemplate>
       <button
+        type="button"
         onClick={() => navigate("/")}
-        className="mb-6 inline-flex items-center gap-1.5 text-sm text-muted hover:text-foreground transition-colors cursor-pointer"
+        className="mb-6 inline-flex cursor-pointer items-center gap-1.5 rounded-md py-1 text-sm text-muted transition-colors hover:text-foreground focus:outline-hidden focus:ring-2 focus:ring-focus"
       >
         <ArrowLeft size={16} />
         {t("animation:back")}
       </button>
 
       <div className="mb-6 flex gap-5">
-        {posterUrl ? (
-          <img
-            src={posterUrl}
-            alt={anime.name}
-            className="h-36 w-24 shrink-0 rounded-md object-cover bg-canvas shadow-ring"
-            loading="lazy"
-          />
-        ) : null}
+        <ResilientPoster
+          src={posterUrl}
+          alt={anime.name}
+          className="h-36 w-24 rounded-md shadow-ring"
+        />
         <div className="flex flex-col justify-center">
           <h2 className="font-serif text-xl font-medium leading-heading text-foreground">
             {anime.name}

@@ -19,6 +19,9 @@
   },
   "seasonLabel": "{{season}} {{year}}",
   "refresh": "Refresh",
+  "refreshing": "Refreshing season data",
+  "previousSeason": "Previous season",
+  "nextSeason": "Next season",
   "lastUpdated": "Last updated: {{time}}",
   "empty": "No anime data yet — click Refresh to fetch",
   "subscribe": "Subscribe",
@@ -27,6 +30,7 @@
   "allSubgroups": "All subtitle groups",
   "selectSubgroup": "Pick a subtitle group to subscribe",
   "loadSubgroupsFailed": "Failed to load subtitle groups",
+  "loadFailed": "Failed to load the anime list",
   "noSubgroups": "No subtitle groups available",
   "toast": {
     "updated": "Anime list updated",

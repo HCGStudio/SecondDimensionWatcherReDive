@@ -110,7 +110,7 @@ export const SecretField: React.FC<SecretFieldProps> = ({
     ? "set"
     : draft.operation;
   return (
-    <FormRow label={label}>
+    <FormRow label={label} htmlFor={id}>
       <div className="space-y-2">
         <div className="relative">
           <PasswordInput
@@ -188,8 +188,13 @@ export const SettingsSaveBar: React.FC<SettingsSaveBarProps> = ({
 }) => {
   const { t } = useTranslation("settings");
   return (
-    <div className="sticky bottom-4 z-10 mt-6 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-surface/95 px-4 py-3 shadow-whisper backdrop-blur">
-      <div className="min-w-0 text-sm">
+    <div className="sticky bottom-2 z-10 mt-6 flex flex-col gap-3 rounded-lg border border-border bg-surface/95 px-4 py-3 shadow-whisper backdrop-blur sm:bottom-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+      <div
+        className="min-w-0 text-sm"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      >
         {requiresRestart ? (
           <span className="text-warning">
             {t("system.save.requiresRestart")}
@@ -205,13 +210,14 @@ export const SettingsSaveBar: React.FC<SettingsSaveBarProps> = ({
           <span className="text-subtle">{t("system.save.noChanges")}</span>
         )}
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 sm:justify-end">
         <Button
           type="button"
           variant="outline"
           size="sm"
           disabled={!dirty || saving}
           onClick={onReset}
+          className="flex-1 sm:flex-none"
         >
           <RotateCcw size={14} />
           {t("system.save.reset")}
@@ -221,6 +227,7 @@ export const SettingsSaveBar: React.FC<SettingsSaveBarProps> = ({
           size="sm"
           disabled={!dirty || saving}
           onClick={onSave}
+          className="flex-1 sm:flex-none"
         >
           {saving ? <Spinner className="h-4 w-4" /> : <Save size={14} />}
           {t("system.save.submit")}

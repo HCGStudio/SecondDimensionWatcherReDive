@@ -27,6 +27,7 @@
     "ja": "日本語"
   },
   "pagination": {
+    "label": "Pagination",
     "first": "First page",
     "prev": "Previous page",
     "next": "Next page",
@@ -39,5 +40,15 @@
   },
   "actions": {
     "close": "Close"
+  },
+  "notifications": {
+    "label": "Notifications",
+    "dismiss": "Dismiss notification"
+  },
+  "images": {
+    "poster": "poster",
+    "unavailable": "Image unavailable",
+    "unavailableFor": "Image unavailable for {{name}}",
+    "retry": "Retry image for {{name}}"
   }
 }

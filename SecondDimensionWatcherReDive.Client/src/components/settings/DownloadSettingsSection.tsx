@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 
 import { Download, HardDrive } from "lucide-react";
 
+import { apiErrorStatus } from "../../errors/apiError";
 import {
   SecretDraft,
   SystemSettings,
@@ -96,7 +97,7 @@ export const DownloadSettingsSection: React.FC<
     } catch (error) {
       addToast({
         title:
-          error instanceof Error && error.message === "409"
+          apiErrorStatus(error) === 409
             ? t("system.save.conflict")
             : t("system.save.failed"),
         color: "danger",

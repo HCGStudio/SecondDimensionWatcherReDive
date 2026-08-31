@@ -29,6 +29,33 @@ function empty(res, status = 200) {
   res.end();
 }
 
+function mockPoster(res, fileName) {
+  const hue = [...fileName].reduce(
+    (value, character) => (value * 31 + character.codePointAt(0)) % 360,
+    24,
+  );
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 450" role="img" aria-label="Mock poster">
+      <defs>
+        <linearGradient id="paper" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="hsl(${hue} 42% 82%)" />
+          <stop offset="1" stop-color="hsl(${(hue + 38) % 360} 34% 58%)" />
+        </linearGradient>
+      </defs>
+      <rect width="300" height="450" fill="url(#paper)" />
+      <circle cx="150" cy="175" r="72" fill="rgba(255,255,255,.28)" />
+      <path d="M70 385c18-82 52-122 80-122s62 40 80 122" fill="rgba(255,255,255,.3)" />
+      <text x="150" y="420" text-anchor="middle" fill="rgba(35,28,24,.72)" font-family="serif" font-size="24">SDW MOCK</text>
+    </svg>`;
+  res.writeHead(200, {
+    "Content-Type": "image/svg+xml; charset=utf-8",
+    "Cache-Control": "private, max-age=3600",
+    "X-Content-Type-Options": "nosniff",
+    "Access-Control-Allow-Origin": "*",
+  });
+  res.end(svg);
+}
+
 function readBody(req) {
   return new Promise((resolve) => {
     const chunks = [];
@@ -1637,6 +1664,13 @@ async function route(method, pathname, searchParams, req, res) {
   // --- All remaining endpoints require auth ---
   if (!hasAuth(req) && !pathname.startsWith("/api/auth/")) {
     return empty(res, 401);
+  }
+
+  if (method === "GET") {
+    const posterMatch = pathname.match(
+      /^\/api\/images\/tmdb\/(?:w92|w154|w185|w300|w342|w500|w780|original)\/([a-z0-9][a-z0-9._-]{0,199}\.(?:avif|jpe?g|png|webp))$/i,
+    );
+    if (posterMatch) return mockPoster(res, posterMatch[1]);
   }
 
   // --- Runtime system settings ---

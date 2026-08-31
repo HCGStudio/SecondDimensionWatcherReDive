@@ -50,8 +50,9 @@ export const Pagination: React.FC<PaginationProps> = ({
     "inline-flex items-center justify-center rounded-md transition-colors focus:outline-hidden focus:ring-2 focus:ring-focus";
 
   return (
-    <nav className="flex items-center gap-1" aria-label="Pagination">
+    <nav className="flex items-center gap-1" aria-label={t("pagination.label")}>
       <button
+        type="button"
         className={cn(btnBase, "p-1.5 text-muted hover:text-foreground")}
         onClick={() => onPageClick(0)}
         disabled={activePage === 0}
@@ -60,6 +61,7 @@ export const Pagination: React.FC<PaginationProps> = ({
         <ChevronsLeft size={16} />
       </button>
       <button
+        type="button"
         className={cn(btnBase, "p-1.5 text-muted hover:text-foreground")}
         onClick={() => onPageClick(activePage - 1)}
         disabled={activePage === 0}
@@ -75,6 +77,7 @@ export const Pagination: React.FC<PaginationProps> = ({
           </span>
         ) : (
           <button
+            type="button"
             key={page}
             className={cn(
               btnBase,
@@ -93,6 +96,7 @@ export const Pagination: React.FC<PaginationProps> = ({
       )}
 
       <button
+        type="button"
         className={cn(btnBase, "p-1.5 text-muted hover:text-foreground")}
         onClick={() => onPageClick(activePage + 1)}
         disabled={activePage === pageCount - 1}
@@ -101,6 +105,7 @@ export const Pagination: React.FC<PaginationProps> = ({
         <ChevronRight size={16} />
       </button>
       <button
+        type="button"
         className={cn(btnBase, "p-1.5 text-muted hover:text-foreground")}
         onClick={() => onPageClick(pageCount - 1)}
         disabled={activePage === pageCount - 1}

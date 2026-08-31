@@ -53,6 +53,7 @@ export const Button: React.FC<ButtonProps> = ({
   className,
   disabled,
   ref,
+  type = "button",
   ...props
 }) => {
   const isIcon = variant === "icon";
@@ -60,13 +61,20 @@ export const Button: React.FC<ButtonProps> = ({
   const classes = cn(
     "inline-flex items-center justify-center gap-2 rounded-md font-sans font-medium transition-colors focus:outline-hidden focus:ring-2 focus:ring-focus focus:ring-offset-1 disabled:opacity-50 disabled:pointer-events-none cursor-pointer",
     isIcon ? iconSizeClasses[size] : sizeClasses[size],
-    variant === "solid" ? solidColorClasses[color] : variantClasses[variant],
+    variantClasses[variant],
+    variant === "solid" ? solidColorClasses[color] : "",
     variant !== "solid" && variant !== "icon" ? textColorClasses[color] : "",
     variant === "icon" ? textColorClasses[color] : "",
     className,
   );
 
   return (
-    <button ref={ref} className={classes} disabled={disabled} {...props} />
+    <button
+      ref={ref}
+      type={type}
+      className={classes}
+      disabled={disabled}
+      {...props}
+    />
   );
 };

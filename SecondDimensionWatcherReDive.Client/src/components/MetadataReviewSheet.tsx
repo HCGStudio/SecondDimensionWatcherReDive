@@ -37,6 +37,7 @@ interface MetadataReviewSheetProps {
   item: MetadataReviewItem | null;
   onOpenChange: (open: boolean) => void;
   onApplied: (result: MetadataRemapResult) => void | Promise<void>;
+  restoreFocusRef: React.RefObject<HTMLButtonElement | null>;
 }
 
 interface EditorFormValues {
@@ -243,6 +244,7 @@ export const MetadataReviewSheet: React.FC<MetadataReviewSheetProps> = ({
   item,
   onOpenChange,
   onApplied,
+  restoreFocusRef,
 }) => {
   const { t } = useTranslation("metadataReview");
   const [form, setForm] = React.useState<EditorFormValues>(emptyForm);
@@ -363,7 +365,13 @@ export const MetadataReviewSheet: React.FC<MetadataReviewSheetProps> = ({
 
   return (
     <Sheet open={item != null} onOpenChange={onOpenChange}>
-      <SheetContent className="max-w-2xl">
+      <SheetContent
+        className="max-w-2xl"
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          restoreFocusRef.current?.focus();
+        }}
+      >
         <SheetHeader className="pr-14">
           <SheetTitle>{t("editor.title")}</SheetTitle>
           {item ? (
@@ -409,7 +417,7 @@ export const MetadataReviewSheet: React.FC<MetadataReviewSheetProps> = ({
                   />
                 </FormRow>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <FormRow
                     label={t("fields.season")}
                     isInvalid={!!fieldErrors.season}
@@ -481,9 +489,23 @@ export const MetadataReviewSheet: React.FC<MetadataReviewSheetProps> = ({
                 </div>
               ) : null}
 
-              <div className="mt-5 flex justify-end">
+              <span
+                className="sr-only"
+                role="status"
+                aria-live="polite"
+                aria-atomic="true"
+              >
+                {previewing
+                  ? t("editor.previewing")
+                  : preview
+                    ? t("editor.previewReady")
+                    : ""}
+              </span>
+
+              <div className="mt-5 flex justify-stretch sm:justify-end">
                 <Button
                   variant="outline"
+                  className="w-full sm:w-auto"
                   onClick={requestPreview}
                   disabled={previewing || applying}
                 >

@@ -142,7 +142,10 @@ or container images, and they impose no notice obligation on us:
 
 - **The Movie Database (TMDB) API** — used for anime metadata lookups via
   `TMDbLib`. Subject to TMDB's own terms of use; an API key is required and
-  the user supplies their own.
+  the user supplies their own. This product uses the TMDB API but is not
+  endorsed or certified by TMDB. Poster artwork remains the property of its
+  respective rights holders. The application proxy stores only a bounded,
+  short-lived operational cache and does not grant redistribution rights.
 - **qBittorrent Web API** — used for download orchestration. qBittorrent
   runs as a separate process / container and is not redistributed by this
   project.

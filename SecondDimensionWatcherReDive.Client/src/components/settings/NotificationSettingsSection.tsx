@@ -11,6 +11,7 @@ import {
   Webhook,
 } from "lucide-react";
 
+import { apiErrorStatus } from "../../errors/apiError";
 import {
   removeWebPushSubscription,
   sendTestNotification,
@@ -160,7 +161,7 @@ export const NotificationSettingsSection: React.FC<
     } catch (error) {
       addToast({
         title:
-          error instanceof Error && error.message === "409"
+          apiErrorStatus(error) === 409
             ? t("system.save.conflict")
             : t("system.save.failed"),
         color: "danger",

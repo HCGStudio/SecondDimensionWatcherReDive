@@ -14,6 +14,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSend, disabled }) => {
   const { t } = useTranslation("chat");
   const [value, setValue] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const inputId = React.useId();
 
   const handleSend = useCallback(() => {
     const trimmed = value.trim();
@@ -26,6 +27,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSend, disabled }) => {
   }, [value, disabled, onSend]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.nativeEvent.isComposing) return;
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSend();
@@ -41,9 +43,19 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSend, disabled }) => {
   };
 
   return (
-    <div className="border-t border-border bg-surface px-4 py-3">
+    <form
+      className="border-t border-border bg-surface px-4 py-3"
+      onSubmit={(event) => {
+        event.preventDefault();
+        handleSend();
+      }}
+    >
       <div className="flex items-end gap-2">
+        <label htmlFor={inputId} className="sr-only">
+          {t("inputLabel")}
+        </label>
         <textarea
+          id={inputId}
           ref={textareaRef}
           value={value}
           onChange={(e) => setValue(e.target.value)}
@@ -52,18 +64,19 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSend, disabled }) => {
           placeholder={t("inputPlaceholder")}
           disabled={disabled}
           rows={1}
-          className="flex-1 resize-none rounded-lg border border-border bg-canvas px-3 py-2 text-sm text-foreground placeholder:text-subtle focus:outline-hidden focus:border-focus transition-colors scrollbar-none"
+          className="scrollbar-none flex-1 resize-none rounded-lg border border-border bg-canvas px-3 py-2 text-sm text-foreground placeholder:text-subtle transition-colors focus:border-focus focus:outline-hidden focus:ring-2 focus:ring-focus"
         />
         <Button
+          type="submit"
           variant="solid"
           size="sm"
-          onClick={handleSend}
           disabled={disabled || !value.trim()}
           className="flex-shrink-0 p-2.5"
+          aria-label={t("send")}
         >
           <Send size={16} />
         </Button>
       </div>
-    </div>
+    </form>
   );
 };
