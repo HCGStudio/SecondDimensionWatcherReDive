@@ -81,8 +81,7 @@ function reducer(
       return {
         ...state,
         contentBlocks: state.contentBlocks.map((block) =>
-          block.type === "tool_call" &&
-          block.toolCall.id === action.toolCallId
+          block.type === "tool_call" && block.toolCall.id === action.toolCallId
             ? {
                 ...block,
                 toolCall: { ...block.toolCall, result: action.result },

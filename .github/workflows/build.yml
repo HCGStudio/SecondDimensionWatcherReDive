@@ -1,79 +1,73 @@
-name: Build & Release
+name: Build release artifacts
 
 on:
-  push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
-  workflow_dispatch:
+  workflow_call:
     inputs:
-      release_version:
-        description: 'Release version (leave empty for pre-release)'
-        required: false
+      version:
+        description: Version embedded in every package and container
+        required: true
         type: string
+      commit_sha:
+        description: Fully verified commit to build
+        required: true
+        type: string
+      image_repository:
+        description: Lowercase GHCR image repository without a tag
+        required: true
+        type: string
+    outputs:
+      image_digest:
+        description: Immutable digest of the multi-architecture image
+        value: ${{ jobs.container.outputs.digest }}
+      bundle_name:
+        description: Artifact containing all checked release files
+        value: ${{ jobs.validate_artifacts.outputs.bundle_name }}
 
 permissions:
   contents: read
 
 jobs:
-  test:
+  validate_inputs:
+    name: Validate build inputs
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '10.0.x'
+          ref: ${{ inputs.commit_sha }}
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: '24'
-
-      - name: Run tests
-        run: >-
-          dotnet test SecondDimensionWatcherReDive.slnx -c Release
-          --logger "trx;LogFileName=test-results.trx"
-          --collect "XPlat Code Coverage"
-          -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=cobertura
-
-      - name: Enforce gradual coverage floor
-        shell: bash
+      - name: Require an exact commit, safe version, and GHCR target
+        env:
+          COMMIT_SHA: ${{ inputs.commit_sha }}
+          IMAGE_REPOSITORY: ${{ inputs.image_repository }}
+          VERSION: ${{ inputs.version }}
         run: |
-          mapfile -t coverage_files < <(find . -path '*/TestResults/*/coverage.cobertura.xml' -print)
-          node deployments/ci/check-dotnet-coverage.mjs 0.15 "${coverage_files[@]}" \
-            | tee coverage-summary.txt
+          set -euo pipefail
+          [[ "$COMMIT_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z]+)*$ ]]
+          [[ "$IMAGE_REPOSITORY" =~ ^ghcr\.io/[a-z0-9._/-]+$ ]]
+          test "$(git rev-parse HEAD)" = "$COMMIT_SHA"
 
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: test-results
-          path: |
-            **/TestResults/*.trx
-            **/TestResults/**/coverage.cobertura.xml
-            coverage-summary.txt
-
-  build-frontend:
-    needs: test
+  frontend:
+    name: Build frontend once
+    needs: validate_inputs
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.commit_sha }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: '24'
+          node-version: "24"
 
       - name: Enable Corepack
         run: corepack enable
 
-      - name: Build Frontend
+      - name: Build frontend
         working-directory: SecondDimensionWatcherReDive.Client
         run: |
           yarn install --immutable
-          yarn test:unit
           yarn build
 
       - name: Upload frontend artifact
@@ -81,135 +75,31 @@ jobs:
         with:
           name: frontend-dist
           path: SecondDimensionWatcherReDive.Client/dist/
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 14
 
-  frontend-e2e:
-    needs: build-frontend
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: '24'
-
-      - name: Enable Corepack
-        run: corepack enable
-
-      - name: Install frontend dependencies
-        working-directory: SecondDimensionWatcherReDive.Client
-        run: yarn install --immutable
-
-      - name: Install Chromium
-        working-directory: SecondDimensionWatcherReDive.Client
-        run: yarn playwright install --with-deps chromium
-
-      - name: Run Playwright journeys
-        working-directory: SecondDimensionWatcherReDive.Client
-        run: yarn test:e2e
-
-      - name: Upload Playwright diagnostics
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: playwright-results
-          if-no-files-found: ignore
-          path: |
-            SecondDimensionWatcherReDive.Client/playwright-report/
-            SecondDimensionWatcherReDive.Client/test-results/playwright/
-
-  fuse-mount-smoke:
-    needs: test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v6
-        with:
-          dotnet-version: '10.0.x'
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: '24'
-
-      - name: Install FUSE and NativeAOT prerequisites
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y fuse3 libfuse3-dev clang zlib1g-dev
-
-      - name: Publish NativeAOT smoke binary
-        run: >-
-          dotnet publish SecondDimensionWatcherReDive.FUSE/SecondDimensionWatcherReDive.FUSE.csproj
-          -c Release -r linux-x64 -p:StripSymbols=true
-          -o publish-fuse-smoke
-
-      - name: Run real mount when supported
-        run: deployments/ci/fuse-mount-smoke.sh publish-fuse-smoke/sdwfuse
-
-  delivery-smoke:
-    needs: [test, build-frontend]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v6
-        with:
-          dotnet-version: '10.0.x'
-
-      - name: Download frontend artifact
-        uses: actions/download-artifact@v8
-        with:
-          name: frontend-dist
-          path: SecondDimensionWatcherReDive/wwwroot/
-
-      - name: Set package metadata
-        run: |
-          echo "VERSION=0.0.0-ci.${{ github.run_number }}" >> "$GITHUB_ENV"
-          echo "RELEASE=1" >> "$GITHUB_ENV"
-          echo "ARCH=amd64" >> "$GITHUB_ENV"
-
-      - name: Publish package payload
-        run: >-
-          dotnet publish SecondDimensionWatcherReDive/SecondDimensionWatcherReDive.csproj
-          -c Release -r linux-x64 --self-contained false
-          /p:Version=${VERSION} -o publish
-
-      - name: Install nfpm
-        run: |
-          echo 'deb [trusted=yes] https://repo.goreleaser.com/apt/ /' \
-            | sudo tee /etc/apt/sources.list.d/goreleaser.list
-          sudo apt-get update
-          sudo apt-get install -y nfpm
-
-      - name: Build Debian package and final container
-        run: |
-          mkdir -p dist
-          nfpm package --config packaging/nfpm.yaml --packager deb \
-            --target "dist/sdw-redive_${VERSION}_${ARCH}.deb"
-          docker build --file Containerfile --tag sdw-redive:delivery-smoke .
-
-      - name: Install, migrate, start, and uninstall delivery artifacts
-        run: >-
-          deployments/ci/delivery-smoke.sh sdw-redive:delivery-smoke
-          "dist/sdw-redive_${VERSION}_${ARCH}.deb"
-
-  build-linux-packages:
-    if: github.event_name != 'pull_request'
-    needs: build-frontend
+  linux_packages:
+    name: Linux app packages (${{ matrix.arch }})
+    needs: frontend
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        arch: [x64, arm64]
+        include:
+          - arch: x64
+            package_arch: amd64
+          - arch: arm64
+            package_arch: aarch64
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.commit_sha }}
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '10.0.x'
+          dotnet-version: "10.0.x"
 
       - name: Download frontend artifact
         uses: actions/download-artifact@v8
@@ -217,25 +107,15 @@ jobs:
           name: frontend-dist
           path: SecondDimensionWatcherReDive/wwwroot/
 
-      - name: Compute version
-        run: |
-          RELEASE_VERSION="${{ github.event.inputs.release_version }}"
-          if [ -n "$RELEASE_VERSION" ]; then
-            VERSION="$RELEASE_VERSION"
-          else
-            BASE_VERSION=$(cat VERSION | tr -d '[:space:]')
-            VERSION="${BASE_VERSION}.${{ github.run_number }}"
-          fi
-          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
-          echo "RELEASE=${{ github.run_number }}" >> "$GITHUB_ENV"
-
-      - name: Publish Backend
+      - name: Publish backend
+        env:
+          VERSION: ${{ inputs.version }}
         run: |
           dotnet publish SecondDimensionWatcherReDive/SecondDimensionWatcherReDive.csproj \
             -c Release \
             -r linux-${{ matrix.arch }} \
             --self-contained false \
-            /p:Version=${VERSION} \
+            /p:Version="$VERSION" \
             -o publish
 
       - name: Install nfpm
@@ -244,49 +124,48 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y nfpm
 
-      - name: Set package architecture
-        run: |
-          if [ "${{ matrix.arch }}" = "x64" ]; then
-            echo "ARCH=amd64" >> "$GITHUB_ENV"
-          else
-            echo "ARCH=aarch64" >> "$GITHUB_ENV"
-          fi
-
-      - name: Build packages
+      - name: Build Linux packages
+        env:
+          ARCH: ${{ matrix.package_arch }}
+          RELEASE: ${{ github.run_number }}
+          VERSION: ${{ inputs.version }}
         run: |
           mkdir -p dist
           nfpm package --config packaging/nfpm.yaml --packager deb --target "dist/sdw-redive_${VERSION}_${ARCH}.deb"
           nfpm package --config packaging/nfpm.yaml --packager rpm --target "dist/sdw-redive-${VERSION}.${ARCH}.rpm"
           nfpm package --config packaging/nfpm.yaml --packager archlinux --target "dist/sdw-redive-${VERSION}-${ARCH}.pkg.tar.zst"
-
-      - name: Package as tar.gz
-        run: |
           cp packaging/appsettings.yml publish/appsettings.yml
           cp packaging/sdw-redive.service publish/sdw-redive.service
           cp LICENSE publish/LICENSE
           cp THIRD_PARTY_NOTICES.md publish/THIRD_PARTY_NOTICES.md
           tar -czf "dist/sdw-redive_${VERSION}_linux-${ARCH}.tar.gz" -C publish .
 
-      - name: Upload packages
+      - name: Upload Linux packages
         uses: actions/upload-artifact@v7
         with:
           name: packages-linux-${{ matrix.arch }}
           path: dist/*
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 14
 
-  build-windows-zip:
-    if: github.event_name != 'pull_request'
-    needs: build-frontend
+  windows_packages:
+    name: Windows package (${{ matrix.arch }})
+    needs: frontend
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         arch: [x64, arm64]
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.commit_sha }}
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '10.0.x'
+          dotnet-version: "10.0.x"
 
       - name: Download frontend artifact
         uses: actions/download-artifact@v8
@@ -294,50 +173,47 @@ jobs:
           name: frontend-dist
           path: SecondDimensionWatcherReDive/wwwroot/
 
-      - name: Compute version
-        run: |
-          RELEASE_VERSION="${{ github.event.inputs.release_version }}"
-          if [ -n "$RELEASE_VERSION" ]; then
-            VERSION="$RELEASE_VERSION"
-          else
-            BASE_VERSION=$(cat VERSION | tr -d '[:space:]')
-            VERSION="${BASE_VERSION}.${{ github.run_number }}"
-          fi
-          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
-
-      - name: Publish Backend
+      - name: Publish backend
+        env:
+          VERSION: ${{ inputs.version }}
         run: |
           dotnet publish SecondDimensionWatcherReDive/SecondDimensionWatcherReDive.csproj \
             -c Release \
             -r win-${{ matrix.arch }} \
             --self-contained false \
-            /p:Version=${VERSION} \
+            /p:Version="$VERSION" \
             -o publish
 
       - name: Package as zip
+        env:
+          VERSION: ${{ inputs.version }}
         run: |
           cp LICENSE publish/LICENSE
           cp THIRD_PARTY_NOTICES.md publish/THIRD_PARTY_NOTICES.md
-          cd publish
-          zip -r "../sdw-redive_${VERSION}_win-${{ matrix.arch }}.zip" .
+          (cd publish && zip -r "../sdw-redive_${VERSION}_win-${{ matrix.arch }}.zip" .)
 
-      - name: Upload zip
+      - name: Upload Windows package
         uses: actions/upload-artifact@v7
         with:
           name: packages-win-${{ matrix.arch }}
           path: sdw-redive_*.zip
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 14
 
-  build-portable:
-    if: github.event_name != 'pull_request'
-    needs: build-frontend
+  portable_package:
+    name: Portable package
+    needs: frontend
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.commit_sha }}
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '10.0.x'
+          dotnet-version: "10.0.x"
 
       - name: Download frontend artifact
         uses: actions/download-artifact@v8
@@ -345,27 +221,20 @@ jobs:
           name: frontend-dist
           path: SecondDimensionWatcherReDive/wwwroot/
 
-      - name: Compute version
-        run: |
-          RELEASE_VERSION="${{ github.event.inputs.release_version }}"
-          if [ -n "$RELEASE_VERSION" ]; then
-            VERSION="$RELEASE_VERSION"
-          else
-            BASE_VERSION=$(cat VERSION | tr -d '[:space:]')
-            VERSION="${BASE_VERSION}.${{ github.run_number }}"
-          fi
-          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
-
-      - name: Publish Backend
+      - name: Publish backend
+        env:
+          VERSION: ${{ inputs.version }}
         run: |
           dotnet publish SecondDimensionWatcherReDive/SecondDimensionWatcherReDive.csproj \
             -c Release \
             --self-contained false \
             -p:UseAppHost=false \
-            /p:Version=${VERSION} \
+            /p:Version="$VERSION" \
             -o publish
 
-      - name: Package as tar.gz
+      - name: Package portable build
+        env:
+          VERSION: ${{ inputs.version }}
         run: |
           cp packaging/appsettings.yml publish/appsettings.yml
           cp LICENSE publish/LICENSE
@@ -378,63 +247,49 @@ jobs:
         with:
           name: packages-portable
           path: dist/*
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 14
 
-  build-fuse:
-    if: github.event_name != 'pull_request'
-    # NativeAOT cross-compile is not supported, so each architecture builds on a
-    # native runner. ubuntu-24.04-arm is GA for public repos; private repos pay
-    # for arm minutes — switch to a self-hosted arm runner if that becomes an
-    # issue. The job depends on `test` only (no frontend artifact needed).
-    needs: test
+  fuse_packages:
+    name: FUSE packages (${{ matrix.arch }})
+    needs: validate_inputs
     strategy:
       fail-fast: false
       matrix:
         include:
           - arch: x64
             runner: ubuntu-latest
-            pkg-arch: amd64
+            package_arch: amd64
           - arch: arm64
             runner: ubuntu-24.04-arm
-            pkg-arch: aarch64
+            package_arch: aarch64
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.commit_sha }}
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '10.0.x'
+          dotnet-version: "10.0.x"
 
       - name: Install AOT prerequisites
-        # clang + zlib are needed by the AOT linker; libfuse3-dev gives us the
-        # `libfuse3.so` symlink the linker resolves `-lfuse3` against (only the
-        # runtime .so.3 ships in libfuse3-3).
         run: |
           sudo apt-get update
           sudo apt-get install -y clang zlib1g-dev libfuse3-dev binutils
 
-      - name: Compute version
-        run: |
-          RELEASE_VERSION="${{ github.event.inputs.release_version }}"
-          if [ -n "$RELEASE_VERSION" ]; then
-            VERSION="$RELEASE_VERSION"
-          else
-            BASE_VERSION=$(cat VERSION | tr -d '[:space:]')
-            VERSION="${BASE_VERSION}.${{ github.run_number }}"
-          fi
-          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
-          echo "RELEASE=${{ github.run_number }}" >> "$GITHUB_ENV"
-          echo "ARCH=${{ matrix.pkg-arch }}" >> "$GITHUB_ENV"
-
       - name: Publish sdwfuse (NativeAOT)
+        env:
+          VERSION: ${{ inputs.version }}
         run: |
           dotnet publish SecondDimensionWatcherReDive.FUSE/SecondDimensionWatcherReDive.FUSE.csproj \
             -c Release \
             -r linux-${{ matrix.arch }} \
             -p:StripSymbols=true \
-            /p:Version=${VERSION} \
+            /p:Version="$VERSION" \
             -o publish-fuse
-          ls -lh publish-fuse/sdwfuse
           file publish-fuse/sdwfuse
 
       - name: Install nfpm
@@ -443,81 +298,339 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y nfpm
 
-      - name: Build distro packages
+      - name: Build FUSE packages
+        env:
+          ARCH: ${{ matrix.package_arch }}
+          RELEASE: ${{ github.run_number }}
+          VERSION: ${{ inputs.version }}
         run: |
           mkdir -p dist
-          nfpm package --config packaging/nfpm-fuse.yaml --packager deb       --target "dist/sdwfuse_${VERSION}_${ARCH}.deb"
-          nfpm package --config packaging/nfpm-fuse.yaml --packager rpm       --target "dist/sdwfuse-${VERSION}.${ARCH}.rpm"
+          nfpm package --config packaging/nfpm-fuse.yaml --packager deb --target "dist/sdwfuse_${VERSION}_${ARCH}.deb"
+          nfpm package --config packaging/nfpm-fuse.yaml --packager rpm --target "dist/sdwfuse-${VERSION}.${ARCH}.rpm"
           nfpm package --config packaging/nfpm-fuse.yaml --packager archlinux --target "dist/sdwfuse-${VERSION}-${ARCH}.pkg.tar.zst"
-
-      - name: Package as tar.gz
-        run: |
-          mkdir -p dist
           cp SecondDimensionWatcherReDive.FUSE/README.md publish-fuse/README.md
           cp LICENSE publish-fuse/LICENSE
           cp SecondDimensionWatcherReDive.FUSE/THIRD_PARTY_NOTICES.md publish-fuse/THIRD_PARTY_NOTICES.md
           tar -czf "dist/sdwfuse_${VERSION}_linux-${{ matrix.arch }}.tar.gz" \
             -C publish-fuse sdwfuse README.md LICENSE THIRD_PARTY_NOTICES.md
 
-      - name: Upload sdwfuse packages
+      - name: Upload FUSE packages
         uses: actions/upload-artifact@v7
         with:
           name: packages-fuse-linux-${{ matrix.arch }}
           path: dist/*
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 14
 
-  release:
-    if: github.event_name != 'pull_request'
-    needs:
-      - build-linux-packages
-      - build-windows-zip
-      - build-portable
-      - build-fuse
-      - frontend-e2e
-      - fuse-mount-smoke
-      - delivery-smoke
+  container_platforms:
+    name: Container platform (${{ matrix.arch }})
+    needs: validate_inputs
     permissions:
-      contents: write
-    runs-on: ubuntu-latest
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.commit_sha }}
 
-      - name: Compute version
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Build and push by digest
+        id: publish
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./Containerfile
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=${{ inputs.image_repository }},push-by-digest=true,name-canonical=true,push=true
+          build-args: VERSION=${{ inputs.version }}
+          labels: |
+            org.opencontainers.image.revision=${{ inputs.commit_sha }}
+            org.opencontainers.image.version=${{ inputs.version }}
+          provenance: mode=max
+          sbom: true
+          cache-from: type=gha,scope=release-container-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=release-container-${{ matrix.arch }},ignore-error=true
+
+      - name: Export digest
+        env:
+          DIGEST: ${{ steps.publish.outputs.digest }}
         run: |
-          RELEASE_VERSION="${{ github.event.inputs.release_version }}"
-          if [ -n "$RELEASE_VERSION" ]; then
-            VERSION="$RELEASE_VERSION"
-            echo "IS_RELEASE=true" >> "$GITHUB_ENV"
-          else
-            BASE_VERSION=$(cat VERSION | tr -d '[:space:]')
-            VERSION="${BASE_VERSION}.${{ github.run_number }}"
-            echo "IS_RELEASE=false" >> "$GITHUB_ENV"
+          set -euo pipefail
+          digest="${DIGEST#sha256:}"
+          if [[ ! "$digest" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "Unexpected image digest: $DIGEST" >&2
+            exit 1
           fi
-          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/container-digests"
+          touch "$RUNNER_TEMP/container-digests/$digest"
 
-      - name: Download all artifacts
+      - name: Upload digest
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-container-digest-${{ matrix.arch }}
+          path: ${{ runner.temp }}/container-digests/*
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 1
+
+  container:
+    name: Multi-architecture container manifest
+    needs: container_platforms
+    permissions:
+      contents: read
+      packages: write
+    runs-on: ubuntu-latest
+    outputs:
+      digest: ${{ steps.manifest.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.commit_sha }}
+
+      - name: Download platform digests
+        uses: actions/download-artifact@v8
+        with:
+          pattern: release-container-digest-*
+          path: ${{ runner.temp }}/container-digests
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Create and verify immutable candidate
+        id: manifest
+        env:
+          IMAGE_REPOSITORY: ${{ inputs.image_repository }}
+          SOURCE_SHA: ${{ inputs.commit_sha }}
+        run: |
+          set -euo pipefail
+          mapfile -t digests < <(
+            find "$RUNNER_TEMP/container-digests" -maxdepth 1 -type f -printf '%f\n' | sort
+          )
+          if [ "${#digests[@]}" -ne 2 ]; then
+            echo "Expected two platform digests, found ${#digests[@]}" >&2
+            exit 1
+          fi
+
+          images=()
+          for digest in "${digests[@]}"; do
+            if [[ ! "$digest" =~ ^[0-9a-f]{64}$ ]]; then
+              echo "Unexpected image digest: $digest" >&2
+              exit 1
+            fi
+            images+=("${IMAGE_REPOSITORY}@sha256:${digest}")
+          done
+
+          prospective_manifest=$(docker buildx imagetools create --dry-run "${images[@]}")
+          if ! jq -e -f .github/scripts/validate-container-index.jq \
+            <<< "$prospective_manifest" >/dev/null; then
+            echo "Candidate is not a strict amd64/arm64 OCI index with matching attestations" >&2
+            exit 1
+          fi
+
+          prospective_digest="sha256:$(printf '%s' "$prospective_manifest" | sha256sum | cut -d ' ' -f1)"
+          candidate_tag="${IMAGE_REPOSITORY}:candidate-${SOURCE_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          docker buildx imagetools create \
+            --tag "$candidate_tag" \
+            --metadata-file "$RUNNER_TEMP/manifest-metadata.json" \
+            "${images[@]}"
+
+          manifest_digest=$(jq -er '."containerimage.descriptor".digest' "$RUNNER_TEMP/manifest-metadata.json")
+          if [[ ! "$manifest_digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "Unexpected manifest digest: $manifest_digest" >&2
+            exit 1
+          fi
+          if [ "$manifest_digest" != "$prospective_digest" ]; then
+            echo "Published digest $manifest_digest differs from validated digest $prospective_digest" >&2
+            exit 1
+          fi
+
+          published_manifest=$(docker buildx imagetools inspect "${IMAGE_REPOSITORY}@${manifest_digest}" --raw)
+          if [ "$published_manifest" != "$prospective_manifest" ]; then
+            echo "Published manifest differs from the validated dry-run manifest" >&2
+            exit 1
+          fi
+          candidate_manifest=$(docker buildx imagetools inspect "$candidate_tag" --raw)
+          if [ "$candidate_manifest" != "$published_manifest" ]; then
+            echo "$candidate_tag does not resolve to the validated manifest" >&2
+            exit 1
+          fi
+
+          echo "digest=$manifest_digest" >> "$GITHUB_OUTPUT"
+          docker buildx imagetools inspect "${IMAGE_REPOSITORY}@${manifest_digest}"
+
+  container_smoke:
+    name: Candidate runtime smoke (${{ matrix.arch }})
+    needs: container
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.commit_sha }}
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Pull exact multi-architecture candidate
+        env:
+          IMAGE_DIGEST: ${{ needs.container.outputs.digest }}
+          IMAGE_REPOSITORY: ${{ inputs.image_repository }}
+        run: |
+          set -euo pipefail
+          [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          docker pull "${IMAGE_REPOSITORY}@${IMAGE_DIGEST}"
+
+      - name: Verify architecture, migrations, HTTP, and SPA
+        env:
+          EXPECTED_ARCHITECTURE: ${{ matrix.arch }}
+          IMAGE_DIGEST: ${{ needs.container.outputs.digest }}
+          IMAGE_REPOSITORY: ${{ inputs.image_repository }}
+        run: >-
+          bash .github/scripts/container-runtime-smoke.sh
+          "${IMAGE_REPOSITORY}@${IMAGE_DIGEST}" "$EXPECTED_ARCHITECTURE"
+
+  validate_artifacts:
+    name: Validate complete artifact set
+    needs:
+      - linux_packages
+      - windows_packages
+      - portable_package
+      - fuse_packages
+      - container
+      - container_smoke
+    permissions:
+      contents: read
+      packages: read
+    runs-on: ubuntu-latest
+    outputs:
+      bundle_name: release-bundle-${{ inputs.commit_sha }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.commit_sha }}
+
+      - name: Download package artifacts
         uses: actions/download-artifact@v8
         with:
           pattern: packages-*
           path: release/
           merge-multiple: true
 
-      - name: Create Release
-        if: env.IS_RELEASE == 'true'
-        uses: softprops/action-gh-release@v3
-        with:
-          tag_name: v${{ env.VERSION }}
-          name: Release ${{ env.VERSION }}
-          prerelease: false
-          make_latest: true
-          files: release/*
-          generate_release_notes: true
+      - name: Require every target package and generate checksums
+        env:
+          VERSION: ${{ inputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd release
 
-      - name: Create Pre-release
-        if: env.IS_RELEASE == 'false'
-        uses: softprops/action-gh-release@v3
+          expected=(
+            "sdw-redive_${VERSION}_amd64.deb"
+            "sdw-redive-${VERSION}.amd64.rpm"
+            "sdw-redive-${VERSION}-amd64.pkg.tar.zst"
+            "sdw-redive_${VERSION}_linux-amd64.tar.gz"
+            "sdw-redive_${VERSION}_aarch64.deb"
+            "sdw-redive-${VERSION}.aarch64.rpm"
+            "sdw-redive-${VERSION}-aarch64.pkg.tar.zst"
+            "sdw-redive_${VERSION}_linux-aarch64.tar.gz"
+            "sdw-redive_${VERSION}_win-x64.zip"
+            "sdw-redive_${VERSION}_win-arm64.zip"
+            "sdw-redive_${VERSION}_portable.tar.gz"
+            "sdwfuse_${VERSION}_amd64.deb"
+            "sdwfuse-${VERSION}.amd64.rpm"
+            "sdwfuse-${VERSION}-amd64.pkg.tar.zst"
+            "sdwfuse_${VERSION}_linux-x64.tar.gz"
+            "sdwfuse_${VERSION}_aarch64.deb"
+            "sdwfuse-${VERSION}.aarch64.rpm"
+            "sdwfuse-${VERSION}-aarch64.pkg.tar.zst"
+            "sdwfuse_${VERSION}_linux-arm64.tar.gz"
+          )
+
+          test "$(find . -maxdepth 1 -type f | wc -l)" -eq "${#expected[@]}"
+          for artifact in "${expected[@]}"; do
+            test -s "$artifact"
+          done
+          sha256sum "${expected[@]}" > SHA256SUMS
+          sha256sum --check SHA256SUMS
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
         with:
-          tag_name: pre-${{ env.VERSION }}
-          name: Pre-release ${{ env.VERSION }}
-          prerelease: true
-          files: release/*
-          generate_release_notes: true
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Verify image digest and target architectures
+        env:
+          IMAGE_DIGEST: ${{ needs.container.outputs.digest }}
+          IMAGE_REPOSITORY: ${{ inputs.image_repository }}
+        run: |
+          set -euo pipefail
+          [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          manifest=$(docker buildx imagetools inspect "$IMAGE_REPOSITORY@$IMAGE_DIGEST" --raw)
+          resolved_digest="sha256:$(printf '%s' "$manifest" | sha256sum | cut -d ' ' -f1)"
+          if [ "$resolved_digest" != "$IMAGE_DIGEST" ]; then
+            echo "Resolved digest $resolved_digest differs from $IMAGE_DIGEST" >&2
+            exit 1
+          fi
+
+          if ! jq -e -f .github/scripts/validate-container-index.jq \
+            <<< "$manifest" >/dev/null; then
+            echo "Published image is not a strict amd64/arm64 OCI index with matching attestations" >&2
+            exit 1
+          fi
+
+      - name: Upload checked release bundle
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-bundle-${{ inputs.commit_sha }}
+          path: release/*
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 14

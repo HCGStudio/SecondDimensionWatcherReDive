@@ -1,6 +1,8 @@
-import * as ToastPrimitive from "@radix-ui/react-toast";
-import { X } from "lucide-react";
 import React from "react";
+
+import * as ToastPrimitive from "@radix-ui/react-toast";
+
+import { X } from "lucide-react";
 
 import { cn } from "../lib/cn";
 

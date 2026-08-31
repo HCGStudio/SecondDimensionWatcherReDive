@@ -1,14 +1,15 @@
-.git/
-.github/
+.git
+.github
+
 **/bin/
 **/obj/
 **/TestResults/
 
 SecondDimensionWatcherReDive.Client/.parcel-cache/
-SecondDimensionWatcherReDive.Client/.yarn/cache/
-SecondDimensionWatcherReDive.Client/.yarn/unplugged/
-SecondDimensionWatcherReDive.Client/.yarn/install-state.gz
 SecondDimensionWatcherReDive.Client/.pnp.*
+SecondDimensionWatcherReDive.Client/.yarn/cache/
+SecondDimensionWatcherReDive.Client/.yarn/install-state.gz
+SecondDimensionWatcherReDive.Client/.yarn/unplugged/
 SecondDimensionWatcherReDive.Client/dist/
 SecondDimensionWatcherReDive.Client/playwright-report/
 SecondDimensionWatcherReDive.Client/test-results/

@@ -1,7 +1,9 @@
-import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { X } from "lucide-react";
 import React from "react";
 import { useTranslation } from "react-i18next";
+
+import * as DialogPrimitive from "@radix-ui/react-dialog";
+
+import { X } from "lucide-react";
 
 import { cn } from "../../lib/cn";
 
@@ -37,18 +39,20 @@ export const SheetContent = React.forwardRef<
 
 SheetContent.displayName = "SheetContent";
 
-export const SheetHeader: React.FC<
-  React.HTMLAttributes<HTMLDivElement>
-> = ({ className, ...props }) => (
+export const SheetHeader: React.FC<React.HTMLAttributes<HTMLDivElement>> = ({
+  className,
+  ...props
+}) => (
   <div
     className={cn("px-6 py-4 border-b border-border", className)}
     {...props}
   />
 );
 
-export const SheetBody: React.FC<
-  React.HTMLAttributes<HTMLDivElement>
-> = ({ className, ...props }) => (
+export const SheetBody: React.FC<React.HTMLAttributes<HTMLDivElement>> = ({
+  className,
+  ...props
+}) => (
   <div
     className={cn("flex-1 overflow-y-auto px-6 py-4", className)}
     {...props}

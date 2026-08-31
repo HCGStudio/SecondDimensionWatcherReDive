@@ -56,7 +56,9 @@
     "dev": "node mock-server.mjs & parcel --no-cache",
     "test": "yarn test:unit",
     "test:unit": "tsx --test src/auth/*.test.ts src/playback/*.test.ts src/playback/mkv/*.test.ts",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "typecheck": "tsc --noEmit",
+    "format:check": "prettier --check ."
   },
   "source": "src/index.html",
   "@parcel/resolver-default": {

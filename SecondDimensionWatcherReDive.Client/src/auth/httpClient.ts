@@ -20,7 +20,7 @@ export { clearAuth };
 
 async function parseJsonSafe<T>(res: Response): Promise<T> {
   const text = await res.text();
-  return text ? JSON.parse(text) : undefined;
+  return (text ? JSON.parse(text) : undefined) as T;
 }
 
 export default async function fetcher<JSON = any>(

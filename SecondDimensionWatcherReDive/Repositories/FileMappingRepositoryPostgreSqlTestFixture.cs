@@ -47,8 +47,12 @@ internal sealed class FileMappingRepositoryPostgreSqlTestFixture(string connecti
 
         var appliedMigrations = await context.Database
             .GetAppliedMigrationsAsync(cancellationToken);
-        var markerSurvived = await context.MigrationMarkers
-            .AnyAsync(marker => marker.Key == MarkerKey, cancellationToken);
+        var markerSurvived = await context.MigrationStates
+            .AnyAsync(
+                marker => marker.Key == MarkerKey &&
+                    marker.Version == 1 &&
+                    marker.Status == MigrationExecutionStatus.Completed,
+                cancellationToken);
         var valuesJsonType = await context.Database
             .SqlQueryRaw<string>(
                 """

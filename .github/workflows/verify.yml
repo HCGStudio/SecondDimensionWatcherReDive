@@ -1,0 +1,301 @@
+name: Verify
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
+
+jobs:
+  backend:
+    name: Backend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Restore
+        run: dotnet restore SecondDimensionWatcherReDive.slnx
+
+      - name: Build
+        run: dotnet build SecondDimensionWatcherReDive.slnx -c Release --no-restore
+
+      - name: Test
+        run: >-
+          dotnet test SecondDimensionWatcherReDive.slnx -c Release --no-build
+          --logger "trx;LogFileName=test-results.trx"
+          --collect "XPlat Code Coverage"
+          -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=cobertura
+
+      - name: Setup Node.js for coverage gate
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+
+      - name: Enforce gradual coverage floor
+        shell: bash
+        run: |
+          mapfile -t coverage_files < <(
+            find . -path '*/TestResults/*/coverage.cobertura.xml' -print
+          )
+          node deployments/ci/check-dotnet-coverage.mjs 0.15 "${coverage_files[@]}" \
+            | tee coverage-summary.txt
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: backend-test-results
+          path: |
+            **/TestResults/*.trx
+            **/TestResults/**/coverage.cobertura.xml
+            coverage-summary.txt
+          if-no-files-found: warn
+          overwrite: true
+          retention-days: 14
+
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: SecondDimensionWatcherReDive.Client
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Test
+        run: yarn test
+
+      - name: Type check
+        run: yarn typecheck
+
+      - name: Check formatting
+        run: yarn format:check
+
+      - name: Build
+        run: yarn build
+
+      - name: Upload verified frontend
+        uses: actions/upload-artifact@v7
+        with:
+          name: verify-frontend-dist
+          path: SecondDimensionWatcherReDive.Client/dist/
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 14
+
+  frontend_e2e:
+    name: Frontend E2E
+    needs: frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: SecondDimensionWatcherReDive.Client
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Install Chromium
+        run: yarn playwright install --with-deps chromium
+
+      - name: Run Playwright journeys
+        run: yarn test:e2e
+
+      - name: Upload Playwright diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-results
+          path: |
+            SecondDimensionWatcherReDive.Client/playwright-report/
+            SecondDimensionWatcherReDive.Client/test-results/playwright/
+          if-no-files-found: ignore
+          overwrite: true
+          retention-days: 14
+
+  fuse_mount_smoke:
+    name: FUSE mount smoke
+    needs: backend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+
+      - name: Install FUSE and NativeAOT prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fuse3 libfuse3-dev clang zlib1g-dev binutils
+
+      - name: Publish NativeAOT smoke binary
+        run: >-
+          dotnet publish SecondDimensionWatcherReDive.FUSE/SecondDimensionWatcherReDive.FUSE.csproj
+          -c Release -r linux-x64 -p:StripSymbols=true
+          -o publish-fuse-smoke
+
+      - name: Run real mount when supported
+        run: deployments/ci/fuse-mount-smoke.sh publish-fuse-smoke/sdwfuse
+
+  delivery_smoke:
+    name: Delivery smoke
+    needs: [backend, frontend]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Download verified frontend
+        uses: actions/download-artifact@v8
+        with:
+          name: verify-frontend-dist
+          path: SecondDimensionWatcherReDive/wwwroot/
+
+      - name: Set package metadata
+        run: |
+          echo "VERSION=0.0.0-ci.${{ github.run_number }}" >> "$GITHUB_ENV"
+          echo "RELEASE=1" >> "$GITHUB_ENV"
+          echo "ARCH=amd64" >> "$GITHUB_ENV"
+
+      - name: Publish package payload
+        run: >-
+          dotnet publish SecondDimensionWatcherReDive/SecondDimensionWatcherReDive.csproj
+          -c Release -r linux-x64 --self-contained false
+          /p:Version=${VERSION} -o publish
+
+      - name: Install nfpm
+        run: |
+          echo 'deb [trusted=yes] https://repo.goreleaser.com/apt/ /' \
+            | sudo tee /etc/apt/sources.list.d/goreleaser.list
+          sudo apt-get update
+          sudo apt-get install -y nfpm
+
+      - name: Build Debian package and final container
+        run: |
+          mkdir -p dist
+          nfpm package --config packaging/nfpm.yaml --packager deb \
+            --target "dist/sdw-redive_${VERSION}_${ARCH}.deb"
+          docker build --file Containerfile --tag sdw-redive:delivery-smoke .
+
+      - name: Install, migrate, start, and uninstall delivery artifacts
+        run: >-
+          deployments/ci/delivery-smoke.sh sdw-redive:delivery-smoke
+          "dist/sdw-redive_${VERSION}_${ARCH}.deb"
+
+  container:
+    name: Container (${{ matrix.arch }})
+    needs: [backend, frontend]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+            runner: ubuntu-latest
+            smoke: true
+          - arch: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            smoke: false
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build final container without publishing
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./Containerfile
+          platforms: ${{ matrix.platform }}
+          load: ${{ matrix.smoke }}
+          push: false
+          tags: sdw-redive:verify-${{ matrix.arch }}
+          build-args: VERSION=0.0.0-ci.${{ github.run_id }}
+          cache-from: type=gha,scope=verify-container-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=verify-container-${{ matrix.arch }},ignore-error=true
+
+      - name: Run migrations, health check, and homepage smoke test
+        if: matrix.smoke
+        shell: bash
+        env:
+          EXPECTED_ARCHITECTURE: ${{ matrix.arch }}
+          VERIFY_IMAGE: sdw-redive:verify-${{ matrix.arch }}
+        run: >-
+          bash .github/scripts/container-runtime-smoke.sh
+          "$VERIFY_IMAGE" "$EXPECTED_ARCHITECTURE"
+
+  quality_gate:
+    name: Quality gate
+    if: always()
+    needs:
+      - backend
+      - frontend
+      - frontend_e2e
+      - container
+      - fuse_mount_smoke
+      - delivery_smoke
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every verification job
+        env:
+          BACKEND_RESULT: ${{ needs.backend.result }}
+          FRONTEND_RESULT: ${{ needs.frontend.result }}
+          FRONTEND_E2E_RESULT: ${{ needs.frontend_e2e.result }}
+          CONTAINER_RESULT: ${{ needs.container.result }}
+          FUSE_MOUNT_RESULT: ${{ needs.fuse_mount_smoke.result }}
+          DELIVERY_RESULT: ${{ needs.delivery_smoke.result }}
+        run: |
+          test "$BACKEND_RESULT" = success
+          test "$FRONTEND_RESULT" = success
+          test "$FRONTEND_E2E_RESULT" = success
+          test "$CONTAINER_RESULT" = success
+          test "$FUSE_MOUNT_RESULT" = success
+          test "$DELIVERY_RESULT" = success
