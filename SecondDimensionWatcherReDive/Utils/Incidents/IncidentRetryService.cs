@@ -3,6 +3,7 @@ using SecondDimensionWatcherReDive.Framework.FileDownload;
 using SecondDimensionWatcherReDive.Framework.Inference;
 using SecondDimensionWatcherReDive.Framework.Tasks;
 using SecondDimensionWatcherReDive.Utils.FileStore;
+using SecondDimensionWatcherReDive.Utils.ReleaseUpgrades;
 
 namespace SecondDimensionWatcherReDive.Utils.Incidents;
 
@@ -13,6 +14,8 @@ public sealed partial class IncidentRetryService(
     IIncidentDiskProbe diskProbe,
     ILogger<IncidentRetryService> logger) : IIncidentRetryService
 {
+    private const string ReleaseUpgradeSourcePrefix = "release-upgrade:";
+
     public async Task<IncidentRetryResult?> RetryAsync(
         Guid id,
         CancellationToken cancellationToken)
@@ -70,29 +73,32 @@ public sealed partial class IncidentRetryService(
 
         try
         {
-            var status = incident.Type switch
+            var disposition = incident.Type switch
             {
-                IncidentType.FeedFailure => enqueueScheduledTask
-                    ? RetryScheduledTask("SyncFeed", enqueue: true)
-                    : RetryScheduledTask("SyncFeed", enqueue: false),
-                IncidentType.AiFailure => await RetryAiAsync(
-                    incident,
-                    enqueueScheduledTask,
-                    cancellationToken),
+                IncidentType.FeedFailure => RetryDisposition.FromStatus(
+                    enqueueScheduledTask
+                        ? RetryScheduledTask("SyncFeed", enqueue: true)
+                        : RetryScheduledTask("SyncFeed", enqueue: false)),
+                IncidentType.AiFailure => RetryDisposition.FromStatus(
+                    await RetryAiAsync(
+                        incident,
+                        enqueueScheduledTask,
+                        cancellationToken)),
                 IncidentType.FileMappingFailure => await RetryFileMappingAsync(incident, cancellationToken),
-                IncidentType.DownloadStalled => await RetryDownloadAsync(incident, cancellationToken),
-                IncidentType.DiskSpaceLow => await RetryDiskAsync(cancellationToken),
+                IncidentType.DownloadStalled => RetryDisposition.FromStatus(
+                    await RetryDownloadAsync(incident, cancellationToken)),
+                IncidentType.DiskSpaceLow => RetryDisposition.FromStatus(
+                    await RetryDiskAsync(cancellationToken)),
                 _ => throw new ArgumentOutOfRangeException(nameof(incident.Type), incident.Type, null)
             };
 
-            var queued = string.Equals(status, "queued", StringComparison.Ordinal);
             var updated = await incidentRepository.RecordRetryAsync(
                 incident.Id,
                 DateTimeOffset.UtcNow,
                 null,
-                resolve: !queued,
+                disposition.Resolve,
                 cancellationToken);
-            return new IncidentRetryResult(incident.Id, status, true, updated, null);
+            return new IncidentRetryResult(incident.Id, disposition.Status, true, updated, null);
         }
         catch (OperationCanceledException)
         {
@@ -154,10 +160,13 @@ public sealed partial class IncidentRetryService(
         return "queued";
     }
 
-    private async Task<string> RetryFileMappingAsync(
+    private async Task<RetryDisposition> RetryFileMappingAsync(
         Incident incident,
         CancellationToken cancellationToken)
     {
+        if (TryParseReleaseUpgradeSource(incident.SourceId, out var operationId))
+            return await RetryReleaseUpgradeAsync(operationId, cancellationToken);
+
         if (!Guid.TryParse(incident.SourceId, out var animationInfoId))
             throw new InvalidOperationException("Mapping incident source is not a valid animation id.");
 
@@ -165,7 +174,127 @@ public sealed partial class IncidentRetryService(
         var mapper = scope.ServiceProvider.GetRequiredService<IFileMapper>();
         if (!await mapper.MapDownloadAsync(animationInfoId, cancellationToken))
             throw new InvalidOperationException("No file mapping could be produced.");
-        return "resolved";
+        return RetryDisposition.FromStatus("resolved");
+    }
+
+    private async Task<RetryDisposition> RetryReleaseUpgradeAsync(
+        Guid operationId,
+        CancellationToken cancellationToken)
+    {
+        await using var scope = scopeFactory.CreateAsyncScope();
+        var repository = scope.ServiceProvider.GetRequiredService<IReleaseUpgradeRepository>();
+        var coordinator = scope.ServiceProvider.GetRequiredService<IReleaseUpgradeCoordinator>();
+        var operation = await repository.FindByIdAsync(operationId, cancellationToken);
+        for (var stateRead = 0; stateRead < 2; stateRead++)
+        {
+            if (operation is null)
+                return RetryDisposition.FromStatus("resolved");
+
+            switch (operation.Status)
+            {
+                case ReleaseUpgradeStatus.Downloading:
+                case ReleaseUpgradeStatus.Verifying:
+                    {
+                        var result = await coordinator.TryActivateCandidateAsync(
+                            operation.CandidateReleaseId,
+                            cancellationToken);
+                        if (result is not null)
+                            return RetryDisposition.FromStatus(NormalizeReleaseUpgradeRetry(result));
+
+                        operation = await repository.FindByIdAsync(operationId, cancellationToken);
+                        continue;
+                    }
+                case ReleaseUpgradeStatus.Failed:
+                    {
+                        var candidate = await repository.FindCandidateAsync(
+                            operation.CurrentReleaseId,
+                            operation.CandidateReleaseId,
+                            cancellationToken);
+                        if (candidate is null)
+                            return RetryDisposition.FromStatus("resolved");
+
+                        var result = await coordinator.ExecuteAsync(
+                            candidate,
+                            dryRun: false,
+                            cancellationToken);
+                        if (result.Operation is { } replacement && replacement.Id != operation.Id)
+                        {
+                            var replacementIsActive = replacement.Status is
+                                ReleaseUpgradeStatus.Downloading or ReleaseUpgradeStatus.Verifying;
+                            return new RetryDisposition(
+                                replacementIsActive ? "queued" : "resolved",
+                                Resolve: true);
+                        }
+
+                        return RetryDisposition.FromStatus(NormalizeReleaseUpgradeRetry(result));
+                    }
+                case ReleaseUpgradeStatus.Applied:
+                    {
+                        if (operation.RollbackUntil is not { } rollbackUntil ||
+                            rollbackUntil < DateTimeOffset.UtcNow)
+                            return RetryDisposition.FromStatus("resolved");
+
+                        var result = await coordinator.RollbackAsync(operation.Id, cancellationToken);
+                        if (!result.IsSuccess)
+                            throw new InvalidOperationException(
+                                $"Release upgrade rollback retry failed: {result.Outcome}.");
+                        return RetryDisposition.FromStatus("resolved");
+                    }
+                case ReleaseUpgradeStatus.RolledBack:
+                case ReleaseUpgradeStatus.Completed:
+                    return RetryDisposition.FromStatus("resolved");
+                default:
+                    throw new ArgumentOutOfRangeException(
+                        nameof(operation.Status),
+                        operation.Status,
+                        null);
+            }
+        }
+
+        return RetryDisposition.FromStatus("queued");
+    }
+
+    private static string NormalizeReleaseUpgradeRetry(ReleaseUpgradeExecutionResult result)
+    {
+        if (!result.IsSuccess)
+        {
+            if (result.Outcome is "recovery_pending" or "upgrade_already_started")
+                return "queued";
+
+            var detail = result.ValidationErrors.FirstOrDefault();
+            throw new InvalidOperationException(string.IsNullOrWhiteSpace(detail)
+                ? $"Release upgrade retry failed: {result.Outcome}."
+                : detail);
+        }
+
+        return result.Outcome is
+            "download_queued" or
+            "download_in_progress" or
+            "download_submission_in_progress" or
+            "download_submission_recovered" or
+            "mapping_pending"
+                ? "queued"
+                : "resolved";
+    }
+
+    private static bool TryParseReleaseUpgradeSource(string sourceId, out Guid operationId)
+    {
+        if (sourceId.StartsWith(ReleaseUpgradeSourcePrefix, StringComparison.Ordinal) &&
+            Guid.TryParseExact(
+                sourceId.AsSpan(ReleaseUpgradeSourcePrefix.Length),
+                "N",
+                out operationId))
+            return true;
+
+        operationId = default;
+        return false;
+    }
+
+    private readonly record struct RetryDisposition(string Status, bool Resolve)
+    {
+        public static RetryDisposition FromStatus(string status) => new(
+            status,
+            !string.Equals(status, "queued", StringComparison.Ordinal));
     }
 
     private async Task<string> RetryDownloadAsync(

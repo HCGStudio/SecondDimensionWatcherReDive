@@ -17,6 +17,7 @@ import {
   List,
   Menu,
   MessageSquare,
+  Search,
   Settings,
   User,
 } from "lucide-react";
@@ -55,6 +56,7 @@ const createNavItems = (
   todoCount?: number,
 ): NavItem[] => [
   { icon: <Home size={16} />, labelKey: "nav.home", path: "/" },
+  { icon: <Search size={16} />, labelKey: "nav.search", path: "/search" },
   {
     icon: <BellRing size={16} />,
     labelKey: "nav.todo",
@@ -267,7 +269,18 @@ export const AppHeader: React.FC = () => {
   const { data: todos } = useTodos({ take: 1 });
   const navigate = useNavigate();
   const items = createNavItems(incidents?.openCount, todos?.unreadCount);
+  const location = useLocation();
+  const [searchQuery, setSearchQuery] = React.useState(
+    location.pathname === "/search"
+      ? (new URLSearchParams(location.search).get("q") ?? "")
+      : "",
+  );
 
+  React.useEffect(() => {
+    if (location.pathname === "/search") {
+      setSearchQuery(new URLSearchParams(location.search).get("q") ?? "");
+    }
+  }, [location.pathname, location.search]);
   return (
     <header className="sticky top-0 z-30 border-b border-border bg-surface/95 backdrop-blur">
       <nav className="flex h-14 items-center justify-between gap-2 px-4 sm:px-6">
@@ -292,7 +305,33 @@ export const AppHeader: React.FC = () => {
             ))}
           </div>
         </div>
-        <div className="shrink-0">
+        <div className="ml-auto flex min-w-0 items-center gap-2">
+          {status ? (
+            <form
+              className="hidden w-44 sm:block 2xl:w-56"
+              onSubmit={(event) => {
+                event.preventDefault();
+                const query = searchQuery.trim();
+                navigate(
+                  query ? `/search?q=${encodeURIComponent(query)}` : "/search",
+                );
+              }}
+            >
+              <label className="relative block">
+                <span className="sr-only">{t("nav.search")}</span>
+                <Search
+                  size={15}
+                  className="absolute left-2.5 top-2 text-subtle"
+                />
+                <input
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                  placeholder={t("nav.searchPlaceholder")}
+                  className="w-full rounded-md border border-border bg-canvas py-1.5 pl-8 pr-2 text-sm text-foreground outline-hidden placeholder:text-subtle focus:border-focus focus:ring-2 focus:ring-focus"
+                />
+              </label>
+            </form>
+          ) : null}
           {status ? (
             <UserMenu />
           ) : (

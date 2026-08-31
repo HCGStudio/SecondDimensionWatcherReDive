@@ -41,6 +41,7 @@ using SecondDimensionWatcherReDive.Utils.FileDownload;
 using SecondDimensionWatcherReDive.Utils.FileStore;
 using SecondDimensionWatcherReDive.Utils.MetadataReview;
 using SecondDimensionWatcherReDive.Utils.Incidents;
+using SecondDimensionWatcherReDive.Utils.ReleaseUpgrades;
 using SecondDimensionWatcherReDive.Utils.Notifications;
 using SecondDimensionWatcherReDive.Utils.Http;
 using SecondDimensionWatcherReDive.Utils.Scraper;
@@ -489,6 +490,7 @@ builder.Services.AddSingleton<MediaLibraryScanQueue>();
 builder.Services.AddSingleton<IMediaLibraryScanQueue>(sp =>
     sp.GetRequiredService<MediaLibraryScanQueue>());
 builder.Services.AddHostedService<MediaLibraryScanBackgroundService>();
+builder.Services.AddHostedService<ReleaseUpgradeBackgroundService>();
 
 //Add scheduled tasks
 builder.Services.AddSingleton<SyncFeed>();
@@ -523,6 +525,7 @@ builder.Services.AddScoped<IMediaLibraryScanner, MediaLibraryScanner>();
 builder.Services.AddSingleton<ISubscriptionFeedReader, MikananiSubscriptionFeedReader>();
 builder.Services.AddSingleton<ISubscriptionReleaseMetadataExtractor, SubscriptionReleaseMetadataExtractor>();
 builder.Services.AddSingleton<ISubscriptionAutomationMatcher, SubscriptionAutomationMatcher>();
+builder.Services.AddSingleton<IReleaseScoringService, ReleaseScoringService>();
 builder.Services.AddScoped<ISubscriptionAutomationSimulationService, SubscriptionAutomationSimulationService>();
 builder.Services.AddTransient<IFeedService, MikananiFeedService>();
 
@@ -544,6 +547,8 @@ builder.Services.AddScoped<IWebDavTokenRepository, WebDavTokenRepository>();
 builder.Services.AddScoped<IPlaybackRepository, PlaybackRepository>();
 builder.Services.AddScoped<IIncidentRepository, IncidentRepository>();
 builder.Services.AddScoped<IMediaLibrarySourceRepository, MediaLibrarySourceRepository>();
+builder.Services.AddScoped<ILibrarySearchRepository, LibrarySearchRepository>();
+builder.Services.AddScoped<IReleaseUpgradeRepository, ReleaseUpgradeRepository>();
 builder.Services.AddScoped<INotificationOutboxRepository, NotificationOutboxRepository>();
 builder.Services.AddScoped<IWebPushSubscriptionRepository, WebPushSubscriptionRepository>();
 builder.Services.AddScoped<ITodoRepository, TodoRepository>();
@@ -552,6 +557,7 @@ builder.Services.AddScoped<AuthenticationStateInitializer>();
 builder.Services.AddSingleton<ISeasonScraper, MikananiSeasonScraper>();
 builder.Services.AddScoped<IMetadataReviewService, MetadataReviewService>();
 builder.Services.AddScoped<IIncidentRetryService, IncidentRetryService>();
+builder.Services.AddScoped<IReleaseUpgradeCoordinator, ReleaseUpgradeCoordinator>();
 
 //Add AI Inference
 // Register all engines even when initially unconfigured. Runtime settings can then enable or

@@ -104,6 +104,8 @@ internal sealed class FakeFileMappingRepository : IFileMappingRepository
         Guid animationInfoId,
         Guid? downloadAttemptId,
         Guid cancellationAttemptId,
+        Guid cancellationLeaseId,
+        SubscriptionAutomationDisposition? terminalDisposition,
         CancellationToken cancellationToken)
     {
         _mappings.RemoveAll(mapping => mapping.AnimationInfoId == animationInfoId);

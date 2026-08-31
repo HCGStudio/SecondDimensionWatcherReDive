@@ -8,27 +8,57 @@ internal static class FileMappingSetReconciler
         Models.ApplicationContext context,
         Guid animationInfoId,
         IReadOnlyList<Models.FileMapping> desiredMappings,
+        CancellationToken cancellationToken) =>
+        await ReconcileAcrossOwnersAsync(
+            context,
+            [animationInfoId],
+            desiredMappings,
+            cancellationToken);
+
+    public static async Task<FileMappingReconciliation> CaptureIdentitiesAsync(
+        Models.ApplicationContext context,
+        IReadOnlyList<Models.FileMapping> mappings,
         CancellationToken cancellationToken)
     {
+        var identityPaths = mappings
+            .SelectMany(mapping => EnumerateEntryPaths(mapping.VirtualPath))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        var preservedIdentities = await LoadEntryIdentitiesAsync(
+            context,
+            identityPaths,
+            cancellationToken);
+        return new FileMappingReconciliation(mappings, preservedIdentities);
+    }
+
+    public static async Task<FileMappingReconciliation> ReconcileAcrossOwnersAsync(
+        Models.ApplicationContext context,
+        IReadOnlyCollection<Guid> animationInfoIds,
+        IReadOnlyList<Models.FileMapping> desiredMappings,
+        CancellationToken cancellationToken)
+    {
+        if (animationInfoIds.Count == 0)
+            throw new ArgumentException("At least one mapping owner is required.", nameof(animationInfoIds));
+        var ownerIds = animationInfoIds.ToHashSet();
+        if (desiredMappings.Any(mapping => !ownerIds.Contains(mapping.AnimationInfoId)))
+            throw new ArgumentException("A desired mapping belongs to an owner outside the reconciliation set.",
+                nameof(desiredMappings));
+
         var desiredByPath = desiredMappings.ToDictionary(
             mapping => mapping.VirtualPath,
             StringComparer.Ordinal);
         var existingMappings = await context.FileMappings
-            .Where(mapping => mapping.AnimationInfoId == animationInfoId)
+            .Where(mapping => ownerIds.Contains(mapping.AnimationInfoId))
             .ToListAsync(cancellationToken);
         var identityPaths = existingMappings
             .SelectMany(mapping => EnumerateEntryPaths(mapping.VirtualPath))
             .Concat(desiredMappings.SelectMany(mapping => EnumerateEntryPaths(mapping.VirtualPath)))
             .Distinct(StringComparer.Ordinal)
             .ToArray();
-        var preservedIdentities = await context.FileSystemEntries
-            .AsNoTracking()
-            .Where(entry => identityPaths.Contains(entry.Path))
-            .ToDictionaryAsync(
-                entry => entry.Path,
-                entry => new FileSystemEntryIdentity(entry.EntryId, entry.IsDirectory),
-                StringComparer.Ordinal,
-                cancellationToken);
+        var preservedIdentities = await LoadEntryIdentitiesAsync(
+            context,
+            identityPaths,
+            cancellationToken);
         var reconciled = new List<Models.FileMapping>(desiredMappings.Count);
         var hasRemovals = false;
 
@@ -41,6 +71,7 @@ internal static class FileMappingSetReconciler
                 continue;
             }
 
+            existing.AnimationInfoId = desired.AnimationInfoId;
             existing.PhysicalPath = desired.PhysicalPath;
             existing.FileStore = desired.FileStore;
             reconciled.Add(existing);
@@ -73,6 +104,19 @@ internal static class FileMappingSetReconciler
         for (var slash = virtualPath.LastIndexOf('/'); slash > 0; slash = virtualPath.LastIndexOf('/', slash - 1))
             yield return virtualPath[..slash];
     }
+
+    private static async Task<IReadOnlyDictionary<string, FileSystemEntryIdentity>> LoadEntryIdentitiesAsync(
+        Models.ApplicationContext context,
+        IReadOnlyCollection<string> identityPaths,
+        CancellationToken cancellationToken) =>
+        await context.FileSystemEntries
+            .AsNoTracking()
+            .Where(entry => identityPaths.Contains(entry.Path))
+            .ToDictionaryAsync(
+                entry => entry.Path,
+                entry => new FileSystemEntryIdentity(entry.EntryId, entry.IsDirectory),
+                StringComparer.Ordinal,
+                cancellationToken);
 }
 
 internal sealed record FileMappingReconciliation(

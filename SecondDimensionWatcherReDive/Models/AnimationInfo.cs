@@ -5,6 +5,7 @@ namespace SecondDimensionWatcherReDive.Models;
 public class AnimationInfo
 {
     public Guid Id { get; set; }
+    public DateTimeOffset IngestedAt { get; set; } = DateTimeOffset.UtcNow;
     public string Title { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
 
@@ -22,7 +23,17 @@ public class AnimationInfo
 
     public Guid? DownloadAttemptId { get; set; }
 
+    public Guid? DownloadSubmissionLeaseId { get; set; }
+
+    public DateTimeOffset? DownloadSubmissionLeaseUntil { get; set; }
+
     public Guid? DownloadCancellationId { get; set; }
+
+    public Guid? DownloadCancellationLeaseId { get; set; }
+
+    public DateTimeOffset? DownloadCancellationLeaseUntil { get; set; }
+
+    public bool DownloadCancellationRemoveFile { get; set; }
 
     public DateTimeOffset DownloadStartTime { get; set; }
 
@@ -69,4 +80,35 @@ public class AnimationInfo
     public Guid? MediaLibrarySourceId { get; set; }
 
     public DateTimeOffset? MediaLibraryMissingSince { get; set; }
+
+    public string? ReleaseIdentity { get; set; }
+
+    public string? FeedItemGuid { get; set; }
+
+    public string? EnclosureId { get; set; }
+
+    public string? TorrentInfoHash { get; set; }
+
+    public string? ReleaseSubtitleGroup { get; set; }
+
+    public string? ReleaseResolution { get; set; }
+
+    public string? ReleaseCodec { get; set; }
+
+    public string[] ReleaseLanguages { get; set; } = [];
+
+    public int ReleaseScore { get; set; }
+
+    public string? ReleaseScoreReasonsJson { get; set; }
+
+    public int? ExpectedEpisodeCount { get; set; }
+
+    public bool IsActiveRelease { get; set; }
+
+    /// <summary>
+    /// The release was deliberately removed from the live episode namespace by
+    /// a successful replacement. This remains durable after upgrade history is
+    /// deleted with either referenced release.
+    /// </summary>
+    public bool IsRetiredRelease { get; set; }
 }

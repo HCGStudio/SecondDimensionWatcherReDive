@@ -52,6 +52,17 @@ public class MetadataReviewRepository(
                 .GroupBy(mapping => mapping.AnimationInfoId)
                 .Select(group => new { AnimationInfoId = group.Key, Count = group.Count() })
                 .ToDictionaryAsync(row => row.AnimationInfoId, row => row.Count, cancellationToken);
+        if (animationInfoIds.Length > 0)
+        {
+            var stagedCounts = await context.StagedFileMappings
+                .AsNoTracking()
+                .Where(mapping => animationInfoIds.Contains(mapping.AnimationInfoId))
+                .GroupBy(mapping => mapping.AnimationInfoId)
+                .Select(group => new { AnimationInfoId = group.Key, Count = group.Count() })
+                .ToListAsync(cancellationToken);
+            foreach (var row in stagedCounts)
+                mappingCounts[row.AnimationInfoId] = mappingCounts.GetValueOrDefault(row.AnimationInfoId) + row.Count;
+        }
 
         var operationIds = entities
             .Where(info => info.CurrentMetadataReviewOperationId.HasValue)
@@ -227,11 +238,10 @@ public class MetadataReviewRepository(
                     return Failure(MetadataReviewMutationOutcome.NotFound, operationId);
                 if (operation.State == MetadataReviewOperationState.Applied)
                 {
-                    var currentMappings = await applyContext.FileMappings
-                        .AsNoTracking()
-                        .Where(mapping => mapping.AnimationInfoId == animationInfo.Id)
-                        .OrderBy(mapping => mapping.VirtualPath)
-                        .ToListAsync(cancellationToken);
+                    var currentMappings = await LoadOwnedMappingsAsync(
+                        applyContext,
+                        animationInfo.Id,
+                        cancellationToken);
                     var appliedSnapshots = operation.MappingSnapshots
                         .Where(snapshot => snapshot.Kind == MetadataReviewMappingKind.Proposed)
                         .ToList();
@@ -295,14 +305,17 @@ public class MetadataReviewRepository(
                         operationId,
                         animationInfo.Id);
 
-                var existingMappings = await applyContext.FileMappings
-                    .AsNoTracking()
-                    .Where(mapping => mapping.AnimationInfoId == animationInfo.Id)
-                    .OrderBy(mapping => mapping.VirtualPath)
-                    .ToListAsync(cancellationToken);
+                var existingMappings = await LoadOwnedMappingsAsync(
+                    applyContext,
+                    animationInfo.Id,
+                    cancellationToken);
                 var mappingsBefore = existingMappings.Select(mapping => mapping.ToRecord()).ToList();
 
                 var animationInfoEntry = applyContext.Entry(animationInfo);
+                var previousEpisodeIdentity = AnimationInfoRepository.GetEpisodeIdentity(
+                    applyContext,
+                    animationInfo);
+                var wasActiveRelease = animationInfo.IsActiveRelease;
                 operation.PreviousDescription = animationInfo.Description;
                 operation.PreviousAnimationId = animationInfoEntry
                     .Property<Guid?>("AnimationId")
@@ -351,6 +364,8 @@ public class MetadataReviewRepository(
                 animationInfo.Description = operation.ProposedDescription;
                 animationInfo.Animation = animation;
                 animationInfo.Group = group;
+                animationInfoEntry.Property<Guid?>("AnimationId").CurrentValue = animation.Id;
+                animationInfoEntry.Property<Guid?>("GroupId").CurrentValue = group?.Id;
                 animationInfo.Season = operation.ProposedSeason;
                 animationInfo.Episode = operation.ProposedEpisode;
                 animationInfo.MetadataStatus = MetadataReviewStatus.Reviewed;
@@ -360,6 +375,16 @@ public class MetadataReviewRepository(
                 animationInfo.AiRetryCount = 0;
                 animationInfo.MetadataReviewedAt = appliedAt;
                 animationInfo.CurrentMetadataReviewOperationId = operation.Id;
+                await AnimationInfoRepository.SetEpisodeReleaseActivityAsync(
+                    applyContext,
+                    animationInfo,
+                    willHaveMappings: proposedSnapshots.Count > 0,
+                    cancellationToken);
+                var currentEpisodeIdentity = animationInfo.IsActiveRelease
+                    ? AnimationInfoRepository.GetEpisodeIdentity(applyContext, animationInfo)
+                    : null;
+                var shouldStage = currentEpisodeIdentity is null &&
+                                  AnimationInfoRepository.GetEpisodeIdentity(applyContext, animationInfo) is not null;
                 animationInfo.StateVersion = checked(animationInfo.StateVersion + 1);
 
                 var desiredMappings = proposedSnapshots
@@ -381,9 +406,14 @@ public class MetadataReviewRepository(
                 var reconciliation = await FileMappingSetReconciler.ReconcileAsync(
                     applyContext,
                     animationInfo.Id,
-                    desiredMappings,
+                    shouldStage ? [] : desiredMappings,
                     cancellationToken);
-                var replacementMappings = reconciliation.Mappings;
+                await ReplaceStagedMappingsAsync(
+                    applyContext,
+                    animationInfo.Id,
+                    shouldStage ? desiredMappings : [],
+                    cancellationToken);
+                var replacementMappings = desiredMappings;
 
                 operation.State = MetadataReviewOperationState.Applied;
                 operation.AppliedAt = appliedAt;
@@ -391,6 +421,15 @@ public class MetadataReviewRepository(
                 operation.AppliedVersion = animationInfo.StateVersion;
 
                 await applyContext.SaveChangesAsync(cancellationToken);
+                await AnimationInfoRepository.PromotePreviousEpisodeSuccessorAsync(
+                    applyContext,
+                    animationInfo.Id,
+                    wasActiveRelease,
+                    previousEpisodeIdentity,
+                    currentEpisodeIdentity,
+                    existingMappings,
+                    retainChangedReleaseMappings: true,
+                    cancellationToken);
                 await reconciliation.RestoreEntryIdentitiesAsync(
                     applyContext,
                     cancellationToken);
@@ -447,11 +486,10 @@ public class MetadataReviewRepository(
                     return Failure(MetadataReviewMutationOutcome.NotFound, operationId);
                 if (operation.State == MetadataReviewOperationState.Undone)
                 {
-                    var idempotentCurrentMappings = await undoContext.FileMappings
-                        .AsNoTracking()
-                        .Where(mapping => mapping.AnimationInfoId == animationInfo.Id)
-                        .OrderBy(mapping => mapping.VirtualPath)
-                        .ToListAsync(cancellationToken);
+                    var idempotentCurrentMappings = await LoadOwnedMappingsAsync(
+                        undoContext,
+                        animationInfo.Id,
+                        cancellationToken);
                     var restoredSnapshots = operation.MappingSnapshots
                         .Where(snapshot => snapshot.Kind == MetadataReviewMappingKind.Previous)
                         .ToList();
@@ -492,11 +530,10 @@ public class MetadataReviewRepository(
                         operationId,
                         animationInfo.Id);
 
-                var currentMappings = await undoContext.FileMappings
-                    .AsNoTracking()
-                    .Where(mapping => mapping.AnimationInfoId == animationInfo.Id)
-                    .OrderBy(mapping => mapping.VirtualPath)
-                    .ToListAsync(cancellationToken);
+                var currentMappings = await LoadOwnedMappingsAsync(
+                    undoContext,
+                    animationInfo.Id,
+                    cancellationToken);
                 var proposedSnapshots = operation.MappingSnapshots
                     .Where(snapshot => snapshot.Kind == MetadataReviewMappingKind.Proposed)
                     .ToList();
@@ -567,12 +604,20 @@ public class MetadataReviewRepository(
                             animationInfo.Id);
                 }
 
+                var previousEpisodeIdentity = AnimationInfoRepository.GetEpisodeIdentity(
+                    undoContext,
+                    animationInfo);
+                var wasActiveRelease = animationInfo.IsActiveRelease;
                 await undoContext.TodoItemStates
                     .Where(state => state.Key == "metadata:" + animationInfo.Id)
                     .ExecuteDeleteAsync(cancellationToken);
                 animationInfo.Description = operation.PreviousDescription;
                 animationInfo.Animation = previousAnimation;
                 animationInfo.Group = previousGroup;
+                undoContext.Entry(animationInfo).Property<Guid?>("AnimationId").CurrentValue =
+                    previousAnimation?.Id;
+                undoContext.Entry(animationInfo).Property<Guid?>("GroupId").CurrentValue =
+                    previousGroup?.Id;
                 animationInfo.Season = operation.PreviousSeason;
                 animationInfo.Episode = operation.PreviousEpisode;
                 animationInfo.MetadataStatus = operation.PreviousMetadataStatus.Value;
@@ -582,6 +627,16 @@ public class MetadataReviewRepository(
                 animationInfo.AiRetryCount = operation.PreviousAiRetryCount.Value;
                 animationInfo.MetadataReviewedAt = operation.PreviousReviewedAt;
                 animationInfo.CurrentMetadataReviewOperationId = operation.PreviousCurrentOperationId;
+                await AnimationInfoRepository.SetEpisodeReleaseActivityAsync(
+                    undoContext,
+                    animationInfo,
+                    willHaveMappings: previousSnapshots.Count > 0,
+                    cancellationToken);
+                var currentEpisodeIdentity = animationInfo.IsActiveRelease
+                    ? AnimationInfoRepository.GetEpisodeIdentity(undoContext, animationInfo)
+                    : null;
+                var shouldStage = currentEpisodeIdentity is null &&
+                                  AnimationInfoRepository.GetEpisodeIdentity(undoContext, animationInfo) is not null;
                 animationInfo.StateVersion = checked(animationInfo.StateVersion + 1);
 
                 var desiredMappings = previousSnapshots
@@ -603,9 +658,14 @@ public class MetadataReviewRepository(
                 var reconciliation = await FileMappingSetReconciler.ReconcileAsync(
                     undoContext,
                     animationInfo.Id,
-                    desiredMappings,
+                    shouldStage ? [] : desiredMappings,
                     cancellationToken);
-                var restoredMappings = reconciliation.Mappings;
+                await ReplaceStagedMappingsAsync(
+                    undoContext,
+                    animationInfo.Id,
+                    shouldStage ? desiredMappings : [],
+                    cancellationToken);
+                var restoredMappings = desiredMappings;
 
                 var undoneAt = DateTimeOffset.UtcNow;
                 operation.State = MetadataReviewOperationState.Undone;
@@ -618,6 +678,15 @@ public class MetadataReviewRepository(
                     previousOperation.AppliedVersion = animationInfo.StateVersion;
 
                 await undoContext.SaveChangesAsync(cancellationToken);
+                await AnimationInfoRepository.PromotePreviousEpisodeSuccessorAsync(
+                    undoContext,
+                    animationInfo.Id,
+                    wasActiveRelease,
+                    previousEpisodeIdentity,
+                    currentEpisodeIdentity,
+                    currentMappings,
+                    retainChangedReleaseMappings: true,
+                    cancellationToken);
                 await reconciliation.RestoreEntryIdentitiesAsync(
                     undoContext,
                     cancellationToken);
@@ -689,6 +758,57 @@ public class MetadataReviewRepository(
             cancellationToken);
         return await operationContext.AnimationGroups
             .SingleAsync(group => group.Name == proposedGroupName, cancellationToken);
+    }
+
+    private static async Task<List<Models.FileMapping>> LoadOwnedMappingsAsync(
+        Models.ApplicationContext operationContext,
+        Guid animationInfoId,
+        CancellationToken cancellationToken)
+    {
+        var liveMappings = await operationContext.FileMappings
+            .AsNoTracking()
+            .Where(mapping => mapping.AnimationInfoId == animationInfoId)
+            .ToListAsync(cancellationToken);
+        var stagedMappings = await operationContext.StagedFileMappings
+            .AsNoTracking()
+            .Where(mapping => mapping.AnimationInfoId == animationInfoId)
+            .Select(mapping => new Models.FileMapping
+            {
+                Id = mapping.Id,
+                AnimationInfoId = mapping.AnimationInfoId,
+                VirtualPath = mapping.VirtualPath,
+                PhysicalPath = mapping.PhysicalPath,
+                FileStore = mapping.FileStore
+            })
+            .ToListAsync(cancellationToken);
+        return liveMappings
+            .Concat(stagedMappings)
+            .OrderBy(mapping => mapping.VirtualPath, StringComparer.Ordinal)
+            .ToList();
+    }
+
+    private static async Task ReplaceStagedMappingsAsync(
+        Models.ApplicationContext operationContext,
+        Guid animationInfoId,
+        IReadOnlyList<Models.FileMapping> desiredMappings,
+        CancellationToken cancellationToken)
+    {
+        var existingMappings = await operationContext.StagedFileMappings
+            .Where(mapping => mapping.AnimationInfoId == animationInfoId)
+            .ToListAsync(cancellationToken);
+        operationContext.StagedFileMappings.RemoveRange(existingMappings);
+        if (desiredMappings.Count == 0) return;
+
+        await operationContext.StagedFileMappings.AddRangeAsync(
+            desiredMappings.Select(mapping => new Models.StagedFileMapping
+            {
+                Id = mapping.Id,
+                AnimationInfoId = mapping.AnimationInfoId,
+                VirtualPath = mapping.VirtualPath,
+                PhysicalPath = mapping.PhysicalPath,
+                FileStore = mapping.FileStore
+            }),
+            cancellationToken);
     }
 
     private static bool MappingSetsMatch(

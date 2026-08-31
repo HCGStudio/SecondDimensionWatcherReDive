@@ -57,7 +57,9 @@ internal sealed class MikananiSubscriptionFeedReader(
                 FileDownloadTypes.TorrentDownload,
                 string.Empty,
                 feedId,
-                item.Torrent.ContentLength > 0 ? item.Torrent.ContentLength : null));
+                item.Torrent.ContentLength > 0 ? item.Torrent.ContentLength : null,
+                item.Guid?.Text,
+                item.Enclosure.Url));
         }
 
         return releases;

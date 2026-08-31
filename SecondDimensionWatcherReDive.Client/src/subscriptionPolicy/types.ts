@@ -10,6 +10,9 @@ export interface ISubscriptionPolicyDraft {
   maxSizeBytes: number | null;
   excludedKeywords: string[];
   mode: SubscriptionPolicyMode;
+  enableVersionUpgrade: boolean;
+  minimumUpgradeScore: number;
+  upgradeRollbackHours: number;
 }
 
 export interface ISubscriptionPolicy extends ISubscriptionPolicyDraft {
@@ -49,6 +52,9 @@ export const createEmptySubscriptionPolicy = (): ISubscriptionPolicyDraft => ({
   maxSizeBytes: null,
   excludedKeywords: [],
   mode: "ManualConfirm",
+  enableVersionUpgrade: false,
+  minimumUpgradeScore: 25,
+  upgradeRollbackHours: 72,
 });
 
 export const toSubscriptionPolicyDraft = (
@@ -62,4 +68,7 @@ export const toSubscriptionPolicyDraft = (
   maxSizeBytes: policy.maxSizeBytes,
   excludedKeywords: [...policy.excludedKeywords],
   mode: policy.mode,
+  enableVersionUpgrade: policy.enableVersionUpgrade ?? false,
+  minimumUpgradeScore: policy.minimumUpgradeScore ?? 25,
+  upgradeRollbackHours: policy.upgradeRollbackHours ?? 72,
 });

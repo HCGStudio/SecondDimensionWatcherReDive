@@ -423,6 +423,7 @@ function initAnimations() {
           }
         : null,
       isAiProcessed: !!entry.animeName,
+      isMediaLibraryImport: i === 2,
     });
   });
 }
@@ -742,6 +743,9 @@ const subscriptionPolicies = new Map([
       maxSizeBytes: 1600 * 1024 * 1024,
       excludedKeywords: ["合集", "NCOP"],
       mode: "ManualConfirm",
+      enableVersionUpgrade: true,
+      minimumUpgradeScore: 80,
+      upgradeRollbackHours: 72,
       createdAt: POLICY_CREATED_AT,
       updatedAt: new Date(Date.now() - 3600_000 * 8).toISOString(),
     },
@@ -758,6 +762,9 @@ const subscriptionPolicies = new Map([
       maxSizeBytes: 1400 * 1024 * 1024,
       excludedKeywords: ["预告"],
       mode: "AutoDownload",
+      enableVersionUpgrade: false,
+      minimumUpgradeScore: 25,
+      upgradeRollbackHours: 72,
       createdAt: POLICY_CREATED_AT,
       updatedAt: new Date(Date.now() - 3600_000 * 3).toISOString(),
     },
@@ -2503,6 +2510,166 @@ async function route(method, pathname, searchParams, req, res) {
 
   // --- Animation Info ---
 
+  if (method === "GET" && pathname === "/api/library/search") {
+    const q = (searchParams.get("q") ?? "").toLocaleLowerCase();
+    const season = searchParams.get("season");
+    const episode = searchParams.get("episode");
+    const source = searchParams.get("source") ?? "Any";
+    const downloadState = searchParams.get("downloadState") ?? "Any";
+    const resolution = searchParams.get("resolution");
+    const codec = searchParams.get("codec");
+    const pathQuery = (searchParams.get("path") ?? "").toLocaleLowerCase();
+    const take = Math.min(
+      100,
+      Math.max(1, Number(searchParams.get("take") ?? 30)),
+    );
+    let offset = 0;
+    try {
+      if (searchParams.get("cursor"))
+        offset =
+          Number(
+            Buffer.from(searchParams.get("cursor"), "base64url").toString(
+              "utf8",
+            ),
+          ) || 0;
+    } catch {}
+
+    const mapped = [...animations.values()]
+      .map((item, index) => {
+        const group = item.group?.name ?? null;
+        const itemResolution = /2160p/i.test(item.title) ? "2160p" : "1080p";
+        const itemCodec = /HEVC/i.test(item.title) ? "HEVC" : "AVC";
+        const name = item.animation?.name ?? item.title;
+        const virtualPaths = item.isDownloadFinished
+          ? [
+              `/${name}/${group ?? "Unknown"}/${name} S${String(item.season ?? 1).padStart(2, "0")}E${String(item.episode ?? 1).padStart(2, "0")}.mkv`,
+            ]
+          : [];
+        return {
+          animationInfoId: item.id,
+          title: item.title,
+          animationName: item.animation?.name ?? null,
+          animationOriginalName: item.animation?.originalName ?? null,
+          tmdbId: item.animation?.tmdbId ?? null,
+          season: item.season,
+          episode: item.episode,
+          subtitleGroup: group,
+          resolution: itemResolution,
+          codec: itemCodec,
+          languages: index % 2 ? ["ja"] : ["zh-CN"],
+          isDownloadTracked: item.isDownloadTracked,
+          isDownloadFinished: item.isDownloadFinished,
+          isMediaLibraryImport: item.isMediaLibraryImport,
+          isWatched: false,
+          playbackPositionSeconds: null,
+          virtualPaths,
+          virtualPathCount: virtualPaths.length,
+          releaseScore: 260 + (index % 5) * 55,
+          scoreReasons: [
+            `resolution:${itemResolution}:+200`,
+            `codec:${itemCodec}:+40`,
+          ],
+          publishedAt: item.publishTime,
+        };
+      })
+      .filter((item) => {
+        const haystack = [
+          item.title,
+          item.animationName,
+          item.animationOriginalName,
+          item.tmdbId,
+          item.subtitleGroup,
+          ...item.virtualPaths,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLocaleLowerCase();
+        if (q && !haystack.includes(q)) return false;
+        if (season && item.season !== Number(season)) return false;
+        if (episode && item.episode !== Number(episode)) return false;
+        if (source === "MediaLibraryImport" && !item.isMediaLibraryImport)
+          return false;
+        if (source === "Torrent" && item.isMediaLibraryImport) return false;
+        if (downloadState === "Downloaded" && !item.isDownloadFinished)
+          return false;
+        if (
+          downloadState === "Downloading" &&
+          (!item.isDownloadTracked || item.isDownloadFinished)
+        )
+          return false;
+        if (downloadState === "NotDownloaded" && item.isDownloadTracked)
+          return false;
+        if (
+          resolution &&
+          item.resolution.toLocaleLowerCase() !== resolution.toLocaleLowerCase()
+        )
+          return false;
+        if (
+          codec &&
+          item.codec.toLocaleLowerCase() !== codec.toLocaleLowerCase()
+        )
+          return false;
+        if (
+          pathQuery &&
+          !item.virtualPaths.some((path) =>
+            path.toLocaleLowerCase().includes(pathQuery),
+          )
+        )
+          return false;
+        return true;
+      });
+    const items = mapped.slice(offset, offset + take);
+    const nextCursor =
+      offset + take < mapped.length
+        ? Buffer.from(String(offset + take)).toString("base64url")
+        : null;
+    return json(res, { items, nextCursor });
+  }
+
+  if (method === "GET" && pathname === "/api/library/integrity") {
+    const values = [...animations.values()];
+    const current = values[0];
+    const candidate = values[21] ?? values[1];
+    return json(res, [
+      {
+        tmdbId: current.animation?.tmdbId ?? "209867",
+        animationName: current.animation?.name ?? "葬送的芙莉莲",
+        season: 1,
+        expectedEpisodeCount: 28,
+        missingEpisodes: [25],
+        duplicateEpisodes: [
+          { episode: 28, releaseIds: [current.id, candidate.id] },
+        ],
+        unidentifiedReleaseCount: 1,
+        upgradeCandidates: [
+          {
+            currentReleaseId: current.id,
+            candidateReleaseId: candidate.id,
+            animationName: current.animation?.name ?? "葬送的芙莉莲",
+            season: 1,
+            episode: 28,
+            currentScore: 300,
+            candidateScore: 480,
+            scoreReasons: ["resolution:2160p:+400", "codec:AV1:+80"],
+            automatic: true,
+          },
+        ],
+      },
+    ]);
+  }
+
+  if (method === "POST" && pathname === "/api/library/upgrades/execute") {
+    const body = await readBody(req);
+    return json(res, {
+      isSuccess: true,
+      outcome: body.dryRun ? "ready" : "download_queued",
+      dryRun: !!body.dryRun,
+      requiresDownload: true,
+      operation: body.dryRun ? null : { id: randomUUID() },
+      validationErrors: [],
+    });
+  }
+
   if (method === "GET" && pathname === "/api/animationinfo") {
     const skip = parseInt(searchParams.get("skip") ?? "0", 10);
     const take = parseInt(searchParams.get("take") ?? "10", 10);
@@ -2956,6 +3123,13 @@ async function route(method, pathname, searchParams, req, res) {
             )
               ? body.mode
               : "ManualConfirm",
+            enableVersionUpgrade: !!body.enableVersionUpgrade,
+            minimumUpgradeScore: Number.isInteger(body.minimumUpgradeScore)
+              ? body.minimumUpgradeScore
+              : 25,
+            upgradeRollbackHours: Number.isInteger(body.upgradeRollbackHours)
+              ? body.upgradeRollbackHours
+              : 72,
             createdAt: existing?.createdAt ?? new Date().toISOString(),
             updatedAt: new Date().toISOString(),
           };

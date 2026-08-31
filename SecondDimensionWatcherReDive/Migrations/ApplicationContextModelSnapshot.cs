@@ -51,7 +51,6 @@ namespace SecondDimensionWatcherReDive.Migrations
                     b.ToTable("Animations");
                 });
 
-
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.AnimationCatalogEntry", b =>
                 {
                     b.Property<Guid>("AnimationId")
@@ -86,11 +85,11 @@ namespace SecondDimensionWatcherReDive.Migrations
 
                     b.HasKey("AnimationId");
 
-                    b.HasIndex("LatestPublishTime", "TmdbId")
-                        .IsDescending();
-
                     b.HasIndex("TmdbId")
                         .IsUnique();
+
+                    b.HasIndex("LatestPublishTime", "TmdbId")
+                        .IsDescending();
 
                     b.ToTable("AnimationCatalogEntries", t =>
                         {
@@ -115,7 +114,6 @@ namespace SecondDimensionWatcherReDive.Migrations
                             t.HasCheckConstraint("CK_AnimationCatalogStates_Singleton", "\"Id\" = 1");
                         });
                 });
-
 
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.AnimationGroup", b =>
                 {
@@ -172,8 +170,23 @@ namespace SecondDimensionWatcherReDive.Migrations
                     b.Property<Guid?>("DownloadAttemptId")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("DownloadSubmissionLeaseId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("DownloadSubmissionLeaseUntil")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<Guid?>("DownloadCancellationId")
                         .HasColumnType("uuid");
+
+                    b.Property<Guid?>("DownloadCancellationLeaseId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("DownloadCancellationLeaseUntil")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("DownloadCancellationRemoveFile")
+                        .HasColumnType("boolean");
 
                     b.Property<DateTimeOffset>("DownloadEndTime")
                         .HasColumnType("timestamp with time zone");
@@ -189,14 +202,33 @@ namespace SecondDimensionWatcherReDive.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("EnclosureId")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
                     b.Property<int?>("Episode")
                         .HasColumnType("integer");
+
+                    b.Property<int?>("ExpectedEpisodeCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("FeedItemGuid")
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)");
 
                     b.Property<string>("FileStore")
                         .HasColumnType("text");
 
                     b.Property<Guid?>("GroupId")
                         .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("IngestedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.Property<bool>("IsActiveRelease")
+                        .HasColumnType("boolean");
 
                     b.Property<bool>("IsAiProcessed")
                         .HasColumnType("boolean");
@@ -205,6 +237,9 @@ namespace SecondDimensionWatcherReDive.Migrations
                         .HasColumnType("boolean");
 
                     b.Property<bool>("IsDownloadTracked")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsRetiredRelease")
                         .HasColumnType("boolean");
 
                     b.Property<DateTimeOffset?>("MediaLibraryMissingSince")
@@ -229,8 +264,34 @@ namespace SecondDimensionWatcherReDive.Migrations
                     b.Property<DateTimeOffset>("PublishTime")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("ReleaseCodec")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("ReleaseIdentity")
+                        .HasMaxLength(192)
+                        .HasColumnType("character varying(192)");
+
+                    b.PrimitiveCollection<string[]>("ReleaseLanguages")
+                        .IsRequired()
+                        .HasColumnType("text[]");
+
+                    b.Property<string>("ReleaseResolution")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<int>("ReleaseScore")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ReleaseScoreReasonsJson")
+                        .HasColumnType("text");
+
                     b.Property<long?>("ReleaseSizeBytes")
                         .HasColumnType("bigint");
+
+                    b.Property<string>("ReleaseSubtitleGroup")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
 
                     b.Property<int?>("Season")
                         .HasColumnType("integer");
@@ -249,6 +310,10 @@ namespace SecondDimensionWatcherReDive.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("TorrentInfoHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
                     b.HasKey("Id");
 
                     b.HasIndex("CurrentMetadataReviewOperationId")
@@ -257,6 +322,17 @@ namespace SecondDimensionWatcherReDive.Migrations
                     b.HasIndex("GroupId");
 
                     b.HasIndex("MediaLibrarySourceId");
+
+                    b.HasIndex("ReleaseCodec");
+
+                    b.HasIndex("ReleaseIdentity")
+                        .IsUnique()
+                        .HasDatabaseName("UX_AnimationInfo_ReleaseIdentity")
+                        .HasFilter("\"ReleaseIdentity\" IS NOT NULL");
+
+                    b.HasIndex("ReleaseResolution");
+
+                    b.HasIndex("ReleaseSubtitleGroup");
 
                     b.HasIndex("SourceFeedId");
 
@@ -270,11 +346,24 @@ namespace SecondDimensionWatcherReDive.Migrations
 
                     b.HasIndex("AnimationId", "PublishTime", "Id");
 
+                    b.HasIndex("AnimationId", "Season", "Episode")
+                        .IsUnique()
+                        .HasDatabaseName("UX_AnimationInfo_ActiveEpisodeRelease")
+                        .HasFilter("\"IsActiveRelease\" = TRUE AND \"AnimationId\" IS NOT NULL AND \"Season\" IS NOT NULL AND \"Episode\" IS NOT NULL");
+
+                    b.HasIndex("DownloadType", "IsDownloadFinished", "IsDownloadTracked");
+
                     b.HasIndex("MediaLibraryMissingSince", "PublishTime", "Id");
+
+                    b.HasIndex("Season", "Episode", "ReleaseScore");
 
                     b.ToTable("AnimationInfo", t =>
                         {
+                            t.HasCheckConstraint("CK_AnimationInfo_ExpectedEpisodeCount_Positive", "\"ExpectedEpisodeCount\" IS NULL OR \"ExpectedEpisodeCount\" > 0");
+
                             t.HasCheckConstraint("CK_AnimationInfo_MetadataConfidence_Range", "\"MetadataConfidence\" IS NULL OR (\"MetadataConfidence\" >= 0 AND \"MetadataConfidence\" <= 1)");
+
+                            t.HasCheckConstraint("CK_AnimationInfo_ReleaseScore_NonNegative", "\"ReleaseScore\" >= 0");
                         });
                 });
 
@@ -970,10 +1059,25 @@ namespace SecondDimensionWatcherReDive.Migrations
                     b.ToTable("NotificationOutboxMessages");
                 });
 
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.PlaybackCatalogState", b =>
+                {
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("Revision")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("UserId");
+
+                    b.ToTable("PlaybackCatalogStates", t =>
+                        {
+                            t.HasCheckConstraint("CK_PlaybackCatalogStates_Revision_Positive", "\"Revision\" > 0");
+                        });
+                });
+
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.PlaybackPreference", b =>
                 {
                     b.Property<Guid>("UserId")
-                        .ValueGeneratedNever()
                         .HasColumnType("uuid");
 
                     b.Property<string>("AudioLanguage")
@@ -1052,6 +1156,126 @@ namespace SecondDimensionWatcherReDive.Migrations
                         });
                 });
 
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.ReleaseUpgradeMappingSnapshot", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AnimationInfoId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("FileStore")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<Guid>("OperationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("OriginalMappingId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("PhysicalPath")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("VirtualPath")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OperationId", "Kind", "OriginalMappingId")
+                        .IsUnique();
+
+                    b.ToTable("ReleaseUpgradeMappingSnapshots", t =>
+                        {
+                            t.HasCheckConstraint("CK_ReleaseUpgradeMappingSnapshots_VirtualPath_Canonical", "\"VirtualPath\" ~ '^/[^/]+(?:/[^/]+)*$' AND \"VirtualPath\" !~ '(^|/)\\.\\.?($|/)'");
+                        });
+                });
+
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.ReleaseUpgradeOperation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("AppliedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("CandidateReleaseId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("CandidateScore")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("CurrentReleaseId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("CurrentScore")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("DownloadCancellationRemoveFile")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset?>("DownloadPreparedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("DownloadSubmissionLeaseId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("DownloadSubmissionLeaseUntil")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("DownloadSubmittedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("FailureSummary")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<DateTimeOffset?>("RollbackUntil")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTimeOffset?>("VerifiedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CandidateReleaseId")
+                        .IsUnique()
+                        .HasFilter("\"Status\" <> 'Failed'");
+
+                    b.HasIndex("CurrentReleaseId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_ReleaseUpgradeOperations_ActiveCurrentRelease")
+                        .HasFilter("\"Status\" IN ('Downloading', 'Verifying', 'Applied')");
+
+                    b.HasIndex("Status", "CreatedAt");
+
+                    b.ToTable("ReleaseUpgradeOperations", t =>
+                        {
+                            t.HasCheckConstraint("CK_ReleaseUpgradeOperations_ScoreIncrease", "\"CandidateScore\" > \"CurrentScore\"");
+                        });
+                });
+
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.SeasonBangumi", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1082,6 +1306,39 @@ namespace SecondDimensionWatcherReDive.Migrations
                     b.ToTable("SeasonBangumis");
                 });
 
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.StagedFileMapping", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AnimationInfoId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("FileStore")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("PhysicalPath")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("VirtualPath")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AnimationInfoId", "VirtualPath")
+                        .IsUnique();
+
+                    b.ToTable("StagedFileMappings", t =>
+                        {
+                            t.HasCheckConstraint("CK_StagedFileMappings_VirtualPath_Canonical", "\"VirtualPath\" ~ '^/[^/]+(?:/[^/]+)*$' AND \"VirtualPath\" !~ '(^|/)\\.\\.?($|/)'");
+                        });
+                });
+
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.SubscriptionAutomationPolicy", b =>
                 {
                     b.Property<Guid>("FeedId")
@@ -1093,6 +1350,9 @@ namespace SecondDimensionWatcherReDive.Migrations
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("EnableVersionUpgrade")
+                        .HasColumnType("boolean");
 
                     b.PrimitiveCollection<string[]>("ExcludedKeywords")
                         .IsRequired()
@@ -1107,6 +1367,11 @@ namespace SecondDimensionWatcherReDive.Migrations
 
                     b.Property<long?>("MinSizeBytes")
                         .HasColumnType("bigint");
+
+                    b.Property<int>("MinimumUpgradeScore")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(25);
 
                     b.Property<string>("Mode")
                         .IsRequired()
@@ -1124,11 +1389,21 @@ namespace SecondDimensionWatcherReDive.Migrations
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<int>("UpgradeRollbackHours")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(72);
+
                     b.HasKey("FeedId");
 
                     b.HasIndex("UpdatedAt");
 
-                    b.ToTable("SubscriptionAutomationPolicies");
+                    b.ToTable("SubscriptionAutomationPolicies", t =>
+                        {
+                            t.HasCheckConstraint("CK_SubscriptionAutomationPolicies_MinimumUpgradeScore", "\"MinimumUpgradeScore\" >= 1 AND \"MinimumUpgradeScore\" <= 1000");
+
+                            t.HasCheckConstraint("CK_SubscriptionAutomationPolicies_UpgradeRollbackHours", "\"UpgradeRollbackHours\" >= 1 AND \"UpgradeRollbackHours\" <= 720");
+                        });
                 });
 
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.TodoItemState", b =>
@@ -1338,6 +1613,45 @@ namespace SecondDimensionWatcherReDive.Migrations
                     b.Navigation("AnimationInfo");
                 });
 
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.ReleaseUpgradeMappingSnapshot", b =>
+                {
+                    b.HasOne("SecondDimensionWatcherReDive.Models.ReleaseUpgradeOperation", "Operation")
+                        .WithMany("MappingSnapshots")
+                        .HasForeignKey("OperationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Operation");
+                });
+
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.ReleaseUpgradeOperation", b =>
+                {
+                    b.HasOne("SecondDimensionWatcherReDive.Models.AnimationInfo", "CandidateRelease")
+                        .WithMany()
+                        .HasForeignKey("CandidateReleaseId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SecondDimensionWatcherReDive.Models.AnimationInfo", "CurrentRelease")
+                        .WithMany()
+                        .HasForeignKey("CurrentReleaseId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("CandidateRelease");
+
+                    b.Navigation("CurrentRelease");
+                });
+
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.StagedFileMapping", b =>
+                {
+                    b.HasOne("SecondDimensionWatcherReDive.Models.AnimationInfo", null)
+                        .WithMany()
+                        .HasForeignKey("AnimationInfoId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.SubscriptionAutomationPolicy", b =>
                 {
                     b.HasOne("SecondDimensionWatcherReDive.Models.Feed", "Feed")
@@ -1355,6 +1669,11 @@ namespace SecondDimensionWatcherReDive.Migrations
                 });
 
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.MetadataReviewOperation", b =>
+                {
+                    b.Navigation("MappingSnapshots");
+                });
+
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.ReleaseUpgradeOperation", b =>
                 {
                     b.Navigation("MappingSnapshots");
                 });

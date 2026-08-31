@@ -21,8 +21,22 @@ internal static class VirtualPathNamespaceGuard
         Models.ApplicationContext context,
         Guid animationInfoId,
         IReadOnlyCollection<string> proposedPaths,
+        CancellationToken cancellationToken) =>
+        await FindConflictsAsync(
+            context,
+            [animationInfoId],
+            proposedPaths,
+            cancellationToken);
+
+    public static async Task<IReadOnlyList<VirtualPathNamespaceConflict>> FindConflictsAsync(
+        Models.ApplicationContext context,
+        IReadOnlyCollection<Guid> animationInfoIds,
+        IReadOnlyCollection<string> proposedPaths,
         CancellationToken cancellationToken)
     {
+        if (animationInfoIds.Count == 0)
+            throw new ArgumentException("At least one mapping owner is required.", nameof(animationInfoIds));
+        var ownerIds = animationInfoIds.ToHashSet();
         var requested = proposedPaths
             .Order(StringComparer.Ordinal)
             .ToArray();
@@ -82,7 +96,7 @@ internal static class VirtualPathNamespaceGuard
             .ToDictionaryAsync(entry => entry.Path, StringComparer.Ordinal, cancellationToken);
         var ownedPaths = await context.FileMappings
             .AsNoTracking()
-            .Where(mapping => mapping.AnimationInfoId == animationInfoId)
+            .Where(mapping => ownerIds.Contains(mapping.AnimationInfoId))
             .Select(mapping => mapping.VirtualPath)
             .ToListAsync(cancellationToken);
 
@@ -92,7 +106,8 @@ internal static class VirtualPathNamespaceGuard
             {
                 if (nodes.TryGetValue(ancestor, out var ancestorNode)
                     && !ancestorNode.IsDirectory
-                    && ancestorNode.AnimationInfoId != animationInfoId)
+                    && (!ancestorNode.AnimationInfoId.HasValue ||
+                        !ownerIds.Contains(ancestorNode.AnimationInfoId.Value)))
                 {
                     conflicts.Add(new VirtualPathNamespaceConflict(
                         path,
@@ -105,7 +120,8 @@ internal static class VirtualPathNamespaceGuard
             if (!nodes.TryGetValue(path, out var exactNode)) continue;
             if (!exactNode.IsDirectory)
             {
-                if (exactNode.AnimationInfoId != animationInfoId)
+                if (!exactNode.AnimationInfoId.HasValue ||
+                    !ownerIds.Contains(exactNode.AnimationInfoId.Value))
                 {
                     conflicts.Add(new VirtualPathNamespaceConflict(
                         path,
