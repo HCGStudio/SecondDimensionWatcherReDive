@@ -100,22 +100,6 @@ jobs:
           VERSION: ${{ needs.metadata.outputs.version }}
         run: |
           set -euo pipefail
-          inspect_image() {
-            local attempt
-            local output
-            for attempt in 1 2 3 4; do
-              if output=$(docker buildx imagetools inspect "$@"); then
-                printf '%s' "$output"
-                return 0
-              fi
-              if [ "$attempt" -eq 4 ]; then
-                echo "Failed to inspect the image after $attempt attempts" >&2
-                return 1
-              fi
-              echo "::warning::Image inspection attempt $attempt failed; retrying" >&2
-              sleep $((attempt * 5))
-            done
-          }
           test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
           current_sha=$(git ls-remote --exit-code --heads origin "refs/heads/$DEFAULT_BRANCH" | cut -f1)
           [[ "$current_sha" =~ ^[0-9a-f]{40}$ ]]
@@ -153,6 +137,22 @@ jobs:
           VERSION: ${{ needs.metadata.outputs.version }}
         run: |
           set -euo pipefail
+          inspect_image() {
+            local attempt
+            local output
+            for attempt in 1 2 3 4; do
+              if output=$(docker buildx imagetools inspect "$@"); then
+                printf '%s' "$output"
+                return 0
+              fi
+              if [ "$attempt" -eq 4 ]; then
+                echo "Failed to inspect the image after $attempt attempts" >&2
+                return 1
+              fi
+              echo "::warning::Image inspection attempt $attempt failed; retrying" >&2
+              sleep $((attempt * 5))
+            done
+          }
           test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
           [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
