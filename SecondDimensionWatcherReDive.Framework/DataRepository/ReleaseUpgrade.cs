@@ -93,6 +93,10 @@ public interface IReleaseUpgradeRepository
         DateTimeOffset createdAt,
         CancellationToken cancellationToken);
 
+    Task<ReleaseUpgradeOperation?> FindByIdAsync(
+        Guid id,
+        CancellationToken cancellationToken);
+
     Task<ReleaseUpgradeOperation?> FindActiveByCandidateAsync(
         Guid candidateReleaseId,
         CancellationToken cancellationToken);

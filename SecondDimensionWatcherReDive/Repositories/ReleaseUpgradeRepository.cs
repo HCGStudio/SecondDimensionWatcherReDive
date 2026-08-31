@@ -307,6 +307,15 @@ public sealed partial class ReleaseUpgradeRepository(
         return operation?.ToRecord();
     }
 
+    public async Task<ReleaseUpgradeOperation?> FindByIdAsync(
+        Guid id,
+        CancellationToken cancellationToken)
+    {
+        var operation = await context.ReleaseUpgradeOperations.AsNoTracking()
+            .SingleOrDefaultAsync(item => item.Id == id, cancellationToken);
+        return operation?.ToRecord();
+    }
+
     public async Task<IReadOnlyList<Guid>> GetReadyCandidateIdsAsync(
         int take,
         CancellationToken cancellationToken)
