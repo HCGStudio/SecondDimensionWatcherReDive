@@ -1,6 +1,7 @@
-import { AlertTriangle, Loader2, Play } from "lucide-react";
 import React from "react";
 import { useTranslation } from "react-i18next";
+
+import { AlertTriangle, Loader2, Play } from "lucide-react";
 
 import { useToast } from "../components/ToastProvider";
 import { Button } from "../components/ui/Button";
@@ -9,8 +10,8 @@ import { Spinner } from "../components/ui/Spinner";
 import { Table, type TableColumn } from "../components/ui/Table";
 import { useTasks } from "../tasks/hooks";
 import { useTaskMetadata } from "../tasks/taskMetadata";
-import { runTask } from "../tasks/utils";
 import { ITask } from "../tasks/types";
+import { runTask } from "../tasks/utils";
 import { PageTemplate } from "./PageTemplate";
 
 function useFormatInterval(): (interval: string) => string {
@@ -44,7 +45,9 @@ export const TasksPage: React.FC = () => {
   const formatInterval = useFormatInterval();
   const { data: tasks, error, mutate } = useTasks();
   const { addToast } = useToast();
-  const [runningTasks, setRunningTasks] = React.useState<Set<string>>(new Set());
+  const [runningTasks, setRunningTasks] = React.useState<Set<string>>(
+    new Set(),
+  );
 
   const onRun = React.useCallback(
     async (id: string) => {
@@ -79,7 +82,8 @@ export const TasksPage: React.FC = () => {
     },
     {
       name: t("tasks:columns.description"),
-      render: (_value: any, item: ITask) => getTaskMetadata(item.id).description,
+      render: (_value: any, item: ITask) =>
+        getTaskMetadata(item.id).description,
     },
     {
       field: "interval",

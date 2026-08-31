@@ -102,6 +102,8 @@ internal sealed class WebDavWebApplicationFactory : WebApplicationFactory<Migrat
 
             // Strip all registered IMigrationTask so MigrationTaskRunner.RunAsync iterates an empty collection.
             services.RemoveAll<IMigrationTask>();
+            services.RemoveAll<IMigrationLock>();
+            services.AddSingleton<IMigrationLock, NoOpMigrationLock>();
 
             // Strip all hosted services originating from this solution so background loops never start.
             var hostedToRemove = services
@@ -188,6 +190,14 @@ internal sealed class WebDavWebApplicationFactory : WebApplicationFactory<Migrat
             => string.Empty;
 
         public bool HasPendingModelChanges() => false;
+    }
+
+    private sealed class NoOpMigrationLock : IMigrationLock, IMigrationLockLease
+    {
+        public Task<IMigrationLockLease> AcquireAsync(CancellationToken cancellationToken)
+            => Task.FromResult<IMigrationLockLease>(this);
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
     private sealed class FakeApplicationSettingsRepository : IApplicationSettingsRepository
