@@ -25,6 +25,7 @@ public class ApplicationContext : DbContext
     public DbSet<ChatConversation> ChatConversations { get; set; }
     public DbSet<ChatMessage> ChatMessages { get; set; }
     public DbSet<FileMapping> FileMappings { get; set; }
+    public DbSet<StagedFileMapping> StagedFileMappings { get; set; }
     public DbSet<FileSystemEntry> FileSystemEntries { get; set; }
     public DbSet<FileSystemDirectoryState> FileSystemDirectoryStates { get; set; }
     public DbSet<FileNameRegexRule> FileNameRegexRules { get; set; }
@@ -502,6 +503,25 @@ public class ApplicationContext : DbContext
         modelBuilder.Entity<FileMapping>()
             .ToTable(table => table.HasCheckConstraint(
                 "CK_FileMappings_VirtualPath_Canonical",
+                "\"VirtualPath\" ~ '^/[^/]+(?:/[^/]+)*$' AND \"VirtualPath\" !~ '(^|/)\\.\\.?($|/)'"));
+
+        modelBuilder.Entity<StagedFileMapping>()
+            .HasIndex(mapping => new { mapping.AnimationInfoId, mapping.VirtualPath })
+            .IsUnique();
+
+        modelBuilder.Entity<StagedFileMapping>()
+            .Property(mapping => mapping.VirtualPath)
+            .HasMaxLength(2048);
+
+        modelBuilder.Entity<StagedFileMapping>()
+            .HasOne<AnimationInfo>()
+            .WithMany()
+            .HasForeignKey(mapping => mapping.AnimationInfoId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<StagedFileMapping>()
+            .ToTable(table => table.HasCheckConstraint(
+                "CK_StagedFileMappings_VirtualPath_Canonical",
                 "\"VirtualPath\" ~ '^/[^/]+(?:/[^/]+)*$' AND \"VirtualPath\" !~ '(^|/)\\.\\.?($|/)'"));
 
         modelBuilder.Entity<MetadataReviewMappingSnapshot>()

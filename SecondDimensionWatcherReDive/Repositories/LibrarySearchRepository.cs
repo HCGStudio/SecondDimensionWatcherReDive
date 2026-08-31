@@ -15,6 +15,7 @@ public sealed class LibrarySearchRepository(Models.ApplicationContext context)
     private sealed record SearchCursor(
         DateTimeOffset SnapshotUtc,
         string Signature,
+        long Revision,
         Guid LastId,
         DateTimeOffset? PublishedAt,
         int? Score,
@@ -75,6 +76,9 @@ public sealed class LibrarySearchRepository(Models.ApplicationContext context)
         var cursor = DecodeCursor(request.Cursor);
         if (cursor is not null && !string.Equals(cursor.Signature, signature, StringComparison.Ordinal))
             throw new ArgumentException("The search cursor does not match the active filters.", nameof(request));
+        var revision = await ReadLibraryRevisionAsync(cancellationToken);
+        if (cursor is not null && cursor.Revision != revision)
+            throw new ArgumentException("The library changed; restart search pagination.", nameof(request));
         var snapshot = cursor?.SnapshotUtc ?? DateTimeOffset.UtcNow;
         if (cursor is not null && cursor.LastId == Guid.Empty)
             throw new ArgumentException("The search cursor is invalid.", nameof(request));
@@ -102,7 +106,10 @@ public sealed class LibrarySearchRepository(Models.ApplicationContext context)
         if (request.Season is { } season) query = query.Where(info => info.Season == season);
         if (request.Episode is { } episode) query = query.Where(info => info.Episode == episode);
         if (!string.IsNullOrWhiteSpace(request.SubtitleGroup))
-            query = query.Where(info => info.ReleaseSubtitleGroup == request.SubtitleGroup);
+            query = query.Where(info =>
+                info.ReleaseSubtitleGroup == request.SubtitleGroup ||
+                (info.ReleaseSubtitleGroup == null && info.Group != null &&
+                 info.Group.Name == request.SubtitleGroup));
         if (!string.IsNullOrWhiteSpace(request.Resolution))
             query = query.Where(info => info.ReleaseResolution == request.Resolution);
         if (!string.IsNullOrWhiteSpace(request.Codec))
@@ -258,8 +265,11 @@ public sealed class LibrarySearchRepository(Models.ApplicationContext context)
                 info.PublishTime);
         }).ToList();
 
+        if (await ReadLibraryRevisionAsync(cancellationToken) != revision)
+            throw new ArgumentException("The library changed; restart search pagination.", nameof(request));
+
         var nextCursor = hasMore
-            ? EncodeCursor(CreateCursor(page[^1], request.Sort, snapshot, signature))
+            ? EncodeCursor(CreateCursor(page[^1], request.Sort, snapshot, signature, revision))
             : null;
         return new LibrarySearchResult(items, nextCursor);
     }
@@ -316,10 +326,12 @@ public sealed class LibrarySearchRepository(Models.ApplicationContext context)
         SearchRow row,
         LibrarySearchSort sort,
         DateTimeOffset snapshot,
-        string signature) =>
+        string signature,
+        long revision) =>
         new(
             snapshot,
             signature,
+            revision,
             row.Id,
             sort is LibrarySearchSort.PublishedDescending or LibrarySearchSort.ScoreDescending
                 ? row.PublishTime
@@ -334,6 +346,12 @@ public sealed class LibrarySearchRepository(Models.ApplicationContext context)
             sort is LibrarySearchSort.TitleAscending or LibrarySearchSort.EpisodeAscending
                 ? row.Episode
                 : null);
+
+    private async Task<long> ReadLibraryRevisionAsync(CancellationToken cancellationToken) =>
+        await context.AnimationCatalogStates.AsNoTracking()
+            .Where(state => state.Id == 1)
+            .Select(state => state.Revision)
+            .SingleAsync(cancellationToken);
 
     public async Task<IReadOnlyList<LibraryIntegritySummary>> GetIntegrityAsync(
         string? tmdbId,

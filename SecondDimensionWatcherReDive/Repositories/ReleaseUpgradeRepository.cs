@@ -2,6 +2,7 @@ using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
+using SecondDimensionWatcherReDive.Utils.FileStore;
 
 namespace SecondDimensionWatcherReDive.Repositories;
 
@@ -307,7 +308,7 @@ public sealed partial class ReleaseUpgradeRepository(
                 (operation.Status == ReleaseUpgradeStatus.Downloading ||
                  operation.Status == ReleaseUpgradeStatus.Verifying) &&
                 operation.CandidateRelease.IsDownloadFinished &&
-                context.FileMappings.Any(mapping =>
+                context.StagedFileMappings.Any(mapping =>
                     mapping.AnimationInfoId == operation.CandidateReleaseId))
             .OrderBy(operation => operation.CreatedAt)
             .Select(operation => operation.CandidateReleaseId)
@@ -326,18 +327,33 @@ public sealed partial class ReleaseUpgradeRepository(
                 cancellationToken);
         if (operation is null) return null;
 
-        var mappings = await context.FileMappings.AsNoTracking()
-            .Where(mapping => mapping.AnimationInfoId == operation.CurrentReleaseId ||
-                              mapping.AnimationInfoId == operation.CandidateReleaseId)
+        var previousMappings = await context.FileMappings.AsNoTracking()
+            .Where(mapping => mapping.AnimationInfoId == operation.CurrentReleaseId)
+            .OrderBy(mapping => mapping.VirtualPath)
+            .ToListAsync(cancellationToken);
+        var candidateMappings = await context.StagedFileMappings.AsNoTracking()
+            .Where(mapping => mapping.AnimationInfoId == operation.CandidateReleaseId)
             .OrderBy(mapping => mapping.VirtualPath)
             .ToListAsync(cancellationToken);
         return new ReleaseUpgradeActivation(
             operation.ToRecord(),
-            mappings.Where(mapping => mapping.AnimationInfoId == operation.CurrentReleaseId)
-                .Select(mapping => mapping.ToRecord()).ToList(),
-            mappings.Where(mapping => mapping.AnimationInfoId == operation.CandidateReleaseId)
-                .Select(mapping => mapping.ToRecord()).ToList());
+            previousMappings.Select(mapping => mapping.ToRecord()).ToList(),
+            candidateMappings.Select(ToRecord).ToList());
     }
+
+    public async Task<IReadOnlyList<FileMapping>> GetCandidateMappingsAsync(
+        Guid candidateReleaseId,
+        CancellationToken cancellationToken) =>
+        await context.StagedFileMappings.AsNoTracking()
+            .Where(mapping => mapping.AnimationInfoId == candidateReleaseId)
+            .OrderBy(mapping => mapping.VirtualPath)
+            .Select(mapping => new FileMapping(
+                mapping.Id,
+                mapping.AnimationInfoId,
+                mapping.VirtualPath,
+                mapping.PhysicalPath,
+                mapping.FileStore))
+            .ToListAsync(cancellationToken);
 
     public async Task<ReleaseUpgradeActivation?> GetRollbackAsync(
         Guid operationId,
@@ -407,13 +423,15 @@ public sealed partial class ReleaseUpgradeRepository(
                 candidate.ReleaseScore <= current.ReleaseScore)
                 return new ReleaseUpgradeMutationResult(false, "release_changed", operation.ToRecord());
 
-            var mappings = await writeContext.FileMappings
-                .Where(mapping => mapping.AnimationInfoId == current.Id ||
-                                  mapping.AnimationInfoId == candidate.Id)
+            var previous = await writeContext.FileMappings
+                .Where(mapping => mapping.AnimationInfoId == current.Id)
                 .OrderBy(mapping => mapping.VirtualPath)
                 .ToListAsync(cancellationToken);
-            var previous = mappings.Where(mapping => mapping.AnimationInfoId == current.Id).ToList();
-            var next = mappings.Where(mapping => mapping.AnimationInfoId == candidate.Id).ToList();
+            var stagedNext = await writeContext.StagedFileMappings
+                .Where(mapping => mapping.AnimationInfoId == candidate.Id)
+                .OrderBy(mapping => mapping.VirtualPath)
+                .ToListAsync(cancellationToken);
+            var next = stagedNext.Select(ToFileMapping).ToList();
             if (previous.Count == 0 || next.Count == 0)
                 return new ReleaseUpgradeMutationResult(false, "mapping_missing", operation.ToRecord());
             if (!MappingSetsMatch(previous, expectedPreviousMappings) ||
@@ -445,6 +463,7 @@ public sealed partial class ReleaseUpgradeRepository(
                 [current.Id, candidate.Id],
                 replacement.Mappings,
                 cancellationToken);
+            writeContext.StagedFileMappings.RemoveRange(stagedNext);
             await TransferPlaybackProgressAsync(
                 writeContext,
                 BuildActivationPlaybackTransfers(current.Id, candidate.Id, replacement),
@@ -648,6 +667,22 @@ public sealed partial class ReleaseUpgradeRepository(
             FileStore = mapping.FileStore
         };
 
+    private static FileMapping ToRecord(Models.StagedFileMapping mapping) => new(
+        mapping.Id,
+        mapping.AnimationInfoId,
+        mapping.VirtualPath,
+        mapping.PhysicalPath,
+        mapping.FileStore);
+
+    private static Models.FileMapping ToFileMapping(Models.StagedFileMapping mapping) => new()
+    {
+        Id = mapping.Id,
+        AnimationInfoId = mapping.AnimationInfoId,
+        VirtualPath = mapping.VirtualPath,
+        PhysicalPath = mapping.PhysicalPath,
+        FileStore = mapping.FileStore
+    };
+
     private static Task SnapshotEntryIdentitiesAsync(
         Models.ApplicationContext writeContext,
         Guid operationId,
@@ -741,7 +776,10 @@ public sealed partial class ReleaseUpgradeRepository(
         var fileName = virtualPath[(virtualPath.LastIndexOf('/') + 1)..];
         var extension = Path.GetExtension(fileName);
         var stem = extension.Length == 0 ? fileName : fileName[..^extension.Length];
-        return CollisionSuffixRegex().Replace(stem, string.Empty) + extension;
+        var roleExtension = MediaFileTypes.VideoExtensions.Contains(extension)
+            ? "<video>"
+            : extension;
+        return CollisionSuffixRegex().Replace(stem, string.Empty) + roleExtension;
     }
 
     private static Models.FileMapping FromSnapshot(Models.ReleaseUpgradeMappingSnapshot snapshot) => new()

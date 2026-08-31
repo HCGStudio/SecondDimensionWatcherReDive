@@ -79,6 +79,10 @@ public interface IReleaseUpgradeRepository
         Guid candidateReleaseId,
         CancellationToken cancellationToken);
 
+    Task<IReadOnlyList<FileMapping>> GetCandidateMappingsAsync(
+        Guid candidateReleaseId,
+        CancellationToken cancellationToken);
+
     Task<ReleaseUpgradeActivation?> GetRollbackAsync(
         Guid operationId,
         CancellationToken cancellationToken);

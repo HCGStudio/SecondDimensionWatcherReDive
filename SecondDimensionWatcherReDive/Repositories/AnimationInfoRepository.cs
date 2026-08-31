@@ -516,7 +516,8 @@ public class AnimationInfoRepository(
                            && info.MediaLibraryMissingSince == null
                            && info.FileStore != null
                            && info.StorePath != null
-                           && !context.FileMappings.Any(mapping => mapping.AnimationInfoId == info.Id))
+                           && !context.FileMappings.Any(mapping => mapping.AnimationInfoId == info.Id)
+                           && !context.StagedFileMappings.Any(mapping => mapping.AnimationInfoId == info.Id))
             .OrderBy(info => info.DownloadEndTime)
             .ToListAsync(cancellationToken);
         return entities.Select(entity => entity.ToRecord()).ToList();
@@ -609,6 +610,10 @@ public class AnimationInfoRepository(
                 writeContext,
                 entity,
                 willHaveMappings: false,
+                cancellationToken);
+            await ReconcileMappingVisibilityAfterMetadataChangeAsync(
+                writeContext,
+                entity,
                 cancellationToken);
             var currentEpisodeIdentity = entity.IsActiveRelease
                 ? GetEpisodeIdentity(writeContext, entity)
@@ -948,6 +953,10 @@ public class AnimationInfoRepository(
                 entity,
                 willHaveMappings: false,
                 cancellationToken);
+            await ReconcileMappingVisibilityAfterMetadataChangeAsync(
+                writeContext,
+                entity,
+                cancellationToken);
             var currentEpisodeIdentity = entity.IsActiveRelease
                 ? GetEpisodeIdentity(writeContext, entity)
                 : null;
@@ -975,9 +984,11 @@ public class AnimationInfoRepository(
         CancellationToken cancellationToken)
     {
         var identity = GetEpisodeIdentity(writeContext, entity);
-        var hasMappings = willHaveMappings || await writeContext.FileMappings
-            .AsNoTracking()
-            .AnyAsync(mapping => mapping.AnimationInfoId == entity.Id, cancellationToken);
+        var hasMappings = willHaveMappings ||
+                          await writeContext.FileMappings.AsNoTracking()
+                              .AnyAsync(mapping => mapping.AnimationInfoId == entity.Id, cancellationToken) ||
+                          await writeContext.StagedFileMappings.AsNoTracking()
+                              .AnyAsync(mapping => mapping.AnimationInfoId == entity.Id, cancellationToken);
         if (identity is null || entity.MediaLibraryMissingSince is not null ||
             !entity.IsDownloadFinished || !hasMappings)
         {
@@ -1023,6 +1034,68 @@ public class AnimationInfoRepository(
             : null;
     }
 
+    private static async Task ReconcileMappingVisibilityAfterMetadataChangeAsync(
+        Models.ApplicationContext writeContext,
+        Models.AnimationInfo entity,
+        CancellationToken cancellationToken)
+    {
+        var liveMappings = await writeContext.FileMappings
+            .Where(mapping => mapping.AnimationInfoId == entity.Id)
+            .ToListAsync(cancellationToken);
+        var stagedMappings = await writeContext.StagedFileMappings
+            .Where(mapping => mapping.AnimationInfoId == entity.Id)
+            .ToListAsync(cancellationToken);
+        var shouldStage = GetEpisodeIdentity(writeContext, entity) is not null &&
+                          !entity.IsActiveRelease;
+
+        if (shouldStage)
+        {
+            if (liveMappings.Count == 0) return;
+
+            writeContext.StagedFileMappings.RemoveRange(stagedMappings);
+            await writeContext.StagedFileMappings.AddRangeAsync(
+                liveMappings.Select(mapping => new Models.StagedFileMapping
+                {
+                    Id = mapping.Id,
+                    AnimationInfoId = mapping.AnimationInfoId,
+                    VirtualPath = mapping.VirtualPath,
+                    PhysicalPath = mapping.PhysicalPath,
+                    FileStore = mapping.FileStore
+                }),
+                cancellationToken);
+            writeContext.FileMappings.RemoveRange(liveMappings);
+            return;
+        }
+
+        if (liveMappings.Count > 0)
+        {
+            writeContext.StagedFileMappings.RemoveRange(stagedMappings);
+            return;
+        }
+
+        if (stagedMappings.Count == 0) return;
+        var conflicts = await VirtualPathNamespaceGuard.FindConflictsAsync(
+            writeContext,
+            entity.Id,
+            stagedMappings.Select(mapping => mapping.VirtualPath).ToArray(),
+            cancellationToken);
+        if (conflicts.Count > 0)
+            throw new InvalidOperationException(
+                $"Cannot publish the remapped release because '{conflicts[0].OccupiedPath}' is occupied.");
+
+        await writeContext.FileMappings.AddRangeAsync(
+            stagedMappings.Select(mapping => new Models.FileMapping
+            {
+                Id = mapping.Id,
+                AnimationInfoId = mapping.AnimationInfoId,
+                VirtualPath = mapping.VirtualPath,
+                PhysicalPath = mapping.PhysicalPath,
+                FileStore = mapping.FileStore
+            }),
+            cancellationToken);
+        writeContext.StagedFileMappings.RemoveRange(stagedMappings);
+    }
+
     internal static async Task PromotePreviousEpisodeSuccessorAsync(
         Models.ApplicationContext writeContext,
         Guid changedReleaseId,
@@ -1042,29 +1115,63 @@ public class AnimationInfoRepository(
                 cancellationToken))
             return;
 
-        var successorId = await writeContext.AnimationInfo
+        var successor = await writeContext.AnimationInfo
             .AsNoTracking()
             .Where(info => info.Id != changedReleaseId &&
                            info.MediaLibraryMissingSince == null &&
                            info.IsDownloadFinished &&
-                           writeContext.FileMappings.Any(mapping => mapping.AnimationInfoId == info.Id) &&
+                           (writeContext.FileMappings.Any(mapping => mapping.AnimationInfoId == info.Id) ||
+                            writeContext.StagedFileMappings.Any(mapping => mapping.AnimationInfoId == info.Id)) &&
                            EF.Property<Guid?>(info, "AnimationId") == previous.AnimationId &&
                            info.Season == previous.Season &&
                            info.Episode == previous.Episode)
             .OrderByDescending(info => info.ReleaseScore)
             .ThenByDescending(info => info.PublishTime)
             .ThenBy(info => info.Id)
-            .Select(info => (Guid?)info.Id)
+            .Select(info => new
+            {
+                info.Id,
+                HasLiveMappings = writeContext.FileMappings.Any(mapping => mapping.AnimationInfoId == info.Id)
+            })
             .FirstOrDefaultAsync(cancellationToken);
-        if (successorId is null) return;
+        if (successor is null) return;
+
+        if (!successor.HasLiveMappings)
+        {
+            var stagedMappings = await writeContext.StagedFileMappings
+                .Where(mapping => mapping.AnimationInfoId == successor.Id)
+                .OrderBy(mapping => mapping.VirtualPath)
+                .ToListAsync(cancellationToken);
+            if (stagedMappings.Count == 0) return;
+
+            var conflicts = await VirtualPathNamespaceGuard.FindConflictsAsync(
+                writeContext,
+                successor.Id,
+                stagedMappings.Select(mapping => mapping.VirtualPath).ToArray(),
+                cancellationToken);
+            if (conflicts.Count > 0) return;
+
+            await writeContext.FileMappings.AddRangeAsync(
+                stagedMappings.Select(mapping => new Models.FileMapping
+                {
+                    Id = mapping.Id,
+                    AnimationInfoId = mapping.AnimationInfoId,
+                    VirtualPath = mapping.VirtualPath,
+                    PhysicalPath = mapping.PhysicalPath,
+                    FileStore = mapping.FileStore
+                }),
+                cancellationToken);
+            writeContext.StagedFileMappings.RemoveRange(stagedMappings);
+        }
 
         await writeContext.AnimationInfo
-            .Where(info => info.Id == successorId.Value)
+            .Where(info => info.Id == successor.Id)
             .ExecuteUpdateAsync(
                 setters => setters
                     .SetProperty(info => info.IsActiveRelease, true)
                     .SetProperty(info => info.StateVersion, info => info.StateVersion + 1),
                 cancellationToken);
+        await writeContext.SaveChangesAsync(cancellationToken);
     }
 
     internal readonly record struct EpisodeReleaseIdentity(Guid AnimationId, int Season, int Episode);

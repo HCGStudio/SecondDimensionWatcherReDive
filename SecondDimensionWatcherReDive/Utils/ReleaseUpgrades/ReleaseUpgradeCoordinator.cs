@@ -257,7 +257,7 @@ public sealed class ReleaseUpgradeCoordinator(
         var previous = await fileMappingRepository.GetForAnimationInfoAsync(
             candidate.CurrentReleaseId,
             cancellationToken);
-        var next = await fileMappingRepository.GetForAnimationInfoAsync(
+        var next = await upgradeRepository.GetCandidateMappingsAsync(
             candidate.CandidateReleaseId,
             cancellationToken);
         return await ValidateMappingsAsync(previous, next, cancellationToken);

@@ -128,20 +128,13 @@ public class FileMappingRepository(
                 .AsNoTracking()
                 .Where(mapping => mapping.AnimationInfoId == animationInfoId)
                 .ToListAsync(cancellationToken);
+            var existingStagedMappings = await replaceContext.StagedFileMappings
+                .AsNoTracking()
+                .Where(mapping => mapping.AnimationInfoId == animationInfoId)
+                .ToListAsync(cancellationToken);
             var desiredMappings = mappings
                 .Select(mapping => mapping.ToEntity())
                 .ToList();
-            await PlaybackProgressMappingMigrator.MigrateAsync(
-                replaceContext,
-                animationInfoId,
-                existingMappings,
-                desiredMappings,
-                cancellationToken);
-            var reconciliation = await FileMappingSetReconciler.ReconcileAsync(
-                replaceContext,
-                animationInfoId,
-                desiredMappings,
-                cancellationToken);
             var previousEpisodeIdentity = AnimationInfoRepository.GetEpisodeIdentity(
                 replaceContext,
                 current);
@@ -151,6 +144,28 @@ public class FileMappingRepository(
                 current,
                 willHaveMappings: desiredMappings.Count > 0,
                 cancellationToken);
+            var shouldStage = previousEpisodeIdentity is not null && !current.IsActiveRelease;
+            var previousMappings = existingMappings.Count > 0
+                ? existingMappings
+                : existingStagedMappings.Select(ToFileMapping).ToList();
+            await PlaybackProgressMappingMigrator.MigrateAsync(
+                replaceContext,
+                animationInfoId,
+                previousMappings,
+                desiredMappings,
+                cancellationToken);
+            var reconciliation = await FileMappingSetReconciler.ReconcileAsync(
+                replaceContext,
+                animationInfoId,
+                shouldStage ? [] : desiredMappings,
+                cancellationToken);
+            replaceContext.StagedFileMappings.RemoveRange(existingStagedMappings);
+            if (shouldStage)
+            {
+                await replaceContext.StagedFileMappings.AddRangeAsync(
+                    desiredMappings.Select(ToStagedFileMapping),
+                    cancellationToken);
+            }
             var currentEpisodeIdentity = current.IsActiveRelease
                 ? AnimationInfoRepository.GetEpisodeIdentity(replaceContext, current)
                 : null;
@@ -396,9 +411,10 @@ public class FileMappingRepository(
 
     public async Task<bool> ExistsForAnimationInfoAsync(Guid animationInfoId, CancellationToken cancellationToken)
     {
-        return await context.FileMappings
-            .AsNoTracking()
-            .AnyAsync(m => m.AnimationInfoId == animationInfoId, cancellationToken);
+        return await context.FileMappings.AsNoTracking()
+                   .AnyAsync(m => m.AnimationInfoId == animationInfoId, cancellationToken)
+               || await context.StagedFileMappings.AsNoTracking()
+                   .AnyAsync(m => m.AnimationInfoId == animationInfoId, cancellationToken);
     }
 
     public async Task<bool> TryFinalizeDownloadCancellationAsync(
@@ -444,6 +460,9 @@ public class FileMappingRepository(
                 .Where(progress => progress.AnimationInfoId == animationInfoId)
                 .ExecuteDeleteAsync(cancellationToken);
             await finalizeContext.FileMappings
+                .Where(mapping => mapping.AnimationInfoId == animationInfoId)
+                .ExecuteDeleteAsync(cancellationToken);
+            await finalizeContext.StagedFileMappings
                 .Where(mapping => mapping.AnimationInfoId == animationInfoId)
                 .ExecuteDeleteAsync(cancellationToken);
             animationInfo.IsDownloadTracked = false;
@@ -508,6 +527,9 @@ public class FileMappingRepository(
             await removeContext.FileMappings
                 .Where(mapping => mapping.AnimationInfoId == animationInfoId)
                 .ExecuteDeleteAsync(cancellationToken);
+            await removeContext.StagedFileMappings
+                .Where(mapping => mapping.AnimationInfoId == animationInfoId)
+                .ExecuteDeleteAsync(cancellationToken);
             if (animationInfo is not null)
             {
                 animationInfo.IsActiveRelease = false;
@@ -525,4 +547,22 @@ public class FileMappingRepository(
             await transaction.CommitAsync(cancellationToken);
         });
     }
+
+    private static Models.FileMapping ToFileMapping(Models.StagedFileMapping mapping) => new()
+    {
+        Id = mapping.Id,
+        AnimationInfoId = mapping.AnimationInfoId,
+        VirtualPath = mapping.VirtualPath,
+        PhysicalPath = mapping.PhysicalPath,
+        FileStore = mapping.FileStore
+    };
+
+    private static Models.StagedFileMapping ToStagedFileMapping(Models.FileMapping mapping) => new()
+    {
+        Id = mapping.Id,
+        AnimationInfoId = mapping.AnimationInfoId,
+        VirtualPath = mapping.VirtualPath,
+        PhysicalPath = mapping.PhysicalPath,
+        FileStore = mapping.FileStore
+    };
 }
