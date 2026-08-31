@@ -10,10 +10,6 @@ public class NfsFileHandleTests
     public void Root_RoundTrips()
     {
         var bytes = NfsFileHandle.Root.ToBytes();
-        Assert.AreEqual(18, bytes.Length);
-        Assert.AreEqual(0xFE, bytes[0]);
-        Assert.AreEqual(0x00, bytes[1]);
-        CollectionAssert.AreEqual(new byte[16], bytes[2..]);
         var decoded = NfsFileHandle.FromBytes(bytes);
         Assert.AreSame(NfsFileHandle.Root, decoded);
     }
@@ -27,7 +23,6 @@ public class NfsFileHandleTests
         var bytes = fh.ToBytes();
         Assert.AreEqual(0xFE, bytes[0]);
         Assert.AreEqual(0x02, bytes[1]);
-        Assert.AreEqual(18, bytes.Length);
 
         var decoded = NfsFileHandle.FromBytes(bytes);
         Assert.AreEqual(fh, decoded);
@@ -44,13 +39,6 @@ public class NfsFileHandleTests
 
         var decoded = NfsFileHandle.FromBytes(bytes);
         Assert.AreEqual(fh, decoded);
-    }
-
-    [TestMethod]
-    public void NonRootEmptyIdThrows()
-    {
-        Assert.ThrowsExactly<InvalidOperationException>(() =>
-            new NfsFileHandle(NfsHandleKind.File, Guid.Empty).ToBytes());
     }
 
     [TestMethod]

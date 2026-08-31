@@ -128,25 +128,25 @@ public class FileMappingRepository(
                 .AsNoTracking()
                 .Where(mapping => mapping.AnimationInfoId == animationInfoId)
                 .ToListAsync(cancellationToken);
-            var replacementMappings = mappings
+            var desiredMappings = mappings
                 .Select(mapping => mapping.ToEntity())
                 .ToList();
             await PlaybackProgressMappingMigrator.MigrateAsync(
                 replaceContext,
                 animationInfoId,
                 existingMappings,
-                replacementMappings,
+                desiredMappings,
                 cancellationToken);
-
-            await replaceContext.FileMappings
-                .Where(mapping => mapping.AnimationInfoId == animationInfoId)
-                .ExecuteDeleteAsync(cancellationToken);
-            if (replacementMappings.Count > 0)
-                await replaceContext.FileMappings.AddRangeAsync(
-                    replacementMappings,
-                    cancellationToken);
+            var reconciliation = await FileMappingSetReconciler.ReconcileAsync(
+                replaceContext,
+                animationInfoId,
+                desiredMappings,
+                cancellationToken);
             current.StateVersion = checked(current.StateVersion + 1);
             await replaceContext.SaveChangesAsync(cancellationToken);
+            await reconciliation.RestoreEntryIdentitiesAsync(
+                replaceContext,
+                cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             return true;
         });

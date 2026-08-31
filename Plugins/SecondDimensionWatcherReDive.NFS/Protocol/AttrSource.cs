@@ -7,4 +7,7 @@ internal sealed record AttrSource(
     NfsFileHandle Handle,
     string OwnerName,
     string GroupName,
-    int LeaseTimeSeconds);
+    int LeaseTimeSeconds)
+{
+    public ulong? CanonicalFileId { get; init; }
+}

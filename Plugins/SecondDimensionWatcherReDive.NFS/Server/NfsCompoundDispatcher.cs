@@ -249,7 +249,12 @@ internal sealed partial class NfsCompoundDispatcher(
         foreach (var child in page.Items)
         {
             var childHandle = NfsFileHandle.ForStableEntry(child.Kind, child.EntryId);
-            var attrs = BuildAttrSource(ctx, childHandle, child.Size, child.MTime);
+            var attrs = BuildAttrSource(
+                ctx,
+                childHandle,
+                child.VirtualPath,
+                child.Size,
+                child.MTime);
 
             var directoryInfoBuffer = new ArrayBufferWriter<byte>();
             var directoryInfoWriter = new XdrWriter(directoryInfoBuffer);
@@ -448,24 +453,39 @@ internal sealed partial class NfsCompoundDispatcher(
     }
 
     private AttrSource BuildAttrSource(NfsRequestContext ctx, NfsFileHandle handle, NfsResolvedNode resolved)
-        => new(
-            resolved.Kind == NfsHandleKind.Directory || resolved.Kind == NfsHandleKind.Root,
-            resolved.Size,
-            resolved.MTime,
-            handle,
-            $"{ctx.Credential.Uid}@sdw",
-            $"{ctx.Credential.Gid}@sdw",
-            options.Value.LeaseSeconds);
+        => new AttrSource(
+                resolved.Kind == NfsHandleKind.Directory || resolved.Kind == NfsHandleKind.Root,
+                resolved.Size,
+                resolved.MTime,
+                handle,
+                $"{ctx.Credential.Uid}@sdw",
+                $"{ctx.Credential.Gid}@sdw",
+                options.Value.LeaseSeconds)
+            {
+                CanonicalFileId = NfsAttributes.ComputeCanonicalFileId(
+                    resolved.Kind,
+                    resolved.VirtualPath)
+            };
 
-    private AttrSource BuildAttrSource(NfsRequestContext ctx, NfsFileHandle handle, long size, DateTimeOffset mtime)
-        => new(
-            handle.Kind == NfsHandleKind.Directory || handle.Kind == NfsHandleKind.Root,
-            size,
-            mtime,
-            handle,
-            $"{ctx.Credential.Uid}@sdw",
-            $"{ctx.Credential.Gid}@sdw",
-            options.Value.LeaseSeconds);
+    private AttrSource BuildAttrSource(
+        NfsRequestContext ctx,
+        NfsFileHandle handle,
+        string canonicalVirtualPath,
+        long size,
+        DateTimeOffset mtime)
+        => new AttrSource(
+                handle.Kind == NfsHandleKind.Directory || handle.Kind == NfsHandleKind.Root,
+                size,
+                mtime,
+                handle,
+                $"{ctx.Credential.Uid}@sdw",
+                $"{ctx.Credential.Gid}@sdw",
+                options.Value.LeaseSeconds)
+            {
+                CanonicalFileId = NfsAttributes.ComputeCanonicalFileId(
+                    handle.Kind,
+                    canonicalVirtualPath)
+            };
 
     private static async Task SkipAsync(Stream stream, long count, CancellationToken cancellationToken)
     {
