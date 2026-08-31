@@ -48,7 +48,11 @@ internal static class RpcDecoder
             var program = reader.ReadUInt32();
             var version = reader.ReadUInt32();
             var procedure = reader.ReadUInt32();
-            var cred = RpcAuthDecoder.ReadCredential(ref reader, allowAnonymous);
+            // RPC NULL has no body and grants no resource access. Standard rpcinfo and
+            // mount probes commonly send it with AUTH_NONE even when COMPOUND requires sec=sys.
+            var cred = RpcAuthDecoder.ReadCredential(
+                ref reader,
+                allowAnonymous || procedure == RpcConstants.NfsProcNull);
             RpcAuthDecoder.ReadAndDiscardVerifier(ref reader);
 
             var header = new RpcCallHeader(xid, program, version, procedure, cred);

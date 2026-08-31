@@ -146,14 +146,64 @@ public sealed class AuthControllerSecurityTests
             var registration = await controller.Register(
                 new LoginData(Password), CancellationToken.None);
             var login = await controller.Login(new LoginData(Password), CancellationToken.None);
+            var secondController = CreateController(
+                authenticationStateRepository: repository,
+                configuredPassword: null,
+                passwordFile: Path.Combine(directory, "another-password.json"));
+            var secondRegistration = await secondController.Register(
+                new LoginData("different-administrator"), CancellationToken.None);
+            var losingPasswordLogin = await secondController.Login(
+                new LoginData("different-administrator"), CancellationToken.None);
 
             Assert.IsInstanceOfType<OkObjectResult>(registration);
             Assert.IsInstanceOfType<OkObjectResult>(login);
+            Assert.IsInstanceOfType<BadRequestResult>(secondRegistration);
+            Assert.IsInstanceOfType<BadRequestResult>(losingPasswordLogin);
         }
         finally
         {
             Directory.Delete(directory, recursive: true);
         }
+    }
+
+    [TestMethod]
+    public async Task LegacyConfiguredPassword_IsImportedOnce_AndDatabaseBecomesAuthoritative()
+    {
+        var repository = new InMemoryAuthenticationStateRepository();
+        var legacyHash = BCrypt.Net.BCrypt.HashPassword(Password);
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Password:Value"] = legacyHash
+            })
+            .Build();
+        var initializer = new AuthenticationStateInitializer(
+            configuration,
+            repository,
+            TimeProvider.System,
+            NullLogger<AuthenticationStateInitializer>.Instance);
+
+        await initializer.InitializeAsync(CancellationToken.None);
+        await initializer.InitializeAsync(CancellationToken.None);
+
+        var controllerWithStaleFile = CreateController(
+            authenticationStateRepository: repository,
+            configuredPassword: "stale-or-replaced-password");
+        var legacyLogin = await controllerWithStaleFile.Login(
+            new LoginData(Password), CancellationToken.None);
+        var staleFileLogin = await controllerWithStaleFile.Login(
+            new LoginData("stale-or-replaced-password"), CancellationToken.None);
+        var registration = await controllerWithStaleFile.Register(
+            new LoginData("second-administrator"), CancellationToken.None);
+        var allowRegister = await controllerWithStaleFile.CanRegister(CancellationToken.None);
+
+        Assert.IsInstanceOfType<OkObjectResult>(legacyLogin);
+        Assert.IsInstanceOfType<BadRequestResult>(staleFileLogin);
+        Assert.IsInstanceOfType<BadRequestResult>(registration);
+        var allowPayload = ((OkObjectResult)allowRegister).Value;
+        Assert.IsNotNull(allowPayload);
+        var allow = (bool)allowPayload.GetType().GetProperty("Allow")!.GetValue(allowPayload)!;
+        Assert.IsFalse(allow);
     }
 
     private static AuthController CreateController(

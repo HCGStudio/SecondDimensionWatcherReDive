@@ -1,6 +1,8 @@
 using System.Net;
 using System.Net.Http.Headers;
+using System.IO.Compression;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Channels;
 using System.Threading.RateLimiting;
@@ -9,9 +11,11 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using Microsoft.Extensions.Options;
 using Microsoft.Net.Http.Headers;
 using SecondDimensionWatcherReDive;
 using SecondDimensionWatcherReDive.Auth;
@@ -38,6 +42,7 @@ using SecondDimensionWatcherReDive.Utils.MetadataReview;
 using SecondDimensionWatcherReDive.Utils.Incidents;
 using SecondDimensionWatcherReDive.Utils.Http;
 using SecondDimensionWatcherReDive.Utils.Scraper;
+using SecondDimensionWatcherReDive.Utils.Spa;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -96,6 +101,8 @@ builder.Services.PostConfigure<MediaLibraryOptions>(options =>
     var localStore = builder.Configuration["FileStore:Local"] ?? "./download";
     options.DownloadRoot = Path.GetFullPath(localStore);
 });
+builder.Services.AddOptions<MigrationOptions>()
+    .BindConfiguration(MigrationOptions.SectionName);
 
 builder.Services.AddDbContext<ApplicationContext>(options =>
 {
@@ -132,15 +139,6 @@ builder.Services.AddRateLimiter(options =>
         _ => new FixedWindowRateLimiterOptions
         {
             PermitLimit = builder.Configuration.GetValue("RateLimit:AuthPermitLimit", 10),
-            Window = TimeSpan.FromMinutes(1),
-            QueueLimit = 0,
-            AutoReplenishment = true
-        }));
-    options.AddPolicy("basic", context => RateLimitPartition.GetFixedWindowLimiter(
-        context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
-        _ => new FixedWindowRateLimiterOptions
-        {
-            PermitLimit = builder.Configuration.GetValue("RateLimit:BasicPermitLimit", 600),
             Window = TimeSpan.FromMinutes(1),
             QueueLimit = 0,
             AutoReplenishment = true
@@ -223,11 +221,16 @@ else
     builder.Services.AddSingleton<IRefreshTokenStorage, MemoryRefreshTokenStorage>();
 }
 builder.Services.AddMemoryCache();
-builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddOptions<BasicAuthenticationRateLimitOptions>()
+    .BindConfiguration(BasicAuthenticationRateLimitOptions.SectionName)
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+builder.Services.AddSingleton<BasicAuthenticationAttemptLimiter>();
 builder.Services.AddSingleton<RefreshTokenStore>();
 builder.Services.AddSingleton<IDeviceTokenHasher>(_ => new DeviceTokenHasher(
     builder.Configuration["WebDavTokens:Pepper"] ??
     builder.Configuration["JwtSecret"]!));
+builder.Services.AddSingleton<PlaybackTicketService>();
 
 //Configure HTTP client
 builder.Services.AddOptions<QBittorrentRemoteOptions>()
@@ -352,7 +355,10 @@ builder.Services.AddSingleton<IScheduledTask>(sp => sp.GetRequiredService<ScanMe
 builder.Services.AddHostedService<ScheduledTaskBackgroundService<ScanMediaLibraries>>();
 
 builder.Services.AddSingleton<IMigrationTask, MigrateFileMappings>();
+builder.Services.AddSingleton<IMigrationBackupHook, ConfiguredMigrationBackupHook>();
+builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<MigrationTaskRunner>();
+builder.Services.AddScoped<MigrationAdministrationService>();
 
 //Add download and store
 builder.Services.AddScoped<IFileDownloadClient, RemoteTorrentDownloadClient>();
@@ -383,12 +389,14 @@ builder.Services.AddScoped<IChatRepository, ChatRepository>();
 builder.Services.AddScoped<IFileMappingRepository, FileMappingRepository>();
 builder.Services.AddScoped<IFileNameRegexRuleRepository, FileNameRegexRuleRepository>();
 builder.Services.AddScoped<IMetadataReviewRepository, MetadataReviewRepository>();
-builder.Services.AddScoped<IMigrationMarkerRepository, MigrationMarkerRepository>();
+builder.Services.AddScoped<IMigrationStateRepository, MigrationStateRepository>();
+builder.Services.AddScoped<IMigrationLock, PostgreSqlMigrationLock>();
 builder.Services.AddScoped<IWebDavTokenRepository, WebDavTokenRepository>();
 builder.Services.AddScoped<IPlaybackRepository, PlaybackRepository>();
 builder.Services.AddScoped<IIncidentRepository, IncidentRepository>();
 builder.Services.AddScoped<IMediaLibrarySourceRepository, MediaLibrarySourceRepository>();
 builder.Services.AddScoped<IAuthenticationStateRepository, AuthenticationStateRepository>();
+builder.Services.AddScoped<AuthenticationStateInitializer>();
 builder.Services.AddSingleton<ISeasonScraper, MikananiSeasonScraper>();
 builder.Services.AddScoped<IMetadataReviewService, MetadataReviewService>();
 builder.Services.AddScoped<IIncidentRetryService, IncidentRetryService>();
@@ -412,6 +420,17 @@ builder.Services.AddNfs();
 
 //Add SPA Hosting
 builder.Services.AddSpaStaticFiles(options => { options.RootPath = "wwwroot"; });
+builder.Services.AddResponseCompression(options =>
+{
+    options.EnableForHttps = true;
+    options.MimeTypes = ResponseCompressionDefaults.MimeTypes.Concat(["application/wasm"]);
+    options.Providers.Add<BrotliCompressionProvider>();
+    options.Providers.Add<GzipCompressionProvider>();
+});
+builder.Services.Configure<BrotliCompressionProviderOptions>(options =>
+    options.Level = CompressionLevel.Fastest);
+builder.Services.Configure<GzipCompressionProviderOptions>(options =>
+    options.Level = CompressionLevel.Fastest);
 
 //Initialize Plugin
 builder.InitializePlugin();
@@ -430,17 +449,23 @@ if (app.Environment.IsDevelopment())
 
 app.UseForwardedHeaders();
 app.UseHttpsRedirection();
+app.UseResponseCompression();
 
 app.UseRouting();
 app.UseRateLimiter();
 
 app.MapControllers();
+// The listener starts only after schema and blocking data migrations complete,
+// so an unavailable endpoint is deliberately "not ready" during migration.
+app.MapGet("/health/ready", () => Results.Text("ready", "text/plain"))
+    .AllowAnonymous();
 
 if (app.Environment.IsDevelopment())
 {
     app.UseWhen(
         context => !context.Request.Path.StartsWithSegments("/api") &&
-                   !context.Request.Path.StartsWithSegments("/webdav"),
+                   !context.Request.Path.StartsWithSegments("/webdav") &&
+                   !context.Request.Path.StartsWithSegments("/health"),
         then =>
         {
             then.UseSpa(config =>
@@ -461,29 +486,93 @@ if (app.Environment.IsDevelopment())
 }
 else
 {
-    app.UseSpaStaticFiles();
-    app.MapFallbackToFile("index.html");
+    var staticFileOptions = new StaticFileOptions
+    {
+        OnPrepareResponse = SpaStaticAssetPolicy.Apply
+    };
+    app.UseSpaStaticFiles(staticFileOptions);
+    app.MapFallbackToFile("index.html", staticFileOptions);
 }
 
 app.UseAuthorization();
 
 if (app.Configuration.GetValue<bool?>("DisableCors") is true) app.UseCors("all");
 
-
-await using (var scope = app.Services.CreateAsyncScope())
+// ConsoleLifetime is not running yet, so explicitly bridge startup SIGINT/SIGTERM
+// into the migration token. Data-migration cancellation is persisted as failed.
+using var startupCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+    app.Lifetime.ApplicationStopping);
+var migrationOptions = app.Services.GetRequiredService<IOptions<MigrationOptions>>().Value;
+if (migrationOptions.Timeout <= TimeSpan.Zero)
+    throw new InvalidOperationException("Migration:Timeout must be positive.");
+using var migrationCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+    startupCancellation.Token);
+migrationCancellation.CancelAfter(migrationOptions.Timeout);
+ConsoleCancelEventHandler cancelStartup = (_, eventArgs) =>
 {
+    eventArgs.Cancel = true;
+    startupCancellation.Cancel();
+};
+Console.CancelKeyPress += cancelStartup;
+using var terminateRegistration = OperatingSystem.IsWindows()
+    ? null
+    : PosixSignalRegistration.Create(PosixSignal.SIGTERM, context =>
+    {
+        context.Cancel = true;
+        startupCancellation.Cancel();
+    });
+
+try
+{
+    // One dedicated PostgreSQL session serializes both EF schema migrations and
+    // resumable data migrations across all application replicas.
+    await using var scope = app.Services.CreateAsyncScope();
+    var migrationLock = scope.ServiceProvider.GetRequiredService<IMigrationLock>();
+    await using var migrationLease = await migrationLock.AcquireAsync(migrationCancellation.Token);
+
     await using var context = scope.ServiceProvider.GetRequiredService<ApplicationContext>();
-    await context.Database.MigrateAsync();
+    var runner = app.Services.GetRequiredService<MigrationTaskRunner>();
+    if (migrationOptions.RequireBackup
+        || !string.IsNullOrWhiteSpace(migrationOptions.BackupExecutable))
+    {
+        var pendingSchemaMigrations = await context.Database
+            .GetPendingMigrationsAsync(migrationCancellation.Token);
+        var hasPendingSchemaMigrations = pendingSchemaMigrations.Any();
+        var hasPendingDataMigrations = !hasPendingSchemaMigrations
+                                       && await runner.HasPendingAsync(migrationCancellation.Token);
+        if (hasPendingSchemaMigrations || hasPendingDataMigrations)
+            await app.Services.GetRequiredService<IMigrationBackupHook>()
+                .ExecuteAsync(migrationCancellation.Token);
+    }
+
+    await context.Database.MigrateAsync(migrationCancellation.Token);
+
+    // Import an existing password.json/config hash exactly once. From this point onward the
+    // singleton PostgreSQL row is authoritative on every replica.
+    await scope.ServiceProvider.GetRequiredService<AuthenticationStateInitializer>()
+        .InitializeAsync(migrationCancellation.Token);
+
+    // Database-backed configuration must be loaded before migration tasks and
+    // hosted services resolve their options.
+    await app.Services.GetRequiredService<IRuntimeSettingsInitializer>()
+        .InitializeAsync(migrationCancellation.Token);
+
+    // Blocking failures throw before Kestrel or any hosted service starts.
+    await runner.RunAsync(migrationCancellation.Token);
 }
-
-// Database-backed configuration must be loaded before migration tasks and hosted services
-// resolve their options.
-await app.Services.GetRequiredService<IRuntimeSettingsInitializer>()
-    .InitializeAsync(CancellationToken.None);
-
-// Run data migrations to completion before the host starts so that hosted
-// services, scheduled tasks, and request handlers never observe a
-// half-migrated database.
-await app.Services.GetRequiredService<MigrationTaskRunner>().RunAsync(CancellationToken.None);
+catch (OperationCanceledException) when (startupCancellation.IsCancellationRequested)
+{
+    return;
+}
+catch (OperationCanceledException exception) when (migrationCancellation.IsCancellationRequested)
+{
+    throw new TimeoutException(
+        $"Database migration exceeded the configured timeout of {migrationOptions.Timeout}.",
+        exception);
+}
+finally
+{
+    Console.CancelKeyPress -= cancelStartup;
+}
 
 await app.RunAsync();

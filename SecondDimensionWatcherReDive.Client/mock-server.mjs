@@ -57,6 +57,17 @@ function hasAuth(req) {
 // ---------------------------------------------------------------------------
 
 let registered = false;
+const activeRefreshTokens = new Set();
+
+function issueAuth() {
+  const refreshToken = fakeToken();
+  activeRefreshTokens.add(refreshToken);
+  return {
+    token: fakeToken(),
+    refreshToken,
+    success: true,
+  };
+}
 
 const ANIME_TITLES = [
   {
@@ -1341,29 +1352,26 @@ async function route(method, pathname, searchParams, req, res) {
 
   if (method === "POST" && pathname === "/api/auth/register") {
     registered = true;
-    return json(res, {
-      token: fakeToken(),
-      refreshToken: fakeToken(),
-      success: true,
-    });
+    return json(res, issueAuth());
   }
 
   if (method === "POST" && pathname === "/api/auth/login") {
     if (!registered)
       return json(res, { token: "", refreshToken: "", success: false });
-    return json(res, {
-      token: fakeToken(),
-      refreshToken: fakeToken(),
-      success: true,
-    });
+    return json(res, issueAuth());
   }
 
   if (method === "POST" && pathname === "/api/auth/refresh") {
-    return json(res, {
-      token: fakeToken(),
-      refreshToken: fakeToken(),
-      success: true,
-    });
+    const body = await readBody(req);
+    if (!activeRefreshTokens.delete(body.refreshToken))
+      return json(res, { token: null, refreshToken: null, success: false }, 400);
+    return json(res, issueAuth());
+  }
+
+  if (method === "POST" && pathname === "/api/auth/logout") {
+    const body = await readBody(req);
+    activeRefreshTokens.delete(body.refreshToken);
+    return empty(res, 204);
   }
 
   if (method === "GET" && pathname === "/api/auth/verify") {

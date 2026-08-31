@@ -10,7 +10,7 @@ internal static class TorrentBencodeComplexityValidator
     internal const int MaximumStringBytes = 8 * 1024 * 1024;
     private const int MaximumIntegerBytes = 20;
 
-    public static void Validate(ReadOnlySpan<byte> data)
+    public static TorrentBencodeValidationResult Validate(ReadOnlySpan<byte> data)
     {
         if (data.IsEmpty)
             throw Invalid("The bencode document is empty.");
@@ -22,6 +22,8 @@ internal static class TorrentBencodeComplexityValidator
         var entries = 0;
         var rootStarted = false;
         var rootCompleted = false;
+        var infoValueOffset = -1;
+        var infoValueLength = 0;
 
         while (index < data.Length)
         {
@@ -33,8 +35,11 @@ internal static class TorrentBencodeComplexityValidator
             {
                 if (data[index] == (byte)'e')
                 {
+                    var closedFrame = stack[depth - 1];
                     index++;
                     depth--;
+                    if (closedFrame.IsInfoValue)
+                        infoValueLength = index - infoValueOffset;
                     if (depth == 0)
                         rootCompleted = true;
                     continue;
@@ -43,9 +48,19 @@ internal static class TorrentBencodeComplexityValidator
                 if (!IsDigit(data[index]))
                     throw Invalid("Dictionary keys must be byte strings.");
 
-                ParseString(data, ref index);
+                var key = ParseString(data, ref index);
                 IncrementNode(ref nodes);
-                stack[depth - 1].ExpectingKey = false;
+                ref var dictionary = ref stack[depth - 1];
+                if (dictionary.HasPreviousKey && data
+                        .Slice(dictionary.PreviousKeyOffset, dictionary.PreviousKeyLength)
+                        .SequenceCompareTo(data.Slice(key.Offset, key.Length)) >= 0)
+                    throw Invalid("Dictionary keys must be unique and strictly bytewise increasing.");
+                dictionary.PreviousKeyOffset = key.Offset;
+                dictionary.PreviousKeyLength = key.Length;
+                dictionary.HasPreviousKey = true;
+                dictionary.PendingKeyIsInfo = depth == 1 &&
+                                              data.Slice(key.Offset, key.Length).SequenceEqual("info"u8);
+                dictionary.ExpectingKey = false;
                 continue;
             }
 
@@ -58,14 +73,19 @@ internal static class TorrentBencodeComplexityValidator
                     !stack[depth - 1].ExpectingKey)
                     throw Invalid("A dictionary key has no value.");
 
+                var closedFrame = stack[depth - 1];
                 index++;
                 depth--;
+                if (closedFrame.IsInfoValue)
+                    infoValueLength = index - infoValueOffset;
                 if (depth == 0)
                     rootCompleted = true;
                 continue;
             }
 
-            RegisterValue(stack, depth, ref entries, ref rootStarted);
+            var isInfoValue = RegisterValue(stack, depth, ref entries, ref rootStarted);
+            if (isInfoValue)
+                infoValueOffset = index;
             IncrementNode(ref nodes);
             switch (token)
             {
@@ -76,11 +96,14 @@ internal static class TorrentBencodeComplexityValidator
                     index++;
                     stack[depth++] = new ContainerFrame(
                         token == (byte)'d' ? ContainerKind.Dictionary : ContainerKind.List,
-                        token == (byte)'d');
+                        token == (byte)'d',
+                        isInfoValue);
                     break;
 
                 case (byte)'i':
                     ParseInteger(data, ref index);
+                    if (isInfoValue)
+                        infoValueLength = index - infoValueOffset;
                     if (depth == 0)
                         rootCompleted = true;
                     break;
@@ -89,6 +112,8 @@ internal static class TorrentBencodeComplexityValidator
                     if (!IsDigit(token))
                         throw Invalid($"Invalid bencode token at byte {index}.");
                     ParseString(data, ref index);
+                    if (isInfoValue)
+                        infoValueLength = index - infoValueOffset;
                     if (depth == 0)
                         rootCompleted = true;
                     break;
@@ -97,9 +122,11 @@ internal static class TorrentBencodeComplexityValidator
 
         if (!rootStarted || !rootCompleted || depth != 0)
             throw Invalid("The bencode document is incomplete.");
+
+        return new TorrentBencodeValidationResult(infoValueOffset, infoValueLength);
     }
 
-    private static void RegisterValue(
+    private static bool RegisterValue(
         Span<ContainerFrame> stack,
         int depth,
         ref int totalEntries,
@@ -110,7 +137,7 @@ internal static class TorrentBencodeComplexityValidator
             if (rootStarted)
                 throw Invalid("The bencode document has multiple root values.");
             rootStarted = true;
-            return;
+            return false;
         }
 
         ref var parent = ref stack[depth - 1];
@@ -118,11 +145,16 @@ internal static class TorrentBencodeComplexityValidator
             throw Invalid("Dictionary keys must be byte strings.");
         if (++parent.EntryCount > MaximumEntries || ++totalEntries > MaximumEntries)
             throw Invalid($"Container entries exceed {MaximumEntries}.");
+        var isInfoValue = parent.Kind == ContainerKind.Dictionary && parent.PendingKeyIsInfo;
         if (parent.Kind == ContainerKind.Dictionary)
+        {
             parent.ExpectingKey = true;
+            parent.PendingKeyIsInfo = false;
+        }
+        return isInfoValue;
     }
 
-    private static void ParseString(ReadOnlySpan<byte> data, ref int index)
+    private static StringRange ParseString(ReadOnlySpan<byte> data, ref int index)
     {
         var lengthStart = index;
         long length = 0;
@@ -144,7 +176,9 @@ internal static class TorrentBencodeComplexityValidator
         index++;
         if (length > data.Length - index)
             throw Invalid("A byte string extends beyond the document boundary.");
+        var valueOffset = index;
         index += (int)length;
+        return new StringRange(valueOffset, (int)length);
     }
 
     private static void ParseInteger(ReadOnlySpan<byte> data, ref int index)
@@ -188,10 +222,22 @@ internal static class TorrentBencodeComplexityValidator
         Dictionary
     }
 
-    private struct ContainerFrame(ContainerKind kind, bool expectingKey)
+    private readonly record struct StringRange(int Offset, int Length);
+
+    private struct ContainerFrame(ContainerKind kind, bool expectingKey, bool isInfoValue)
     {
         public ContainerKind Kind { get; } = kind;
+        public bool IsInfoValue { get; } = isInfoValue;
         public bool ExpectingKey { get; set; } = expectingKey;
         public int EntryCount { get; set; }
+        public bool HasPreviousKey { get; set; }
+        public int PreviousKeyOffset { get; set; }
+        public int PreviousKeyLength { get; set; }
+        public bool PendingKeyIsInfo { get; set; }
     }
+}
+
+internal readonly record struct TorrentBencodeValidationResult(int InfoValueOffset, int InfoValueLength)
+{
+    public bool HasInfoValue => InfoValueOffset >= 0 && InfoValueLength > 0;
 }

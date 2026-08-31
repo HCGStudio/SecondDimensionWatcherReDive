@@ -1,5 +1,8 @@
 using System.Diagnostics;
+using System.Security.Cryptography;
 using System.Text;
+using SecondDimensionWatcherReDive.Exceptions;
+using SecondDimensionWatcherReDive.Services;
 using SecondDimensionWatcherReDive.Utils.Feed;
 
 namespace SecondDimensionWatcherReDive.Test;
@@ -41,6 +44,35 @@ public sealed class TorrentBencodeComplexityTests
         Assert.ThrowsExactly<FormatException>(() =>
             TorrentBencodeComplexityValidator.Validate(Encoding.ASCII.GetBytes(
                 $"{TorrentBencodeComplexityValidator.MaximumStringBytes + 1}:")));
+    }
+
+    [TestMethod]
+    public void DictionaryKeys_MustBeUniqueAndStrictlyBytewiseIncreasing()
+    {
+        var duplicateKey = Encoding.ASCII.GetBytes(
+            "d4:infod6:lengthi1e6:lengthi2eee");
+        var outOfOrderKey = Encoding.ASCII.GetBytes(
+            "d4:infod4:name1:a6:lengthi1eee");
+
+        Assert.ThrowsExactly<FormatException>(() =>
+            TorrentBencodeComplexityValidator.Validate(duplicateKey));
+        Assert.ThrowsExactly<FormatException>(() =>
+            TorrentBencodeComplexityValidator.Validate(outOfOrderKey));
+        Assert.ThrowsExactly<InvalidTorrentDataException>(() =>
+            SyncFeed.ParseTorrentData(duplicateKey, "https://example.com/file.torrent"));
+    }
+
+    [TestMethod]
+    public void TorrentInfoHash_UsesTheValidatedOriginalInfoByteRange()
+    {
+        const string info = "d6:lengthi1e4:name1:ae";
+        var torrent = Encoding.ASCII.GetBytes($"d4:info{info}e");
+
+        var parsed = SyncFeed.ParseTorrentData(torrent, "https://example.com/file.torrent");
+        var expected = Convert.ToHexString(SHA1.HashData(Encoding.ASCII.GetBytes(info)))
+            .ToLowerInvariant();
+
+        Assert.AreEqual(expected, parsed.Hash);
     }
 
     [TestMethod]

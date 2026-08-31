@@ -2,8 +2,8 @@ using System.Text;
 using System.Text.Encodings.Web;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
@@ -17,6 +17,7 @@ public class BasicAuthenticationHandlerTests
 {
     private const string ValidUser = "alice";
     private const string ValidPassword = "correct-horse";
+    private const string Pepper = "test-pepper-with-at-least-32-characters";
     private string _hash = null!;
 
     [TestInitialize]
@@ -27,7 +28,10 @@ public class BasicAuthenticationHandlerTests
 
     private async Task<(BasicAuthenticationHandler handler, DefaultHttpContext httpContext, Mock<IWebDavTokenRepository> repo)> CreateHandlerAsync(
         string? authorization,
-        WebDavToken? seededToken)
+        WebDavToken? seededToken,
+        IMemoryCache? verificationCache = null,
+        BasicAuthenticationAttemptLimiter? attemptLimiter = null,
+        System.Net.IPAddress? remoteAddress = null)
     {
         var repo = new Mock<IWebDavTokenRepository>();
         repo.Setup(r => r.FindByUsernameAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
@@ -45,10 +49,12 @@ public class BasicAuthenticationHandlerTests
             optionsMonitor.Object,
             NullLoggerFactory.Instance,
             UrlEncoder.Default,
-            new DeviceTokenHasher("test-pepper-with-at-least-32-characters"),
-            new MemoryCache(new MemoryCacheOptions()));
+            new DeviceTokenHasher(Pepper),
+            verificationCache ?? new MemoryCache(new MemoryCacheOptions()),
+            attemptLimiter ?? new BasicAuthenticationAttemptLimiter(100, TimeSpan.FromMinutes(1)));
 
         var httpContext = new DefaultHttpContext { RequestServices = provider };
+        httpContext.Connection.RemoteIpAddress = remoteAddress ?? System.Net.IPAddress.Loopback;
         if (authorization is not null) httpContext.Request.Headers["Authorization"] = authorization;
 
         var scheme = new AuthenticationScheme(BasicAuthenticationHandler.SchemeName, null, typeof(BasicAuthenticationHandler));
@@ -110,6 +116,57 @@ public class BasicAuthenticationHandlerTests
         var (handler, _, _) = await CreateHandlerAsync(BasicHeader(ValidUser, "wrong"), SeededToken());
         var result = await handler.AuthenticateAsync();
         Assert.IsFalse(result.Succeeded);
+    }
+
+    [TestMethod]
+    public async Task WrongLegacyPasswords_AreNotCached()
+    {
+        var seeded = SeededToken();
+        using var cache = new MemoryCache(new MemoryCacheOptions());
+        using var limiter = new BasicAuthenticationAttemptLimiter(10, TimeSpan.FromMinutes(1));
+        const string wrongPassword = "a-unique-wrong-password";
+        var (handler, _, _) = await CreateHandlerAsync(
+            BasicHeader(ValidUser, wrongPassword),
+            seeded,
+            cache,
+            limiter);
+
+        var result = await handler.AuthenticateAsync();
+
+        Assert.IsFalse(result.Succeeded);
+        var cacheKey = new DeviceTokenHasher(Pepper)
+            .VerificationCacheKey(seeded.Id, wrongPassword);
+        Assert.IsFalse(cache.TryGetValue(cacheKey, out _));
+    }
+
+    [TestMethod]
+    public async Task FailedAttempts_AreRateLimitedPerForwardedClientAddress()
+    {
+        using var limiter = new BasicAuthenticationAttemptLimiter(1, TimeSpan.FromMinutes(1));
+        var firstAddress = System.Net.IPAddress.Parse("203.0.113.10");
+        var secondAddress = System.Net.IPAddress.Parse("203.0.113.11");
+
+        var (first, firstContext, _) = await CreateHandlerAsync(
+            BasicHeader(ValidUser, "wrong-1"), SeededToken(), attemptLimiter: limiter,
+            remoteAddress: firstAddress);
+        Assert.IsFalse((await first.AuthenticateAsync()).Succeeded);
+        await first.ChallengeAsync(properties: null);
+        Assert.AreEqual(StatusCodes.Status401Unauthorized, firstContext.Response.StatusCode);
+
+        var (blocked, blockedContext, _) = await CreateHandlerAsync(
+            BasicHeader(ValidUser, "wrong-2"), SeededToken(), attemptLimiter: limiter,
+            remoteAddress: firstAddress);
+        Assert.IsFalse((await blocked.AuthenticateAsync()).Succeeded);
+        await blocked.ChallengeAsync(properties: null);
+        Assert.AreEqual(StatusCodes.Status429TooManyRequests, blockedContext.Response.StatusCode);
+        Assert.IsTrue(blockedContext.Response.Headers.ContainsKey("Retry-After"));
+
+        var (otherClient, otherContext, _) = await CreateHandlerAsync(
+            BasicHeader(ValidUser, "wrong-3"), SeededToken(), attemptLimiter: limiter,
+            remoteAddress: secondAddress);
+        Assert.IsFalse((await otherClient.AuthenticateAsync()).Succeeded);
+        await otherClient.ChallengeAsync(properties: null);
+        Assert.AreEqual(StatusCodes.Status401Unauthorized, otherContext.Response.StatusCode);
     }
 
     [TestMethod]

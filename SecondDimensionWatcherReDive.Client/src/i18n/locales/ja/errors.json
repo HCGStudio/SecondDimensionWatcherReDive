@@ -2,6 +2,10 @@
   "pageError": "ページにエラーが発生しました",
   "unknown": "不明なエラー",
   "backToHome": "ホームへ戻る",
+  "retry": "再試行",
+  "routeLoading": "ページを読み込んでいます…",
+  "routeLoadFailed": "このページを読み込めませんでした",
+  "routeLoadFailedDetail": "接続を確認して再試行してください。ページを新しくダウンロードします。",
   "loadFailed": "読み込みに失敗しました",
   "fetchFailed": "データを取得できませんでした。しばらくしてから再度お試しください。"
 }

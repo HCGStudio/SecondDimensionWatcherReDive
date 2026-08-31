@@ -16,8 +16,8 @@ namespace SecondDimensionWatcherReDive.Migrations
                 columns: table => new
                 {
                     Id = table.Column<int>(type: "integer", nullable: false),
-                    ClaimId = table.Column<Guid>(type: "uuid", nullable: false),
                     PasswordHash = table.Column<string>(type: "character varying(128)", maxLength: 128, nullable: false),
+                    ClaimId = table.Column<Guid>(type: "uuid", nullable: false),
                     RegisteredAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
                 },
                 constraints: table =>

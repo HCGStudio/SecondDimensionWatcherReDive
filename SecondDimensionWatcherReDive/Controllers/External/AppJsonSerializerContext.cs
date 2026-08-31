@@ -21,7 +21,8 @@ namespace SecondDimensionWatcherReDive.Controllers.External;
 [JsonSerializable(typeof(FileLinkResultRequest))]
 [JsonSerializable(typeof(IEnumerable<FileStoreListResult>))]
 [JsonSerializable(typeof(FileStoreListResult[]))]
-[JsonSerializable(typeof(PlaybackGrant))]
+[JsonSerializable(typeof(PlaybackSessionTicket))]
+[JsonSerializable(typeof(PlaybackResourceTicket))]
 [JsonSerializable(typeof(AddFeedRequest))]
 [JsonSerializable(typeof(UpsertSubscriptionAutomationPolicyRequest))]
 [JsonSerializable(typeof(SubscriptionAutomationPolicy))]
@@ -65,4 +66,7 @@ namespace SecondDimensionWatcherReDive.Controllers.External;
 [JsonSerializable(typeof(QueueMediaLibraryScanResponse))]
 [JsonSerializable(typeof(ApplicationSettingsResponse))]
 [JsonSerializable(typeof(PatchApplicationSettingsRequest))]
+[JsonSerializable(typeof(MigrationExecutionResponse))]
+[JsonSerializable(typeof(List<MigrationExecutionResponse>))]
+[JsonSerializable(typeof(MigrationRetryResponse))]
 internal partial class AppJsonSerializerContext : JsonSerializerContext;

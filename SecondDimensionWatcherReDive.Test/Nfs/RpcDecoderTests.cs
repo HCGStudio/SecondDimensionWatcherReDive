@@ -31,13 +31,32 @@ public class RpcDecoderTests
     }
 
     [TestMethod]
-    public void DecodeCall_RejectsAuthNoneByDefault()
+    public void DecodeCall_AuthNoneNullProcedureIsAllowedByDefault()
     {
         var bytes = BuildCall(
             xid: 1,
             program: 100003,
             version: 4,
-            procedure: 1,
+            procedure: RpcConstants.NfsProcNull,
+            credential: CredentialAuthNone(),
+            verifier: VerifierAuthNone(),
+            body: []);
+
+        var (header, bodyOffset) = RpcDecoder.DecodeCall(bytes);
+
+        Assert.AreEqual(RpcConstants.NfsProcNull, header.Procedure);
+        Assert.AreEqual(0u, header.Credential.Uid);
+        Assert.AreEqual(bytes.Length, bodyOffset);
+    }
+
+    [TestMethod]
+    public void DecodeCall_RejectsAuthNoneCompoundByDefault()
+    {
+        var bytes = BuildCall(
+            xid: 1,
+            program: 100003,
+            version: 4,
+            procedure: RpcConstants.NfsProcCompound,
             credential: CredentialAuthNone(),
             verifier: VerifierAuthNone(),
             body: []);

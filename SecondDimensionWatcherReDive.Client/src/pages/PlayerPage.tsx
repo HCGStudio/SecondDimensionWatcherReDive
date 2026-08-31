@@ -33,26 +33,20 @@ import {
 } from "../playback/api";
 import { usePlaybackContext } from "../playback/hooks";
 import {
-  MkvSubtitleDownloadProgress,
-  extractMkvSubtitles,
-} from "../playback/mkv/subtitles";
-import {
-  MkvPlaybackProbe,
-  canCopyVideoCodecToMp4,
+  chooseMkvPlaybackPlan,
   isAbortError,
   isMkvPath,
-  probeMkvPlayback,
-} from "../playback/mkv/support";
-import {
-  MkvTranscodeStage,
-  transcodeMkvForBrowser,
-} from "../playback/mkv/transcoder";
+} from "../playback/mkv/runtime";
+import type { MkvSubtitleDownloadProgress } from "../playback/mkv/subtitles";
+import type { MkvPlaybackProbe } from "../playback/mkv/support";
+import type { MkvTranscodeStage } from "../playback/mkv/transcoder";
 import {
   ExternalSubtitle,
   PlaybackPreferences,
   PlaybackTarget,
 } from "../playback/types";
 import { PageTemplate } from "./PageTemplate";
+import { PlaybackErrorActions } from "./PlaybackErrorActions";
 
 import "media-captions/styles/captions.css";
 import "media-captions/styles/regions.css";
@@ -352,6 +346,8 @@ export const PlayerPage: React.FC = () => {
 
         setMkvStatus({ stage: "probing" });
         let probe: MkvPlaybackProbe | null = null;
+        const { canCopyVideoCodecToMp4, probeMkvPlayback } =
+          await import("../playback/mkv/support");
         try {
           probe = await probeMkvPlayback(videoLink.url, controller.signal);
         } catch (error) {
@@ -362,13 +358,15 @@ export const PlayerPage: React.FC = () => {
         if (cancelled) return;
         setMkvProbe(probe);
 
-        if (probe?.videoDecodable && probe.audioDecodable) {
+        if (chooseMkvPlaybackPlan(probe) === "mkvProxy") {
           setPlaybackMode("mkvProxy");
           setPlaybackUrl(videoLink.url);
           setLinkLoading(false);
           setMkvStatus({ stage: "extractingSubtitles", progress: 0 });
 
           try {
+            const { extractMkvSubtitles } =
+              await import("../playback/mkv/subtitles");
             const extracted = await extractMkvSubtitles(videoLink.url, {
               signal: controller.signal,
               onProgress: (progress: MkvSubtitleDownloadProgress) => {
@@ -414,6 +412,8 @@ export const PlayerPage: React.FC = () => {
           return;
         }
 
+        const { transcodeMkvForBrowser } =
+          await import("../playback/mkv/transcoder");
         const transcoded = await transcodeMkvForBrowser(
           videoLink.url,
           controller.signal,
@@ -1007,7 +1007,14 @@ export const PlayerPage: React.FC = () => {
           icon={<AlertTriangle size={48} />}
           title={t("playFailed")}
           body={<p>{error}</p>}
-          actions={<Button onClick={goBack}>{t("back")}</Button>}
+          actions={
+            <PlaybackErrorActions
+              backLabel={t("back")}
+              retryLabel={t("retry")}
+              showRetry={linkError !== null}
+              onBack={goBack}
+            />
+          }
         />
       ) : playbackUrl && playbackContext ? (
         <>

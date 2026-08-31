@@ -2,6 +2,10 @@
   "pageError": "Something went wrong",
   "unknown": "Unknown error",
   "backToHome": "Back to home",
+  "retry": "Retry",
+  "routeLoading": "Loading this page…",
+  "routeLoadFailed": "This page could not be loaded",
+  "routeLoadFailedDetail": "Check your connection and retry. The app will download a fresh copy of this page.",
   "loadFailed": "Failed to load",
   "fetchFailed": "Could not fetch data. Please try again later."
 }

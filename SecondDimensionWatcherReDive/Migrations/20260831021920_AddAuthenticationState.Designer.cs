@@ -12,7 +12,7 @@ using SecondDimensionWatcherReDive.Models;
 namespace SecondDimensionWatcherReDive.Migrations
 {
     [DbContext(typeof(ApplicationContext))]
-    [Migration("20260831013305_AddAuthenticationState")]
+    [Migration("20260831021920_AddAuthenticationState")]
     partial class AddAuthenticationState
     {
         /// <inheritdoc />
@@ -685,17 +685,56 @@ namespace SecondDimensionWatcherReDive.Migrations
                         });
                 });
 
-            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.MigrationMarker", b =>
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.MigrationExecutionState", b =>
                 {
                     b.Property<string>("Key")
-                        .HasColumnType("text");
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
 
-                    b.Property<DateTimeOffset>("AppliedAt")
+                    b.Property<int>("Version")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1);
+
+                    b.Property<int>("AttemptCount")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1);
+
+                    b.Property<string>("Checkpoint")
+                        .HasMaxLength(4096)
+                        .HasColumnType("character varying(4096)");
+
+                    b.Property<DateTimeOffset?>("FinishedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.HasKey("Key");
+                    b.Property<string>("LastErrorSummary")
+                        .HasMaxLength(4096)
+                        .HasColumnType("character varying(4096)");
 
-                    b.ToTable("MigrationMarkers");
+                    b.Property<DateTimeOffset?>("StartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Status")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(3);
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.HasKey("Key", "Version");
+
+                    b.ToTable("MigrationMarkers", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_MigrationMarkers_AttemptCount_NonNegative", "\"AttemptCount\" >= 0");
+
+                            t.HasCheckConstraint("CK_MigrationMarkers_Status_Range", "\"Status\" BETWEEN 0 AND 3");
+
+                            t.HasCheckConstraint("CK_MigrationMarkers_Version_Positive", "\"Version\" > 0");
+                        });
                 });
 
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.PlaybackPreference", b =>

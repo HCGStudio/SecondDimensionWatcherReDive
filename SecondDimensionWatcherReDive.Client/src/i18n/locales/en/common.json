@@ -17,7 +17,7 @@
     "account": "Account",
     "language": "Language",
     "logout": "Sign out",
-    "logoutFailed": "Could not revoke this session. You are still signed in.",
+    "logoutFailed": "Signed out locally, but remote refresh-token revocation could not be confirmed.",
     "login": "Sign in"
   },
   "languages": {

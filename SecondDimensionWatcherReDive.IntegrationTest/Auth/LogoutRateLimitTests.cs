@@ -39,6 +39,13 @@ public sealed class LogoutRateLimitTests
             new { refreshToken = first.Token });
 
         Assert.AreEqual(HttpStatusCode.NoContent, logout.StatusCode);
+        var expiredPlaybackCookies = logout.Headers.GetValues("Set-Cookie").ToArray();
+        Assert.IsTrue(expiredPlaybackCookies.Any(value =>
+            value.StartsWith(PlaybackTicketService.SecureCookieName + "=", StringComparison.Ordinal)
+            && value.Contains("expires=", StringComparison.OrdinalIgnoreCase)));
+        Assert.IsTrue(expiredPlaybackCookies.Any(value =>
+            value.StartsWith(PlaybackTicketService.DevelopmentCookieName + "=", StringComparison.Ordinal)
+            && value.Contains("expires=", StringComparison.OrdinalIgnoreCase)));
         Assert.IsNull(await refreshTokens.RotateAsync(
             descendant.Token,
             "jwt-2",

@@ -29,6 +29,9 @@ internal sealed class WebDavWebApplicationFactory : WebApplicationFactory<Migrat
     public const string TestUserName = "sdwuser";
     public const string TestPassword = "test-pass";
     public const string JwtSecret = "integration-test-jwt-secret-must-be-long-enough-32-bytes";
+    public static string SharedDataProtectionKeyRingPath { get; } = Path.Combine(
+        Path.GetTempPath(),
+        $"sdw-integration-data-protection-{Environment.ProcessId}");
 
     static WebDavWebApplicationFactory()
     {
@@ -47,6 +50,9 @@ internal sealed class WebDavWebApplicationFactory : WebApplicationFactory<Migrat
         Environment.SetEnvironmentVariable("AI__Anthropic__ApiKey", string.Empty);
         Environment.SetEnvironmentVariable("TmdbApiKey", string.Empty);
         Environment.SetEnvironmentVariable("Valkey__ConnectionString", string.Empty);
+        Environment.SetEnvironmentVariable(
+            "DataProtection__KeyRingPath",
+            SharedDataProtectionKeyRingPath);
     }
 
     public List<FileMapping> Mappings { get; } = new();
@@ -57,9 +63,11 @@ internal sealed class WebDavWebApplicationFactory : WebApplicationFactory<Migrat
     public Helpers.FakeFileMappingRepository MappingRepository { get; }
 
     private readonly object _mappingsLock = new();
+    private readonly int? _basicAuthenticationAttemptPermitLimit;
 
-    public WebDavWebApplicationFactory()
+    public WebDavWebApplicationFactory(int? basicAuthenticationAttemptPermitLimit = null)
     {
+        _basicAuthenticationAttemptPermitLimit = basicAuthenticationAttemptPermitLimit;
         MappingRepository = new Helpers.FakeFileMappingRepository(Mappings);
         FileStoreMock.SetupGet(s => s.Name).Returns("local");
         FileStoreProviderMock
@@ -81,7 +89,7 @@ internal sealed class WebDavWebApplicationFactory : WebApplicationFactory<Migrat
         {
             // Defensive: also push the same values via in-memory config in case the
             // host reloads configuration after env vars have been read.
-            config.AddInMemoryCollection(new Dictionary<string, string?>
+            var testConfiguration = new Dictionary<string, string?>
             {
                 ["JwtSecret"] = JwtSecret,
                 ["ConnectionStrings:sdw"] = "Host=localhost;Database=test;Username=test;Password=test",
@@ -91,8 +99,15 @@ internal sealed class WebDavWebApplicationFactory : WebApplicationFactory<Migrat
                 ["AI:Anthropic:ApiKey"] = string.Empty,
                 ["TmdbApiKey"] = string.Empty,
                 ["Valkey:ConnectionString"] = string.Empty,
+                ["DataProtection:KeyRingPath"] = SharedDataProtectionKeyRingPath,
                 ["DisableCors"] = "false"
-            });
+            };
+            if (_basicAuthenticationAttemptPermitLimit is { } basicPermitLimit)
+            {
+                testConfiguration["RateLimit:BasicPermitLimit"] =
+                    basicPermitLimit.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            }
+            config.AddInMemoryCollection(testConfiguration);
         });
 
         builder.ConfigureTestServices(services =>
@@ -108,6 +123,8 @@ internal sealed class WebDavWebApplicationFactory : WebApplicationFactory<Migrat
 
             // Strip all registered IMigrationTask so MigrationTaskRunner.RunAsync iterates an empty collection.
             services.RemoveAll<IMigrationTask>();
+            services.RemoveAll<IMigrationLock>();
+            services.AddSingleton<IMigrationLock, NoOpMigrationLock>();
 
             // Strip all hosted services originating from this solution so background loops never start.
             var hostedToRemove = services
@@ -208,6 +225,14 @@ internal sealed class WebDavWebApplicationFactory : WebApplicationFactory<Migrat
             => string.Empty;
 
         public bool HasPendingModelChanges() => false;
+    }
+
+    private sealed class NoOpMigrationLock : IMigrationLock, IMigrationLockLease
+    {
+        public Task<IMigrationLockLease> AcquireAsync(CancellationToken cancellationToken)
+            => Task.FromResult<IMigrationLockLease>(this);
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
     private sealed class FakeApplicationSettingsRepository : IApplicationSettingsRepository

@@ -164,6 +164,19 @@ internal partial class AuthController : ControllerBase
         CancellationToken cancellationToken)
     {
         await _refreshTokens.RevokeAsync(request.RefreshToken, cancellationToken);
+        Response.Cookies.Delete(PlaybackTicketService.SecureCookieName, new CookieOptions
+        {
+            HttpOnly = true,
+            Secure = true,
+            SameSite = SameSiteMode.Strict,
+            Path = "/"
+        });
+        Response.Cookies.Delete(PlaybackTicketService.DevelopmentCookieName, new CookieOptions
+        {
+            HttpOnly = true,
+            SameSite = SameSiteMode.Strict,
+            Path = "/api/file/play"
+        });
         return NoContent();
     }
 
@@ -185,10 +198,12 @@ internal partial class AuthController : ControllerBase
 
     private async Task<string?> GetPasswordHashAsync(CancellationToken cancellationToken)
     {
+        var databaseHash = await _authenticationStateRepository.GetPasswordHashAsync(cancellationToken);
+        if (!string.IsNullOrWhiteSpace(databaseHash))
+            return databaseHash;
+
         var deploymentHash = _configuration["Password:Value"];
-        return !string.IsNullOrWhiteSpace(deploymentHash)
-            ? deploymentHash
-            : await _authenticationStateRepository.GetPasswordHashAsync(cancellationToken);
+        return string.IsNullOrWhiteSpace(deploymentHash) ? null : deploymentHash;
     }
 
     private static async Task PersistPasswordFileAsync(

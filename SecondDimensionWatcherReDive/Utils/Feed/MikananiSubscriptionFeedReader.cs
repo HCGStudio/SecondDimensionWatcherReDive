@@ -14,6 +14,8 @@ internal sealed class MikananiSubscriptionFeedReader(
     IOptions<OutboundHttpOptions> options)
     : ISubscriptionFeedReader
 {
+    private const int MaximumXmlDepth = 64;
+
     private static TimeZoneInfo ChinaTimeZone { get; } = RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
         ? TimeZoneInfo.FindSystemTimeZoneById("China Standard Time")
         : TimeZoneInfo.FindSystemTimeZoneById("Asia/Shanghai");
@@ -27,22 +29,19 @@ internal sealed class MikananiSubscriptionFeedReader(
             feedUrl,
             OutboundPayloadKind.Feed,
             cancellationToken);
+        var maximumItems = options.Value.MaxFeedItems;
+        ValidateXmlComplexity(data, maximumItems);
+
         using var response = new MemoryStream(data, writable: false);
-        using var xmlReader = XmlReader.Create(response, new XmlReaderSettings
-        {
-            Async = false,
-            DtdProcessing = DtdProcessing.Prohibit,
-            XmlResolver = null
-        });
+        using var xmlReader = CreateXmlReader(response);
 
         var serializer = new XmlSerializer(typeof(MikananiFeedService.Rss));
         if (serializer.Deserialize(xmlReader) is not MikananiFeedService.Rss result ||
             result.Channel?.Item is not { Count: > 0 } items)
             return [];
 
-        var maximumItems = options.Value.MaxFeedItems;
         var releases = new List<AnimationAddRequest>(Math.Min(items.Count, maximumItems));
-        foreach (var item in items.Take(maximumItems))
+        foreach (var item in items)
         {
             if (item?.Torrent is null ||
                 item.Enclosure is null ||
@@ -63,6 +62,29 @@ internal sealed class MikananiSubscriptionFeedReader(
 
         return releases;
     }
+
+    private static void ValidateXmlComplexity(byte[] data, int maximumItems)
+    {
+        using var response = new MemoryStream(data, writable: false);
+        using var reader = CreateXmlReader(response);
+        var itemCount = 0;
+        while (reader.Read())
+        {
+            if (reader.Depth > MaximumXmlDepth)
+                throw new XmlException($"Feed XML depth exceeds {MaximumXmlDepth}.");
+            if (reader.NodeType == XmlNodeType.Element &&
+                string.Equals(reader.LocalName, "item", StringComparison.Ordinal) &&
+                ++itemCount > maximumItems)
+                throw new XmlException($"Feed item count exceeds {maximumItems}.");
+        }
+    }
+
+    private static XmlReader CreateXmlReader(Stream stream) => XmlReader.Create(stream, new XmlReaderSettings
+    {
+        Async = false,
+        DtdProcessing = DtdProcessing.Prohibit,
+        XmlResolver = null
+    });
 
     private static DateTimeOffset ToChinaOffset(DateTime value)
     {

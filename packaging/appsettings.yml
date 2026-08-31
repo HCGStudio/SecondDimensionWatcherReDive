@@ -31,7 +31,8 @@ OutboundHttp:
 
 RateLimit:
   AuthPermitLimit: 10
-  BasicPermitLimit: 600
+  BasicPermitLimit: 20
+  BasicWindowSeconds: 60
   AiPermitLimit: 30
 
 # Loopback reverse proxies are trusted by default. For a proxy on another host or

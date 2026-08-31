@@ -1,9 +1,10 @@
-import { ChevronDown, ChevronRight } from "lucide-react";
 import React, { useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { StreamingToolCall } from "../../chat/useStreamingChat";
+import { ChevronDown, ChevronRight } from "lucide-react";
+
 import { ToolCallInfo } from "../../chat/types";
+import { StreamingToolCall } from "../../chat/useStreamingChat";
 
 interface ToolCallDisplayProps {
   toolCalls: (ToolCallInfo & { result?: string })[] | StreamingToolCall[];
@@ -19,7 +20,11 @@ export const ToolCallDisplay: React.FC<ToolCallDisplayProps> = ({
   return (
     <div className="mt-2 space-y-1.5">
       {toolCalls.map((tc, i) => (
-        <ToolCallItem key={tc.id || i} toolCall={tc} isStreaming={isStreaming} />
+        <ToolCallItem
+          key={tc.id || i}
+          toolCall={tc}
+          isStreaming={isStreaming}
+        />
       ))}
     </div>
   );
@@ -51,7 +56,9 @@ export const ToolCallItem: React.FC<{
         <div className="border-t border-border-light px-3 py-2 space-y-2">
           {toolCall.arguments && (
             <div>
-              <div className="text-xs text-subtle mb-1">{t("tool.arguments")}</div>
+              <div className="text-xs text-subtle mb-1">
+                {t("tool.arguments")}
+              </div>
               <pre className="text-xs font-mono bg-canvas rounded p-2 overflow-x-auto whitespace-pre-wrap break-all">
                 {formatJson(toolCall.arguments)}
               </pre>

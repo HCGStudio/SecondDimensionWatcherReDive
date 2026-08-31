@@ -10,6 +10,7 @@ namespace SecondDimensionWatcherReDive.IntegrationTest.PostgreSql;
 /// Testcontainers owns container cleanup even when a test fails or the run is cancelled.
 /// </summary>
 [TestClass]
+[DoNotParallelize]
 public sealed class FileMappingRepositoryPostgreSqlTests
 {
     private static readonly PostgreSqlContainer Database = new PostgreSqlBuilder("postgres:17-alpine")
@@ -103,6 +104,24 @@ public sealed class FileMappingRepositoryPostgreSqlTests
         Assert.AreEqual(winner.Hash, await Fixture.GetPasswordHashAsync(CancellationToken.None));
         Assert.IsTrue(await Fixture.TryClaimPasswordAsync(
             winner.Hash, winner.ClaimId, CancellationToken.None));
+    }
+
+    [TestMethod]
+    public async Task PreviousSchema_UpgradesToLatest_WithoutLosingExistingData()
+    {
+        var result = await Fixture.UpgradeFromPreviousMigrationAsync(CancellationToken.None);
+
+        Assert.AreNotEqual(result.PreviousMigration, result.LatestMigration);
+        Assert.AreEqual(result.LatestMigration, result.AppliedMigrations[^1]);
+        Assert.IsTrue(result.MarkerSurvived);
+        Assert.AreEqual("jsonb", result.ValuesJsonType);
+        CollectionAssert.IsSubsetOf(
+            new[]
+            {
+                "CK_ApplicationSettings_Revision_Positive",
+                "CK_ApplicationSettings_Singleton"
+             },
+             result.CheckConstraints);
     }
 
     private static FileMapping Mapping(Guid animationInfoId, string virtualPath) =>

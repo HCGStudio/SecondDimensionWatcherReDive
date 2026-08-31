@@ -7,6 +7,7 @@ import { Film, Play } from "lucide-react";
 import { tmdbImageUrl } from "../animation/tmdbImage";
 import { useContinueWatching } from "../playback/hooks";
 import { playbackPercent } from "../playback/types";
+import { preloadPlayerPage } from "../routes/pageLoaders";
 
 const formatPlaybackTime = (seconds: number): string => {
   const value = Math.max(0, Math.floor(seconds));
@@ -61,6 +62,8 @@ export const ContinueWatching: React.FC = () => {
             <button
               key={`${media.animationInfoId}:${media.virtualPath}`}
               type="button"
+              onMouseEnter={preloadPlayerPage}
+              onFocus={preloadPlayerPage}
               onClick={() => {
                 const params = new URLSearchParams({ file: media.path });
                 navigate(`/play/${media.animationInfoId}?${params.toString()}`);

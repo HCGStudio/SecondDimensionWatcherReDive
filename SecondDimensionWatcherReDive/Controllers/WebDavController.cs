@@ -3,7 +3,6 @@ using System.Text;
 using System.Xml;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.StaticFiles;
 using SecondDimensionWatcherReDive.Auth;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
@@ -17,7 +16,6 @@ namespace SecondDimensionWatcherReDive.Controllers;
 
 [ApiController]
 [Authorize(AuthenticationSchemes = BasicAuthenticationHandler.SchemeName)]
-[EnableRateLimiting("basic")]
 internal partial class WebDavController(
     IFileExplorer fileExplorer,
     IFileMappingRepository fileMappingRepository,

@@ -57,9 +57,12 @@ internal partial class SyncFeed(
     {
         var parser = new BencodeParser();
         BDictionary info;
+        TorrentBencodeValidationResult validation;
         try
         {
-            TorrentBencodeComplexityValidator.Validate(data);
+            validation = TorrentBencodeComplexityValidator.Validate(data);
+            if (!validation.HasInfoValue)
+                throw new InvalidTorrentDataException(url, "info dictionary is missing");
             info = parser.Parse<BDictionary>(data).Get<BDictionary>("info")
                 ?? throw new InvalidTorrentDataException(url, "info dictionary is missing");
         }
@@ -73,11 +76,9 @@ internal partial class SyncFeed(
         }
 
         var payloadSize = GetTorrentPayloadSize(info, url);
-        var hash = BitConverter
-            .ToString(SHA1.HashData(
-                info.EncodeAsBytes()))
-            .Replace("-", "")
-            .ToLower();
+        var hash = Convert.ToHexString(SHA1.HashData(
+                data.AsSpan(validation.InfoValueOffset, validation.InfoValueLength)))
+            .ToLowerInvariant();
         return new TorrentData(data, hash, payloadSize);
     }
 
@@ -190,7 +191,7 @@ internal partial class SyncFeed(
                 if (incidentReporter is not null)
                     await incidentReporter.ResolveAsync(
                         IncidentType.FeedFailure,
-                        request.DownloadUrl,
+                        CreateDownloadIncidentSourceId(request.DownloadUrl),
                         cancellationToken);
 
                 if (policy?.Mode == SubscriptionAutomationMode.AutoDownload)
@@ -210,7 +211,7 @@ internal partial class SyncFeed(
                             IncidentSeverity.Error,
                             "Feed item contains invalid torrent data",
                             e.Message,
-                            request.DownloadUrl),
+                            CreateDownloadIncidentSourceId(request.DownloadUrl)),
                         cancellationToken);
                 }
             }
@@ -379,6 +380,12 @@ internal partial class SyncFeed(
                     cancellationToken);
             }
         }
+    }
+
+    internal static string CreateDownloadIncidentSourceId(string downloadUrl)
+    {
+        var digest = SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(downloadUrl));
+        return $"torrent-url:{Convert.ToHexString(digest).ToLowerInvariant()}";
     }
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "{Message}")]

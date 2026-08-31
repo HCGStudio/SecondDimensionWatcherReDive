@@ -1,6 +1,7 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router";
+import { mutate } from "swr";
 
 import {
   Check,
@@ -21,6 +22,7 @@ import {
 
 import type { IAuthResult } from "../auth/IAuthResult";
 import { useLoginStatus } from "../auth/hooks";
+import { clearAuth } from "../auth/httpClient";
 import { revokeSession } from "../auth/utils";
 import i18n, {
   type SupportedLanguage,
@@ -168,6 +170,7 @@ const MobileNavMenu: React.FC<{ items: NavItem[] }> = ({ items }) => {
 const UserMenu: React.FC = () => {
   const { t, i18n: i18nInstance } = useTranslation();
   const { addToast } = useToast();
+  const navigate = useNavigate();
   const resolved = (
     i18nInstance.resolvedLanguage ??
     i18nInstance.language ??
@@ -181,11 +184,26 @@ const UserMenu: React.FC = () => {
 
   const onLogout = async () => {
     const stored = localStorage.getItem("auth");
+    let revocationConfirmed = true;
     try {
       if (stored) await revokeSession(JSON.parse(stored) as IAuthResult);
-      localStorage.removeItem("auth");
-      location.reload();
     } catch {
+      revocationConfirmed = false;
+    }
+
+    clearAuth();
+    await Promise.all([
+      mutate("/api/auth/verify", undefined, { revalidate: false }),
+      // An authenticated session proves registration already completed. Keep the
+      // login route from briefly presenting stale first-run registration state.
+      mutate(
+        "/api/auth/allowRegister",
+        { allow: false },
+        { revalidate: false },
+      ),
+    ]);
+    navigate("/login", { replace: true });
+    if (!revocationConfirmed) {
       addToast({ title: t("user.logoutFailed"), color: "danger" });
     }
   };

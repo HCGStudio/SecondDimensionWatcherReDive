@@ -115,13 +115,15 @@ internal sealed class OutboundAddressPolicy
         var isTeredo = bytes[0] == 0x20 && bytes[1] == 0x01 &&
                        bytes[2] == 0x00 && bytes[3] == 0x00;
         var is6To4 = bytes[0] == 0x20 && bytes[1] == 0x02;
+        var isIsatap = (bytes[8] == 0x00 || bytes[8] == 0x02) &&
+                       bytes[9] == 0x00 && bytes[10] == 0x5e && bytes[11] == 0xfe;
 
         // fc00::/7 (unique local), 100::/64 (discard-only), and 2001:db8::/32
         // (documentation) are never valid public feed destinations.
         if ((bytes[0] & 0xfe) == 0xfc ||
             (bytes[0] == 0x01 && bytes[1] == 0x00 && bytes.Skip(2).Take(6).All(value => value == 0)) ||
             (bytes[0] == 0x20 && bytes[1] == 0x01 && bytes[2] == 0x0d && bytes[3] == 0xb8) ||
-            isIpv4Compatible || isNat64WellKnown || isNat64LocalUse || isTeredo || is6To4)
+            isIpv4Compatible || isNat64WellKnown || isNat64LocalUse || isTeredo || is6To4 || isIsatap)
             return false;
 
         return true;

@@ -73,6 +73,25 @@ public sealed class VfsReadTests
     }
 
     [TestMethod]
+    public async Task MoreThanSixHundredAuthenticatedRangeReads_AreNotDataPlaneRateLimited()
+    {
+        SeedFile();
+
+        for (var i = 0; i < 601; i++)
+        {
+            using var request = new HttpRequestMessage(
+                HttpMethod.Get,
+                "/api/vfs/read?path=/anime-a/ep01.mkv");
+            request.Headers.Range = new RangeHeaderValue(0, 0);
+            using var response = await _httpClient.SendAsync(
+                request,
+                HttpCompletionOption.ResponseHeadersRead);
+
+            Assert.AreEqual(HttpStatusCode.PartialContent, response.StatusCode, $"request {i + 1}");
+        }
+    }
+
+    [TestMethod]
     public async Task Read_Directory_Returns_404()
     {
         SeedFile();

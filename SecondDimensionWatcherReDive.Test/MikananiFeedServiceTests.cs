@@ -147,7 +147,7 @@ public class MikananiFeedServiceTests
     }
 
     [TestMethod]
-    public async Task SubscriptionFeedReader_EnforcesItemLimit()
+    public async Task SubscriptionFeedReader_RejectsMaxItemsPlusOneBeforeDeserialization()
     {
         var fetcher = new Mock<ISafeOutboundHttpFetcher>();
         fetcher.Setup(item => item.GetBytesAsync(
@@ -159,12 +159,27 @@ public class MikananiFeedServiceTests
             fetcher.Object,
             Options.Create(new OutboundHttpOptions { MaxFeedItems = 1 }));
 
-        var entries = await reader.ReadAsync(
+        var exception = await Assert.ThrowsExactlyAsync<System.Xml.XmlException>(() => reader.ReadAsync(
             "https://mikanani.me/rss",
             Guid.NewGuid(),
-            CancellationToken.None);
+            CancellationToken.None));
 
-        Assert.HasCount(1, entries);
+        StringAssert.Contains(exception.Message, "item count exceeds 1");
+    }
+
+    [TestMethod]
+    public async Task SubscriptionFeedReader_RejectsExcessiveXmlDepth()
+    {
+        var nested = string.Concat(Enumerable.Repeat("<group>", 65)) +
+                     string.Concat(Enumerable.Repeat("</group>", 65));
+        var reader = CreateReader($"<rss><channel>{nested}</channel></rss>");
+
+        var exception = await Assert.ThrowsExactlyAsync<System.Xml.XmlException>(() => reader.ReadAsync(
+            "https://mikanani.me/rss",
+            Guid.NewGuid(),
+            CancellationToken.None));
+
+        StringAssert.Contains(exception.Message, "depth exceeds 64");
     }
 
     [TestMethod]
