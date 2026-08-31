@@ -366,15 +366,39 @@ jobs:
               ;;
           esac
 
-          created_release=false
+          release_marker="<!-- sdw-publish-run:${GITHUB_RUN_ID}:${GITHUB_RUN_ATTEMPT} -->"
+          created_release_id=""
           cleanup() {
             status=$?
             trap - EXIT
-            if [ "$status" -ne 0 ] && [ "$created_release" = true ]; then
+            if [ "$status" -ne 0 ]; then
               # Keep the immutable Git tag as a consumed version reservation.
               # A retry must advance instead of attaching this version to a
               # different source after a partial registry or Release failure.
-              gh release delete "$release_tag" --yes >/dev/null 2>&1 || true
+              cleanup_release_id="$created_release_id"
+              if [ -z "$cleanup_release_id" ]; then
+                candidate_release=$(gh api \
+                  "repos/${GITHUB_REPOSITORY}/releases/tags/$release_tag" \
+                  2>/dev/null || true)
+                if jq -e --arg tag "$release_tag" --arg marker "$release_marker" '
+                  .tag_name == $tag and ((.body // "") | contains($marker))
+                ' <<< "$candidate_release" >/dev/null 2>&1; then
+                  cleanup_release_id=$(jq -er '.id | select(type == "number") | tostring' \
+                    <<< "$candidate_release")
+                fi
+              fi
+              if [[ "$cleanup_release_id" =~ ^[0-9]+$ ]]; then
+                owned_release=$(gh api \
+                  "repos/${GITHUB_REPOSITORY}/releases/$cleanup_release_id" \
+                  2>/dev/null || true)
+                if jq -e --arg tag "$release_tag" --arg marker "$release_marker" '
+                  .tag_name == $tag and ((.body // "") | contains($marker))
+                ' <<< "$owned_release" >/dev/null 2>&1; then
+                  gh api --method DELETE \
+                    "repos/${GITHUB_REPOSITORY}/releases/$cleanup_release_id" \
+                    >/dev/null 2>&1 || true
+                fi
+              fi
             fi
             exit "$status"
           }
@@ -437,14 +461,71 @@ jobs:
             exit 1
           fi
 
-          gh release create "$release_tag" release/* \
-            --verify-tag \
-            --prerelease \
-            --latest=false \
-            --title "Pre-release ${VERSION}" \
-            --generate-notes \
-            --notes "Container: ${IMAGE_REPOSITORY}@${IMAGE_DIGEST}"
-          created_release=true
+          release_body="${release_marker}"$'\n\n'"Container: ${IMAGE_REPOSITORY}@${IMAGE_DIGEST}"
+          created_release_id=$(gh api --method POST \
+            "repos/${GITHUB_REPOSITORY}/releases" \
+            --field tag_name="$release_tag" \
+            --field name="Pre-release ${VERSION}" \
+            --field body="$release_body" \
+            --raw-field make_latest=false \
+            --field draft=true \
+            --field prerelease=true \
+            --field generate_release_notes=true \
+            --jq '.id')
+          [[ "$created_release_id" =~ ^[0-9]+$ ]]
+          draft_release=$(gh api \
+            "repos/${GITHUB_REPOSITORY}/releases/$created_release_id")
+          jq -e --argjson id "$created_release_id" \
+            --arg tag "$release_tag" --arg marker "$release_marker" '
+            .id == $id and .tag_name == $tag and .draft == true and
+            .prerelease == true and ((.body // "") | contains($marker))
+          ' <<< "$draft_release" >/dev/null
+
+          shopt -s nullglob
+          release_assets=(release/*)
+          if [ "${#release_assets[@]}" -eq 0 ]; then
+            echo "Release bundle contains no assets" >&2
+            exit 1
+          fi
+          for asset in "${release_assets[@]}"; do
+            if [ ! -f "$asset" ]; then
+              echo "Release asset is not a regular file: $asset" >&2
+              exit 1
+            fi
+            asset_name="${asset##*/}"
+            encoded_name=$(jq -rn --arg name "$asset_name" '$name | @uri')
+            if ! upload_status=$(curl --silent --show-error \
+              --output "$RUNNER_TEMP/release-upload.json" \
+              --write-out '%{http_code}' \
+              --request POST \
+              --header "Authorization: Bearer $GH_TOKEN" \
+              --header 'Accept: application/vnd.github+json' \
+              --header 'X-GitHub-Api-Version: 2022-11-28' \
+              --header 'Content-Type: application/octet-stream' \
+              --data-binary "@$asset" \
+              "https://uploads.github.com/repos/${GITHUB_REPOSITORY}/releases/${created_release_id}/assets?name=${encoded_name}"); then
+              echo "Could not upload Release asset $asset_name" >&2
+              exit 1
+            fi
+            if [ "$upload_status" != 201 ] || \
+               ! jq -e --arg name "$asset_name" \
+                 '.name == $name and (.id | type == "number")' \
+                 "$RUNNER_TEMP/release-upload.json" >/dev/null; then
+              echo "GitHub rejected Release asset $asset_name with HTTP $upload_status" >&2
+              exit 1
+            fi
+          done
+
+          published_release=$(gh api --method PATCH \
+            "repos/${GITHUB_REPOSITORY}/releases/$created_release_id" \
+            --field draft=false \
+            --field prerelease=true \
+            --raw-field make_latest=false)
+          jq -e --argjson id "$created_release_id" --arg tag "$release_tag" \
+            --arg marker "$release_marker" '
+            .id == $id and .tag_name == $tag and .draft == false and
+            .prerelease == true and ((.body // "") | contains($marker))
+          ' <<< "$published_release" >/dev/null
 
           published_tag_sha=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/$release_tag" --jq '.object.sha')
           if [ "$published_tag_sha" != "$SOURCE_SHA" ]; then
