@@ -35,17 +35,39 @@ internal static class Converter
     public static External.AnimationGroup ToExternal(this AnimationGroup record) =>
         new(record.Name);
 
-    public static External.AnimationGroupedResponse ToExternal(this AnimationGroupedResult result) =>
-        new(result.Animations.Select(a => a.ToExternal()).ToList(),
-            result.Uncategorized.Select(i => i.ToExternal()).ToList());
+    public static External.AnimationInfo ToExternal(this AnimationInfoSummary record) =>
+        new(record.Id,
+            record.Title,
+            record.Description,
+            record.PublishTime,
+            record.IsDownloadTracked,
+            record.IsDownloadFinished,
+            record.Season,
+            record.Episode,
+            record.GroupName is null ? null : new External.AnimationGroup(record.GroupName),
+            record.AnimationTmdbId is null
+                ? null
+                : new External.Animation(
+                    record.AnimationName ?? string.Empty,
+                    record.AnimationOriginalName ?? string.Empty,
+                    record.AnimationTmdbId,
+                    record.AnimationPosterPath),
+            record.IsAiProcessed,
+            record.SourceFeedId,
+            record.ReleaseSizeBytes,
+            record.AutomationDisposition?.ToString(),
+            record.AutomationExplanationJson,
+            record.IsMediaLibraryImport);
 
-    public static External.AnimationWithEpisodes ToExternal(this AnimationWithEpisodesResult result) =>
+    public static External.AnimationCatalogItem ToExternal(this AnimationCatalogItem result) =>
         new(result.TmdbId,
             result.Name,
             result.OriginalName,
             result.PosterPath,
             result.EpisodeCount,
-            result.Episodes.Select(e => e.ToExternal()).ToList());
+            result.ReleaseCount,
+            result.AutomationAttentionCount,
+            result.LatestPublishTime);
 
     public static External.Feed ToExternal(this Feed record) =>
         new(record.Id, record.Url, record.Name, record.CreatedAt);

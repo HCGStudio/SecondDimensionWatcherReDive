@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using SecondDimensionWatcherReDive.Models;
@@ -11,9 +12,11 @@ using SecondDimensionWatcherReDive.Models;
 namespace SecondDimensionWatcherReDive.Migrations
 {
     [DbContext(typeof(ApplicationContext))]
-    partial class ApplicationContextModelSnapshot : ModelSnapshot
+    [Migration("20260829134930_AddFileSystemHierarchyReadModel")]
+    partial class AddFileSystemHierarchyReadModel
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -50,72 +53,6 @@ namespace SecondDimensionWatcherReDive.Migrations
 
                     b.ToTable("Animations");
                 });
-
-
-            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.AnimationCatalogEntry", b =>
-                {
-                    b.Property<Guid>("AnimationId")
-                        .HasColumnType("uuid");
-
-                    b.Property<int>("AutomationAttentionCount")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("EpisodeCount")
-                        .HasColumnType("integer");
-
-                    b.Property<DateTimeOffset>("LatestPublishTime")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("OriginalName")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("PosterPath")
-                        .HasColumnType("text");
-
-                    b.Property<int>("ReleaseCount")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("TmdbId")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.HasKey("AnimationId");
-
-                    b.HasIndex("LatestPublishTime", "TmdbId")
-                        .IsDescending();
-
-                    b.HasIndex("TmdbId")
-                        .IsUnique();
-
-                    b.ToTable("AnimationCatalogEntries", t =>
-                        {
-                            t.HasCheckConstraint("CK_AnimationCatalogEntries_Counts", "\"EpisodeCount\" >= 0 AND \"ReleaseCount\" > 0 AND \"AutomationAttentionCount\" >= 0");
-                        });
-                });
-
-            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.AnimationCatalogState", b =>
-                {
-                    b.Property<int>("Id")
-                        .HasColumnType("integer");
-
-                    b.Property<long>("Revision")
-                        .HasColumnType("bigint");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("AnimationCatalogStates", t =>
-                        {
-                            t.HasCheckConstraint("CK_AnimationCatalogStates_Revision_Positive", "\"Revision\" > 0");
-
-                            t.HasCheckConstraint("CK_AnimationCatalogStates_Singleton", "\"Id\" = 1");
-                        });
-                });
-
 
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.AnimationGroup", b =>
                 {
@@ -251,6 +188,8 @@ namespace SecondDimensionWatcherReDive.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("AnimationId");
+
                     b.HasIndex("CurrentMetadataReviewOperationId")
                         .IsUnique();
 
@@ -265,10 +204,6 @@ namespace SecondDimensionWatcherReDive.Migrations
                         .HasFilter("\"DownloadType\" = 'http://schemas.hcgstudio.com/ws/2023/06/sdw/downloadtype/media-library-import'");
 
                     b.HasIndex("MetadataStatus", "PublishTime");
-
-                    b.HasIndex("AnimationId", "PublishTime", "Id");
-
-                    b.HasIndex("MediaLibraryMissingSince", "PublishTime", "Id");
 
                     b.ToTable("AnimationInfo", t =>
                         {
@@ -302,30 +237,6 @@ namespace SecondDimensionWatcherReDive.Migrations
                             t.HasCheckConstraint("CK_ApplicationSettings_Revision_Positive", "\"Revision\" > 0");
 
                             t.HasCheckConstraint("CK_ApplicationSettings_Singleton", "\"Id\" = 1");
-                        });
-                });
-
-            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.AuthenticationState", b =>
-                {
-                    b.Property<int>("Id")
-                        .HasColumnType("integer");
-
-                    b.Property<Guid>("ClaimId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("PasswordHash")
-                        .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
-                    b.Property<DateTimeOffset>("RegisteredAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("AuthenticationStates", t =>
-                        {
-                            t.HasCheckConstraint("CK_AuthenticationStates_Singleton", "\"Id\" = 1");
                         });
                 });
 
@@ -561,8 +472,7 @@ namespace SecondDimensionWatcherReDive.Migrations
 
                     b.HasIndex("ParentPath", "Cookie");
 
-                    b.HasIndex("ParentPath", "IsDirectory", "Name")
-                        .IsDescending(false, true, false);
+                    b.HasIndex("ParentPath", "IsDirectory", "Name");
 
                     b.ToTable("FileSystemEntries", t =>
                         {
@@ -827,56 +737,17 @@ namespace SecondDimensionWatcherReDive.Migrations
                         });
                 });
 
-            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.MigrationExecutionState", b =>
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.MigrationMarker", b =>
                 {
                     b.Property<string>("Key")
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
+                        .HasColumnType("text");
 
-                    b.Property<int>("Version")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(1);
-
-                    b.Property<int>("AttemptCount")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(1);
-
-                    b.Property<string>("Checkpoint")
-                        .HasMaxLength(4096)
-                        .HasColumnType("character varying(4096)");
-
-                    b.Property<DateTimeOffset?>("FinishedAt")
+                    b.Property<DateTimeOffset>("AppliedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<string>("LastErrorSummary")
-                        .HasMaxLength(4096)
-                        .HasColumnType("character varying(4096)");
+                    b.HasKey("Key");
 
-                    b.Property<DateTimeOffset?>("StartedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<int>("Status")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(3);
-
-                    b.Property<DateTimeOffset>("UpdatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
-
-                    b.HasKey("Key", "Version");
-
-                    b.ToTable("MigrationMarkers", null, t =>
-                        {
-                            t.HasCheckConstraint("CK_MigrationMarkers_AttemptCount_NonNegative", "\"AttemptCount\" >= 0");
-
-                            t.HasCheckConstraint("CK_MigrationMarkers_Status_Range", "\"Status\" BETWEEN 0 AND 3");
-
-                            t.HasCheckConstraint("CK_MigrationMarkers_Version_Positive", "\"Version\" > 0");
-                        });
+                    b.ToTable("MigrationMarkers");
                 });
 
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.PlaybackPreference", b =>
@@ -1067,18 +938,6 @@ namespace SecondDimensionWatcherReDive.Migrations
 
                     b.ToTable("WebDavTokens");
                 });
-
-            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.AnimationCatalogEntry", b =>
-                {
-                    b.HasOne("SecondDimensionWatcherReDive.Models.Animation", "Animation")
-                        .WithOne()
-                        .HasForeignKey("SecondDimensionWatcherReDive.Models.AnimationCatalogEntry", "AnimationId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Animation");
-                });
-
 
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.AnimationInfo", b =>
                 {
