@@ -29,12 +29,61 @@ public sealed partial class ReleaseUpgradeRepository(
         if (take is < 1 or > 200)
             throw new ArgumentOutOfRangeException(nameof(take));
 
-        var candidatePairs = BuildCandidatePairs(automaticOnly, DateTimeOffset.UtcNow);
+        var now = DateTimeOffset.UtcNow;
+        var eligibleCandidates = BuildEligibleCandidates(automaticOnly);
+        var candidatePairs =
+            from current in context.AnimationInfo.AsNoTracking()
+            from candidate in eligibleCandidates
+            let automatic = candidate.SourceFeedId != null &&
+                            context.SubscriptionAutomationPolicies.Any(policy =>
+                                policy.FeedId == candidate.SourceFeedId &&
+                                policy.EnableVersionUpgrade &&
+                                candidate.ReleaseScore - current.ReleaseScore >=
+                                policy.MinimumUpgradeScore)
+            where current.IsActiveRelease &&
+                  current.IsDownloadFinished &&
+                  current.MediaLibraryMissingSince == null &&
+                  current.Animation != null &&
+                  current.Season != null &&
+                  current.Episode != null &&
+                  context.FileMappings.Any(mapping => mapping.AnimationInfoId == current.Id) &&
+                  !context.ReleaseUpgradeOperations.Any(operation =>
+                      operation.CandidateReleaseId == current.Id &&
+                      operation.Status == ReleaseUpgradeStatus.Applied &&
+                      (operation.RollbackUntil == null || operation.RollbackUntil > now)) &&
+                  EF.Property<Guid?>(candidate, "AnimationId") ==
+                  EF.Property<Guid?>(current, "AnimationId") &&
+                  candidate.Season == current.Season &&
+                  candidate.Episode == current.Episode &&
+                  candidate.ReleaseScore > current.ReleaseScore &&
+                  (!automaticOnly || automatic)
+            select new
+            {
+                CurrentReleaseId = current.Id,
+                CandidateReleaseId = candidate.Id,
+                AnimationName = current.Animation!.Name,
+                current.Season,
+                current.Episode,
+                CurrentScore = current.ReleaseScore,
+                CandidateScore = candidate.ReleaseScore,
+                CandidatePublishTime = candidate.PublishTime,
+                candidate.ReleaseScoreReasonsJson,
+                Automatic = automatic
+            };
 
         // Rank only candidates that are actually eligible for this scan. In
         // particular, an ineligible higher-scored release must not hide a lower
         // release whose source policy permits automatic upgrades.
-        var rows = await SelectBestCandidatePairs(candidatePairs)
+        var bestCandidateIds = candidatePairs
+            .GroupBy(pair => pair.CurrentReleaseId)
+            .Select(group => group
+                .OrderByDescending(pair => pair.CandidateScore)
+                .ThenByDescending(pair => pair.CandidatePublishTime)
+                .ThenBy(pair => pair.CandidateReleaseId)
+                .Select(pair => pair.CandidateReleaseId)
+                .First());
+        var rows = await candidatePairs
+            .Where(pair => bestCandidateIds.Contains(pair.CandidateReleaseId))
             .OrderByDescending(pair => pair.CandidateScore - pair.CurrentScore)
             .ThenBy(pair => pair.AnimationName)
             .ThenBy(pair => pair.Season)
@@ -42,7 +91,17 @@ public sealed partial class ReleaseUpgradeRepository(
             .ThenBy(pair => pair.CandidateReleaseId)
             .Take(take)
             .ToListAsync(cancellationToken);
-        return rows.Select(ToCandidate).ToList();
+        return rows.Select(row => new ReleaseUpgradeCandidate(
+                row.CurrentReleaseId,
+                row.CandidateReleaseId,
+                row.AnimationName,
+                row.Season.GetValueOrDefault(),
+                row.Episode.GetValueOrDefault(),
+                row.CurrentScore,
+                row.CandidateScore,
+                ParseReasons(row.ReleaseScoreReasonsJson),
+                row.Automatic))
+            .ToList();
     }
 
     public async Task<ReleaseUpgradeCandidate?> FindCandidateAsync(
@@ -50,29 +109,31 @@ public sealed partial class ReleaseUpgradeRepository(
         Guid candidateReleaseId,
         CancellationToken cancellationToken)
     {
-        var row = await SelectBestCandidatePairs(
-                BuildCandidatePairs(automaticOnly: false, DateTimeOffset.UtcNow))
-            .SingleOrDefaultAsync(pair =>
-                    pair.CurrentReleaseId == currentReleaseId &&
-                    pair.CandidateReleaseId == candidateReleaseId,
-                cancellationToken);
+        var row = await BuildCandidatePairs(
+                automaticOnly: false,
+                DateTimeOffset.UtcNow,
+                currentReleaseId,
+                candidateReleaseId)
+            .SingleOrDefaultAsync(cancellationToken);
         return row is null ? null : ToCandidate(row);
     }
 
-    private IQueryable<CandidateRow> BuildCandidatePairs(bool automaticOnly, DateTimeOffset now)
+    private IQueryable<CandidateRow> BuildCandidatePairs(
+        bool automaticOnly,
+        DateTimeOffset now,
+        Guid? currentReleaseId = null,
+        Guid? candidateReleaseId = null)
     {
-        var eligibleCandidates = context.AnimationInfo.AsNoTracking()
-            .Where(candidate =>
-                !candidate.IsActiveRelease &&
-                candidate.MediaLibraryMissingSince == null &&
-                candidate.Season != null &&
-                candidate.Episode != null &&
-                candidate.DownloadCancellationId == null &&
-                !context.ReleaseUpgradeOperations.Any(operation =>
-                    operation.CandidateReleaseId == candidate.Id &&
-                    (automaticOnly || operation.Status != ReleaseUpgradeStatus.Failed)));
+        var currentReleases = context.AnimationInfo.AsNoTracking();
+        if (currentReleaseId is { } currentId)
+            currentReleases = currentReleases.Where(release => release.Id == currentId);
+
+        var eligibleCandidates = BuildEligibleCandidates(automaticOnly);
+        if (candidateReleaseId is { } candidateId)
+            eligibleCandidates = eligibleCandidates.Where(release => release.Id == candidateId);
+
         var candidatePairs =
-            from current in context.AnimationInfo.AsNoTracking()
+            from current in currentReleases
             from candidate in eligibleCandidates
             let automatic = candidate.SourceFeedId != null &&
                             context.SubscriptionAutomationPolicies.Any(policy =>
@@ -111,18 +172,21 @@ public sealed partial class ReleaseUpgradeRepository(
         return candidatePairs;
     }
 
-    private static IQueryable<CandidateRow> SelectBestCandidatePairs(
-        IQueryable<CandidateRow> candidatePairs)
+    private IQueryable<Models.AnimationInfo> BuildEligibleCandidates(bool automaticOnly)
     {
-        var bestCandidateIds = candidatePairs
-            .GroupBy(pair => pair.CurrentReleaseId)
-            .Select(group => group
-                .OrderByDescending(pair => pair.CandidateScore)
-                .ThenByDescending(pair => pair.CandidatePublishTime)
-                .ThenBy(pair => pair.CandidateReleaseId)
-                .Select(pair => pair.CandidateReleaseId)
-                .First());
-        return candidatePairs.Where(pair => bestCandidateIds.Contains(pair.CandidateReleaseId));
+        var query = context.AnimationInfo.AsNoTracking()
+            .Where(candidate =>
+                !candidate.IsActiveRelease &&
+                candidate.MediaLibraryMissingSince == null &&
+                candidate.Season != null &&
+                candidate.Episode != null &&
+                candidate.DownloadCancellationId == null);
+        return automaticOnly
+            ? query.Where(candidate => !context.ReleaseUpgradeOperations.Any(operation =>
+                operation.CandidateReleaseId == candidate.Id))
+            : query.Where(candidate => !context.ReleaseUpgradeOperations.Any(operation =>
+                operation.CandidateReleaseId == candidate.Id &&
+                operation.Status != ReleaseUpgradeStatus.Failed));
     }
 
     private static ReleaseUpgradeCandidate ToCandidate(CandidateRow row) => new(

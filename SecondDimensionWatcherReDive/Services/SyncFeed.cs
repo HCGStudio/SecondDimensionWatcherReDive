@@ -119,6 +119,34 @@ internal partial class SyncFeed(
         await using var scope = scopeFactory.CreateAsyncScope();
         var animationInfoRepository = scope.ServiceProvider.GetRequiredService<IAnimationInfoRepository>();
 
+        // Feed scans can contain hundreds of already-known entries. Avoid
+        // downloading every historical .torrent again merely to rediscover its
+        // infohash; the database identity still arbitrates concurrent first-seen
+        // inserts across processes after the payload has been verified.
+        if (request.DownloadType == FileDownloadTypes.TorrentDownload &&
+            await animationInfoRepository.ExistsReleaseSourceAsync(
+                request.FeedId,
+                request.FeedItemGuid,
+                request.EnclosureId,
+                request.DownloadUrl,
+                cancellationToken))
+            return;
+
+        // For legacy non-torrent feeds without an external item identifier, the
+        // download URL is the release identity. Preserve the inexpensive exact
+        // duplicate short-circuit while allowing same-title releases with a new
+        // GUID, enclosure, infohash, or URL to coexist as upgrade candidates.
+        if (request.DownloadType != FileDownloadTypes.TorrentDownload &&
+            string.IsNullOrWhiteSpace(request.FeedItemGuid) &&
+            string.IsNullOrWhiteSpace(request.EnclosureId))
+        {
+            var existing = await animationInfoRepository.FindByTitleAsync(
+                request.Title,
+                cancellationToken);
+            if (string.Equals(existing?.DownloadUrl, request.DownloadUrl, StringComparison.Ordinal))
+                return;
+        }
+
         try
         {
             SubscriptionAutomationPolicy? policy = null;
@@ -206,8 +234,14 @@ internal partial class SyncFeed(
                     ReleaseLanguages: metadata.Languages,
                     ReleaseScore: score.Value,
                     ReleaseScoreReasonsJson: JsonSerializer.Serialize(score.Reasons, ExplanationJsonOptions));
-            if (!await animationInfoRepository.TryAddReleaseAsync(info, cancellationToken))
+            try
+            {
+                await animationInfoRepository.AddAsync(info, cancellationToken);
+            }
+            catch (DuplicateReleaseException)
+            {
                 return;
+            }
 
             if (incidentReporter is not null)
                 await incidentReporter.ResolveAsync(

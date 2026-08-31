@@ -529,34 +529,43 @@ public class AnimationInfoRepository(
         return entity?.ToRecord();
     }
 
-    public async Task AddAsync(AnimationInfo info, CancellationToken cancellationToken)
-    {
-        await context.AnimationInfo.AddAsync(info.ToEntity(), cancellationToken);
-        await context.SaveChangesAsync(cancellationToken);
-    }
-
-    public async Task<bool> TryAddReleaseAsync(
-        AnimationInfo info,
+    public Task<bool> ExistsReleaseSourceAsync(
+        Guid? sourceFeedId,
+        string? feedItemGuid,
+        string? enclosureId,
+        string downloadUrl,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(info.ReleaseIdentity))
-            throw new ArgumentException("A stable release identity is required.", nameof(info));
+        var normalizedGuid = NormalizeExternalReleaseId(feedItemGuid);
+        var normalizedEnclosure = NormalizeExternalReleaseId(enclosureId);
+        var normalizedUrl = downloadUrl.Trim();
+        return context.AnimationInfo.AsNoTracking().AnyAsync(info =>
+                info.DownloadUrl == normalizedUrl ||
+                (normalizedGuid != null &&
+                 info.SourceFeedId == sourceFeedId &&
+                 info.FeedItemGuid == normalizedGuid) ||
+                (normalizedEnclosure != null &&
+                 info.SourceFeedId == sourceFeedId &&
+                 info.EnclosureId == normalizedEnclosure),
+            cancellationToken);
+    }
 
+    public async Task AddAsync(AnimationInfo info, CancellationToken cancellationToken)
+    {
         var entity = info.ToEntity();
         await context.AnimationInfo.AddAsync(entity, cancellationToken);
         try
         {
             await context.SaveChangesAsync(cancellationToken);
-            return true;
         }
         catch (DbUpdateException exception) when (exception.InnerException is PostgresException
         {
             SqlState: PostgresErrorCodes.UniqueViolation,
             ConstraintName: "UX_AnimationInfo_ReleaseIdentity"
-        })
+        } && !string.IsNullOrWhiteSpace(info.ReleaseIdentity))
         {
             context.Entry(entity).State = EntityState.Detached;
-            return false;
+            throw new DuplicateReleaseException(info.ReleaseIdentity, exception);
         }
     }
 
@@ -1024,4 +1033,7 @@ public class AnimationInfoRepository(
     }
 
     internal readonly record struct EpisodeReleaseIdentity(Guid AnimationId, int Season, int Episode);
+
+    private static string? NormalizeExternalReleaseId(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }

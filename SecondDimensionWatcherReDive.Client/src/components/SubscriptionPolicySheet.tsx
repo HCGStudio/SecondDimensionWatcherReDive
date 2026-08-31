@@ -224,7 +224,8 @@ export const SubscriptionPolicySheet: React.FC<
   }, [feed, hasSavedPolicy, onPolicyChanged, addToast, t]);
 
   const handleSimulate = React.useCallback(async () => {
-    if (!feed || simulating || sizeRangeIsInvalid) return;
+    if (!feed || simulating || sizeRangeIsInvalid || upgradePolicyIsInvalid)
+      return;
     setSimulating(true);
     try {
       const result = await simulateSubscriptionPolicy(feed.id, draft);
@@ -237,7 +238,15 @@ export const SubscriptionPolicySheet: React.FC<
     } finally {
       setSimulating(false);
     }
-  }, [feed, simulating, sizeRangeIsInvalid, draft, addToast, t]);
+  }, [
+    feed,
+    simulating,
+    sizeRangeIsInvalid,
+    upgradePolicyIsInvalid,
+    draft,
+    addToast,
+    t,
+  ]);
 
   return (
     <Sheet open={feed != null} onOpenChange={onOpenChange}>
@@ -498,7 +507,11 @@ export const SubscriptionPolicySheet: React.FC<
                   </label>
                 </div>
                 {upgradePolicyIsInvalid ? (
-                  <p className="mt-2 flex items-center gap-1.5 text-xs text-error">
+                  <p
+                    role="status"
+                    aria-live="polite"
+                    className="mt-2 flex items-center gap-1.5 text-xs text-error"
+                  >
                     <CircleAlert size={13} />
                     {t("automation.upgrades.rangeError")}
                   </p>
@@ -525,7 +538,9 @@ export const SubscriptionPolicySheet: React.FC<
                   <Button
                     variant="outline"
                     onClick={handleSimulate}
-                    disabled={simulating || sizeRangeIsInvalid}
+                    disabled={
+                      simulating || sizeRangeIsInvalid || upgradePolicyIsInvalid
+                    }
                   >
                     {simulating ? (
                       <Spinner className="h-4 w-4" />

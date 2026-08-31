@@ -77,9 +77,14 @@ public interface IAnimationInfoRepository
 
     Task<AnimationInfo?> FindByTitleAsync(string title, CancellationToken cancellationToken);
 
-    Task AddAsync(AnimationInfo info, CancellationToken cancellationToken);
+    Task<bool> ExistsReleaseSourceAsync(
+        Guid? sourceFeedId,
+        string? feedItemGuid,
+        string? enclosureId,
+        string downloadUrl,
+        CancellationToken cancellationToken);
 
-    Task<bool> TryAddReleaseAsync(AnimationInfo info, CancellationToken cancellationToken);
+    Task AddAsync(AnimationInfo info, CancellationToken cancellationToken);
 
     Task UpdateAsync(AnimationInfo info, CancellationToken cancellationToken);
 
