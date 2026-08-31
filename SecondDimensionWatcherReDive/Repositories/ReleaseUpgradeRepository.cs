@@ -603,6 +603,19 @@ public sealed partial class ReleaseUpgradeRepository(
                 [operation.CurrentReleaseId, operation.CandidateReleaseId],
                 desiredPreviousMappings,
                 cancellationToken);
+            await writeContext.StagedFileMappings
+                .Where(mapping => mapping.AnimationInfoId == operation.CandidateReleaseId)
+                .ExecuteDeleteAsync(cancellationToken);
+            await writeContext.StagedFileMappings.AddRangeAsync(
+                candidate.Select(snapshot => new Models.StagedFileMapping
+                {
+                    Id = snapshot.OriginalMappingId,
+                    AnimationInfoId = snapshot.AnimationInfoId,
+                    VirtualPath = snapshot.VirtualPath,
+                    PhysicalPath = snapshot.PhysicalPath,
+                    FileStore = snapshot.FileStore
+                }),
+                cancellationToken);
             await writeContext.AnimationInfo
                 .Where(info => info.Id == operation.CandidateReleaseId)
                 .ExecuteUpdateAsync(setters => setters
