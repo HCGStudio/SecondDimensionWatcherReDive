@@ -57,6 +57,17 @@ function hasAuth(req) {
 // ---------------------------------------------------------------------------
 
 let registered = false;
+const activeRefreshTokens = new Set();
+
+function issueAuth() {
+  const refreshToken = fakeToken();
+  activeRefreshTokens.add(refreshToken);
+  return {
+    token: fakeToken(),
+    refreshToken,
+    success: true,
+  };
+}
 
 const ANIME_TITLES = [
   {
@@ -1059,9 +1070,12 @@ let systemSettings = {
   nfs: {
     enabled: false,
     port: 2049,
-    bindAddress: "0.0.0.0",
+    bindAddress: "127.0.0.1",
     leaseSeconds: 90,
     maxConnections: 32,
+    idleTimeoutSeconds: 120,
+    allowAnonymous: false,
+    allowedNetworks: ["127.0.0.0/8", "::1/128"],
     restartRequired: true,
     pendingRestart: false,
   },
@@ -1510,29 +1524,26 @@ async function route(method, pathname, searchParams, req, res) {
 
   if (method === "POST" && pathname === "/api/auth/register") {
     registered = true;
-    return json(res, {
-      token: fakeToken(),
-      refreshToken: fakeToken(),
-      success: true,
-    });
+    return json(res, issueAuth());
   }
 
   if (method === "POST" && pathname === "/api/auth/login") {
     if (!registered)
       return json(res, { token: "", refreshToken: "", success: false });
-    return json(res, {
-      token: fakeToken(),
-      refreshToken: fakeToken(),
-      success: true,
-    });
+    return json(res, issueAuth());
   }
 
   if (method === "POST" && pathname === "/api/auth/refresh") {
-    return json(res, {
-      token: fakeToken(),
-      refreshToken: fakeToken(),
-      success: true,
-    });
+    const body = await readBody(req);
+    if (!activeRefreshTokens.delete(body.refreshToken))
+      return json(res, { token: null, refreshToken: null, success: false }, 400);
+    return json(res, issueAuth());
+  }
+
+  if (method === "POST" && pathname === "/api/auth/logout") {
+    const body = await readBody(req);
+    activeRefreshTokens.delete(body.refreshToken);
+    return empty(res, 204);
   }
 
   if (method === "GET" && pathname === "/api/auth/verify") {
@@ -1664,6 +1675,9 @@ async function route(method, pathname, searchParams, req, res) {
           bindAddress: systemSettings.nfs.bindAddress,
           leaseSeconds: systemSettings.nfs.leaseSeconds,
           maxConnections: systemSettings.nfs.maxConnections,
+          idleTimeoutSeconds: systemSettings.nfs.idleTimeoutSeconds,
+          allowAnonymous: systemSettings.nfs.allowAnonymous,
+          allowedNetworks: [...systemSettings.nfs.allowedNetworks],
         };
         const changed = JSON.stringify(runningNfs) !== JSON.stringify(body.nfs);
         systemSettings.nfs = {
@@ -2791,12 +2805,16 @@ async function route(method, pathname, searchParams, req, res) {
 
   if (method === "POST" && pathname === "/api/file/generatelink") {
     return readBody(req).then((body) => {
-      const token = randomBytes(32).toString("base64url");
-      return json(res, { url: `/api/file/play?token=${token}` });
+      const resourceId = randomBytes(16).toString("base64url");
+      res.setHeader(
+        "Set-Cookie",
+        `sdw-mock-playback=${randomBytes(32).toString("base64url")}; HttpOnly; SameSite=Strict; Path=/api/file/play`,
+      );
+      return json(res, { url: `/api/file/play/${resourceId}`, externalUrl: null });
     });
   }
 
-  if (method === "GET" && pathname === "/api/file/play") {
+  if (method === "GET" && pathname.startsWith("/api/file/play/")) {
     // Return a small placeholder response for mock playback
     res.writeHead(200, { "Content-Type": "text/plain" });
     return res.end(
@@ -3177,7 +3195,6 @@ const server = createServer((req, res) => {
     });
   }
 });
-
 server.listen(PORT, () => {
   console.log(`Mock API server running on http://localhost:${PORT}`);
   const finishedCount = [...animations.values()].filter(

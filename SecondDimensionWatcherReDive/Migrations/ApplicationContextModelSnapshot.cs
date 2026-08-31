@@ -305,6 +305,30 @@ namespace SecondDimensionWatcherReDive.Migrations
                         });
                 });
 
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.AuthenticationState", b =>
+                {
+                    b.Property<int>("Id")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("ClaimId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("PasswordHash")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<DateTimeOffset>("RegisteredAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("AuthenticationStates", t =>
+                        {
+                            t.HasCheckConstraint("CK_AuthenticationStates_Singleton", "\"Id\" = 1");
+                        });
+                });
+
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.BangumiSubgroup", b =>
                 {
                     b.Property<Guid>("Id")

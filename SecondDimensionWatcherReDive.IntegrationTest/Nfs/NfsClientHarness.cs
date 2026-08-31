@@ -64,7 +64,7 @@ internal sealed class NfsClientHarness : IAsyncDisposable
     public async Task<NfsRawReply> NullAsync(CancellationToken cancellationToken)
     {
         var xid = ++_xidCounter;
-        var call = BuildCallMessage(xid, RpcConstants.NfsProcNull, []);
+        var call = BuildCallMessage(xid, RpcConstants.NfsProcNull, [], useAuthNone: true);
         await RpcRecordReader.WriteAsync(_stream, call, cancellationToken);
 
         using var record = await RpcRecordReader.ReadAsync(
@@ -74,7 +74,11 @@ internal sealed class NfsClientHarness : IAsyncDisposable
         return ParseReply(record.Memory.ToArray(), xid, hasCompoundBody: false);
     }
 
-    private static byte[] BuildCallMessage(uint xid, uint procedure, ReadOnlySpan<byte> body)
+    private static byte[] BuildCallMessage(
+        uint xid,
+        uint procedure,
+        ReadOnlySpan<byte> body,
+        bool useAuthNone = false)
     {
         var call = new ArrayBufferWriter<byte>();
         var w = new XdrWriter(call);
@@ -84,7 +88,15 @@ internal sealed class NfsClientHarness : IAsyncDisposable
         w.WriteUInt32(NfsConstants.NfsProgram);
         w.WriteUInt32(NfsConstants.NfsV4);
         w.WriteUInt32(procedure);
-        WriteAuthSysCred(w, "harness", uid: 1000, gid: 1000);
+        if (useAuthNone)
+        {
+            w.WriteUInt32(RpcConstants.AuthNone);
+            w.WriteOpaque([]);
+        }
+        else
+        {
+            WriteAuthSysCred(w, "harness", uid: 1000, gid: 1000);
+        }
         w.WriteUInt32(RpcConstants.AuthNone);
         w.WriteOpaque([]);
         w.WriteRaw(body);
