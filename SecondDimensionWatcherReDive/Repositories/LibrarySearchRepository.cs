@@ -16,6 +16,7 @@ public sealed class LibrarySearchRepository(Models.ApplicationContext context)
         DateTimeOffset SnapshotUtc,
         string Signature,
         long Revision,
+        long? WatchRevision,
         Guid LastId,
         DateTimeOffset? PublishedAt,
         int? Score,
@@ -79,6 +80,12 @@ public sealed class LibrarySearchRepository(Models.ApplicationContext context)
         var revision = await ReadLibraryRevisionAsync(cancellationToken);
         if (cursor is not null && cursor.Revision != revision)
             throw new ArgumentException("The library changed; restart search pagination.", nameof(request));
+        var watchRevision = await ReadWatchRevisionAsync(
+            request.UserId,
+            request.WatchState,
+            cancellationToken);
+        if (cursor is not null && cursor.WatchRevision != watchRevision)
+            throw new ArgumentException("The playback state changed; restart search pagination.", nameof(request));
         var snapshot = cursor?.SnapshotUtc ?? DateTimeOffset.UtcNow;
         if (cursor is not null && cursor.LastId == Guid.Empty)
             throw new ArgumentException("The search cursor is invalid.", nameof(request));
@@ -267,9 +274,18 @@ public sealed class LibrarySearchRepository(Models.ApplicationContext context)
 
         if (await ReadLibraryRevisionAsync(cancellationToken) != revision)
             throw new ArgumentException("The library changed; restart search pagination.", nameof(request));
+        if (await ReadWatchRevisionAsync(request.UserId, request.WatchState, cancellationToken)
+            != watchRevision)
+            throw new ArgumentException("The playback state changed; restart search pagination.", nameof(request));
 
         var nextCursor = hasMore
-            ? EncodeCursor(CreateCursor(page[^1], request.Sort, snapshot, signature, revision))
+            ? EncodeCursor(CreateCursor(
+                page[^1],
+                request.Sort,
+                snapshot,
+                signature,
+                revision,
+                watchRevision))
             : null;
         return new LibrarySearchResult(items, nextCursor);
     }
@@ -327,11 +343,13 @@ public sealed class LibrarySearchRepository(Models.ApplicationContext context)
         LibrarySearchSort sort,
         DateTimeOffset snapshot,
         string signature,
-        long revision) =>
+        long revision,
+        long? watchRevision) =>
         new(
             snapshot,
             signature,
             revision,
+            watchRevision,
             row.Id,
             sort is LibrarySearchSort.PublishedDescending or LibrarySearchSort.ScoreDescending
                 ? row.PublishTime
@@ -352,6 +370,18 @@ public sealed class LibrarySearchRepository(Models.ApplicationContext context)
             .Where(state => state.Id == 1)
             .Select(state => state.Revision)
             .SingleAsync(cancellationToken);
+
+    private async Task<long?> ReadWatchRevisionAsync(
+        Guid userId,
+        LibraryWatchState watchState,
+        CancellationToken cancellationToken)
+    {
+        if (watchState == LibraryWatchState.Any) return null;
+        return await context.PlaybackCatalogStates.AsNoTracking()
+            .Where(state => state.UserId == userId)
+            .Select(state => (long?)state.Revision)
+            .SingleOrDefaultAsync(cancellationToken) ?? 0;
+    }
 
     public async Task<IReadOnlyList<LibraryIntegritySummary>> GetIntegrityAsync(
         string? tmdbId,

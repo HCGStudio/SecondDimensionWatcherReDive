@@ -150,12 +150,64 @@ namespace SecondDimensionWatcherReDive.Migrations
                 FROM ranked_torrents AS ranked
                 WHERE info."Id" = ranked."Id";
 
+                -- Keep the release that already owns the established primary video
+                -- path active. A suffix is treated as FileMapper's collision ordinal
+                -- only when the unsuffixed sibling exists for this episode; legitimate
+                -- titles/directories containing "(2)" therefore remain ordinal one.
+                -- This keeps the incumbent mapping and its playback rows addressable
+                -- until an explicit role-aware activation moves ownership.
                 WITH ranked_active_releases AS (
                     SELECT
                         info."Id",
                         row_number() OVER (
                             PARTITION BY info."AnimationId", info."Season", info."Episode"
-                            ORDER BY info."PublishTime" DESC, info."Id") AS active_rank
+                            ORDER BY
+                                COALESCE((
+                                 SELECT min(
+                                     CASE
+                                         WHEN mapping."VirtualPath" ~
+                                                  ' \(([2-9]|[1-9][0-9]+)\)(\.[^/]+)$'
+                                              AND EXISTS (
+                                                  SELECT 1
+                                                  FROM "FileMappings" AS base_mapping
+                                                  JOIN "AnimationInfo" AS base_info
+                                                    ON base_info."Id" = base_mapping."AnimationInfoId"
+                                                  WHERE base_info."AnimationId" = info."AnimationId"
+                                                    AND base_info."Season" = info."Season"
+                                                    AND base_info."Episode" = info."Episode"
+                                                    AND base_mapping."VirtualPath" = regexp_replace(
+                                                        mapping."VirtualPath",
+                                                        ' \(([2-9]|[1-9][0-9]+)\)(\.[^/]+)$',
+                                                        '\2')
+                                              )
+                                             THEN (regexp_match(
+                                                 mapping."VirtualPath",
+                                                 ' \(([2-9]|[1-9][0-9]+)\)(\.[^/]+)$'))[1]::numeric
+                                         WHEN EXISTS (
+                                             SELECT 1
+                                             FROM "FileMappings" AS suffixed_mapping
+                                             JOIN "AnimationInfo" AS suffixed_info
+                                               ON suffixed_info."Id" = suffixed_mapping."AnimationInfoId"
+                                             WHERE suffixed_info."AnimationId" = info."AnimationId"
+                                               AND suffixed_info."Season" = info."Season"
+                                               AND suffixed_info."Episode" = info."Episode"
+                                               AND suffixed_mapping."VirtualPath" ~
+                                                   ' \(([2-9]|[1-9][0-9]+)\)(\.[^/]+)$'
+                                               AND regexp_replace(
+                                                   suffixed_mapping."VirtualPath",
+                                                   ' \(([2-9]|[1-9][0-9]+)\)(\.[^/]+)$',
+                                                   '\2') = mapping."VirtualPath"
+                                         )
+                                             THEN 1
+                                         ELSE NULL
+                                     END)
+                                 FROM "FileMappings" AS mapping
+                                 WHERE mapping."AnimationInfoId" = info."Id"
+                                   AND lower(mapping."VirtualPath") ~
+                                       '\.(mkv|mp4|avi|flv|wmv|webm|mov|m4v|ts|m2ts)$'),
+                                 9223372036854775807) ASC,
+                                info."PublishTime",
+                                info."Id") AS active_rank
                     FROM "AnimationInfo" AS info
                     WHERE info."AnimationId" IS NOT NULL
                       AND info."Season" IS NOT NULL

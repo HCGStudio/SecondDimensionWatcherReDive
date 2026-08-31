@@ -36,6 +36,7 @@ public class ApplicationContext : DbContext
     public DbSet<MetadataReviewMappingSnapshot> MetadataReviewMappingSnapshots { get; set; }
     public DbSet<Incident> Incidents { get; set; }
     public DbSet<PlaybackProgress> PlaybackProgresses { get; set; }
+    public DbSet<PlaybackCatalogState> PlaybackCatalogStates { get; set; }
     public DbSet<PlaybackPreference> PlaybackPreferences { get; set; }
     public DbSet<MediaLibrarySource> MediaLibrarySources { get; set; }
     public DbSet<ApplicationSettings> ApplicationSettings { get; set; }
@@ -465,6 +466,18 @@ public class ApplicationContext : DbContext
                     "CK_PlaybackProgresses_Duration_NonNegative",
                     "\"DurationSeconds\" >= 0");
             });
+
+        modelBuilder.Entity<PlaybackCatalogState>()
+            .HasKey(state => state.UserId);
+
+        modelBuilder.Entity<PlaybackCatalogState>()
+            .Property(state => state.UserId)
+            .ValueGeneratedNever();
+
+        modelBuilder.Entity<PlaybackCatalogState>()
+            .ToTable(table => table.HasCheckConstraint(
+                "CK_PlaybackCatalogStates_Revision_Positive",
+                "\"Revision\" > 0"));
 
         modelBuilder.Entity<PlaybackPreference>()
             .HasKey(preference => preference.UserId);
