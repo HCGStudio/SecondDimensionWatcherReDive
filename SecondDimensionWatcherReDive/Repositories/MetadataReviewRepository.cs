@@ -427,6 +427,8 @@ public class MetadataReviewRepository(
                     wasActiveRelease,
                     previousEpisodeIdentity,
                     currentEpisodeIdentity,
+                    existingMappings,
+                    retainChangedReleaseMappings: true,
                     cancellationToken);
                 await reconciliation.RestoreEntryIdentitiesAsync(
                     applyContext,
@@ -682,6 +684,8 @@ public class MetadataReviewRepository(
                     wasActiveRelease,
                     previousEpisodeIdentity,
                     currentEpisodeIdentity,
+                    currentMappings,
+                    retainChangedReleaseMappings: true,
                     cancellationToken);
                 await reconciliation.RestoreEntryIdentitiesAsync(
                     undoContext,

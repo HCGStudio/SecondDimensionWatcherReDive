@@ -735,7 +735,7 @@ public sealed partial class ReleaseUpgradeRepository(
              """,
             cancellationToken);
 
-    private static CandidateReplacementPlan BuildCandidateReplacement(
+    internal static CandidateReplacementPlan BuildCandidateReplacement(
         IReadOnlyList<Models.FileMapping> previous,
         IReadOnlyList<Models.FileMapping> candidate,
         Guid candidateReleaseId)
@@ -847,7 +847,7 @@ public sealed partial class ReleaseUpgradeRepository(
             (mapping.VirtualPath, mapping.PhysicalPath, mapping.FileStore)));
     }
 
-    private static IReadOnlyDictionary<PlaybackLocation, PlaybackLocation>
+    internal static IReadOnlyDictionary<PlaybackLocation, PlaybackLocation>
         BuildActivationPlaybackTransfers(
             Guid currentReleaseId,
             Guid candidateReleaseId,
@@ -881,7 +881,7 @@ public sealed partial class ReleaseUpgradeRepository(
         return transfers;
     }
 
-    private static async Task TransferPlaybackProgressAsync(
+    internal static async Task TransferPlaybackProgressAsync(
         Models.ApplicationContext writeContext,
         IReadOnlyDictionary<PlaybackLocation, PlaybackLocation> transfers,
         CancellationToken cancellationToken)
@@ -958,9 +958,9 @@ public sealed partial class ReleaseUpgradeRepository(
     [GeneratedRegex(@" \(\d+\)$", RegexOptions.CultureInvariant)]
     private static partial Regex CollisionSuffixRegex();
 
-    private readonly record struct PlaybackLocation(Guid AnimationInfoId, string VirtualPath);
+    internal readonly record struct PlaybackLocation(Guid AnimationInfoId, string VirtualPath);
 
-    private sealed record CandidateReplacementPlan(
+    internal sealed record CandidateReplacementPlan(
         IReadOnlyList<Models.FileMapping> Mappings,
         IReadOnlyDictionary<string, string> CandidatePathReplacements,
         IReadOnlyDictionary<string, string> PreviousPathReplacements);

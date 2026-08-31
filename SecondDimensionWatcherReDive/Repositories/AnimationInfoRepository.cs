@@ -446,11 +446,13 @@ public class AnimationInfoRepository(
                 return false;
             var previousEpisodeIdentity = GetEpisodeIdentity(writeContext, entity);
             var wasActiveRelease = entity.IsActiveRelease;
-
-            await writeContext.FileMappings
-                .Where(mapping => mapping.AnimationInfoId == id)
-                .ExecuteDeleteAsync(cancellationToken);
-            writeContext.AnimationInfo.Remove(entity);
+            var previousMappings = await writeContext.FileMappings
+                .AsNoTracking()
+                .Where(mapping => mapping.AnimationInfoId == entity.Id)
+                .OrderBy(mapping => mapping.VirtualPath)
+                .ToListAsync(cancellationToken);
+            entity.IsActiveRelease = false;
+            entity.StateVersion = checked(entity.StateVersion + 1);
             await writeContext.SaveChangesAsync(cancellationToken);
             await PromotePreviousEpisodeSuccessorAsync(
                 writeContext,
@@ -458,7 +460,18 @@ public class AnimationInfoRepository(
                 wasActiveRelease,
                 previousEpisodeIdentity,
                 currentIdentity: null,
+                previousMappings,
+                retainChangedReleaseMappings: false,
                 cancellationToken);
+            await writeContext.ReleaseUpgradeOperations
+                .Where(operation => operation.CurrentReleaseId == entity.Id ||
+                                    operation.CandidateReleaseId == entity.Id)
+                .ExecuteDeleteAsync(cancellationToken);
+            await writeContext.FileMappings
+                .Where(mapping => mapping.AnimationInfoId == id)
+                .ExecuteDeleteAsync(cancellationToken);
+            writeContext.AnimationInfo.Remove(entity);
+            await writeContext.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             return true;
         });
@@ -590,6 +603,15 @@ public class AnimationInfoRepository(
                     $"AnimationInfo {info.Id} changed from revision {info.StateVersion} to {currentStateVersion}.");
             var previousEpisodeIdentity = GetEpisodeIdentity(writeContext, entity);
             var wasActiveRelease = entity.IsActiveRelease;
+            var previousMappings = await writeContext.FileMappings
+                .AsNoTracking()
+                .Where(mapping => mapping.AnimationInfoId == entity.Id)
+                .OrderBy(mapping => mapping.VirtualPath)
+                .ToListAsync(cancellationToken);
+            var previousMappingIdentities = await FileMappingSetReconciler.CaptureIdentitiesAsync(
+                writeContext,
+                previousMappings,
+                cancellationToken);
 
             await ResetTodoStateForTransitionAsync(
                 writeContext,
@@ -627,6 +649,11 @@ public class AnimationInfoRepository(
                 wasActiveRelease,
                 previousEpisodeIdentity,
                 currentEpisodeIdentity,
+                previousMappings,
+                retainChangedReleaseMappings: true,
+                cancellationToken);
+            await previousMappingIdentities.RestoreEntryIdentitiesAsync(
+                writeContext,
                 cancellationToken);
             await transaction.CommitAsync(cancellationToken);
         });
@@ -932,6 +959,15 @@ public class AnimationInfoRepository(
                 return false;
             var previousEpisodeIdentity = GetEpisodeIdentity(writeContext, entity);
             var wasActiveRelease = entity.IsActiveRelease;
+            var previousMappings = await writeContext.FileMappings
+                .AsNoTracking()
+                .Where(mapping => mapping.AnimationInfoId == entity.Id)
+                .OrderBy(mapping => mapping.VirtualPath)
+                .ToListAsync(cancellationToken);
+            var previousMappingIdentities = await FileMappingSetReconciler.CaptureIdentitiesAsync(
+                writeContext,
+                previousMappings,
+                cancellationToken);
 
             await ResetTodoStateForTransitionAsync(
                 writeContext,
@@ -971,6 +1007,11 @@ public class AnimationInfoRepository(
                 wasActiveRelease,
                 previousEpisodeIdentity,
                 currentEpisodeIdentity,
+                previousMappings,
+                retainChangedReleaseMappings: true,
+                cancellationToken);
+            await previousMappingIdentities.RestoreEntryIdentitiesAsync(
+                writeContext,
                 cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             return true;
@@ -1102,9 +1143,36 @@ public class AnimationInfoRepository(
         bool wasActiveRelease,
         EpisodeReleaseIdentity? previousIdentity,
         EpisodeReleaseIdentity? currentIdentity,
+        IReadOnlyList<Models.FileMapping> previousMappings,
+        bool retainChangedReleaseMappings,
         CancellationToken cancellationToken)
     {
         if (!wasActiveRelease || previousIdentity is not { } previous || previous == currentIdentity)
+            return;
+        var supersededAt = DateTimeOffset.UtcNow;
+        await writeContext.ReleaseUpgradeOperations
+            .Where(operation =>
+                (operation.CurrentReleaseId == changedReleaseId ||
+                 operation.CandidateReleaseId == changedReleaseId) &&
+                (operation.Status == ReleaseUpgradeStatus.Downloading ||
+                 operation.Status == ReleaseUpgradeStatus.Verifying))
+            .ExecuteUpdateAsync(
+                setters => setters
+                    .SetProperty(operation => operation.Status, ReleaseUpgradeStatus.Failed)
+                    .SetProperty(
+                        operation => operation.FailureSummary,
+                        "Upgrade was superseded because a referenced release left the episode before activation.")
+                    .SetProperty(operation => operation.CompletedAt, supersededAt),
+                cancellationToken);
+        await writeContext.ReleaseUpgradeOperations
+            .Where(operation => operation.CandidateReleaseId == changedReleaseId &&
+                                operation.Status == ReleaseUpgradeStatus.Applied)
+            .ExecuteUpdateAsync(
+                setters => setters
+                    .SetProperty(operation => operation.Status, ReleaseUpgradeStatus.Completed)
+                    .SetProperty(operation => operation.CompletedAt, supersededAt),
+                cancellationToken);
+        if (previousMappings.Count == 0)
             return;
         if (await writeContext.AnimationInfo.AsNoTracking().AnyAsync(
                 info => info.Id != changedReleaseId &&
@@ -1115,9 +1183,10 @@ public class AnimationInfoRepository(
                 cancellationToken))
             return;
 
-        var successor = await writeContext.AnimationInfo
+        var successorId = await writeContext.AnimationInfo
             .AsNoTracking()
             .Where(info => info.Id != changedReleaseId &&
+                           !info.IsActiveRelease &&
                            info.MediaLibraryMissingSince == null &&
                            info.IsDownloadFinished &&
                            (writeContext.FileMappings.Any(mapping => mapping.AnimationInfoId == info.Id) ||
@@ -1128,50 +1197,129 @@ public class AnimationInfoRepository(
             .OrderByDescending(info => info.ReleaseScore)
             .ThenByDescending(info => info.PublishTime)
             .ThenBy(info => info.Id)
-            .Select(info => new
-            {
-                info.Id,
-                HasLiveMappings = writeContext.FileMappings.Any(mapping => mapping.AnimationInfoId == info.Id)
-            })
+            .Select(info => (Guid?)info.Id)
             .FirstOrDefaultAsync(cancellationToken);
-        if (successor is null) return;
+        if (!successorId.HasValue) return;
 
-        if (!successor.HasLiveMappings)
-        {
-            var stagedMappings = await writeContext.StagedFileMappings
-                .Where(mapping => mapping.AnimationInfoId == successor.Id)
-                .OrderBy(mapping => mapping.VirtualPath)
-                .ToListAsync(cancellationToken);
-            if (stagedMappings.Count == 0) return;
+        var successor = await MappingTransactionLock.LockAnimationInfoAsync(
+            writeContext,
+            successorId.Value,
+            cancellationToken);
+        if (successor is null ||
+            successor.IsActiveRelease ||
+            successor.MediaLibraryMissingSince is not null ||
+            !successor.IsDownloadFinished ||
+            GetEpisodeIdentity(writeContext, successor) != previous)
+            return;
 
-            var conflicts = await VirtualPathNamespaceGuard.FindConflictsAsync(
-                writeContext,
-                successor.Id,
-                stagedMappings.Select(mapping => mapping.VirtualPath).ToArray(),
-                cancellationToken);
-            if (conflicts.Count > 0) return;
+        var successorLiveMappings = await writeContext.FileMappings
+            .AsNoTracking()
+            .Where(mapping => mapping.AnimationInfoId == successor.Id)
+            .OrderBy(mapping => mapping.VirtualPath)
+            .ToListAsync(cancellationToken);
+        var successorStagedMappings = await writeContext.StagedFileMappings
+            .Where(mapping => mapping.AnimationInfoId == successor.Id)
+            .OrderBy(mapping => mapping.VirtualPath)
+            .ToListAsync(cancellationToken);
+        if (successorLiveMappings.Count > 0 && successorStagedMappings.Count > 0)
+            return;
 
-            await writeContext.FileMappings.AddRangeAsync(
-                stagedMappings.Select(mapping => new Models.FileMapping
+        var candidateMappings = successorLiveMappings.Count > 0
+            ? successorLiveMappings
+            : successorStagedMappings
+                .Select(mapping => new Models.FileMapping
                 {
                     Id = mapping.Id,
                     AnimationInfoId = mapping.AnimationInfoId,
                     VirtualPath = mapping.VirtualPath,
                     PhysicalPath = mapping.PhysicalPath,
                     FileStore = mapping.FileStore
-                }),
-                cancellationToken);
-            writeContext.StagedFileMappings.RemoveRange(stagedMappings);
+                })
+                .ToList();
+        if (candidateMappings.Count == 0) return;
+
+        var replacement = ReleaseUpgradeRepository.BuildCandidateReplacement(
+            previousMappings,
+            candidateMappings,
+            successor.Id);
+        var retainedMappings = retainChangedReleaseMappings
+            ? await writeContext.FileMappings
+                .AsNoTracking()
+                .Where(mapping => mapping.AnimationInfoId == changedReleaseId)
+                .OrderBy(mapping => mapping.VirtualPath)
+                .ToListAsync(cancellationToken)
+            : [];
+        var successorPaths = replacement.Mappings
+            .Select(mapping => mapping.VirtualPath)
+            .ToHashSet(StringComparer.Ordinal);
+        var vacatedCandidatePaths = replacement.CandidatePathReplacements
+            .Where(pair => !string.Equals(pair.Key, pair.Value, StringComparison.Ordinal))
+            .ToDictionary(pair => pair.Value, pair => pair.Key, StringComparer.Ordinal);
+        var retainedPlaybackRelocations = new Dictionary<
+            ReleaseUpgradeRepository.PlaybackLocation,
+            ReleaseUpgradeRepository.PlaybackLocation>();
+        var retainedDesiredMappings = new List<Models.FileMapping>(retainedMappings.Count);
+        foreach (var mapping in retainedMappings)
+        {
+            if (successorPaths.Contains(mapping.VirtualPath) &&
+                vacatedCandidatePaths.TryGetValue(mapping.VirtualPath, out var vacatedPath))
+            {
+                retainedDesiredMappings.Add(new Models.FileMapping
+                {
+                    Id = Guid.NewGuid(),
+                    AnimationInfoId = mapping.AnimationInfoId,
+                    VirtualPath = vacatedPath,
+                    PhysicalPath = mapping.PhysicalPath,
+                    FileStore = mapping.FileStore
+                });
+                retainedPlaybackRelocations.Add(
+                    new ReleaseUpgradeRepository.PlaybackLocation(
+                        mapping.AnimationInfoId,
+                        mapping.VirtualPath),
+                    new ReleaseUpgradeRepository.PlaybackLocation(
+                        mapping.AnimationInfoId,
+                        vacatedPath));
+            }
+            else
+            {
+                retainedDesiredMappings.Add(mapping);
+            }
         }
 
-        await writeContext.AnimationInfo
-            .Where(info => info.Id == successor.Id)
-            .ExecuteUpdateAsync(
-                setters => setters
-                    .SetProperty(info => info.IsActiveRelease, true)
-                    .SetProperty(info => info.StateVersion, info => info.StateVersion + 1),
-                cancellationToken);
+        var desiredMappings = retainedDesiredMappings
+            .Concat(replacement.Mappings)
+            .ToList();
+        var conflicts = await VirtualPathNamespaceGuard.FindConflictsAsync(
+            writeContext,
+            [changedReleaseId, successor.Id],
+            desiredMappings.Select(mapping => mapping.VirtualPath).ToArray(),
+            cancellationToken);
+        if (conflicts.Count > 0) return;
+
+        var reconciliation = await FileMappingSetReconciler.ReconcileAcrossOwnersAsync(
+            writeContext,
+            [changedReleaseId, successor.Id],
+            desiredMappings,
+            cancellationToken);
+        if (successorStagedMappings.Count > 0)
+            writeContext.StagedFileMappings.RemoveRange(successorStagedMappings);
+
+        var playbackTransfers = ReleaseUpgradeRepository.BuildActivationPlaybackTransfers(
+                changedReleaseId,
+                successor.Id,
+                replacement)
+            .ToDictionary();
+        foreach (var relocation in retainedPlaybackRelocations)
+            playbackTransfers[relocation.Key] = relocation.Value;
+        await ReleaseUpgradeRepository.TransferPlaybackProgressAsync(
+            writeContext,
+            playbackTransfers,
+            cancellationToken);
+
+        successor.IsActiveRelease = true;
+        successor.StateVersion = checked(successor.StateVersion + 1);
         await writeContext.SaveChangesAsync(cancellationToken);
+        await reconciliation.RestoreEntryIdentitiesAsync(writeContext, cancellationToken);
     }
 
     internal readonly record struct EpisodeReleaseIdentity(Guid AnimationId, int Season, int Episode);

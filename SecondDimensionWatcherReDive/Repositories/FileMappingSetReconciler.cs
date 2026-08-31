@@ -15,6 +15,22 @@ internal static class FileMappingSetReconciler
             desiredMappings,
             cancellationToken);
 
+    public static async Task<FileMappingReconciliation> CaptureIdentitiesAsync(
+        Models.ApplicationContext context,
+        IReadOnlyList<Models.FileMapping> mappings,
+        CancellationToken cancellationToken)
+    {
+        var identityPaths = mappings
+            .SelectMany(mapping => EnumerateEntryPaths(mapping.VirtualPath))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        var preservedIdentities = await LoadEntryIdentitiesAsync(
+            context,
+            identityPaths,
+            cancellationToken);
+        return new FileMappingReconciliation(mappings, preservedIdentities);
+    }
+
     public static async Task<FileMappingReconciliation> ReconcileAcrossOwnersAsync(
         Models.ApplicationContext context,
         IReadOnlyCollection<Guid> animationInfoIds,
@@ -39,14 +55,10 @@ internal static class FileMappingSetReconciler
             .Concat(desiredMappings.SelectMany(mapping => EnumerateEntryPaths(mapping.VirtualPath)))
             .Distinct(StringComparer.Ordinal)
             .ToArray();
-        var preservedIdentities = await context.FileSystemEntries
-            .AsNoTracking()
-            .Where(entry => identityPaths.Contains(entry.Path))
-            .ToDictionaryAsync(
-                entry => entry.Path,
-                entry => new FileSystemEntryIdentity(entry.EntryId, entry.IsDirectory),
-                StringComparer.Ordinal,
-                cancellationToken);
+        var preservedIdentities = await LoadEntryIdentitiesAsync(
+            context,
+            identityPaths,
+            cancellationToken);
         var reconciled = new List<Models.FileMapping>(desiredMappings.Count);
         var hasRemovals = false;
 
@@ -92,6 +104,19 @@ internal static class FileMappingSetReconciler
         for (var slash = virtualPath.LastIndexOf('/'); slash > 0; slash = virtualPath.LastIndexOf('/', slash - 1))
             yield return virtualPath[..slash];
     }
+
+    private static async Task<IReadOnlyDictionary<string, FileSystemEntryIdentity>> LoadEntryIdentitiesAsync(
+        Models.ApplicationContext context,
+        IReadOnlyCollection<string> identityPaths,
+        CancellationToken cancellationToken) =>
+        await context.FileSystemEntries
+            .AsNoTracking()
+            .Where(entry => identityPaths.Contains(entry.Path))
+            .ToDictionaryAsync(
+                entry => entry.Path,
+                entry => new FileSystemEntryIdentity(entry.EntryId, entry.IsDirectory),
+                StringComparer.Ordinal,
+                cancellationToken);
 }
 
 internal sealed record FileMappingReconciliation(
