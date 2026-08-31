@@ -81,8 +81,7 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$COMMIT_SHA"
           base_version=$(tr -d '[:space:]' < VERSION)
-          [[ "$base_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
-          version="${base_version}.${GITHUB_RUN_NUMBER}"
+          version=$(.github/scripts/next-prerelease-version.sh "$base_version")
           image_repository="ghcr.io/$(printf '%s/sdw-redive' "$REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
 
           echo "commit_sha=$COMMIT_SHA" >> "$GITHUB_OUTPUT"
@@ -325,11 +324,10 @@ jobs:
             status=$?
             trap - EXIT
             if [ "$status" -ne 0 ] && [ "$created_ref" = true ]; then
+              # Keep the immutable Git tag as a consumed version reservation.
+              # A retry must advance instead of attaching this version to a
+              # different source after a partial registry or Release failure.
               gh release delete "$release_tag" --yes >/dev/null 2>&1 || true
-              current_sha=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/$release_tag" --jq '.object.sha' 2>/dev/null || true)
-              if [ "$current_sha" = "$SOURCE_SHA" ]; then
-                gh api --method DELETE "repos/${GITHUB_REPOSITORY}/git/refs/tags/$release_tag" >/dev/null || true
-              fi
             fi
             exit "$status"
           }
