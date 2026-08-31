@@ -366,11 +366,11 @@ jobs:
               ;;
           esac
 
-          created_ref=false
+          created_release=false
           cleanup() {
             status=$?
             trap - EXIT
-            if [ "$status" -ne 0 ] && [ "$created_ref" = true ]; then
+            if [ "$status" -ne 0 ] && [ "$created_release" = true ]; then
               # Keep the immutable Git tag as a consumed version reservation.
               # A retry must advance instead of attaching this version to a
               # different source after a partial registry or Release failure.
@@ -386,7 +386,6 @@ jobs:
             echo "Could not atomically create $release_tag; another ref may have won the race" >&2
             exit 1
           fi
-          created_ref=true
           tag_sha=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/$release_tag" --jq '.object.sha')
           if [ "$tag_sha" != "$SOURCE_SHA" ]; then
             echo "Created tag $release_tag does not point to $SOURCE_SHA" >&2
@@ -445,6 +444,7 @@ jobs:
             --title "Pre-release ${VERSION}" \
             --generate-notes \
             --notes "Container: ${IMAGE_REPOSITORY}@${IMAGE_DIGEST}"
+          created_release=true
 
           published_tag_sha=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/$release_tag" --jq '.object.sha')
           if [ "$published_tag_sha" != "$SOURCE_SHA" ]; then
