@@ -307,9 +307,13 @@ public sealed partial class ReleaseUpgradeRepository(
             .Where(operation =>
                 (operation.Status == ReleaseUpgradeStatus.Downloading ||
                  operation.Status == ReleaseUpgradeStatus.Verifying) &&
-                operation.CandidateRelease.IsDownloadFinished &&
-                context.StagedFileMappings.Any(mapping =>
-                    mapping.AnimationInfoId == operation.CandidateReleaseId))
+                ((operation.CandidateRelease.IsDownloadFinished &&
+                  context.StagedFileMappings.Any(mapping =>
+                      mapping.AnimationInfoId == operation.CandidateReleaseId)) ||
+                 (operation.Status == ReleaseUpgradeStatus.Downloading &&
+                  !operation.CandidateRelease.IsDownloadFinished &&
+                  !operation.CandidateRelease.IsDownloadTracked &&
+                  operation.CandidateRelease.DownloadCancellationId == null)))
             .OrderBy(operation => operation.CreatedAt)
             .Select(operation => operation.CandidateReleaseId)
             .Take(take)
@@ -472,13 +476,15 @@ public sealed partial class ReleaseUpgradeRepository(
                 .Where(info => info.Id == current.Id)
                 .ExecuteUpdateAsync(setters => setters
                         .SetProperty(info => info.StateVersion, info => info.StateVersion + 1)
-                        .SetProperty(info => info.IsActiveRelease, false),
+                        .SetProperty(info => info.IsActiveRelease, false)
+                        .SetProperty(info => info.IsRetiredRelease, true),
                     cancellationToken);
             await writeContext.AnimationInfo
                 .Where(info => info.Id == candidate.Id)
                 .ExecuteUpdateAsync(setters => setters
                         .SetProperty(info => info.StateVersion, info => info.StateVersion + 1)
-                        .SetProperty(info => info.IsActiveRelease, true),
+                        .SetProperty(info => info.IsActiveRelease, true)
+                        .SetProperty(info => info.IsRetiredRelease, false),
                     cancellationToken);
             operation.Status = ReleaseUpgradeStatus.Applied;
             operation.VerifiedAt = verifiedAt;
@@ -620,13 +626,15 @@ public sealed partial class ReleaseUpgradeRepository(
                 .Where(info => info.Id == operation.CandidateReleaseId)
                 .ExecuteUpdateAsync(setters => setters
                         .SetProperty(info => info.StateVersion, info => info.StateVersion + 1)
-                        .SetProperty(info => info.IsActiveRelease, false),
+                        .SetProperty(info => info.IsActiveRelease, false)
+                        .SetProperty(info => info.IsRetiredRelease, true),
                     cancellationToken);
             await writeContext.AnimationInfo
                 .Where(info => info.Id == operation.CurrentReleaseId)
                 .ExecuteUpdateAsync(setters => setters
                         .SetProperty(info => info.StateVersion, info => info.StateVersion + 1)
-                        .SetProperty(info => info.IsActiveRelease, true),
+                        .SetProperty(info => info.IsActiveRelease, true)
+                        .SetProperty(info => info.IsRetiredRelease, false),
                     cancellationToken);
             operation.Status = ReleaseUpgradeStatus.RolledBack;
             operation.CompletedAt = rolledBackAt;

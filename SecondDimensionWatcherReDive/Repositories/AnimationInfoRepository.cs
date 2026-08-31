@@ -320,6 +320,7 @@ public class AnimationInfoRepository(
     public async Task<AnimationInfo?> FindByIdWithAnimationAsync(Guid id, CancellationToken cancellationToken)
     {
         var entity = await context.AnimationInfo
+            .AsNoTracking()
             .Include(a => a.Animation)
             .Include(a => a.Group)
             .FirstOrDefaultAsync(a => a.Id == id, cancellationToken);
@@ -494,6 +495,9 @@ public class AnimationInfoRepository(
     public async Task<IReadOnlyList<AnimationInfo>> GetPendingInferenceAsync(int maxRetryCount, CancellationToken cancellationToken)
     {
         var entities = await context.AnimationInfo
+            .AsNoTracking()
+            .Include(info => info.Animation)
+            .Include(info => info.Group)
             .Where(i => !i.IsAiProcessed
                         && i.AiRetryCount < maxRetryCount
                         && i.MediaLibraryMissingSince == null
@@ -530,7 +534,11 @@ public class AnimationInfoRepository(
                            && info.FileStore != null
                            && info.StorePath != null
                            && !context.FileMappings.Any(mapping => mapping.AnimationInfoId == info.Id)
-                           && !context.StagedFileMappings.Any(mapping => mapping.AnimationInfoId == info.Id))
+                           && !context.StagedFileMappings.Any(mapping => mapping.AnimationInfoId == info.Id)
+                           // A retired incumbent intentionally owns no live/staged
+                           // mappings. Keep active releases in the sweep even if a
+                           // stale marker survives an interrupted lifecycle change.
+                           && (info.IsActiveRelease || !info.IsRetiredRelease))
             .OrderBy(info => info.DownloadEndTime)
             .ToListAsync(cancellationToken);
         return entities.Select(entity => entity.ToRecord()).ToList();
@@ -659,8 +667,38 @@ public class AnimationInfoRepository(
         });
     }
 
-    public async Task<bool> TryStartDownloadAsync(
+    public Task<bool> TryStartDownloadAsync(
         Guid id,
+        Guid downloadAttemptId,
+        DateTimeOffset startedAt,
+        SubscriptionAutomationDisposition? queuedDisposition,
+        CancellationToken cancellationToken) =>
+        TryStartDownloadCoreAsync(
+            id,
+            releaseUpgradeOperationId: null,
+            downloadAttemptId,
+            startedAt,
+            queuedDisposition,
+            cancellationToken);
+
+    public Task<bool> TryStartUpgradeDownloadAsync(
+        Guid id,
+        Guid releaseUpgradeOperationId,
+        Guid downloadAttemptId,
+        DateTimeOffset startedAt,
+        SubscriptionAutomationDisposition? queuedDisposition,
+        CancellationToken cancellationToken) =>
+        TryStartDownloadCoreAsync(
+            id,
+            releaseUpgradeOperationId,
+            downloadAttemptId,
+            startedAt,
+            queuedDisposition,
+            cancellationToken);
+
+    private async Task<bool> TryStartDownloadCoreAsync(
+        Guid id,
+        Guid? releaseUpgradeOperationId,
         Guid downloadAttemptId,
         DateTimeOffset startedAt,
         SubscriptionAutomationDisposition? queuedDisposition,
@@ -678,6 +716,13 @@ public class AnimationInfoRepository(
                 id,
                 cancellationToken);
             if (entity is null)
+                return false;
+            if (releaseUpgradeOperationId is { } operationId &&
+                !await writeContext.ReleaseUpgradeOperations.AnyAsync(
+                    operation => operation.Id == operationId &&
+                                 operation.CandidateReleaseId == id &&
+                                 operation.Status == ReleaseUpgradeStatus.Downloading,
+                    cancellationToken))
                 return false;
             if (entity.IsDownloadTracked)
             {
@@ -1057,9 +1102,11 @@ public class AnimationInfoRepository(
         await activeOthers.ExecuteUpdateAsync(
             setters => setters
                 .SetProperty(other => other.IsActiveRelease, false)
+                .SetProperty(other => other.IsRetiredRelease, true)
                 .SetProperty(other => other.StateVersion, other => other.StateVersion + 1),
             cancellationToken);
         entity.IsActiveRelease = true;
+        entity.IsRetiredRelease = false;
     }
 
     internal static EpisodeReleaseIdentity? GetEpisodeIdentity(
@@ -1249,6 +1296,21 @@ public class AnimationInfoRepository(
                 .OrderBy(mapping => mapping.VirtualPath)
                 .ToListAsync(cancellationToken)
             : [];
+        var retainedStagedMappings = retainChangedReleaseMappings
+            ? await writeContext.StagedFileMappings
+                .AsNoTracking()
+                .Where(mapping => mapping.AnimationInfoId == changedReleaseId)
+                .OrderBy(mapping => mapping.VirtualPath)
+                .Select(mapping => new Models.FileMapping
+                {
+                    Id = mapping.Id,
+                    AnimationInfoId = mapping.AnimationInfoId,
+                    VirtualPath = mapping.VirtualPath,
+                    PhysicalPath = mapping.PhysicalPath,
+                    FileStore = mapping.FileStore
+                })
+                .ToListAsync(cancellationToken)
+            : [];
         var successorPaths = replacement.Mappings
             .Select(mapping => mapping.VirtualPath)
             .ToHashSet(StringComparer.Ordinal);
@@ -1258,6 +1320,23 @@ public class AnimationInfoRepository(
         var retainedPlaybackRelocations = new Dictionary<
             ReleaseUpgradeRepository.PlaybackLocation,
             ReleaseUpgradeRepository.PlaybackLocation>();
+        var retainedPhysicalMappings = retainedMappings.Count > 0
+            ? retainedMappings
+            : retainedStagedMappings;
+        foreach (var pathTarget in PlaybackProgressMappingMigrator.BuildPathTargets(
+                     previousMappings,
+                     retainedPhysicalMappings))
+        {
+            if (pathTarget.Value is not { } targetPath) continue;
+            retainedPlaybackRelocations[
+                new ReleaseUpgradeRepository.PlaybackLocation(
+                    changedReleaseId,
+                    pathTarget.Key)] =
+                new ReleaseUpgradeRepository.PlaybackLocation(
+                    changedReleaseId,
+                    targetPath);
+        }
+
         var retainedDesiredMappings = new List<Models.FileMapping>(retainedMappings.Count);
         foreach (var mapping in retainedMappings)
         {
@@ -1272,13 +1351,13 @@ public class AnimationInfoRepository(
                     PhysicalPath = mapping.PhysicalPath,
                     FileStore = mapping.FileStore
                 });
-                retainedPlaybackRelocations.Add(
+                retainedPlaybackRelocations[
                     new ReleaseUpgradeRepository.PlaybackLocation(
                         mapping.AnimationInfoId,
-                        mapping.VirtualPath),
+                        mapping.VirtualPath)] =
                     new ReleaseUpgradeRepository.PlaybackLocation(
                         mapping.AnimationInfoId,
-                        vacatedPath));
+                        vacatedPath);
             }
             else
             {
@@ -1316,7 +1395,14 @@ public class AnimationInfoRepository(
             playbackTransfers,
             cancellationToken);
 
+        if (!retainChangedReleaseMappings)
+            await writeContext.AnimationInfo
+                .Where(info => info.Id == changedReleaseId)
+                .ExecuteUpdateAsync(
+                    setters => setters.SetProperty(info => info.IsRetiredRelease, true),
+                    cancellationToken);
         successor.IsActiveRelease = true;
+        successor.IsRetiredRelease = false;
         successor.StateVersion = checked(successor.StateVersion + 1);
         await writeContext.SaveChangesAsync(cancellationToken);
         await reconciliation.RestoreEntryIdentitiesAsync(writeContext, cancellationToken);

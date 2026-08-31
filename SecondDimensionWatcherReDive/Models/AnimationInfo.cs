@@ -94,4 +94,11 @@ public class AnimationInfo
     public int? ExpectedEpisodeCount { get; set; }
 
     public bool IsActiveRelease { get; set; }
+
+    /// <summary>
+    /// The release was deliberately removed from the live episode namespace by
+    /// a successful replacement. This remains durable after upgrade history is
+    /// deleted with either referenced release.
+    /// </summary>
+    public bool IsRetiredRelease { get; set; }
 }

@@ -95,6 +95,14 @@ public interface IAnimationInfoRepository
         SubscriptionAutomationDisposition? queuedDisposition,
         CancellationToken cancellationToken);
 
+    Task<bool> TryStartUpgradeDownloadAsync(
+        Guid id,
+        Guid releaseUpgradeOperationId,
+        Guid downloadAttemptId,
+        DateTimeOffset startedAt,
+        SubscriptionAutomationDisposition? queuedDisposition,
+        CancellationToken cancellationToken);
+
     Task<bool> TryBeginCancelDownloadAsync(
         Guid id,
         Guid? downloadAttemptId,

@@ -49,11 +49,30 @@ public sealed class ReleaseUpgradeCoordinator(
             return Result(false, "upgrade_already_started", false, requiresDownload, null,
                 ["Another worker already claimed this upgrade."]);
 
+        return await ContinueOperationAsync(operation, cancellationToken);
+    }
+
+    public async Task<ReleaseUpgradeExecutionResult?> TryActivateCandidateAsync(
+        Guid candidateReleaseId,
+        CancellationToken cancellationToken)
+    {
+        var operation = await upgradeRepository.FindActiveByCandidateAsync(
+            candidateReleaseId,
+            cancellationToken);
+        return operation is null
+            ? null
+            : await ContinueOperationAsync(operation, cancellationToken);
+    }
+
+    private async Task<ReleaseUpgradeExecutionResult> ContinueOperationAsync(
+        ReleaseUpgradeOperation operation,
+        CancellationToken cancellationToken)
+    {
         if (operation.Status == ReleaseUpgradeStatus.Verifying)
             return await ActivateAsync(operation.CandidateReleaseId, cancellationToken);
 
-        next = await animationInfoRepository.FindByIdAsync(
-            candidate.CandidateReleaseId,
+        var next = await animationInfoRepository.FindByIdAsync(
+            operation.CandidateReleaseId,
             cancellationToken);
         if (next is null)
             return await FailAsync(operation, "Candidate release disappeared after claim.", cancellationToken);
@@ -71,8 +90,9 @@ public sealed class ReleaseUpgradeCoordinator(
         try
         {
             downloadStartAttempted = true;
-            if (!await animationInfoRepository.TryStartDownloadAsync(
+            if (!await animationInfoRepository.TryStartUpgradeDownloadAsync(
                     next.Id,
+                    operation.Id,
                     downloadAttemptId,
                     DateTimeOffset.UtcNow,
                     SubscriptionAutomationDisposition.AutoDownloadQueued,
@@ -144,18 +164,6 @@ public sealed class ReleaseUpgradeCoordinator(
                     cancellationToken);
             return await FailAsync(operation, exception.Message, cancellationToken);
         }
-    }
-
-    public async Task<ReleaseUpgradeExecutionResult?> TryActivateCandidateAsync(
-        Guid candidateReleaseId,
-        CancellationToken cancellationToken)
-    {
-        var operation = await upgradeRepository.FindActiveByCandidateAsync(
-            candidateReleaseId,
-            cancellationToken);
-        return operation is null
-            ? null
-            : await ActivateAsync(candidateReleaseId, cancellationToken);
     }
 
     public async Task<ReleaseUpgradeMutationResult> RollbackAsync(
