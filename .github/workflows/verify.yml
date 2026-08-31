@@ -49,6 +49,7 @@ jobs:
             **/TestResults/*.trx
             **/TestResults/**/coverage.cobertura.xml
           if-no-files-found: warn
+          overwrite: true
           retention-days: 14
 
   frontend:
@@ -84,9 +85,21 @@ jobs:
         run: yarn build
 
   container:
-    name: Container smoke test
+    name: Container (${{ matrix.arch }})
     needs: [backend, frontend]
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+            runner: ubuntu-latest
+            smoke: true
+          - arch: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            smoke: false
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7
 
@@ -98,13 +111,19 @@ jobs:
         with:
           context: .
           file: ./Containerfile
-          load: true
+          platforms: ${{ matrix.platform }}
+          load: ${{ matrix.smoke }}
           push: false
-          tags: sdw-redive:verify
+          tags: sdw-redive:verify-${{ matrix.arch }}
           build-args: VERSION=0.0.0-ci.${{ github.run_id }}
+          cache-from: type=gha,scope=verify-container-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=verify-container-${{ matrix.arch }},ignore-error=true
 
       - name: Run migrations, health check, and homepage smoke test
+        if: matrix.smoke
         shell: bash
+        env:
+          VERIFY_IMAGE: sdw-redive:verify-${{ matrix.arch }}
         run: |
           set -Eeuo pipefail
 
@@ -156,7 +175,7 @@ jobs:
             --env DataProtection__KeyRingPath=/tmp/data-protection-keys \
             --env FileStore__Local=/tmp/downloads \
             --env DisableCors=true \
-            sdw-redive:verify
+            "$VERIFY_IMAGE"
 
           for attempt in {1..60}; do
             if curl --fail --silent --show-error http://127.0.0.1:5097/ > homepage.html; then

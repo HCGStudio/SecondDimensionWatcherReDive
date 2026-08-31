@@ -76,6 +76,7 @@ jobs:
           name: frontend-dist
           path: SecondDimensionWatcherReDive.Client/dist/
           if-no-files-found: error
+          overwrite: true
           retention-days: 14
 
   linux_packages:
@@ -145,6 +146,7 @@ jobs:
           name: packages-linux-${{ matrix.arch }}
           path: dist/*
           if-no-files-found: error
+          overwrite: true
           retention-days: 14
 
   windows_packages:
@@ -196,6 +198,7 @@ jobs:
           name: packages-win-${{ matrix.arch }}
           path: sdw-redive_*.zip
           if-no-files-found: error
+          overwrite: true
           retention-days: 14
 
   portable_package:
@@ -245,6 +248,7 @@ jobs:
           name: packages-portable
           path: dist/*
           if-no-files-found: error
+          overwrite: true
           retention-days: 14
 
   fuse_packages:
@@ -316,24 +320,30 @@ jobs:
           name: packages-fuse-linux-${{ matrix.arch }}
           path: dist/*
           if-no-files-found: error
+          overwrite: true
           retention-days: 14
 
-  container:
-    name: Multi-architecture container
+  container_platforms:
+    name: Container platform (${{ matrix.arch }})
     needs: validate_inputs
     permissions:
       contents: read
       packages: write
-    runs-on: ubuntu-latest
-    outputs:
-      digest: ${{ steps.build.outputs.digest }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.commit_sha }}
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v4
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -345,21 +355,137 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ github.token }}
 
-      - name: Build and push immutable candidate
-        id: build
+      - name: Build and push by digest
+        id: publish
         uses: docker/build-push-action@v7
         with:
           context: .
           file: ./Containerfile
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ inputs.image_repository }}:candidate-${{ inputs.commit_sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=${{ inputs.image_repository }},push-by-digest=true,name-canonical=true,push=true
           build-args: VERSION=${{ inputs.version }}
           labels: |
             org.opencontainers.image.revision=${{ inputs.commit_sha }}
             org.opencontainers.image.version=${{ inputs.version }}
           provenance: mode=max
           sbom: true
+          cache-from: type=gha,scope=release-container-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=release-container-${{ matrix.arch }},ignore-error=true
+
+      - name: Export digest
+        env:
+          DIGEST: ${{ steps.publish.outputs.digest }}
+        run: |
+          set -euo pipefail
+          digest="${DIGEST#sha256:}"
+          if [[ ! "$digest" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "Unexpected image digest: $DIGEST" >&2
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/container-digests"
+          touch "$RUNNER_TEMP/container-digests/$digest"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-container-digest-${{ matrix.arch }}
+          path: ${{ runner.temp }}/container-digests/*
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 1
+
+  container:
+    name: Multi-architecture container manifest
+    needs: container_platforms
+    permissions:
+      contents: read
+      packages: write
+    runs-on: ubuntu-latest
+    outputs:
+      digest: ${{ steps.manifest.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.commit_sha }}
+
+      - name: Download platform digests
+        uses: actions/download-artifact@v8
+        with:
+          pattern: release-container-digest-*
+          path: ${{ runner.temp }}/container-digests
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Create and verify immutable candidate
+        id: manifest
+        env:
+          IMAGE_REPOSITORY: ${{ inputs.image_repository }}
+          SOURCE_SHA: ${{ inputs.commit_sha }}
+        run: |
+          set -euo pipefail
+          mapfile -t digests < <(
+            find "$RUNNER_TEMP/container-digests" -maxdepth 1 -type f -printf '%f\n' | sort
+          )
+          if [ "${#digests[@]}" -ne 2 ]; then
+            echo "Expected two platform digests, found ${#digests[@]}" >&2
+            exit 1
+          fi
+
+          images=()
+          for digest in "${digests[@]}"; do
+            if [[ ! "$digest" =~ ^[0-9a-f]{64}$ ]]; then
+              echo "Unexpected image digest: $digest" >&2
+              exit 1
+            fi
+            images+=("${IMAGE_REPOSITORY}@sha256:${digest}")
+          done
+
+          prospective_manifest=$(docker buildx imagetools create --dry-run "${images[@]}")
+          if ! jq -e -f .github/scripts/validate-container-index.jq \
+            <<< "$prospective_manifest" >/dev/null; then
+            echo "Candidate is not a strict amd64/arm64 OCI index with matching attestations" >&2
+            exit 1
+          fi
+
+          prospective_digest="sha256:$(printf '%s' "$prospective_manifest" | sha256sum | cut -d ' ' -f1)"
+          candidate_tag="${IMAGE_REPOSITORY}:candidate-${SOURCE_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          docker buildx imagetools create \
+            --tag "$candidate_tag" \
+            --metadata-file "$RUNNER_TEMP/manifest-metadata.json" \
+            "${images[@]}"
+
+          manifest_digest=$(jq -er '."containerimage.descriptor".digest' "$RUNNER_TEMP/manifest-metadata.json")
+          if [[ ! "$manifest_digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "Unexpected manifest digest: $manifest_digest" >&2
+            exit 1
+          fi
+          if [ "$manifest_digest" != "$prospective_digest" ]; then
+            echo "Published digest $manifest_digest differs from validated digest $prospective_digest" >&2
+            exit 1
+          fi
+
+          published_manifest=$(docker buildx imagetools inspect "${IMAGE_REPOSITORY}@${manifest_digest}" --raw)
+          if [ "$published_manifest" != "$prospective_manifest" ]; then
+            echo "Published manifest differs from the validated dry-run manifest" >&2
+            exit 1
+          fi
+          candidate_manifest=$(docker buildx imagetools inspect "$candidate_tag" --raw)
+          if [ "$candidate_manifest" != "$published_manifest" ]; then
+            echo "$candidate_tag does not resolve to the validated manifest" >&2
+            exit 1
+          fi
+
+          echo "digest=$manifest_digest" >> "$GITHUB_OUTPUT"
+          docker buildx imagetools inspect "${IMAGE_REPOSITORY}@${manifest_digest}"
 
   validate_artifacts:
     name: Validate complete artifact set
@@ -376,6 +502,10 @@ jobs:
     outputs:
       bundle_name: release-bundle-${{ inputs.commit_sha }}
     steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.commit_sha }}
+
       - name: Download package artifacts
         uses: actions/download-artifact@v8
         with:
@@ -437,9 +567,18 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
-          docker buildx imagetools inspect "$IMAGE_REPOSITORY@$IMAGE_DIGEST" > image-manifest.txt
-          grep --fixed-strings --quiet "linux/amd64" image-manifest.txt
-          grep --fixed-strings --quiet "linux/arm64" image-manifest.txt
+          manifest=$(docker buildx imagetools inspect "$IMAGE_REPOSITORY@$IMAGE_DIGEST" --raw)
+          resolved_digest="sha256:$(printf '%s' "$manifest" | sha256sum | cut -d ' ' -f1)"
+          if [ "$resolved_digest" != "$IMAGE_DIGEST" ]; then
+            echo "Resolved digest $resolved_digest differs from $IMAGE_DIGEST" >&2
+            exit 1
+          fi
+
+          if ! jq -e -f .github/scripts/validate-container-index.jq \
+            <<< "$manifest" >/dev/null; then
+            echo "Published image is not a strict amd64/arm64 OCI index with matching attestations" >&2
+            exit 1
+          fi
 
       - name: Upload checked release bundle
         uses: actions/upload-artifact@v7
@@ -447,4 +586,5 @@ jobs:
           name: release-bundle-${{ inputs.commit_sha }}
           path: release/*
           if-no-files-found: error
+          overwrite: true
           retention-days: 14
