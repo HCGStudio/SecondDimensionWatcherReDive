@@ -1,6 +1,7 @@
 import useSWR from "swr";
 
 import fetcher from "../auth/httpClient";
+import { apiErrorStatus } from "../errors/apiError";
 import {
   EditableMetadata,
   MetadataRemapResult,
@@ -63,7 +64,5 @@ export function undoMetadataRemap(
 }
 
 export function metadataReviewErrorStatus(error: unknown): number | null {
-  if (!(error instanceof Error)) return null;
-  const match = error.message.match(/\b(\d{3})\b/);
-  return match ? Number(match[1]) : null;
+  return apiErrorStatus(error);
 }

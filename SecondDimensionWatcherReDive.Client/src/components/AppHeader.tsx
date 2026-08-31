@@ -1,6 +1,6 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { useLocation, useNavigate } from "react-router";
+import { Link, useLocation, useNavigate } from "react-router";
 import { mutate } from "swr";
 
 import {
@@ -35,6 +35,8 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "./ui/DropdownMenu";
@@ -87,15 +89,15 @@ interface NavLinkProps {
 }
 
 const NavLink: React.FC<NavLinkProps> = ({ icon, label, path, badge }) => {
-  const navigate = useNavigate();
   const location = useLocation();
   const isActive = isPathActive(location.pathname, path);
 
   return (
-    <button
-      onClick={() => navigate(path)}
+    <Link
+      to={path}
+      aria-current={isActive ? "page" : undefined}
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+        "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus:outline-hidden focus:ring-2 focus:ring-focus",
         isActive
           ? "bg-canvas text-foreground"
           : "text-muted hover:text-foreground hover:bg-canvas",
@@ -108,7 +110,7 @@ const NavLink: React.FC<NavLinkProps> = ({ icon, label, path, badge }) => {
           {badge > 99 ? "99+" : badge}
         </span>
       ) : null}
-    </button>
+    </Link>
   );
 };
 
@@ -122,7 +124,7 @@ const MobileNavMenu: React.FC<{ items: NavItem[] }> = ({ items }) => {
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          className="xl:hidden inline-flex items-center justify-center rounded-md p-1.5 text-muted hover:text-foreground hover:bg-canvas transition-colors"
+          className="inline-flex items-center justify-center rounded-md p-1.5 text-muted transition-colors hover:bg-canvas hover:text-foreground focus:outline-hidden focus:ring-2 focus:ring-focus xl:hidden"
           aria-label={t("nav.menu")}
         >
           <Menu size={18} />
@@ -138,6 +140,7 @@ const MobileNavMenu: React.FC<{ items: NavItem[] }> = ({ items }) => {
           return (
             <DropdownMenuItem
               key={item.path}
+              aria-current={isActive ? "page" : undefined}
               onSelect={() => navigate(item.path)}
               className={cn(
                 "gap-2.5",
@@ -210,7 +213,8 @@ const UserMenu: React.FC = () => {
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button
-          className="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-muted hover:text-foreground transition-colors"
+          type="button"
+          className="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-muted transition-colors hover:text-foreground focus:outline-hidden focus:ring-2 focus:ring-focus"
           aria-label={t("user.account")}
         >
           <User size={16} />
@@ -220,20 +224,22 @@ const UserMenu: React.FC = () => {
         <div className="px-3 py-1.5 text-xs uppercase tracking-wide text-subtle">
           {t("user.language")}
         </div>
-        {supportedLanguages.map((lng) => (
-          <DropdownMenuItem
-            key={lng}
-            onSelect={() => {
-              void i18n.changeLanguage(lng);
-            }}
-          >
-            <Check
-              size={14}
-              className={lng === currentLng ? "opacity-100" : "opacity-0"}
-            />
-            {languageLabels[lng]}
-          </DropdownMenuItem>
-        ))}
+        <DropdownMenuRadioGroup
+          value={currentLng}
+          onValueChange={(lng) => {
+            void i18n.changeLanguage(lng);
+          }}
+        >
+          {supportedLanguages.map((lng) => (
+            <DropdownMenuRadioItem key={lng} value={lng}>
+              <Check
+                size={14}
+                className={lng === currentLng ? "opacity-100" : "opacity-0"}
+              />
+              {languageLabels[lng]}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
         <DropdownMenuSeparator />
         <DropdownMenuItem color="danger" onSelect={() => void onLogout()}>
           {t("user.logout")}
@@ -255,13 +261,13 @@ export const AppHeader: React.FC = () => {
       <nav className="flex h-14 items-center justify-between gap-2 px-4 sm:px-6">
         <div className="flex min-w-0 items-center gap-2 xl:gap-4">
           <MobileNavMenu items={items} />
-          <a
-            className="flex min-w-0 items-center gap-2 font-serif text-lg font-medium text-foreground cursor-pointer"
-            onClick={() => navigate("/")}
+          <Link
+            to="/"
+            className="flex min-w-0 items-center gap-2 rounded-md font-serif text-lg font-medium text-foreground focus:outline-hidden focus:ring-2 focus:ring-focus"
           >
             <Clapperboard size={20} className="shrink-0" />
             <span className="truncate">{t("appName")}</span>
-          </a>
+          </Link>
           <div className="hidden xl:flex items-center gap-0.5">
             {items.map((item) => (
               <NavLink
@@ -279,7 +285,8 @@ export const AppHeader: React.FC = () => {
             <UserMenu />
           ) : (
             <button
-              className="inline-flex items-center gap-1.5 text-sm text-muted hover:text-foreground transition-colors"
+              type="button"
+              className="inline-flex items-center gap-1.5 rounded-md text-sm text-muted transition-colors hover:text-foreground focus:outline-hidden focus:ring-2 focus:ring-focus"
               onClick={() => navigate("/login")}
             >
               <User size={16} />

@@ -24,10 +24,9 @@ export const PasswordInput: React.FC<InputProps> = ({
       />
       <button
         type="button"
-        className="absolute right-3 top-1/2 -translate-y-1/2 text-subtle hover:text-foreground transition-colors"
         onClick={() => setVisible((v) => !v)}
-        tabIndex={-1}
         aria-label={visible ? t("passwordInput.hide") : t("passwordInput.show")}
+        className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-subtle transition-colors hover:text-foreground focus:outline-hidden focus:ring-2 focus:ring-focus"
       >
         {visible ? <EyeOff size={16} /> : <Eye size={16} />}
       </button>

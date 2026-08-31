@@ -13,7 +13,8 @@
   "continue": {
     "title": "続きから見る",
     "subtitle": "どの端末でも前回の続きから再生できます",
-    "resume": "再開"
+    "resume": "再開",
+    "progress": "再生進捗"
   },
   "progress": {
     "resumed": "{{time}} から再開しました",

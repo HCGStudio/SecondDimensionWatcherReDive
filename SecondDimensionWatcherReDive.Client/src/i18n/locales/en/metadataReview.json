@@ -61,6 +61,7 @@
     },
     "preview": "Preview virtual paths",
     "previewing": "Generating preview",
+    "previewReady": "Metadata and path preview ready",
     "refreshPreview": "Regenerate preview",
     "apply": "Confirm atomic remap",
     "applying": "Applying"

@@ -4,6 +4,7 @@ import { useSWRConfig } from "swr";
 
 import { Bot, Cloud, ServerCog, SquareTerminal } from "lucide-react";
 
+import { apiErrorStatus } from "../../errors/apiError";
 import {
   AiSettings,
   AiSettingsPatch,
@@ -183,7 +184,7 @@ export const AiSettingsSection: React.FC<AiSettingsSectionProps> = ({
     } catch (error) {
       addToast({
         title:
-          error instanceof Error && error.message === "409"
+          apiErrorStatus(error) === 409
             ? t("system.save.conflict")
             : t("system.save.failed"),
         color: "danger",
@@ -546,7 +547,7 @@ const EngineOption: React.FC<EngineOptionProps> = ({
   onSelect,
 }) => (
   <label
-    className={`cursor-pointer rounded-lg border p-4 transition-colors ${
+    className={`cursor-pointer rounded-lg border p-4 transition-colors focus-within:ring-2 focus-within:ring-focus ${
       selected
         ? "border-brand bg-brand/5 shadow-ring-brand"
         : "border-border bg-surface hover:border-ring-deep"

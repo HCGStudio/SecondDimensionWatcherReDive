@@ -258,6 +258,7 @@
       "warning": "Copy the access token now — you will not be able to view it again after leaving this page.",
       "usernameLabel": "Username",
       "tokenLabel": "Access token",
+      "copyAria": "Copy {{label}}",
       "dismiss": "I've saved it"
     },
     "list": {

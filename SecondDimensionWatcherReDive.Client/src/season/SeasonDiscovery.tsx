@@ -2,6 +2,7 @@ import React from "react";
 import { useTranslation } from "react-i18next";
 
 import {
+  AlertTriangle,
   Check,
   ChevronLeft,
   ChevronRight,
@@ -10,6 +11,7 @@ import {
   Users,
 } from "lucide-react";
 
+import { ResilientPoster } from "../components/ResilientPoster";
 import { useToast } from "../components/ToastProvider";
 import { Button } from "../components/ui/Button";
 import {
@@ -205,17 +207,29 @@ export const SeasonDiscovery: React.FC = () => {
     return map;
   }, [seasonData]);
 
-  if (error) return null;
-
   return (
     <div className="mb-10">
+      <span
+        className="sr-only"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        {refreshing ? t("refreshing") : ""}
+      </span>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <h2 className="font-serif text-xl font-medium text-foreground">
             {t("title")}
           </h2>
           <div className="flex items-center gap-1">
-            <Button variant="icon" size="sm" onClick={onPrev}>
+            <Button
+              variant="icon"
+              size="sm"
+              onClick={onPrev}
+              aria-label={t("previousSeason")}
+              title={t("previousSeason")}
+            >
               <ChevronLeft size={16} />
             </Button>
             <span className="min-w-[7rem] text-center text-sm font-medium text-foreground">
@@ -226,6 +240,8 @@ export const SeasonDiscovery: React.FC = () => {
               size="sm"
               onClick={onNext}
               disabled={!canGoNext}
+              aria-label={t("nextSeason")}
+              title={t("nextSeason")}
             >
               <ChevronRight size={16} />
             </Button>
@@ -254,7 +270,26 @@ export const SeasonDiscovery: React.FC = () => {
         </div>
       </div>
 
-      {isLoading ? (
+      {error ? (
+        <div
+          role="alert"
+          className="flex flex-col items-start gap-3 rounded-lg border border-error/30 bg-error/10 p-4 text-sm text-error sm:flex-row sm:items-center sm:justify-between"
+        >
+          <span className="inline-flex items-center gap-2">
+            <AlertTriangle size={16} aria-hidden="true" />
+            {t("loadFailed")}
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onRefresh}
+            disabled={refreshing}
+          >
+            <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} />
+            {t("refresh")}
+          </Button>
+        </div>
+      ) : isLoading ? (
         <div className="flex justify-center py-8">
           <Spinner />
         </div>
@@ -276,23 +311,18 @@ export const SeasonDiscovery: React.FC = () => {
                     key={bangumi.mikanId}
                     className="flex gap-3 rounded-md border border-border bg-surface p-3 shadow-whisper"
                   >
-                    {bangumi.imageUrl ? (
-                      <img
-                        src={MIKAN_BASE + bangumi.imageUrl}
-                        alt={bangumi.title}
-                        className="h-20 w-14 shrink-0 rounded object-cover"
-                        loading="lazy"
-                      />
-                    ) : (
-                      <div className="flex h-20 w-14 shrink-0 items-center justify-center rounded bg-canvas text-subtle">
-                        <Rss size={20} />
-                      </div>
-                    )}
+                    <ResilientPoster
+                      src={
+                        bangumi.imageUrl ? MIKAN_BASE + bangumi.imageUrl : null
+                      }
+                      alt={bangumi.title}
+                      className="h-20 w-14 rounded"
+                    />
                     <div className="flex min-w-0 flex-1 flex-col justify-between">
                       <p className="line-clamp-2 text-sm font-medium leading-snug text-foreground">
                         {bangumi.title}
                       </p>
-                      <div className="flex gap-2">
+                      <div className="flex flex-col gap-2 min-[420px]:flex-row">
                         <Button
                           size="sm"
                           variant={isSubscribed ? "outline" : "solid"}
@@ -384,7 +414,11 @@ const SubgroupList: React.FC<{
   );
 
   if (error)
-    return <p className="text-sm text-error">{t("loadSubgroupsFailed")}</p>;
+    return (
+      <p role="alert" className="text-sm text-error">
+        {t("loadSubgroupsFailed")}
+      </p>
+    );
   if (!subgroups)
     return (
       <div className="flex justify-center py-8">
@@ -400,7 +434,7 @@ const SubgroupList: React.FC<{
         const allUrl = buildAllRssUrl(bangumi.mikanId);
         const isAllSubscribed = subscribedUrls.has(allUrl);
         return (
-          <div className="flex items-center justify-between rounded-md border border-border-light bg-canvas p-3">
+          <div className="flex flex-col gap-3 rounded-md border border-border-light bg-canvas p-3 sm:flex-row sm:items-center sm:justify-between">
             <span className="text-sm font-medium text-foreground">
               {t("allSubgroups")}
             </span>
@@ -447,7 +481,7 @@ const SubgroupList: React.FC<{
         return (
           <div
             key={sg.mikanSubgroupId}
-            className="flex items-center justify-between rounded-md border border-border-light p-3"
+            className="flex flex-col gap-3 rounded-md border border-border-light p-3 sm:flex-row sm:items-center sm:justify-between"
           >
             <span className="text-sm text-foreground">{sg.name}</span>
             <Button

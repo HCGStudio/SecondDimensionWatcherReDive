@@ -26,6 +26,7 @@
     "ja": "日本語"
   },
   "pagination": {
+    "label": "ページ送り",
     "first": "最初のページ",
     "prev": "前のページ",
     "next": "次のページ",
@@ -38,5 +39,15 @@
   },
   "actions": {
     "close": "閉じる"
+  },
+  "notifications": {
+    "label": "通知",
+    "dismiss": "通知を閉じる"
+  },
+  "images": {
+    "poster": "ポスター",
+    "unavailable": "画像を読み込めません",
+    "unavailableFor": "{{name}} の画像を読み込めません",
+    "retry": "{{name}} の画像を再読み込み"
   }
 }

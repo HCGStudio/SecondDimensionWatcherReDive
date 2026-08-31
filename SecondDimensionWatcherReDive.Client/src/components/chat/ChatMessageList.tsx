@@ -10,6 +10,7 @@ interface ChatMessageListProps {
   contentBlocks: StreamingContentBlock[];
   isStreaming: boolean;
   pendingUserMessage?: string | null;
+  hasStreamError?: boolean;
 }
 
 type MessageGroup =
@@ -44,18 +45,51 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = ({
   contentBlocks,
   isStreaming,
   pendingUserMessage,
+  hasStreamError = false,
 }) => {
   const { t } = useTranslation("chat");
   const bottomRef = useRef<HTMLDivElement>(null);
+  const wasStreaming = useRef(false);
+  const [announcement, setAnnouncement] = React.useState("");
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, contentBlocks]);
+    const reduceMotion = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
+    bottomRef.current?.scrollIntoView({
+      behavior: reduceMotion || isStreaming ? "auto" : "smooth",
+    });
+  }, [messages, contentBlocks, isStreaming]);
+
+  useEffect(() => {
+    if (isStreaming && !wasStreaming.current) {
+      setAnnouncement(t("streaming"));
+    } else if (!isStreaming && wasStreaming.current) {
+      setAnnouncement(
+        !hasStreamError && contentBlocks.length > 0
+          ? t("responseComplete")
+          : "",
+      );
+    }
+    wasStreaming.current = isStreaming;
+  }, [contentBlocks.length, hasStreamError, isStreaming, t]);
 
   const groups = groupMessages(messages);
 
   return (
-    <div className="flex-1 overflow-y-auto px-4 py-6 space-y-4">
+    <div
+      className="flex-1 space-y-4 overflow-y-auto px-4 py-6"
+      role="region"
+      aria-label={t("messageHistory")}
+    >
+      <span
+        className="sr-only"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        {announcement}
+      </span>
       {groups.length === 0 && !isStreaming && !pendingUserMessage && (
         <div className="flex items-center justify-center h-full text-subtle">
           <div className="text-center">
@@ -92,7 +126,7 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = ({
           isStreaming={isStreaming}
         />
       )}
-      <div ref={bottomRef} />
+      <div ref={bottomRef} aria-hidden="true" />
     </div>
   );
 };

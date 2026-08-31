@@ -123,6 +123,7 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({ animationId }) => {
           )}
         </div>
       ),
+      mobile: "primary",
     },
     {
       name: t("browser.actions"),
@@ -188,7 +189,12 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({ animationId }) => {
           {t("browser.goUp")}
         </Button>
       ) : null}
-      <Table items={files} columns={columns} />
+      <Table
+        items={files}
+        columns={columns}
+        label={t("browser.filename")}
+        rowKey={(item) => `${item.isDirectory}:${item.fileName}`}
+      />
     </>
   );
 };

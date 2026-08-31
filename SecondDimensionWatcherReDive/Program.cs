@@ -14,8 +14,8 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.IdentityModel.Tokens;
 using Microsoft.Extensions.Options;
+using Microsoft.IdentityModel.Tokens;
 using Microsoft.Net.Http.Headers;
 using SecondDimensionWatcherReDive;
 using SecondDimensionWatcherReDive.Auth;
@@ -141,6 +141,11 @@ static string RateLimitPartitionKey(HttpContext context)
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.OnRejected = static (context, _) =>
+    {
+        context.HttpContext.Response.Headers.CacheControl = "no-store";
+        return ValueTask.CompletedTask;
+    };
     options.AddPolicy("auth", context => RateLimitPartition.GetFixedWindowLimiter(
         RateLimitPartitionKey(context),
         _ => new FixedWindowRateLimiterOptions
@@ -169,6 +174,24 @@ builder.Services.AddRateLimiter(options =>
             QueueLimit = 0,
             AutoReplenishment = true
         }));
+    options.AddPolicy(
+        SecondDimensionWatcherReDive.Controllers.TmdbImagesController.RateLimitPolicyName,
+        context =>
+        {
+            var proxyOptions = context.RequestServices
+                .GetRequiredService<IOptions<TmdbImageProxyOptions>>()
+                .Value;
+            var userId = context.User.FindFirst("Id")?.Value ?? "authenticated";
+            return RateLimitPartition.GetFixedWindowLimiter(
+                userId,
+                _ => new FixedWindowRateLimiterOptions
+                {
+                    AutoReplenishment = true,
+                    PermitLimit = proxyOptions.RequestsPerMinute,
+                    QueueLimit = 0,
+                    Window = TimeSpan.FromMinutes(1)
+                });
+        });
 });
 
 //Configure JWT
@@ -340,6 +363,49 @@ builder.Services.AddHttpClient("SafeFeed", client =>
             connectionFactory.ConnectAsync(context.DnsEndPoint, cancellationToken)
     };
 });
+
+builder.Services.AddOptions<TmdbImageProxyOptions>()
+    .BindConfiguration(TmdbImageProxyOptions.SectionName)
+    .Validate(
+        options => options.CacheSizeBytes is > 0 and <= TmdbImageProxyOptions.MaximumCacheSizeBytes,
+        $"TMDB image cache size must be between 1 and {TmdbImageProxyOptions.MaximumCacheSizeBytes} bytes.")
+    .Validate(
+        options => options.MaxImageBytes is > 0 and <= TmdbImageProxyOptions.MaximumImageSizeBytes,
+        $"TMDB maximum image size must be between 1 and {TmdbImageProxyOptions.MaximumImageSizeBytes} bytes.")
+    .Validate(
+        options => options.MaxConcurrentFetches is > 0 and <= TmdbImageProxyOptions.MaximumConcurrentFetchCount,
+        $"TMDB concurrent fetch count must be between 1 and {TmdbImageProxyOptions.MaximumConcurrentFetchCount}.")
+    .Validate(
+        options => options.MaxPendingFetches >= options.MaxConcurrentFetches &&
+                   options.MaxPendingFetches <= TmdbImageProxyOptions.MaximumPendingFetchCount,
+        $"TMDB pending fetch count must be at least the concurrent fetch count and no greater than {TmdbImageProxyOptions.MaximumPendingFetchCount}.")
+    .Validate(
+        options => options.RequestsPerMinute is > 0 and <= TmdbImageProxyOptions.MaximumRequestsPerMinute,
+        $"TMDB requests per minute must be between 1 and {TmdbImageProxyOptions.MaximumRequestsPerMinute}.")
+    .Validate(
+        options => options.CacheDuration is { } duration &&
+                   duration > TimeSpan.Zero &&
+                   duration <= TmdbImageProxyOptions.MaximumCacheDuration,
+        $"TMDB cache duration must be positive and no longer than {TmdbImageProxyOptions.MaximumCacheDuration}.")
+    .Validate(
+        options => options.ClientCacheDuration is { } duration &&
+                   duration >= TimeSpan.Zero &&
+                   duration <= TmdbImageProxyOptions.MaximumClientCacheDuration,
+        $"TMDB client cache duration must be between zero and {TmdbImageProxyOptions.MaximumClientCacheDuration}.")
+    .ValidateOnStart();
+builder.Services.AddHttpClient("TmdbImages", client =>
+{
+    client.BaseAddress = new Uri("https://image.tmdb.org/t/p/", UriKind.Absolute);
+    client.Timeout = TimeSpan.FromSeconds(10);
+    client.DefaultRequestHeaders.UserAgent.Add(
+        new ProductInfoHeaderValue("SecondDimensionWatcherReDive", "2.0"));
+}).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+{
+    // The upstream origin is intentionally fixed. Never follow a redirect to a
+    // caller-controlled or unexpected host.
+    AllowAutoRedirect = false
+});
+builder.Services.AddSingleton<ITmdbImageProxyService, TmdbImageProxyService>();
 
 var contentTypeProvider = new FileExtensionContentTypeProvider();
 contentTypeProvider.Mappings.Add(".mkv", "video/x-matroska");
