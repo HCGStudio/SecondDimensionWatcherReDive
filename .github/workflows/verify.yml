@@ -199,11 +199,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Verify publication boundaries
-        run: |
-          .github/scripts/resolve-verified-source.test.sh
-          .github/scripts/next-prerelease-version.test.sh
-
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:

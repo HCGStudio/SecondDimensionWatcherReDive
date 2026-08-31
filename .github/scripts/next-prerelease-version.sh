@@ -25,22 +25,26 @@ for component in "$major" "$minor" "$patch"; do
   fi
 done
 
-tag_prefix="refs/tags/pre-${base_version}."
-if ! remote_tags=$(git ls-remote --refs --tags "$remote" "${tag_prefix}*"); then
+tag_name_prefix="pre-${base_version}."
+git_ref_prefix="refs/tags/${tag_name_prefix}"
+if ! remote_tags=$(git ls-remote --refs --tags "$remote" "${git_ref_prefix}*"); then
   echo "could not list prerelease tags from $remote" >&2
   exit 1
 fi
 
 max_sequence=0
-while IFS=$'\t' read -r _object_id ref_name; do
-  [ -n "${ref_name:-}" ] || continue
-  [[ "$ref_name" == "$tag_prefix"* ]] || continue
-  sequence="${ref_name#"$tag_prefix"}"
-  [[ "$sequence" =~ ^(0|[1-9][0-9]*)$ ]] || continue
+consider_tag_name() {
+  local tag_name="$1"
+  local sequence
+  local sequence_value
+
+  [[ "$tag_name" == "$tag_name_prefix"* ]] || return 0
+  sequence="${tag_name#"$tag_name_prefix"}"
+  [[ "$sequence" =~ ^(0|[1-9][0-9]*)$ ]] || return 0
 
   if [ "${#sequence}" -gt 5 ] || \
      { [ "${#sequence}" -eq 5 ] && [[ "$sequence" > "$max_component" ]]; }; then
-    echo "prerelease sequence is outside the supported range: $ref_name" >&2
+    echo "prerelease sequence is outside the supported range: $tag_name" >&2
     exit 1
   fi
 
@@ -48,7 +52,23 @@ while IFS=$'\t' read -r _object_id ref_name; do
   if [ "$sequence_value" -gt "$max_sequence" ]; then
     max_sequence="$sequence_value"
   fi
+}
+
+while IFS=$'\t' read -r _object_id ref_name; do
+  [ -n "${ref_name:-}" ] || continue
+  [[ "$ref_name" == refs/tags/* ]] || continue
+  consider_tag_name "${ref_name#refs/tags/}"
 done <<< "$remote_tags"
+
+if [ -n "${PRERELEASE_TAG_NAMES_FILE:-}" ]; then
+  if [ ! -f "$PRERELEASE_TAG_NAMES_FILE" ]; then
+    echo "prerelease tag names file does not exist: $PRERELEASE_TAG_NAMES_FILE" >&2
+    exit 1
+  fi
+  while IFS= read -r tag_name || [ -n "$tag_name" ]; do
+    consider_tag_name "$tag_name"
+  done < "$PRERELEASE_TAG_NAMES_FILE"
+fi
 
 if [ "$max_sequence" -ge "$max_component" ]; then
   echo "prerelease sequence exhausted for $base_version" >&2

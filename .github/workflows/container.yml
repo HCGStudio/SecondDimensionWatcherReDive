@@ -35,6 +35,9 @@ jobs:
         github.event.workflow_run.head_branch == github.event.repository.default_branch &&
         github.event.workflow_run.head_repository.full_name == github.repository))
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
     outputs:
       commit_sha: ${{ steps.metadata.outputs.commit_sha }}
       image_repository: ${{ steps.metadata.outputs.image_repository }}
@@ -66,12 +69,31 @@ jobs:
         id: metadata
         env:
           COMMIT_SHA: ${{ steps.source.outputs.commit_sha }}
+          GH_TOKEN: ${{ github.token }}
+          PACKAGE_OWNER: ${{ github.repository_owner }}
+          PACKAGE_OWNER_TYPE: ${{ github.event.repository.owner.type }}
           REPOSITORY_OWNER: ${{ github.repository_owner }}
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$COMMIT_SHA"
           base_version=$(tr -d '[:space:]' < VERSION)
-          version=$(.github/scripts/next-prerelease-version.sh "$base_version")
+          case "$PACKAGE_OWNER_TYPE" in
+            Organization)
+              package_versions="orgs/${PACKAGE_OWNER}/packages/container/sdw-redive/versions?per_page=100"
+              ;;
+            User)
+              package_versions="users/${PACKAGE_OWNER}/packages/container/sdw-redive/versions?per_page=100"
+              ;;
+            *)
+              echo "Unsupported package owner type: $PACKAGE_OWNER_TYPE" >&2
+              exit 1
+              ;;
+          esac
+          registry_tags="$RUNNER_TEMP/registry-tags"
+          gh api --paginate "$package_versions" \
+            --jq '.[].metadata.container.tags[]?' > "$registry_tags"
+          version=$(PRERELEASE_TAG_NAMES_FILE="$registry_tags" \
+            .github/scripts/next-prerelease-version.sh "$base_version")
           image_repository="ghcr.io/$(printf '%s/sdw-redive' "$REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
 
           echo "commit_sha=$COMMIT_SHA" >> "$GITHUB_OUTPUT"
