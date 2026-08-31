@@ -30,12 +30,14 @@ internal static class FileMappingSetReconciler
                 StringComparer.Ordinal,
                 cancellationToken);
         var reconciled = new List<Models.FileMapping>(desiredMappings.Count);
+        var hasRemovals = false;
 
         foreach (var existing in existingMappings)
         {
             if (!desiredByPath.Remove(existing.VirtualPath, out var desired))
             {
                 context.FileMappings.Remove(existing);
+                hasRemovals = true;
                 continue;
             }
 
@@ -43,6 +45,14 @@ internal static class FileMappingSetReconciler
             existing.FileStore = desired.FileStore;
             reconciled.Add(existing);
         }
+
+        // Apply removals before additions. Some valid remaps replace a file with
+        // a directory rooted at the same path (or the reverse), and the hierarchy
+        // trigger must observe the old namespace as gone before creating the new one.
+        // Callers hold the mapping transaction lock, so this intermediate flush is
+        // still atomic with the final reconciliation commit.
+        if (hasRemovals)
+            await context.SaveChangesAsync(cancellationToken);
 
         foreach (var desired in desiredByPath.Values)
         {
