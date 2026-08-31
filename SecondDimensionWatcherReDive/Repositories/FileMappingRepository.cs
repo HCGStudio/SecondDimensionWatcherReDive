@@ -461,6 +461,7 @@ public class FileMappingRepository(
                 animationInfo.DownloadCancellationLeaseUntil <= databaseNow)
                 return false;
             if (animationInfo.DownloadSubmissionLeaseId is not null &&
+                animationInfo.DownloadSubmissionLeaseId != cancellationLeaseId &&
                 (animationInfo.DownloadSubmissionLeaseUntil is null ||
                  animationInfo.DownloadSubmissionLeaseUntil > databaseNow))
                 return false;

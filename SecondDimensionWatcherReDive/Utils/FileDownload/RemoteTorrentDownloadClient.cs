@@ -32,8 +32,10 @@ public class RemoteTorrentDownloadClient(
             cachedDownloadData,
             additionalDownloadInfo,
             cancellationToken);
-        if (submission != RemoteSubmissionOutcome.Accepted)
+        if (submission == RemoteSubmissionOutcome.Rejected)
             return false;
+        if (submission == RemoteSubmissionOutcome.Unknown)
+            throw new HttpRequestException("The qBittorrent submission outcome could not be confirmed.");
 
         await remoteTorrentTrackRequest.Writer.WriteAsync(
             new(itemId, additionalDownloadInfo),
