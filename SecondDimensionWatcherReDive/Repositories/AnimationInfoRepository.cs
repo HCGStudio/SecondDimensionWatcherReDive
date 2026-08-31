@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using System.Data;
 using Microsoft.EntityFrameworkCore;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Framework.FileDownload;
@@ -26,63 +27,68 @@ public class AnimationInfoRepository(
         return new PagedResult<AnimationInfo>(data.Select(e => e.ToRecord()).ToList(), totalCount);
     }
 
+    public async Task<long> GetAnimationCatalogRevisionAsync(CancellationToken cancellationToken)
+    {
+        return await context.AnimationCatalogStates
+            .AsNoTracking()
+            .Where(state => state.Id == 1)
+            .Select(state => state.Revision)
+            .SingleAsync(cancellationToken);
+    }
+
     public async Task<AnimationCatalogPage> GetAnimationCatalogPageAsync(
         AnimationCatalogCursor? cursor,
         int take,
         CancellationToken cancellationToken)
     {
-        var query = context.AnimationInfo
-            .AsNoTracking()
-            .Where(info => info.MediaLibraryMissingSince == null && info.Animation != null)
-            .GroupBy(info => new
-            {
-                info.Animation!.TmdbId,
-                info.Animation.Name,
-                info.Animation.OriginalName,
-                info.Animation.PosterPath
-            });
-
-        if (cursor is not null)
+        var strategy = context.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(async () =>
         {
-            query = query.Where(group =>
-                group.Max(info => info.PublishTime) < cursor.LatestPublishTime
-                || (group.Max(info => info.PublishTime) == cursor.LatestPublishTime
-                    && string.Compare(group.Key.TmdbId, cursor.TmdbId) < 0));
-        }
+            await using var readContext = new Models.ApplicationContext(contextOptions);
+            await using var transaction = await readContext.Database.BeginTransactionAsync(
+                IsolationLevel.RepeatableRead,
+                cancellationToken);
+            var revision = await ReadCatalogRevisionAsync(readContext, cancellationToken);
+            if (cursor is not null && cursor.Revision != revision)
+            {
+                await transaction.CommitAsync(cancellationToken);
+                return new AnimationCatalogPage([], null, revision, true);
+            }
 
-        var aggregates = await query
-            .OrderByDescending(group => group.Max(info => info.PublishTime))
-            .ThenByDescending(group => group.Key.TmdbId)
-            .Select(group => new CatalogAggregateRow(
-                group.Key.TmdbId,
-                group.Key.Name,
-                group.Key.OriginalName,
-                group.Key.PosterPath,
-                group.Count(),
-                group.Count(info => info.AutomationDisposition == SubscriptionAutomationDisposition.Notified
-                                    || info.AutomationDisposition == SubscriptionAutomationDisposition.PendingConfirmation
-                                    || info.AutomationDisposition == SubscriptionAutomationDisposition.AutoDownloadFailed),
-                group.Max(info => info.PublishTime)))
-            .Take(take + 1)
-            .ToListAsync(cancellationToken);
-        var hasMore = aggregates.Count > take;
-        if (hasMore) aggregates.RemoveAt(aggregates.Count - 1);
-        var episodeCounts = await GetEpisodeCountsAsync(
-            aggregates.Select(row => row.TmdbId).ToArray(),
-            cancellationToken);
-        var items = aggregates.Select(row => new AnimationCatalogItem(
-            row.TmdbId,
-            row.Name,
-            row.OriginalName,
-            row.PosterPath,
-            episodeCounts.GetValueOrDefault(row.TmdbId),
-            row.ReleaseCount,
-            row.AutomationAttentionCount,
-            row.LatestPublishTime)).ToList();
-        var nextCursor = hasMore && items.Count > 0
-            ? new AnimationCatalogCursor(items[^1].LatestPublishTime, items[^1].TmdbId)
-            : null;
-        return new AnimationCatalogPage(items, nextCursor);
+            var query = readContext.AnimationCatalogEntries.AsNoTracking();
+            if (cursor is not null)
+            {
+                query = query.Where(entry =>
+                    entry.LatestPublishTime < cursor.LatestPublishTime
+                    || (entry.LatestPublishTime == cursor.LatestPublishTime
+                        && string.Compare(entry.TmdbId, cursor.TmdbId) < 0));
+            }
+
+            var items = await query
+                .OrderByDescending(entry => entry.LatestPublishTime)
+                .ThenByDescending(entry => entry.TmdbId)
+                .Select(entry => new AnimationCatalogItem(
+                    entry.TmdbId,
+                    entry.Name,
+                    entry.OriginalName,
+                    entry.PosterPath,
+                    entry.EpisodeCount,
+                    entry.ReleaseCount,
+                    entry.AutomationAttentionCount,
+                    entry.LatestPublishTime))
+                .Take(take + 1)
+                .ToListAsync(cancellationToken);
+            var hasMore = items.Count > take;
+            if (hasMore) items.RemoveAt(items.Count - 1);
+            var nextCursor = hasMore && items.Count > 0
+                ? new AnimationCatalogCursor(
+                    items[^1].LatestPublishTime,
+                    items[^1].TmdbId,
+                    revision)
+                : null;
+            await transaction.CommitAsync(cancellationToken);
+            return new AnimationCatalogPage(items, nextCursor, revision);
+        });
     }
 
     public async Task<AnimationInfoSummaryPage> GetUncategorizedPageAsync(
@@ -90,17 +96,33 @@ public class AnimationInfoRepository(
         int take,
         CancellationToken cancellationToken)
     {
-        var source = context.AnimationInfo
-            .AsNoTracking()
-            .Where(info => info.MediaLibraryMissingSince == null && info.Animation == null);
-        source = ApplyInfoCursor(source, cursor);
+        var strategy = context.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(async () =>
+        {
+            await using var readContext = new Models.ApplicationContext(contextOptions);
+            await using var transaction = await readContext.Database.BeginTransactionAsync(
+                IsolationLevel.RepeatableRead,
+                cancellationToken);
+            var revision = await ReadCatalogRevisionAsync(readContext, cancellationToken);
+            if (cursor is not null && cursor.Revision != revision)
+            {
+                await transaction.CommitAsync(cancellationToken);
+                return new AnimationInfoSummaryPage([], null, revision, true);
+            }
 
-        var rows = await ProjectSummaries(source
-            .OrderByDescending(info => info.PublishTime)
-            .ThenByDescending(info => info.Id)
-            .Take(take + 1))
-            .ToListAsync(cancellationToken);
-        return ToSummaryPage(rows, take);
+            var source = readContext.AnimationInfo
+                .AsNoTracking()
+                .Where(info => info.MediaLibraryMissingSince == null && info.Animation == null);
+            source = ApplyInfoCursor(source, cursor);
+            var rows = await ProjectSummaries(source
+                    .OrderByDescending(info => info.PublishTime)
+                    .ThenByDescending(info => info.Id)
+                    .Take(take + 1))
+                .ToListAsync(cancellationToken);
+            var page = ToSummaryPage(rows, take, revision);
+            await transaction.CommitAsync(cancellationToken);
+            return page;
+        });
     }
 
     public async Task<AnimationEpisodePage?> GetAnimationEpisodesPageAsync(
@@ -109,54 +131,58 @@ public class AnimationInfoRepository(
         int take,
         CancellationToken cancellationToken)
     {
-        var aggregate = await context.AnimationInfo
-            .AsNoTracking()
-            .Where(info => info.MediaLibraryMissingSince == null
-                           && info.Animation != null
-                           && info.Animation.TmdbId == tmdbId)
-            .GroupBy(info => new
+        var strategy = context.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(async () =>
+        {
+            await using var readContext = new Models.ApplicationContext(contextOptions);
+            await using var transaction = await readContext.Database.BeginTransactionAsync(
+                IsolationLevel.RepeatableRead,
+                cancellationToken);
+            var revision = await ReadCatalogRevisionAsync(readContext, cancellationToken);
+            var animation = await readContext.AnimationCatalogEntries
+                .AsNoTracking()
+                .Where(entry => entry.TmdbId == tmdbId)
+                .Select(entry => new AnimationCatalogItem(
+                    entry.TmdbId,
+                    entry.Name,
+                    entry.OriginalName,
+                    entry.PosterPath,
+                    entry.EpisodeCount,
+                    entry.ReleaseCount,
+                    entry.AutomationAttentionCount,
+                    entry.LatestPublishTime))
+                .SingleOrDefaultAsync(cancellationToken);
+            if (animation is null)
             {
-                info.Animation!.TmdbId,
-                info.Animation.Name,
-                info.Animation.OriginalName,
-                info.Animation.PosterPath
-            })
-            .Select(group => new CatalogAggregateRow(
-                group.Key.TmdbId,
-                group.Key.Name,
-                group.Key.OriginalName,
-                group.Key.PosterPath,
-                group.Count(),
-                group.Count(info => info.AutomationDisposition == SubscriptionAutomationDisposition.Notified
-                                    || info.AutomationDisposition == SubscriptionAutomationDisposition.PendingConfirmation
-                                    || info.AutomationDisposition == SubscriptionAutomationDisposition.AutoDownloadFailed),
-                group.Max(info => info.PublishTime)))
-            .SingleOrDefaultAsync(cancellationToken);
-        if (aggregate is null) return null;
-        var episodeCounts = await GetEpisodeCountsAsync([tmdbId], cancellationToken);
-        var animation = new AnimationCatalogItem(
-            aggregate.TmdbId,
-            aggregate.Name,
-            aggregate.OriginalName,
-            aggregate.PosterPath,
-            episodeCounts.GetValueOrDefault(tmdbId),
-            aggregate.ReleaseCount,
-            aggregate.AutomationAttentionCount,
-            aggregate.LatestPublishTime);
+                await transaction.CommitAsync(cancellationToken);
+                return null;
+            }
 
-        var source = context.AnimationInfo
-            .AsNoTracking()
-            .Where(info => info.MediaLibraryMissingSince == null
-                           && info.Animation != null
-                           && info.Animation.TmdbId == tmdbId);
-        source = ApplyInfoCursor(source, cursor);
-        var rows = await ProjectSummaries(source
-            .OrderByDescending(info => info.PublishTime)
-            .ThenByDescending(info => info.Id)
-            .Take(take + 1))
-            .ToListAsync(cancellationToken);
-        var page = ToSummaryPage(rows, take);
-        return new AnimationEpisodePage(animation, page.Items, page.NextCursor);
+            if (cursor is not null && cursor.Revision != revision)
+            {
+                await transaction.CommitAsync(cancellationToken);
+                return new AnimationEpisodePage(animation, [], null, revision, true);
+            }
+
+            var source = readContext.AnimationInfo
+                .AsNoTracking()
+                .Where(info => info.MediaLibraryMissingSince == null
+                               && info.Animation != null
+                               && info.Animation.TmdbId == tmdbId);
+            source = ApplyInfoCursor(source, cursor);
+            var rows = await ProjectSummaries(source
+                    .OrderByDescending(info => info.PublishTime)
+                    .ThenByDescending(info => info.Id)
+                    .Take(take + 1))
+                .ToListAsync(cancellationToken);
+            var page = ToSummaryPage(rows, take, revision);
+            await transaction.CommitAsync(cancellationToken);
+            return new AnimationEpisodePage(
+                animation,
+                page.Items,
+                page.NextCursor,
+                revision);
+        });
     }
 
     private static IQueryable<AnimationInfoSummary> ProjectSummaries(
@@ -192,51 +218,26 @@ public class AnimationInfoRepository(
             || (info.PublishTime == cursor.PublishTime && info.Id.CompareTo(cursor.Id) < 0));
     }
 
-    private async Task<IReadOnlyDictionary<string, int>> GetEpisodeCountsAsync(
-        IReadOnlyCollection<string> tmdbIds,
-        CancellationToken cancellationToken)
-    {
-        if (tmdbIds.Count == 0)
-            return new Dictionary<string, int>(StringComparer.Ordinal);
-        var ids = tmdbIds.Distinct(StringComparer.Ordinal).ToArray();
-        var episodes = await context.AnimationInfo
+    private static async Task<long> ReadCatalogRevisionAsync(
+        Models.ApplicationContext readContext,
+        CancellationToken cancellationToken) =>
+        await readContext.AnimationCatalogStates
             .AsNoTracking()
-            .Where(info => info.MediaLibraryMissingSince == null
-                           && info.Animation != null
-                           && ids.Contains(info.Animation.TmdbId)
-                           && info.Episode != null)
-            .Select(info => new
-            {
-                info.Animation!.TmdbId,
-                info.Season,
-                info.Episode
-            })
-            .Distinct()
-            .ToListAsync(cancellationToken);
-        return episodes
-            .GroupBy(info => info.TmdbId, StringComparer.Ordinal)
-            .ToDictionary(group => group.Key, group => group.Count(), StringComparer.Ordinal);
-    }
-
-    private sealed record CatalogAggregateRow(
-        string TmdbId,
-        string Name,
-        string OriginalName,
-        string? PosterPath,
-        int ReleaseCount,
-        int AutomationAttentionCount,
-        DateTimeOffset LatestPublishTime);
+            .Where(state => state.Id == 1)
+            .Select(state => state.Revision)
+            .SingleAsync(cancellationToken);
 
     private static AnimationInfoSummaryPage ToSummaryPage(
         List<AnimationInfoSummary> rows,
-        int take)
+        int take,
+        long revision)
     {
         var hasMore = rows.Count > take;
         if (hasMore) rows.RemoveAt(rows.Count - 1);
         var nextCursor = hasMore && rows.Count > 0
-            ? new AnimationInfoCursor(rows[^1].PublishTime, rows[^1].Id)
+            ? new AnimationInfoCursor(rows[^1].PublishTime, rows[^1].Id, revision)
             : null;
-        return new AnimationInfoSummaryPage(rows, nextCursor);
+        return new AnimationInfoSummaryPage(rows, nextCursor, revision);
     }
 
     public async Task<PagedResult<AnimationInfo>> GetDownloadingPagedAsync(int skip, int take, CancellationToken cancellationToken)

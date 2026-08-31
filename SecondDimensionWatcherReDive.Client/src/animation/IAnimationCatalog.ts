@@ -14,15 +14,22 @@ export interface IAnimationCatalogItem {
 export interface IAnimationCatalogResponse {
   items: IAnimationCatalogItem[];
   nextCursor: string | null;
+  revision: number;
 }
 
 export interface IAnimationInfoSummaryResponse {
   items: IAnimationInfo[];
   nextCursor: string | null;
+  revision: number;
 }
 
 export interface IAnimationEpisodeResponse {
   animation: IAnimationCatalogItem;
   episodes: IAnimationInfo[];
   nextCursor: string | null;
+  revision: number;
+}
+
+export interface IAnimationCatalogRevisionResponse {
+  revision: number;
 }

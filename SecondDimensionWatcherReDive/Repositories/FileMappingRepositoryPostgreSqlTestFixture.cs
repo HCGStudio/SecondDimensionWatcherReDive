@@ -30,7 +30,12 @@ internal sealed class FileMappingRepositoryPostgreSqlTestFixture(string connecti
         if (migrations.Length < 2)
             throw new InvalidOperationException("At least two migrations are required for an upgrade test.");
 
-        var previousMigration = migrations[^2];
+        var resumableStateIndex = Array.FindIndex(
+            migrations,
+            migration => migration.EndsWith("_AddResumableMigrationState", StringComparison.Ordinal));
+        if (resumableStateIndex < 1)
+            throw new InvalidOperationException("The resumable migration-state boundary was not found.");
+        var previousMigration = migrations[resumableStateIndex - 1];
         var latestMigration = migrations[^1];
 
         await context.Database.EnsureDeletedAsync(cancellationToken);

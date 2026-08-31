@@ -64,7 +64,7 @@ public class FileMappingRepository(
                         .ToArray(),
                     cancellationToken);
                 if (conflicts.Count > 0)
-                    throw new InvalidOperationException(
+                    throw new DbUpdateException(
                         $"The proposed mappings conflict with the virtual-path namespace at '{conflicts[0].OccupiedPath}'.");
             }
 

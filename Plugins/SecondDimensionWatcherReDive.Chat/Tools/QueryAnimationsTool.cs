@@ -59,6 +59,9 @@ internal sealed partial class QueryAnimationsTool(
                 cursor?.Uncategorized,
                 take,
                 cancellationToken);
+        if (animationPage.CursorInvalidated || uncategorizedPage.CursorInvalidated)
+            return new ToolFailureResult(
+                "The grouped catalog changed while it was being paged; restart without grouped_cursor");
         var animations = animationPage.Items.Select(item => new AnimationGroupItem(
                 item.TmdbId,
                 item.Name,

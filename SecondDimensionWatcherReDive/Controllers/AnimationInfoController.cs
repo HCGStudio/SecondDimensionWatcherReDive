@@ -44,9 +44,20 @@ internal class AnimationInfoController(
             decoded,
             NormalizeTake(take),
             cancellationToken);
+        if (result.CursorInvalidated) return Conflict();
         return Ok(new External.AnimationCatalogResponse(
             result.Items.Select(item => item.ToExternal()).ToList(),
-            EncodeCursor(result.NextCursor)));
+            EncodeCursor(result.NextCursor),
+            result.Revision));
+    }
+
+    [HttpGet("catalog-revision")]
+    public async Task<IActionResult> GetCatalogRevisionAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var revision = await animationInfoRepository.GetAnimationCatalogRevisionAsync(
+            cancellationToken);
+        return Ok(new External.AnimationCatalogRevisionResponse(revision));
     }
 
     [HttpGet("uncategorized")]
@@ -61,9 +72,11 @@ internal class AnimationInfoController(
             decoded,
             NormalizeTake(take),
             cancellationToken);
+        if (result.CursorInvalidated) return Conflict();
         return Ok(new External.AnimationInfoSummaryResponse(
             result.Items.Select(item => item.ToExternal()).ToList(),
-            EncodeCursor(result.NextCursor)));
+            EncodeCursor(result.NextCursor),
+            result.Revision));
     }
 
     [HttpGet("grouped/{tmdbId}/episodes")]
@@ -81,10 +94,12 @@ internal class AnimationInfoController(
             NormalizeTake(take),
             cancellationToken);
         if (result is null) return NotFound();
+        if (result.CursorInvalidated) return Conflict();
         return Ok(new External.AnimationEpisodeResponse(
             result.Animation.ToExternal(),
             result.Episodes.Select(item => item.ToExternal()).ToList(),
-            EncodeCursor(result.NextCursor)));
+            EncodeCursor(result.NextCursor),
+            result.Revision));
     }
 
     private static int NormalizeTake(int take) => Math.Clamp(take, 1, 100);

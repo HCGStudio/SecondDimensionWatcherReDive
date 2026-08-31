@@ -4,6 +4,9 @@ public interface IAnimationInfoRepository
 {
     Task<PagedResult<AnimationInfo>> GetPagedAsync(int skip, int take, CancellationToken cancellationToken);
 
+    Task<long> GetAnimationCatalogRevisionAsync(CancellationToken cancellationToken) =>
+        Task.FromResult(1L);
+
     Task<AnimationCatalogPage> GetAnimationCatalogPageAsync(
         AnimationCatalogCursor? cursor,
         int take,

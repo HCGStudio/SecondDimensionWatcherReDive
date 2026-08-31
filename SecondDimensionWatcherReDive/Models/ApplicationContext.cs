@@ -17,6 +17,8 @@ public class ApplicationContext : DbContext
     public DbSet<Animation> Animations { get; set; }
     public DbSet<AnimationGroup> AnimationGroups { get; set; }
     public DbSet<AnimationInfo> AnimationInfo { get; set; }
+    public DbSet<AnimationCatalogEntry> AnimationCatalogEntries { get; set; }
+    public DbSet<AnimationCatalogState> AnimationCatalogStates { get; set; }
     public DbSet<Feed> Feeds { get; set; }
     public DbSet<SeasonBangumi> SeasonBangumis { get; set; }
     public DbSet<BangumiSubgroup> BangumiSubgroups { get; set; }
@@ -65,6 +67,49 @@ public class ApplicationContext : DbContext
         modelBuilder.Entity<Animation>()
             .HasIndex(animation => animation.TmdbId)
             .IsUnique();
+
+        modelBuilder.Entity<AnimationCatalogEntry>()
+            .HasKey(entry => entry.AnimationId);
+
+        modelBuilder.Entity<AnimationCatalogEntry>()
+            .HasOne(entry => entry.Animation)
+            .WithOne()
+            .HasForeignKey<AnimationCatalogEntry>(entry => entry.AnimationId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<AnimationCatalogEntry>()
+            .HasIndex(entry => entry.TmdbId)
+            .IsUnique();
+
+        modelBuilder.Entity<AnimationCatalogEntry>()
+            .HasIndex(entry => new { entry.LatestPublishTime, entry.TmdbId })
+            .IsDescending();
+
+        modelBuilder.Entity<AnimationCatalogEntry>()
+            .ToTable(table =>
+            {
+                table.HasCheckConstraint(
+                    "CK_AnimationCatalogEntries_Counts",
+                    "\"EpisodeCount\" >= 0 AND \"ReleaseCount\" > 0 AND \"AutomationAttentionCount\" >= 0");
+            });
+
+        modelBuilder.Entity<AnimationCatalogState>()
+            .HasKey(state => state.Id);
+
+        modelBuilder.Entity<AnimationCatalogState>()
+            .Property(state => state.Id)
+            .ValueGeneratedNever();
+
+        modelBuilder.Entity<AnimationCatalogState>()
+            .ToTable(table =>
+            {
+                table.HasCheckConstraint(
+                    "CK_AnimationCatalogStates_Singleton",
+                    "\"Id\" = 1");
+                table.HasCheckConstraint(
+                    "CK_AnimationCatalogStates_Revision_Positive",
+                    "\"Revision\" > 0");
+            });
 
         modelBuilder.Entity<AnimationGroup>()
             .HasIndex(group => group.Name)

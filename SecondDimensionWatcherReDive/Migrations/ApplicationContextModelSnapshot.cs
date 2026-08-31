@@ -51,6 +51,72 @@ namespace SecondDimensionWatcherReDive.Migrations
                     b.ToTable("Animations");
                 });
 
+
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.AnimationCatalogEntry", b =>
+                {
+                    b.Property<Guid>("AnimationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("AutomationAttentionCount")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("EpisodeCount")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset>("LatestPublishTime")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("OriginalName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("PosterPath")
+                        .HasColumnType("text");
+
+                    b.Property<int>("ReleaseCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("TmdbId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("AnimationId");
+
+                    b.HasIndex("LatestPublishTime", "TmdbId")
+                        .IsDescending();
+
+                    b.HasIndex("TmdbId")
+                        .IsUnique();
+
+                    b.ToTable("AnimationCatalogEntries", t =>
+                        {
+                            t.HasCheckConstraint("CK_AnimationCatalogEntries_Counts", "\"EpisodeCount\" >= 0 AND \"ReleaseCount\" > 0 AND \"AutomationAttentionCount\" >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.AnimationCatalogState", b =>
+                {
+                    b.Property<int>("Id")
+                        .HasColumnType("integer");
+
+                    b.Property<long>("Revision")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("AnimationCatalogStates", t =>
+                        {
+                            t.HasCheckConstraint("CK_AnimationCatalogStates_Revision_Positive", "\"Revision\" > 0");
+
+                            t.HasCheckConstraint("CK_AnimationCatalogStates_Singleton", "\"Id\" = 1");
+                        });
+                });
+
+
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.AnimationGroup", b =>
                 {
                     b.Property<Guid>("Id")
@@ -976,6 +1042,18 @@ namespace SecondDimensionWatcherReDive.Migrations
 
                     b.ToTable("WebDavTokens");
                 });
+
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.AnimationCatalogEntry", b =>
+                {
+                    b.HasOne("SecondDimensionWatcherReDive.Models.Animation", "Animation")
+                        .WithOne()
+                        .HasForeignKey("SecondDimensionWatcherReDive.Models.AnimationCatalogEntry", "AnimationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Animation");
+                });
+
 
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.AnimationInfo", b =>
                 {

@@ -2,11 +2,13 @@ namespace SecondDimensionWatcherReDive.Framework.DataRepository;
 
 public sealed record AnimationCatalogCursor(
     DateTimeOffset LatestPublishTime,
-    string TmdbId);
+    string TmdbId,
+    long Revision = 0);
 
 public sealed record AnimationInfoCursor(
     DateTimeOffset PublishTime,
-    Guid Id);
+    Guid Id,
+    long Revision = 0);
 
 public sealed record AnimationCatalogItem(
     string TmdbId,
@@ -45,13 +47,19 @@ public sealed record AnimationInfoSummary(
 
 public sealed record AnimationCatalogPage(
     IReadOnlyList<AnimationCatalogItem> Items,
-    AnimationCatalogCursor? NextCursor);
+    AnimationCatalogCursor? NextCursor,
+    long Revision = 0,
+    bool CursorInvalidated = false);
 
 public sealed record AnimationInfoSummaryPage(
     IReadOnlyList<AnimationInfoSummary> Items,
-    AnimationInfoCursor? NextCursor);
+    AnimationInfoCursor? NextCursor,
+    long Revision = 0,
+    bool CursorInvalidated = false);
 
 public sealed record AnimationEpisodePage(
     AnimationCatalogItem Animation,
     IReadOnlyList<AnimationInfoSummary> Episodes,
-    AnimationInfoCursor? NextCursor);
+    AnimationInfoCursor? NextCursor,
+    long Revision = 0,
+    bool CursorInvalidated = false);
