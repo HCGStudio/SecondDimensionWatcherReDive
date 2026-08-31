@@ -1,4 +1,6 @@
-﻿namespace SecondDimensionWatcherReDive.Framework.FileStore;
+﻿using System.Collections.Concurrent;
+
+namespace SecondDimensionWatcherReDive.Framework.FileStore;
 
 public record FileStoreInfo(
     bool IsDirectory,
@@ -17,24 +19,26 @@ public interface IFileStore
         CancellationToken cancellationToken)
     {
         var uniquePaths = paths.Distinct(StringComparer.Ordinal).ToArray();
-        var results = await Task.WhenAll(uniquePaths.Select(async path =>
-        {
-            try
+        var results = new ConcurrentDictionary<string, FileStoreInfo>(StringComparer.Ordinal);
+        await Parallel.ForEachAsync(
+            uniquePaths,
+            new ParallelOptions
             {
-                return new KeyValuePair<string, FileStoreInfo>?(
-                    new KeyValuePair<string, FileStoreInfo>(
-                        path,
-                        await FileInfoAsync(path, cancellationToken)));
-            }
-            catch (Exception) when (!cancellationToken.IsCancellationRequested)
+                CancellationToken = cancellationToken,
+                MaxDegreeOfParallelism = 16
+            },
+            async (path, itemCancellationToken) =>
             {
-                return null;
-            }
-        }));
-        return results
-            .Where(pair => pair.HasValue)
-            .Select(pair => pair!.Value)
-            .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
+                try
+                {
+                    results[path] = await FileInfoAsync(path, itemCancellationToken);
+                }
+                catch (Exception) when (!cancellationToken.IsCancellationRequested)
+                {
+                    // Missing or temporarily unavailable physical files are omitted.
+                }
+            });
+        return results;
     }
     public Task<bool> ExistAsync(string path, CancellationToken cancellationToken);
     IAsyncEnumerable<FileStoreInfo> EnumerateDirectory(string path);
