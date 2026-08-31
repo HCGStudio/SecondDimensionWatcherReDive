@@ -7,6 +7,7 @@ using SecondDimensionWatcherReDive.Framework.Feed;
 using SecondDimensionWatcherReDive.Framework.FileDownload;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Framework.Tasks;
+using SecondDimensionWatcherReDive.Framework.Notifications;
 using SecondDimensionWatcherReDive.Utils.Incidents;
 using SecondDimensionWatcherReDive.Utils.Http;
 using SecondDimensionWatcherReDive.Utils.Feed;
@@ -22,7 +23,8 @@ internal partial class SyncFeed(
     ISafeOutboundHttpFetcher outboundFetcher,
     IServiceScopeFactory scopeFactory,
     ISubscriptionAutomationMatcher automationMatcher,
-    IIncidentReporter? incidentReporter = null)
+    IIncidentReporter? incidentReporter = null,
+    INotificationPublisher? notificationPublisher = null)
     : ScheduledTaskBase
 {
     private static readonly JsonSerializerOptions ExplanationJsonOptions = new(JsonSerializerDefaults.Web);
@@ -188,6 +190,28 @@ internal partial class SyncFeed(
                         : JsonSerializer.Serialize(evaluation.Explanations, ExplanationJsonOptions));
                 await animationInfoRepository.AddAsync(info, cancellationToken);
 
+                if (notificationPublisher is not null)
+                {
+                    if (policy?.Mode == SubscriptionAutomationMode.NotifyOnly)
+                    {
+                        await notificationPublisher.PublishAsync(new NotificationEvent(
+                            NotificationEventType.ReleaseMatched,
+                            $"release-matched:{info.Id}",
+                            "Subscription release matched",
+                            info.Title,
+                            $"/todo?focus=automation:{info.Id}"), cancellationToken);
+                    }
+                    else if (policy?.Mode == SubscriptionAutomationMode.ManualConfirm)
+                    {
+                        await notificationPublisher.PublishAsync(new NotificationEvent(
+                            NotificationEventType.DownloadPendingConfirmation,
+                            $"download-pending-confirmation:{info.Id}",
+                            "Download confirmation required",
+                            info.Title,
+                            $"/todo?focus=automation:{info.Id}"), cancellationToken);
+                    }
+                }
+
                 if (incidentReporter is not null)
                     await incidentReporter.ResolveAsync(
                         IncidentType.FeedFailure,
@@ -195,11 +219,32 @@ internal partial class SyncFeed(
                         cancellationToken);
 
                 if (policy?.Mode == SubscriptionAutomationMode.AutoDownload)
-                    await QueueAutomaticDownloadAsync(
+                {
+                    var started = await QueueAutomaticDownloadAsync(
                         info,
                         animationInfoRepository,
                         scope.ServiceProvider.GetRequiredService<IFileDownloadClientProvider>(),
                         cancellationToken);
+                    if (!started && notificationPublisher is not null)
+                    {
+                        // A failed compensation can leave the remote attempt
+                        // durably tracked for startup recovery. Only announce a
+                        // terminal failure once the database confirms that state.
+                        var failed = await animationInfoRepository.FindByIdAsync(
+                            info.Id,
+                            cancellationToken);
+                        if (failed?.AutomationDisposition ==
+                            SubscriptionAutomationDisposition.AutoDownloadFailed)
+                        {
+                            await notificationPublisher.PublishAsync(new NotificationEvent(
+                                NotificationEventType.DownloadFailed,
+                                $"auto-download-failed:{info.Id}",
+                                "Automatic download failed",
+                                info.Title,
+                                $"/todo?focus=automation:{info.Id}"), cancellationToken);
+                        }
+                    }
+                }
             }
             catch (InvalidTorrentDataException e)
             {
@@ -218,7 +263,7 @@ internal partial class SyncFeed(
         }
     }
 
-    private async Task QueueAutomaticDownloadAsync(
+    private async Task<bool> QueueAutomaticDownloadAsync(
         AnimationInfo info,
         IAnimationInfoRepository animationInfoRepository,
         IFileDownloadClientProvider downloadClientProvider,
@@ -237,7 +282,7 @@ internal partial class SyncFeed(
                     cancellationToken))
             {
                 LogAutomaticDownloadWarning(logger, info.Title, "download state changed");
-                return;
+                return false;
             }
 
             submissionAttempted = true;
@@ -255,7 +300,9 @@ internal partial class SyncFeed(
                     downloadAttemptId,
                     remoteMayHaveAccepted: false);
                 LogAutomaticDownloadWarning(logger, info.Title, "download client rejected the task");
+                return false;
             }
+            return true;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -290,6 +337,7 @@ internal partial class SyncFeed(
                 // Keep the original automatic-download failure in the log.
             }
             LogAutomaticDownloadWarning(logger, info.Title, exception.Message);
+            return false;
         }
     }
 

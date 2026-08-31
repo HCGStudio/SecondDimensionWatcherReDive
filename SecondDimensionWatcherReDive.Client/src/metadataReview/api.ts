@@ -12,13 +12,18 @@ import {
 
 export const METADATA_REVIEW_PAGE_SIZE = 20;
 
-export function useMetadataReview(status: MetadataReviewStatus, page: number) {
+export function useMetadataReview(
+  status: MetadataReviewStatus,
+  page: number,
+  focus?: string | null,
+) {
   const skip = (page - 1) * METADATA_REVIEW_PAGE_SIZE;
   const query = new URLSearchParams({
     status,
     skip: String(skip),
     take: String(METADATA_REVIEW_PAGE_SIZE),
   });
+  if (focus) query.set("focus", focus);
 
   return useSWR<MetadataReviewResponse>(
     `/api/metadata-review?${query.toString()}`,

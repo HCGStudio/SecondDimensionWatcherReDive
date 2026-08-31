@@ -19,6 +19,7 @@ import {
   loadPlayerPage,
   loadSettingsPage,
   loadTasksPage,
+  loadTodoPage,
 } from "./routes/pageLoaders";
 
 const ChatPage = React.lazy(async () => ({
@@ -59,6 +60,9 @@ const SettingsPage = React.lazy(async () => ({
 }));
 const TasksPage = React.lazy(async () => ({
   default: (await loadTasksPage()).TasksPage,
+}));
+const TodoPage = React.lazy(async () => ({
+  default: (await loadTodoPage()).TodoPage,
 }));
 
 const router = createBrowserRouter([
@@ -121,6 +125,15 @@ const router = createBrowserRouter([
     element: (
       <ProtectedRoute>
         <PlayerPage />
+      </ProtectedRoute>
+    ),
+    errorElement: <ErrorPage />,
+  },
+  {
+    path: "/todo",
+    element: (
+      <ProtectedRoute>
+        <TodoPage />
       </ProtectedRoute>
     ),
     errorElement: <ErrorPage />,

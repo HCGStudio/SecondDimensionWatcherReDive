@@ -6,6 +6,7 @@ import { Main } from "./Main";
 import fetcher from "./auth/httpClient";
 import { ToastProvider } from "./components/ToastProvider";
 import i18n from "./i18n";
+import { refreshWebPushServiceWorker } from "./notifications/webPush";
 import "./styles.css";
 import { setDayjsLocale } from "./utils/initDayjs";
 
@@ -15,6 +16,7 @@ i18n.on("languageChanged", (lng) => {
   setDayjsLocale(lng);
   document.documentElement.lang = lng;
 });
+void refreshWebPushServiceWorker().catch(() => undefined);
 
 const root = createRoot(document.getElementById("app")!);
 root.render(

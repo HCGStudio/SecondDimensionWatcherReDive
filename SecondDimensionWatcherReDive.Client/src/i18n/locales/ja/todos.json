@@ -1,0 +1,51 @@
+{
+  "eyebrow": "確認キュー",
+  "title": "統合 TODO センター",
+  "subtitle": "一致したリリース、確認待ち、障害、メタデータ、ディスク警告をリスク順に確認します。",
+  "unread": "未読 {{count}} 件",
+  "listLabel": "現在の TODO",
+  "filters": {
+    "includeRead": "既読を表示",
+    "includeSnoozed": "スヌーズを表示"
+  },
+  "actions": {
+    "selectAll": "すべて選択",
+    "selectItem": "{{title}} を選択",
+    "readSelected": "選択項目を既読にする",
+    "snoozeSelected": "選択項目を 1 時間スヌーズ",
+    "markRead": "既読にする",
+    "markUnread": "未読にする",
+    "snooze": "1 時間スヌーズ",
+    "unsnooze": "今すぐ通知",
+    "download": "ダウンロード / 再試行",
+    "open": "詳細を開く"
+  },
+  "types": {
+    "ReleaseMatched": "リリース一致",
+    "DownloadPendingConfirmation": "確認待ち",
+    "DownloadFailed": "ダウンロード失敗",
+    "Incident": "障害",
+    "MetadataReview": "メタデータ確認",
+    "DiskSpaceLow": "ディスク容量不足"
+  },
+  "details": {
+    "ReleaseMatched": "通知のみの購読にこのリリースが一致しました。",
+    "DownloadPendingConfirmation": "一致したリリースがダウンロード確認を待っています。",
+    "DownloadFailed": "自動ダウンロードを開始できませんでした。確認して再試行してください。"
+  },
+  "priorities": {
+    "Normal": "通常",
+    "High": "優先",
+    "Critical": "緊急"
+  },
+  "empty": {
+    "title": "すべて完了しました",
+    "body": "現在、確認が必要な表示項目はありません。"
+  },
+  "errors": { "loadFailed": "TODO キューを読み込めませんでした。" },
+  "toast": {
+    "updateFailed": "選択項目を更新できませんでした",
+    "downloadStarted": "ダウンロードを開始し、既読にしました",
+    "downloadFailed": "ダウンロードを開始できませんでした"
+  }
+}

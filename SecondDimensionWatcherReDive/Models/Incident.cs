@@ -17,4 +17,5 @@ public class Incident
     public int RetryCount { get; set; }
     public DateTimeOffset? LastRetryAt { get; set; }
     public string? LastRetryError { get; set; }
+    public int Occurrence { get; set; } = 1;
 }

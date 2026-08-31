@@ -6,6 +6,7 @@ export const loadPlayerPage = () => import("../pages/PlayerPage");
 export const loadIncidentsPage = () => import("../pages/IncidentsPage");
 export const loadFeedsPage = () => import("../pages/FeedsPage");
 export const loadTasksPage = () => import("../pages/TasksPage");
+export const loadTodoPage = () => import("../pages/TodoPage");
 export const loadMetadataReviewPage = () =>
   import("../pages/MetadataReviewPage");
 export const loadChatPage = () => import("../pages/ChatPage");

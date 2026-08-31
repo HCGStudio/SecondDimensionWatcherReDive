@@ -4,6 +4,7 @@ using System.Threading.Channels;
 using SecondDimensionWatcherReDive.Data;
 using SecondDimensionWatcherReDive.Framework.FileStore;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
+using SecondDimensionWatcherReDive.Framework.Notifications;
 using SecondDimensionWatcherReDive.Utils.FileDownload;
 using SecondDimensionWatcherReDive.Utils.Incidents;
 
@@ -17,7 +18,8 @@ public partial class FetchRemoteTorrentBackgroundService(
     IServiceScopeFactory scopeFactory,
     ILogger<FetchRemoteTorrentBackgroundService> logger,
     IConfiguration configuration,
-    IIncidentReporter? incidentReporter = null)
+    IIncidentReporter? incidentReporter = null,
+    INotificationPublisher? notificationPublisher = null)
     : BackgroundService
 {
     private sealed record DownloadObservation(
@@ -200,6 +202,15 @@ public partial class FetchRemoteTorrentBackgroundService(
                 request.ItemId,
                 $"The remote download client reports state '{torrentInfo.State}'.",
                 cancellationToken);
+            if (notificationPublisher is not null)
+            {
+                await notificationPublisher.PublishAsync(new NotificationEvent(
+                    NotificationEventType.DownloadFailed,
+                    $"download-failed:{request.ItemId}:{request.DownloadAttemptId?.ToString() ?? "legacy"}",
+                    "Download failed",
+                    "The remote download client reported an error.",
+                    "/downloading"), cancellationToken);
+            }
             observations[torrentInfo.Hash] = observation with
             {
                 LastReportedAt = now,

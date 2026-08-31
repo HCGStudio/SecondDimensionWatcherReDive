@@ -534,6 +534,12 @@ public class AnimationInfoRepository(
             throw new DbUpdateConcurrencyException(
                 $"AnimationInfo {info.Id} changed from revision {info.StateVersion} to {currentStateVersion}.");
 
+        await ResetTodoStateForTransitionAsync(
+            context,
+            entity,
+            info.MetadataStatus,
+            info.AutomationDisposition,
+            cancellationToken);
         info.ApplyTo(entity);
 
         entity.Animation = info.Animation is null
@@ -575,14 +581,7 @@ public class AnimationInfoRepository(
             }
             else
             {
-                entity.IsDownloadTracked = true;
-                entity.IsDownloadFinished = false;
-                entity.DownloadAttemptId = downloadAttemptId;
-                entity.DownloadCancellationId = null;
-                entity.DownloadStartTime = startedAt;
-                entity.FileStore = null;
-                entity.StorePath = null;
-                entity.AutomationDisposition = queuedDisposition
+                var nextDisposition = queuedDisposition
                     ?? entity.AutomationDisposition switch
                     {
                         SubscriptionAutomationDisposition.Notified or
@@ -592,6 +591,20 @@ public class AnimationInfoRepository(
                             SubscriptionAutomationDisposition.ManualDownloadQueued,
                         _ => entity.AutomationDisposition
                     };
+                await ResetTodoStateForTransitionAsync(
+                    writeContext,
+                    entity,
+                    entity.MetadataStatus,
+                    nextDisposition,
+                    cancellationToken);
+                entity.IsDownloadTracked = true;
+                entity.IsDownloadFinished = false;
+                entity.DownloadAttemptId = downloadAttemptId;
+                entity.DownloadCancellationId = null;
+                entity.DownloadStartTime = startedAt;
+                entity.FileStore = null;
+                entity.StorePath = null;
+                entity.AutomationDisposition = nextDisposition;
                 entity.StateVersion = checked(entity.StateVersion + 1);
                 await writeContext.SaveChangesAsync(cancellationToken);
             }
@@ -686,6 +699,12 @@ public class AnimationInfoRepository(
                 SubscriptionAutomationDisposition.AutoDownloadQueued or
                 SubscriptionAutomationDisposition.ManualDownloadQueued)
             {
+                await ResetTodoStateForTransitionAsync(
+                    writeContext,
+                    entity,
+                    entity.MetadataStatus,
+                    SubscriptionAutomationDisposition.DownloadCompleted,
+                    cancellationToken);
                 entity.AutomationDisposition = SubscriptionAutomationDisposition.DownloadCompleted;
                 changed = true;
             }
@@ -736,13 +755,20 @@ public class AnimationInfoRepository(
                 entity.IsDownloadFinished = false;
                 entity.DownloadAttemptId = null;
                 entity.DownloadCancellationId = null;
-                entity.AutomationDisposition = terminalDisposition
+                var nextDisposition = terminalDisposition
                     ?? (entity.AutomationDisposition is
                         SubscriptionAutomationDisposition.AutoDownloadQueued or
                         SubscriptionAutomationDisposition.ManualDownloadQueued or
                         SubscriptionAutomationDisposition.DownloadCompleted
                             ? SubscriptionAutomationDisposition.DownloadCancelled
                             : entity.AutomationDisposition);
+                await ResetTodoStateForTransitionAsync(
+                    writeContext,
+                    entity,
+                    entity.MetadataStatus,
+                    nextDisposition,
+                    cancellationToken);
+                entity.AutomationDisposition = nextDisposition;
                 entity.StateVersion = checked(entity.StateVersion + 1);
                 await writeContext.SaveChangesAsync(cancellationToken);
             }
@@ -773,6 +799,12 @@ public class AnimationInfoRepository(
         if (entity is null || entity.StateVersion != expectedStateVersion)
             return false;
 
+        await ResetTodoStateForTransitionAsync(
+            context,
+            entity,
+            info.MetadataStatus,
+            info.AutomationDisposition,
+            cancellationToken);
         info.ApplyTo(entity);
         entity.Animation = info.Animation is null
             ? null
@@ -790,8 +822,46 @@ public class AnimationInfoRepository(
         }
         catch (DbUpdateConcurrencyException)
         {
-            context.Entry(entity).State = EntityState.Detached;
+            // The transition may also have staged a todo-state deletion. None
+            // of those tracked changes belong to the losing revision.
+            context.ChangeTracker.Clear();
             return false;
         }
     }
+
+    private static async Task ResetTodoStateForTransitionAsync(
+        Models.ApplicationContext writeContext,
+        Models.AnimationInfo current,
+        MetadataReviewStatus nextMetadataStatus,
+        SubscriptionAutomationDisposition? nextAutomationDisposition,
+        CancellationToken cancellationToken)
+    {
+        if (current.MetadataStatus != nextMetadataStatus
+            && (IsMetadataTodoState(current.MetadataStatus)
+                || IsMetadataTodoState(nextMetadataStatus)))
+        {
+            var metadataState = await writeContext.TodoItemStates
+                .FindAsync(["metadata:" + current.Id], cancellationToken);
+            if (metadataState is not null)
+                writeContext.TodoItemStates.Remove(metadataState);
+        }
+
+        if (current.AutomationDisposition != nextAutomationDisposition
+            && (IsAutomationTodoState(current.AutomationDisposition)
+                || IsAutomationTodoState(nextAutomationDisposition)))
+        {
+            var automationState = await writeContext.TodoItemStates
+                .FindAsync(["automation:" + current.Id], cancellationToken);
+            if (automationState is not null)
+                writeContext.TodoItemStates.Remove(automationState);
+        }
+    }
+
+    private static bool IsMetadataTodoState(MetadataReviewStatus status) =>
+        status is MetadataReviewStatus.LowConfidence or MetadataReviewStatus.Failed;
+
+    private static bool IsAutomationTodoState(SubscriptionAutomationDisposition? disposition) =>
+        disposition is SubscriptionAutomationDisposition.Notified
+            or SubscriptionAutomationDisposition.PendingConfirmation
+            or SubscriptionAutomationDisposition.AutoDownloadFailed;
 }

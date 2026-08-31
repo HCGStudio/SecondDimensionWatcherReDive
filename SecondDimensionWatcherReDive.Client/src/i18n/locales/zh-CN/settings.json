@@ -10,6 +10,7 @@
       "downloads": "下载与存储",
       "media": "媒体与元数据",
       "health": "健康监控",
+      "notifications": "通知",
       "access": "访问协议"
     },
     "pendingRestart": {
@@ -163,6 +164,79 @@
         "description": "可用空间必须同时达到容量和百分比阈值。",
         "minimumBytes": "最小可用空间（GiB）",
         "minimumPercent": "最小可用比例（%）"
+      }
+    },
+    "notifications": {
+      "eyebrow": "外部提醒",
+      "title": "通知",
+      "description": "在不阻塞下载、推断或异常处理的前提下投递所选领域事件。",
+      "saved": "通知设置已保存",
+      "validationFailed": "请配置通知渠道、至少一个事件和有效的免打扰时段",
+      "testQueued": "测试通知已进入队列",
+      "testFailed": "无法加入测试通知",
+      "webhook": {
+        "title": "通用 Webhook",
+        "description": "发送稳定的事件信封；接收端可用 X-SDW-Event-Id 实现幂等。",
+        "enabled": "启用 Webhook 投递",
+        "enabledHelp": "失败会在后台重试，绝不会导致原业务操作失败。",
+        "url": "Webhook URL",
+        "secretHelp": "完整 URL 会加密保存，绝不返回浏览器或写入日志。",
+        "test": "发送测试",
+        "testing": "正在加入队列…"
+      },
+      "webPush": {
+        "title": "浏览器 Web Push",
+        "description": "向在安全来源上明确订阅的浏览器发送端到端加密通知。",
+        "enabled": "启用 Web Push 投递",
+        "enabledHelp": "每个浏览器订阅独立持久重试，并可在不暴露能力 URL 的情况下撤销。",
+        "subject": "VAPID 联系方式（mailto: 或 HTTPS URL）",
+        "keysConfigured": "VAPID 私钥已加密保存；公钥只用于浏览器订阅。",
+        "keysGeneratedOnSave": "保存时会在服务端生成 VAPID 密钥对，并加密保存私钥。",
+        "enableDevice": "在此设备启用",
+        "disableDevice": "在此设备停用",
+        "unsupported": "Web Push 需要受支持的浏览器以及安全的 HTTPS 或 localhost 来源。",
+        "deviceEnabled": "已在此设备启用 Web Push",
+        "deviceDisabled": "已在此设备停用 Web Push",
+        "deviceFailed": "无法更新此 Web Push 订阅",
+        "subscriptionActive": "订阅有效",
+        "subscriptionRevoked": "已撤销 Web Push 订阅",
+        "revokeSubscription": "撤销订阅"
+      },
+      "events": {
+        "title": "事件订阅",
+        "description": "选择允许向外投递的事件。",
+        "items": {
+          "releaseMatched": "仅通知订阅命中",
+          "downloadPendingConfirmation": "下载等待确认",
+          "downloadCompleted": "下载完成",
+          "downloadFailed": "下载失败",
+          "incidentOpened": "异常已开启",
+          "metadataNeedsReview": "元数据需要审查",
+          "diskSpaceLow": "磁盘空间不足",
+          "test": "测试通知"
+        }
+      },
+      "quiet": {
+        "title": "免打扰时段",
+        "description": "开始和结束均留空则立即投递；免打扰期间事件会保留在队列。",
+        "start": "开始（hh:mm:ss）",
+        "end": "结束（hh:mm:ss）",
+        "timeZone": "IANA 时区"
+      },
+      "delivery": {
+        "title": "最近投递记录",
+        "description": "查看排队、成功、重试和永久失败记录，且不会暴露目标地址。",
+        "empty": "还没有投递记录。",
+        "channel": {
+          "Webhook": "Webhook",
+          "WebPush": "Web Push"
+        },
+        "status": {
+          "Pending": "等待中",
+          "Processing": "投递中",
+          "Delivered": "已投递",
+          "Failed": "已失败"
+        }
       }
     },
     "access": {

@@ -107,6 +107,10 @@ bash <(curl -fsSL https://raw.githubusercontent.com/HCGStudio/SecondDimensionWat
 | `AI:Anthropic:ApiKey` / `BaseUrl` / `Model` / `MaxTokens` / `ApiVersion` | Anthropic 端点 |
 | `AI:CodexAppServer:Endpoint` / `BearerToken` / `Model` / `PermissionProfile` / `TimeoutSeconds` | Codex app-server WebSocket 端点；空模型使用服务端默认模型；权限配置默认 `:read-only`，也可填写管理员定义的 profile id |
 | `Inference:RateLimitDelayMs` | 推断 API 调用最小间隔（毫秒，默认 1000） |
+| `Notifications:Webhook:Enabled` / `Url` | 通用 Webhook 通知渠道；完整 URL 按敏感配置处理，建议从网页设置中保存；远端地址必须使用 HTTPS |
+| `Notifications:WebPush:Enabled` / `Subject` / `VapidPublicKey` / `VapidPrivateKey` | 浏览器 Web Push；首次在网页启用时可由服务端生成 VAPID 密钥对，私钥加密保存；浏览器订阅需要 HTTPS 或 localhost 安全来源 |
+| `Notifications:Events` / `QuietHours` | 允许投递的领域事件与可选免打扰时段；启用且选中的事件会在核心操作完成后尽力写入持久化 Outbox，再异步重试投递 |
+| `OutboundHttp:AllowedPrivateHosts` / `AllowedPrivateNetworks` | RSS、Webhook 与 Web Push 端点默认拒绝 loopback/私网目的地；确有需要时仅精确放行目标主机或 CIDR |
 | `Valkey:ConnectionString` | Valkey / Redis 连接（单副本可选；多副本必须共享同一实例） |
 | `ReverseProxy:KnownProxies` / `KnownNetworks` | 非 loopback 反向代理的受信地址/CIDR；仅填写代理，不填写客户端网段 |
 
@@ -118,7 +122,9 @@ bash <(curl -fsSL https://raw.githubusercontent.com/HCGStudio/SecondDimensionWat
 
 ### 网页运行时设置
 
-登录后打开「设置」，可修改 AI 执行模式与 Provider、AI/TMDB 密钥、qBittorrent、媒体库扫描、异常检测和 NFS。保存值存入 PostgreSQL，并覆盖部署文件或环境变量中的默认值；密钥和密码使用持久化 Data Protection 密钥环加密，API 不会回显明文。可对单个敏感项选择保留、替换、清除或恢复部署默认值。
+登录后打开「设置」，可修改 AI 执行模式与 Provider、AI/TMDB 密钥、qBittorrent、媒体库扫描、异常检测、通知和 NFS。保存值存入 PostgreSQL，并覆盖部署文件或环境变量中的默认值；密钥、密码、Webhook URL、VAPID 私钥及浏览器 PushSubscription 能力凭据使用持久化 Data Protection 密钥环加密，API 不会回显明文。可对单个敏感项选择保留、替换、清除或恢复部署默认值。
+
+启用且订阅的通知会在核心操作完成后，以唯一去重键尽力写入 PostgreSQL Outbox，再由后台服务按至少一次语义投递。Webhook 和每个 Web Push 浏览器订阅拥有独立投递行、租约与重试状态，一个渠道失败不会重复投递另一个渠道；Webhook 请求带有稳定的 `X-SDW-Event-Id`，Web Push 也使用同一事件 ID 作为通知标签，接收端仍应按事件 ID 幂等。5xx、408、429 和网络错误会指数退避重试，失效的浏览器订阅会在 404/410 后撤销，永久失败可在「设置 → 通知」查看，且任何投递或入队失败都不会回滚订阅、下载、推断或异常处理。顶栏「待办中心」会按风险汇总待确认下载、异常、低置信度/失败元数据和磁盘预警，并支持已读、稍后提醒及无副作用批量操作。
 
 数据库连接、JWT、下载存储根目录、登录密码文件、CORS 和 Valkey 仍属于启动/基础设施配置，不允许从网页修改。NFS 监听地址、端口和启用状态会保存，但需要重启应用才能切换；其余上述设置对后续请求和新任务热生效。后台定时任务的间隔变更不会中断已经开始的等待，最迟会在当前等待周期结束后采用新值。
 

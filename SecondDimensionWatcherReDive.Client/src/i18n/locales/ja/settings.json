@@ -10,6 +10,7 @@
       "downloads": "ダウンロードと保存先",
       "media": "メディアとメタデータ",
       "health": "ヘルス監視",
+      "notifications": "通知",
       "access": "アクセスプロトコル"
     },
     "pendingRestart": {
@@ -163,6 +164,79 @@
         "description": "空き容量は容量と割合の両方のしきい値を満たす必要があります。",
         "minimumBytes": "最小空き容量（GiB）",
         "minimumPercent": "最小空き割合（%）"
+      }
+    },
+    "notifications": {
+      "eyebrow": "外部アラート",
+      "title": "通知",
+      "description": "ダウンロード、推論、障害処理を妨げずに選択したイベントを配信します。",
+      "saved": "通知設定を保存しました",
+      "validationFailed": "通知チャネル、1 件以上のイベント、有効な静穏時間を設定してください",
+      "testQueued": "テスト通知をキューに追加しました",
+      "testFailed": "テスト通知を追加できませんでした",
+      "webhook": {
+        "title": "汎用 Webhook",
+        "description": "安定したイベント形式を POST します。受信側は X-SDW-Event-Id で重複を防止できます。",
+        "enabled": "Webhook 配信を有効化",
+        "enabledHelp": "失敗はバックグラウンドで再試行され、元の処理には影響しません。",
+        "url": "Webhook URL",
+        "secretHelp": "完全な URL は暗号化保存され、ブラウザーやログには返されません。",
+        "test": "テストを送信",
+        "testing": "キューに追加中…"
+      },
+      "webPush": {
+        "title": "ブラウザー Web Push",
+        "description": "安全なオリジンで明示的に購読したブラウザーへ暗号化通知を送信します。",
+        "enabled": "Web Push 配信を有効化",
+        "enabledHelp": "ブラウザーごとに独立して永続的に再試行し、能力 URL を公開せずに取り消せます。",
+        "subject": "VAPID 連絡先（mailto: または HTTPS URL）",
+        "keysConfigured": "VAPID 秘密鍵は暗号化保存され、公開鍵はブラウザー購読にのみ使用されます。",
+        "keysGeneratedOnSave": "保存時にサーバーで VAPID 鍵ペアを生成し、秘密鍵を暗号化します。",
+        "enableDevice": "このデバイスで有効化",
+        "disableDevice": "このデバイスで無効化",
+        "unsupported": "Web Push には対応ブラウザーと安全な HTTPS または localhost オリジンが必要です。",
+        "deviceEnabled": "このデバイスで Web Push を有効にしました",
+        "deviceDisabled": "このデバイスで Web Push を無効にしました",
+        "deviceFailed": "Web Push 購読を更新できませんでした",
+        "subscriptionActive": "有効な購読",
+        "subscriptionRevoked": "Web Push 購読を取り消しました",
+        "revokeSubscription": "購読を取り消す"
+      },
+      "events": {
+        "title": "イベント購読",
+        "description": "外部配信するイベントを選択します。",
+        "items": {
+          "releaseMatched": "通知のみのリリース一致",
+          "downloadPendingConfirmation": "ダウンロード確認待ち",
+          "downloadCompleted": "ダウンロード完了",
+          "downloadFailed": "ダウンロード失敗",
+          "incidentOpened": "障害発生",
+          "metadataNeedsReview": "メタデータ確認待ち",
+          "diskSpaceLow": "ディスク容量不足",
+          "test": "テスト通知"
+        }
+      },
+      "quiet": {
+        "title": "静穏時間",
+        "description": "両方を空欄にすると即時配信します。静穏時間中はキューで待機します。",
+        "start": "開始（hh:mm:ss）",
+        "end": "終了（hh:mm:ss）",
+        "timeZone": "IANA タイムゾーン"
+      },
+      "delivery": {
+        "title": "最近の配信記録",
+        "description": "送信先を表示せず、待機、成功、再試行、失敗を確認できます。",
+        "empty": "配信記録はまだありません。",
+        "channel": {
+          "Webhook": "Webhook",
+          "WebPush": "Web Push"
+        },
+        "status": {
+          "Pending": "待機中",
+          "Processing": "配信中",
+          "Delivered": "配信済み",
+          "Failed": "失敗"
+        }
       }
     },
     "access": {
