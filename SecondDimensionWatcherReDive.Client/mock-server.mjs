@@ -1,7 +1,7 @@
 // Mock API server for frontend development/testing.
 // Run with: yarn mock (or: node mock-server.mjs)
 // Then run: yarn start — the Parcel proxy forwards /api/* to this server.
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 
 const PORT = parseInt(process.env.MOCK_PORT ?? "5097", 10);
@@ -1877,6 +1877,7 @@ async function route(method, pathname, searchParams, req, res) {
         id: randomUUID(),
         endpoint: body.endpoint,
         endpointOrigin: new URL(body.endpoint).origin,
+        endpointHash: createHash("sha256").update(body.endpoint).digest("hex"),
         createdAt: now,
         updatedAt: now,
         lastSuccessAt: null,

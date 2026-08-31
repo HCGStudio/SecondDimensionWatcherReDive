@@ -19,6 +19,7 @@ export interface WebPushConfiguration {
 export interface WebPushSubscriptionSummary {
   id: string;
   endpointOrigin: string;
+  endpointHash: string;
   createdAt: string;
   updatedAt: string;
   lastSuccessAt: string | null;

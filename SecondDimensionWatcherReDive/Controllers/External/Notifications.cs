@@ -34,6 +34,7 @@ internal sealed record RemoveWebPushSubscriptionRequest(
 internal sealed record WebPushSubscriptionSummary(
     Guid Id,
     string EndpointOrigin,
+    string EndpointHash,
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
     DateTimeOffset? LastSuccessAt,

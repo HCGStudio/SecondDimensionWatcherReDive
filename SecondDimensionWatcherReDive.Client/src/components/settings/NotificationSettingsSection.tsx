@@ -20,10 +20,12 @@ import {
   useNotificationDeliveries,
   useWebPushSubscriptions,
 } from "../../notifications/hooks";
+import { WebPushSubscriptionSummary } from "../../notifications/types";
 import {
   disableWebPushForCurrentDevice,
   enableWebPushForCurrentDevice,
   getCurrentWebPushSubscription,
+  hashWebPushEndpoint,
   isWebPushSupported,
 } from "../../notifications/webPush";
 import {
@@ -82,17 +84,23 @@ export const NotificationSettingsSection: React.FC<
   const [saving, setSaving] = React.useState(false);
   const [testing, setTesting] = React.useState(false);
   const [webPushBusy, setWebPushBusy] = React.useState(false);
-  const [deviceSubscribed, setDeviceSubscribed] = React.useState(false);
+  const [currentEndpointHash, setCurrentEndpointHash] = React.useState<
+    string | null
+  >(null);
   const [saved, setSaved] = React.useState(false);
 
   React.useEffect(() => {
     let active = true;
     void getCurrentWebPushSubscription()
       .then((subscription) => {
-        if (active) setDeviceSubscribed(subscription !== null);
+        if (!subscription) return null;
+        return hashWebPushEndpoint(subscription.endpoint);
+      })
+      .then((endpointHash) => {
+        if (active) setCurrentEndpointHash(endpointHash);
       })
       .catch(() => {
-        if (active) setDeviceSubscribed(false);
+        if (active) setCurrentEndpointHash(null);
       });
     return () => {
       active = false;
@@ -119,6 +127,12 @@ export const NotificationSettingsSection: React.FC<
       !urlDraft.value.trim()) ||
     (draft.webhookEnabled && urlDraft.operation === "clear");
   const webPushInvalid = draft.webPushEnabled && !draft.webPushSubject.trim();
+  const deviceSubscribed =
+    currentEndpointHash !== null &&
+    (subscriptions === undefined ||
+      subscriptions.some(
+        (subscription) => subscription.endpointHash === currentEndpointHash,
+      ));
 
   const reset = React.useCallback(() => {
     setDraft({ ...value, events: [...value.events] });
@@ -186,8 +200,10 @@ export const NotificationSettingsSection: React.FC<
     if (webPushBusy || !value.vapidPublicKey) return;
     setWebPushBusy(true);
     try {
-      await enableWebPushForCurrentDevice(value.vapidPublicKey);
-      setDeviceSubscribed(true);
+      const subscription = await enableWebPushForCurrentDevice(
+        value.vapidPublicKey,
+      );
+      setCurrentEndpointHash(subscription.endpointHash);
       await mutateSubscriptions();
       addToast({
         title: t("system.notifications.webPush.deviceEnabled"),
@@ -208,7 +224,7 @@ export const NotificationSettingsSection: React.FC<
     setWebPushBusy(true);
     try {
       await disableWebPushForCurrentDevice();
-      setDeviceSubscribed(false);
+      setCurrentEndpointHash(null);
       await mutateSubscriptions();
       addToast({
         title: t("system.notifications.webPush.deviceDisabled"),
@@ -225,11 +241,16 @@ export const NotificationSettingsSection: React.FC<
   }, [addToast, mutateSubscriptions, t, webPushBusy]);
 
   const revokeSubscription = React.useCallback(
-    async (id: string) => {
+    async (subscription: WebPushSubscriptionSummary) => {
       if (webPushBusy) return;
       setWebPushBusy(true);
       try {
-        await removeWebPushSubscription(id);
+        if (subscription.endpointHash === currentEndpointHash) {
+          await disableWebPushForCurrentDevice();
+          setCurrentEndpointHash(null);
+        } else {
+          await removeWebPushSubscription(subscription.id);
+        }
         await mutateSubscriptions();
         addToast({
           title: t("system.notifications.webPush.subscriptionRevoked"),
@@ -244,7 +265,7 @@ export const NotificationSettingsSection: React.FC<
         setWebPushBusy(false);
       }
     },
-    [addToast, mutateSubscriptions, t, webPushBusy],
+    [addToast, currentEndpointHash, mutateSubscriptions, t, webPushBusy],
   );
 
   const test = React.useCallback(async () => {
@@ -383,7 +404,7 @@ export const NotificationSettingsSection: React.FC<
                     aria-label={t(
                       "system.notifications.webPush.revokeSubscription",
                     )}
-                    onClick={() => void revokeSubscription(subscription.id)}
+                    onClick={() => void revokeSubscription(subscription)}
                   >
                     <Trash2 size={14} />
                   </Button>

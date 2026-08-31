@@ -54,6 +54,16 @@ export const getCurrentWebPushSubscription = async () => {
   return registration?.pushManager.getSubscription() ?? null;
 };
 
+export const hashWebPushEndpoint = async (endpoint: string) => {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(endpoint),
+  );
+  return Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+};
+
 export const enableWebPushForCurrentDevice = async (vapidPublicKey: string) => {
   if (!isWebPushSupported()) throw new Error("unsupported");
   const permission = await Notification.requestPermission();

@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Cryptography;
+using System.Text;
 using SecondDimensionWatcherReDive.Controllers.External;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Repositories;
@@ -108,11 +109,16 @@ internal sealed class WebPushSubscriptionsController(
     private static WebPushSubscriptionSummary ToSummary(WebPushSubscription subscription) => new(
         subscription.Id,
         new Uri(subscription.Endpoint).GetLeftPart(UriPartial.Authority),
+        HashEndpoint(subscription.Endpoint),
         subscription.CreatedAt,
         subscription.UpdatedAt,
         subscription.LastSuccessAt,
         subscription.LastFailureAt,
         subscription.LastError);
+
+    private static string HashEndpoint(string endpoint) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(endpoint)))
+            .ToLowerInvariant();
 
     private ActionResult ValidationError(string key, string message)
     {
