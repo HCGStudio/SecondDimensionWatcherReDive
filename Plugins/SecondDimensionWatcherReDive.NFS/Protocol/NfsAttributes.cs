@@ -121,7 +121,7 @@ internal static class NfsAttributes
                 writer.WriteOpaque(source.Handle.ToBytes());
                 break;
             case NfsConstants.FattrFileId:
-                writer.WriteUInt64(StableHash(source.Handle.VirtualPath));
+                writer.WriteUInt64(StableHash(source.Handle.ToBytes()));
                 break;
             case NfsConstants.FattrMaxFileSize:
                 writer.WriteUInt64((ulong)NfsConstants.MaxFileSize);
@@ -167,14 +167,14 @@ internal static class NfsAttributes
         writer.WriteUInt32(nanos);
     }
 
-    private static ulong StableHash(string s)
+    private static ulong StableHash(ReadOnlySpan<byte> value)
     {
         const ulong fnvOffset = 14695981039346656037UL;
         const ulong fnvPrime = 1099511628211UL;
         var h = fnvOffset;
-        foreach (var c in s)
+        foreach (var item in value)
         {
-            h ^= c;
+            h ^= item;
             h *= fnvPrime;
         }
         return h;
