@@ -38,9 +38,42 @@ public interface IFileMappingRepository
         string virtualPath,
         CancellationToken cancellationToken);
 
+    Task<FileSystemEntry?> FindFileSystemEntryByIdAsync(
+        Guid entryId,
+        CancellationToken cancellationToken) =>
+        Task.FromResult<FileSystemEntry?>(null);
+
+    async Task<FileSystemDirectoryPage?> GetImmediateChildrenPageAsync(
+        string parentPath,
+        long? afterCookie,
+        int take,
+        CancellationToken cancellationToken)
+    {
+        var children = await GetImmediateChildrenAsync(parentPath, cancellationToken);
+        if (afterCookie.HasValue && children.All(entry => entry.Cookie != afterCookie.Value))
+            return new FileSystemDirectoryPage([], 1, null, false);
+        var page = children
+            .Where(entry => !afterCookie.HasValue || entry.Cookie > afterCookie.Value)
+            .OrderBy(entry => entry.Cookie)
+            .Take(take)
+            .ToList();
+        var hasMore = children.Any(entry => page.Count > 0 && entry.Cookie > page[^1].Cookie);
+        return new FileSystemDirectoryPage(
+            page,
+            1,
+            hasMore && page.Count > 0 ? page[^1].Cookie : null,
+            true);
+    }
+
     Task<IReadOnlyList<FileSystemEntry>> GetImmediateChildrenAsync(
         string parentPath,
         CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<VirtualPathNamespaceConflict>> FindNamespaceConflictsAsync(
+        Guid animationInfoId,
+        IReadOnlyCollection<string> proposedPaths,
+        CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<VirtualPathNamespaceConflict>>([]);
 
     Task<IReadOnlyList<FileMapping>> GetByVirtualPathPrefixAsync(string virtualPathPrefix, CancellationToken cancellationToken);
 

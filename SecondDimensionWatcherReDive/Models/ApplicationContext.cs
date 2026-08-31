@@ -23,6 +23,7 @@ public class ApplicationContext : DbContext
     public DbSet<ChatMessage> ChatMessages { get; set; }
     public DbSet<FileMapping> FileMappings { get; set; }
     public DbSet<FileSystemEntry> FileSystemEntries { get; set; }
+    public DbSet<FileSystemDirectoryState> FileSystemDirectoryStates { get; set; }
     public DbSet<FileNameRegexRule> FileNameRegexRules { get; set; }
     public DbSet<SubscriptionAutomationPolicy> SubscriptionAutomationPolicies { get; set; }
     public DbSet<MigrationMarker> MigrationMarkers { get; set; }
@@ -215,6 +216,10 @@ public class ApplicationContext : DbContext
             .HasKey(preference => preference.UserId);
 
         modelBuilder.Entity<PlaybackPreference>()
+            .Property(preference => preference.UserId)
+            .ValueGeneratedNever();
+
+        modelBuilder.Entity<PlaybackPreference>()
             .Property(preference => preference.SubtitleLanguage)
             .HasMaxLength(64);
 
@@ -241,12 +246,41 @@ public class ApplicationContext : DbContext
         modelBuilder.Entity<FileMapping>()
             .HasIndex(m => m.AnimationInfoId);
 
+        modelBuilder.Entity<FileMapping>()
+            .ToTable(table => table.HasCheckConstraint(
+                "CK_FileMappings_VirtualPath_Canonical",
+                "\"VirtualPath\" ~ '^/[^/]+(?:/[^/]+)*$' AND \"VirtualPath\" !~ '(^|/)\\.\\.?($|/)'"));
+
+        modelBuilder.Entity<MetadataReviewMappingSnapshot>()
+            .ToTable(table => table.HasCheckConstraint(
+                "CK_MetadataReviewMappingSnapshots_VirtualPath_Canonical",
+                "\"VirtualPath\" ~ '^/[^/]+(?:/[^/]+)*$' AND \"VirtualPath\" !~ '(^|/)\\.\\.?($|/)'"));
+
         modelBuilder.Entity<FileSystemEntry>()
             .HasKey(entry => entry.Path);
 
         modelBuilder.Entity<FileSystemEntry>()
+            .Property(entry => entry.EntryId)
+            .HasDefaultValueSql("gen_random_uuid()");
+
+        modelBuilder.Entity<FileSystemEntry>()
+            .Property(entry => entry.Cookie)
+            .HasDefaultValueSql("nextval('sdw_file_system_entry_cookie_seq')");
+
+        modelBuilder.Entity<FileSystemEntry>()
+            .HasIndex(entry => entry.EntryId)
+            .IsUnique();
+
+        modelBuilder.Entity<FileSystemEntry>()
+            .HasIndex(entry => entry.Cookie)
+            .IsUnique();
+
+        modelBuilder.Entity<FileSystemEntry>()
             .HasIndex(entry => new { entry.ParentPath, entry.IsDirectory, entry.Name })
             .IsDescending(false, true, false);
+
+        modelBuilder.Entity<FileSystemEntry>()
+            .HasIndex(entry => new { entry.ParentPath, entry.Cookie });
 
         modelBuilder.Entity<FileSystemEntry>()
             .HasIndex(entry => entry.FileMappingId)
@@ -264,6 +298,14 @@ public class ApplicationContext : DbContext
                 "CK_FileSystemEntries_NodeShape",
                 "(\"IsDirectory\" AND \"FileMappingId\" IS NULL AND \"DescendantFileCount\" > 0) OR " +
                 "(NOT \"IsDirectory\" AND \"FileMappingId\" IS NOT NULL AND \"DescendantFileCount\" = 1)"));
+
+        modelBuilder.Entity<FileSystemDirectoryState>()
+            .HasKey(state => state.Path);
+
+        modelBuilder.Entity<FileSystemDirectoryState>()
+            .ToTable(table => table.HasCheckConstraint(
+                "CK_FileSystemDirectoryStates_Generation_Positive",
+                "\"Generation\" > 0"));
 
         modelBuilder.Entity<FileNameRegexRule>()
             .HasIndex(rule => new { rule.AnimationId, rule.Pattern })

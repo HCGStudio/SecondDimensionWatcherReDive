@@ -552,34 +552,79 @@ public partial class FileMapper(
         List<string>? warnings,
         CancellationToken cancellationToken)
     {
-        var result = new List<FileMapping>(mappings.Count);
-        var taken = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var mapping in mappings)
+        var result = mappings.ToList();
+        var maximumAttempts = Math.Max(128, checked(result.Count * 16));
+        for (var attempt = 0; attempt < maximumAttempts; attempt++)
         {
-            var path = mapping.VirtualPath;
-            while (taken.Contains(path) || await IsTakenByAnotherDownloadAsync(
-                       path,
-                       mapping.AnimationInfoId,
-                       cancellationToken))
-                path = NextSuffixed(path);
-            if (!string.Equals(path, mapping.VirtualPath, StringComparison.Ordinal))
+            cancellationToken.ThrowIfCancellationRequested();
+            var batchConflict = FindBatchConflict(result);
+            if (batchConflict is not null)
+            {
+                var targetIndex = batchConflict.Value.TargetIndex;
+                result[targetIndex] = result[targetIndex] with
+                {
+                    VirtualPath = NextSuffixed(result[targetIndex].VirtualPath)
+                };
                 warnings?.Add("collisionAdjusted");
-            taken.Add(path);
-            result.Add(mapping with { VirtualPath = path });
+                continue;
+            }
+
+            var conflicts = await fileMappingRepository.FindNamespaceConflictsAsync(
+                result[0].AnimationInfoId,
+                result.Select(mapping => mapping.VirtualPath).ToArray(),
+                cancellationToken);
+            if (conflicts.Count == 0) return result;
+
+            var conflict = conflicts[0];
+            var proposedIndex = result.FindIndex(mapping => string.Equals(
+                mapping.VirtualPath,
+                conflict.ProposedPath,
+                StringComparison.Ordinal));
+            if (proposedIndex < 0)
+                throw new InvalidOperationException("A namespace conflict did not identify its proposed mapping.");
+
+            var adjustedPath = conflict.Kind == VirtualPathConflictKind.AncestorFile
+                ? SuffixAncestorSegment(result[proposedIndex].VirtualPath, conflict.OccupiedPath)
+                : NextSuffixed(result[proposedIndex].VirtualPath);
+            result[proposedIndex] = result[proposedIndex] with { VirtualPath = adjustedPath };
+            warnings?.Add("collisionAdjusted");
         }
-        return result;
+
+        throw new InvalidOperationException(
+            "The virtual-path namespace could not be resolved within the bounded collision budget.");
     }
 
-    private async Task<bool> IsTakenByAnotherDownloadAsync(
-        string virtualPath,
-        Guid animationInfoId,
-        CancellationToken cancellationToken)
+    private static (int TargetIndex, int OtherIndex)? FindBatchConflict(
+        IReadOnlyList<FileMapping> mappings)
     {
-        var existing = await fileMappingRepository.FindFileSystemEntryAsync(
-            virtualPath,
-            cancellationToken);
-        return existing is not null &&
-               (existing.IsDirectory || existing.Mapping?.AnimationInfoId != animationInfoId);
+        for (var index = 0; index < mappings.Count; index++)
+        {
+            for (var otherIndex = index + 1; otherIndex < mappings.Count; otherIndex++)
+            {
+                var left = mappings[index].VirtualPath;
+                var right = mappings[otherIndex].VirtualPath;
+                if (string.Equals(left, right, StringComparison.Ordinal))
+                    return (otherIndex, index);
+                if (IsPathAncestor(left, right)) return (index, otherIndex);
+                if (IsPathAncestor(right, left)) return (otherIndex, index);
+            }
+        }
+
+        return null;
+    }
+
+    private static bool IsPathAncestor(string ancestor, string descendant) =>
+        descendant.Length > ancestor.Length
+        && descendant.StartsWith(ancestor, StringComparison.Ordinal)
+        && descendant[ancestor.Length] == '/';
+
+    private static string SuffixAncestorSegment(string path, string ancestor)
+    {
+        if (!string.Equals(path, ancestor, StringComparison.Ordinal)
+            && !IsPathAncestor(ancestor, path))
+            throw new InvalidOperationException("The occupied path is not an ancestor of the proposed path.");
+
+        return NextSuffixed(ancestor) + path[ancestor.Length..];
     }
 
     private static string ApplySuffixUntilUnique(string virtualPath, Func<string, bool> isTaken)

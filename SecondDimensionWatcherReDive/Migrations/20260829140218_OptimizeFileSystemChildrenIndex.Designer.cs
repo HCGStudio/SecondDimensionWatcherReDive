@@ -376,7 +376,10 @@ namespace SecondDimensionWatcherReDive.Migrations
                     b.HasIndex("VirtualPath")
                         .IsUnique();
 
-                    b.ToTable("FileMappings");
+                    b.ToTable("FileMappings", t =>
+                        {
+                            t.HasCheckConstraint("CK_FileMappings_VirtualPath_Canonical", "\"VirtualPath\" ~ '^/[^/]+(?:/[^/]+)*$' AND \"VirtualPath\" !~ '(^|/)\\.\\.?($|/)'");
+                        });
                 });
 
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.FileNameRegexRule", b =>
@@ -409,13 +412,39 @@ namespace SecondDimensionWatcherReDive.Migrations
                     b.ToTable("FileNameRegexRules");
                 });
 
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.FileSystemDirectoryState", b =>
+                {
+                    b.Property<string>("Path")
+                        .HasColumnType("text");
+
+                    b.Property<long>("Generation")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Path");
+
+                    b.ToTable("FileSystemDirectoryStates", t =>
+                        {
+                            t.HasCheckConstraint("CK_FileSystemDirectoryStates_Generation_Positive", "\"Generation\" > 0");
+                        });
+                });
+
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.FileSystemEntry", b =>
                 {
                     b.Property<string>("Path")
                         .HasColumnType("text");
 
+                    b.Property<long>("Cookie")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValueSql("nextval('sdw_file_system_entry_cookie_seq')");
+
                     b.Property<int>("DescendantFileCount")
                         .HasColumnType("integer");
+
+                    b.Property<Guid>("EntryId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
 
                     b.Property<Guid?>("FileMappingId")
                         .HasColumnType("uuid");
@@ -433,9 +462,17 @@ namespace SecondDimensionWatcherReDive.Migrations
 
                     b.HasKey("Path");
 
+                    b.HasIndex("Cookie")
+                        .IsUnique();
+
+                    b.HasIndex("EntryId")
+                        .IsUnique();
+
                     b.HasIndex("FileMappingId")
                         .IsUnique()
                         .HasFilter("\"FileMappingId\" IS NOT NULL");
+
+                    b.HasIndex("ParentPath", "Cookie");
 
                     b.HasIndex("ParentPath", "IsDirectory", "Name")
                         .IsDescending(false, true, false);
@@ -579,7 +616,10 @@ namespace SecondDimensionWatcherReDive.Migrations
                     b.HasIndex("OperationId", "Kind", "VirtualPath")
                         .IsUnique();
 
-                    b.ToTable("MetadataReviewMappingSnapshots");
+                    b.ToTable("MetadataReviewMappingSnapshots", t =>
+                        {
+                            t.HasCheckConstraint("CK_MetadataReviewMappingSnapshots_VirtualPath_Canonical", "\"VirtualPath\" ~ '^/[^/]+(?:/[^/]+)*$' AND \"VirtualPath\" !~ '(^|/)\\.\\.?($|/)'");
+                        });
                 });
 
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.MetadataReviewOperation", b =>
@@ -716,7 +756,6 @@ namespace SecondDimensionWatcherReDive.Migrations
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.PlaybackPreference", b =>
                 {
                     b.Property<Guid>("UserId")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
                     b.Property<string>("AudioLanguage")

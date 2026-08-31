@@ -272,11 +272,11 @@ public class MetadataReviewRepository(
                     .ToList();
                 var proposedPaths = proposedSnapshots.Select(snapshot => snapshot.VirtualPath).ToArray();
                 if (proposedPaths.Distinct(StringComparer.Ordinal).Count() != proposedPaths.Length
-                    || proposedPaths.Length > 0
-                    && await applyContext.FileMappings.AnyAsync(
-                        mapping => mapping.AnimationInfoId != animationInfo.Id
-                                   && proposedPaths.Contains(mapping.VirtualPath),
-                        cancellationToken))
+                    || (await VirtualPathNamespaceGuard.FindConflictsAsync(
+                        applyContext,
+                        animationInfo.Id,
+                        proposedPaths,
+                        cancellationToken)).Count > 0)
                     return Failure(
                         MetadataReviewMutationOutcome.Conflict,
                         operationId,
@@ -491,11 +491,11 @@ public class MetadataReviewRepository(
                     .OrderBy(snapshot => snapshot.VirtualPath)
                     .ToList();
                 var previousPaths = previousSnapshots.Select(snapshot => snapshot.VirtualPath).ToArray();
-                if (previousPaths.Length > 0
-                    && await undoContext.FileMappings.AnyAsync(
-                        mapping => mapping.AnimationInfoId != animationInfo.Id
-                                   && previousPaths.Contains(mapping.VirtualPath),
-                        cancellationToken))
+                if ((await VirtualPathNamespaceGuard.FindConflictsAsync(
+                        undoContext,
+                        animationInfo.Id,
+                        previousPaths,
+                        cancellationToken)).Count > 0)
                     return Failure(
                         MetadataReviewMutationOutcome.Conflict,
                         operationId,
