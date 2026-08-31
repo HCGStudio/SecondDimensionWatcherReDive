@@ -6,9 +6,8 @@ import { Main } from "./Main";
 import fetcher from "./auth/httpClient";
 import { ToastProvider } from "./components/ToastProvider";
 import i18n from "./i18n";
-import { setDayjsLocale } from "./utils/initDayjs";
-
 import "./styles.css";
+import { setDayjsLocale } from "./utils/initDayjs";
 
 setDayjsLocale(i18n.language);
 document.documentElement.lang = i18n.language;

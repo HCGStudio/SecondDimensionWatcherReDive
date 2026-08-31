@@ -6,8 +6,7 @@ type ButtonVariant = "solid" | "outline" | "ghost" | "icon";
 type ButtonColor = "default" | "danger" | "warning" | "success";
 type ButtonSize = "sm" | "md" | "lg";
 
-export interface ButtonProps
-  extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: ButtonVariant;
   color?: ButtonColor;
   size?: ButtonSize;

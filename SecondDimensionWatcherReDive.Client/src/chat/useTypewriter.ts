@@ -34,7 +34,8 @@ export function useTypewriter(
 
         // Speed up if buffer is large to prevent excessive lag
         const remaining = target.length - prev.length;
-        const step = remaining > 50 ? Math.min(remaining, charsPerTick * 3) : charsPerTick;
+        const step =
+          remaining > 50 ? Math.min(remaining, charsPerTick * 3) : charsPerTick;
 
         return target.slice(0, prev.length + step);
       });

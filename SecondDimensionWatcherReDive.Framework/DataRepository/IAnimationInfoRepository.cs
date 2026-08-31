@@ -24,6 +24,12 @@ public interface IAnimationInfoRepository
 
     Task<PagedResult<AnimationInfo>> GetDownloadedPagedAsync(int skip, int take, CancellationToken cancellationToken);
 
+    Task<IReadOnlyList<AnimationInfo>> GetDownloadedMigrationBatchAsync(
+        DateTimeOffset? beforePublishTime,
+        Guid? beforeId,
+        int take,
+        CancellationToken cancellationToken);
+
     Task<AnimationInfo?> FindByIdAsync(Guid id, CancellationToken cancellationToken);
 
     Task<AnimationInfo?> FindByIdWithAnimationAsync(Guid id, CancellationToken cancellationToken);

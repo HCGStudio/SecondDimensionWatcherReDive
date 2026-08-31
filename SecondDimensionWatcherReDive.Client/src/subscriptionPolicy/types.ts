@@ -1,7 +1,5 @@
 export type SubscriptionPolicyMode =
-  | "NotifyOnly"
-  | "ManualConfirm"
-  | "AutoDownload";
+  "NotifyOnly" | "ManualConfirm" | "AutoDownload";
 
 export interface ISubscriptionPolicyDraft {
   subtitleGroups: string[];
