@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
@@ -24,6 +25,12 @@ internal class AnimationInfoController(
     INotificationPublisher? notificationPublisher = null)
     : ControllerBase
 {
+    private static readonly TimeSpan DownloadSubmissionLeaseDuration = TimeSpan.FromMinutes(3);
+    private static readonly TimeSpan DownloadSubmissionRemoteBudget = TimeSpan.FromSeconds(90);
+    private static readonly TimeSpan DownloadCancellationLeaseDuration = TimeSpan.FromMinutes(3);
+    private static readonly TimeSpan DownloadCancellationRemoteBudget = TimeSpan.FromSeconds(90);
+    private static readonly TimeSpan DownloadLeaseSafetyMargin = TimeSpan.FromSeconds(1);
+
     [HttpGet]
     public async Task<IActionResult> GetAsync(
         [FromQuery] int skip = 0,
@@ -182,32 +189,71 @@ internal class AnimationInfoController(
 
         var downloadClient = fileDownloadClientProvider.GetRequiredClient(info.DownloadType);
         var downloadAttemptId = Guid.NewGuid();
+        var submissionLeaseId = Guid.NewGuid();
+        var leaseRequestStartedAt = Stopwatch.GetTimestamp();
         var submissionAttempted = false;
         try
         {
-            if (!await animationInfoRepository.TryStartDownloadAsync(
+            var submissionLease = await animationInfoRepository.TryStartDownloadAsync(
                     id,
                     downloadAttemptId,
+                    submissionLeaseId,
+                    DownloadSubmissionLeaseDuration,
                     DateTimeOffset.Now,
                     queuedDisposition: null,
-                    cancellationToken))
+                    cancellationToken);
+            if (submissionLease is null)
                 return Conflict();
 
+            var remainingRemoteBudget = DownloadSubmissionRemoteBudget -
+                                        Stopwatch.GetElapsedTime(leaseRequestStartedAt);
+            if (remainingRemoteBudget <= TimeSpan.Zero)
+            {
+                await CompensateFailedStartAsync(
+                    info,
+                    downloadClient,
+                    downloadAttemptId,
+                    submissionLeaseId,
+                    remoteMayHaveAccepted: false);
+                return StatusCode(StatusCodes.Status503ServiceUnavailable);
+            }
+
+            using var submissionCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken);
+            submissionCancellation.CancelAfter(remainingRemoteBudget);
+            submissionCancellation.Token.ThrowIfCancellationRequested();
             submissionAttempted = true;
             if (!await downloadClient.SubmitDownloadTaskAsync(
                 id,
                 info.DownloadUrl,
                 info.CachedDownloadData,
                 info.AdditionalDownloadInfo,
-                cancellationToken))
+                submissionCancellation.Token))
             {
                 await CompensateFailedStartAsync(
                     info,
                     downloadClient,
                     downloadAttemptId,
+                    submissionLeaseId,
                     remoteMayHaveAccepted: false);
                 await PublishDownloadFailureAsync(info, downloadAttemptId, cancellationToken);
                 return BadRequest();
+            }
+
+            using var markCancellation = CreateDownloadSagaTokenSource();
+            if (!await animationInfoRepository.TryMarkDownloadSubmittedAsync(
+                    id,
+                    downloadAttemptId,
+                    submissionLeaseId,
+                    markCancellation.Token))
+            {
+                await CompensateFailedStartAsync(
+                    info,
+                    downloadClient,
+                    downloadAttemptId,
+                    submissionLeaseId,
+                    remoteMayHaveAccepted: true);
+                return Conflict();
             }
         }
         catch
@@ -218,6 +264,7 @@ internal class AnimationInfoController(
                     info,
                     downloadClient,
                     downloadAttemptId,
+                    submissionLeaseId,
                     submissionAttempted);
             }
             catch
@@ -323,24 +370,40 @@ internal class AnimationInfoController(
         // remote delete but did not observe the local finalize commit. Reuse it
         // so cancellation can be resumed idempotently across requests.
         var cancellationAttemptId = info.DownloadCancellationId ?? Guid.NewGuid();
+        var cancellationLeaseId = Guid.NewGuid();
+        var leaseRequestStartedAt = Stopwatch.GetTimestamp();
+        DownloadCancellationLease? cancellationLease;
         cancellationToken.ThrowIfCancellationRequested();
         using (var beginCancellation = CreateDownloadSagaTokenSource())
         {
-            if (!await animationInfoRepository.TryBeginCancelDownloadAsync(
+            cancellationLease = await animationInfoRepository.TryBeginCancelDownloadAsync(
                     id,
                     info.DownloadAttemptId,
                     cancellationAttemptId,
-                    beginCancellation.Token))
+                    cancellationLeaseId,
+                    DownloadCancellationLeaseDuration,
+                    removeFile,
+                    requireUnfinished: false,
+                    SubscriptionAutomationDisposition.DownloadCancelled,
+                    beginCancellation.Token);
+            if (cancellationLease is null)
                 return Conflict();
         }
 
+        var remainingRemoteBudget = DownloadCancellationRemoteBudget -
+                                    Stopwatch.GetElapsedTime(leaseRequestStartedAt);
+        if (remainingRemoteBudget <= TimeSpan.Zero)
+            return Conflict();
+        using var remoteCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        remoteCancellation.CancelAfter(remainingRemoteBudget);
+        remoteCancellation.Token.ThrowIfCancellationRequested();
         var result = await downloadClient.CancelDownloadTaskAsync(
             id,
             info.DownloadUrl,
             info.CachedDownloadData,
             info.AdditionalDownloadInfo,
-            removeFile,
-            cancellationToken);
+            cancellationLease.RemoveFile,
+            remoteCancellation.Token);
 
         if (!result.IsSuccess)
         {
@@ -349,12 +412,17 @@ internal class AnimationInfoController(
             return StatusCode(StatusCodes.Status500InternalServerError);
         }
 
-        using var finalizeCancellation = CreateDownloadSagaTokenSource();
+        using var finalizeCancellation = CreateLeaseBoundSagaTokenSource(
+            leaseRequestStartedAt,
+            DownloadCancellationLeaseDuration);
+        if (finalizeCancellation is null)
+            return Conflict();
         var cancelled = await fileMappingRepository.TryFinalizeDownloadCancellationAsync(
             id,
             info.DownloadAttemptId,
             cancellationAttemptId,
-            terminalDisposition: null,
+            cancellationLease.Id,
+            SubscriptionAutomationDisposition.DownloadCancelled,
             finalizeCancellation.Token);
         if (!cancelled)
             return Conflict();
@@ -365,19 +433,38 @@ internal class AnimationInfoController(
         AnimationInfo info,
         IFileDownloadClient downloadClient,
         Guid downloadAttemptId,
+        Guid submissionLeaseId,
         bool remoteMayHaveAccepted)
     {
         using var cleanup = CreateDownloadSagaTokenSource();
+        var cancellationAttemptId = Guid.NewGuid();
+        var cancellationLease = await animationInfoRepository.TryBeginCancelDownloadAsync(
+            info.Id,
+            downloadAttemptId,
+            cancellationAttemptId,
+            submissionLeaseId,
+            DownloadCancellationLeaseDuration,
+            removeFile: false,
+            requireUnfinished: true,
+            terminalDisposition: info.AutomationDisposition ==
+                SubscriptionAutomationDisposition.AutoDownloadFailed
+                    ? SubscriptionAutomationDisposition.AutoDownloadFailed
+                    : null,
+            cleanup.Token);
+        if (cancellationLease is null)
+            return;
+
         if (remoteMayHaveAccepted)
         {
             try
             {
+                cleanup.Token.ThrowIfCancellationRequested();
                 var remoteCancellation = await downloadClient.CancelDownloadTaskAsync(
                     info.Id,
                     info.DownloadUrl,
                     info.CachedDownloadData,
                     info.AdditionalDownloadInfo,
-                    removeFile: false,
+                    cancellationLease.RemoveFile,
                     cleanup.Token);
                 if (!remoteCancellation.IsSuccess)
                 {
@@ -392,9 +479,12 @@ internal class AnimationInfoController(
             }
         }
 
-        await animationInfoRepository.TryCancelDownloadAsync(
+        cleanup.Token.ThrowIfCancellationRequested();
+        await fileMappingRepository.TryFinalizeDownloadCancellationAsync(
             info.Id,
             downloadAttemptId,
+            cancellationAttemptId,
+            cancellationLease.Id,
             terminalDisposition: info.AutomationDisposition ==
                 SubscriptionAutomationDisposition.AutoDownloadFailed
                     ? SubscriptionAutomationDisposition.AutoDownloadFailed
@@ -424,6 +514,19 @@ internal class AnimationInfoController(
 
     private static CancellationTokenSource CreateDownloadSagaTokenSource() =>
         new(TimeSpan.FromSeconds(10));
+
+    private static CancellationTokenSource? CreateLeaseBoundSagaTokenSource(
+        long leaseRequestStartedAt,
+        TimeSpan leaseDuration)
+    {
+        var remaining = leaseDuration -
+                        Stopwatch.GetElapsedTime(leaseRequestStartedAt) -
+                        DownloadLeaseSafetyMargin;
+        if (remaining <= TimeSpan.Zero)
+            return null;
+        return new CancellationTokenSource(
+            remaining < TimeSpan.FromSeconds(10) ? remaining : TimeSpan.FromSeconds(10));
+    }
 
     [HttpPost("{id:guid}/retry-inference")]
     public async Task<IActionResult> RetryInference([FromRoute] Guid id, CancellationToken cancellationToken)

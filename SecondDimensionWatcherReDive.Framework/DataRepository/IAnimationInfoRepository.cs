@@ -1,5 +1,22 @@
 namespace SecondDimensionWatcherReDive.Framework.DataRepository;
 
+public sealed record DownloadCancellationLease(
+    Guid Id,
+    DateTimeOffset ExpiresAt,
+    bool RemoveFile);
+
+public sealed record DownloadSubmissionLease(
+    Guid Id,
+    DateTimeOffset ExpiresAt);
+
+public sealed record PendingDownloadCancellation(
+    Guid AnimationInfoId,
+    bool RemoveFile);
+
+public sealed record PendingDownloadSubmission(
+    Guid AnimationInfoId,
+    Guid DownloadAttemptId);
+
 public interface IAnimationInfoRepository
 {
     Task<PagedResult<AnimationInfo>> GetPagedAsync(int skip, int take, CancellationToken cancellationToken);
@@ -88,11 +105,23 @@ public interface IAnimationInfoRepository
 
     Task UpdateAsync(AnimationInfo info, CancellationToken cancellationToken);
 
-    Task<bool> TryStartDownloadAsync(
+    Task<DownloadSubmissionLease?> TryStartDownloadAsync(
         Guid id,
         Guid downloadAttemptId,
+        Guid submissionLeaseId,
+        TimeSpan submissionLeaseDuration,
         DateTimeOffset startedAt,
         SubscriptionAutomationDisposition? queuedDisposition,
+        CancellationToken cancellationToken);
+
+    Task<bool> TryMarkDownloadSubmittedAsync(
+        Guid id,
+        Guid downloadAttemptId,
+        Guid submissionLeaseId,
+        CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<PendingDownloadSubmission>> GetPendingDownloadSubmissionsAsync(
+        int take,
         CancellationToken cancellationToken);
 
     Task<bool> TryStartUpgradeDownloadAsync(
@@ -103,10 +132,19 @@ public interface IAnimationInfoRepository
         SubscriptionAutomationDisposition? queuedDisposition,
         CancellationToken cancellationToken);
 
-    Task<bool> TryBeginCancelDownloadAsync(
+    Task<DownloadCancellationLease?> TryBeginCancelDownloadAsync(
         Guid id,
         Guid? downloadAttemptId,
         Guid cancellationAttemptId,
+        Guid cancellationLeaseId,
+        TimeSpan cancellationLeaseDuration,
+        bool removeFile,
+        bool requireUnfinished,
+        SubscriptionAutomationDisposition? terminalDisposition,
+        CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<PendingDownloadCancellation>> GetPendingDownloadCancellationsAsync(
+        int take,
         CancellationToken cancellationToken);
 
     Task<AnimationInfo?> TryCompleteDownloadAsync(

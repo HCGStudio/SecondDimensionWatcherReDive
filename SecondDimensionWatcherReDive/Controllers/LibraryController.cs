@@ -65,7 +65,11 @@ internal sealed class LibraryController(
         }
         catch (ArgumentException exception)
         {
-            return BadRequest(new { message = exception.Message });
+            return BadRequest(new
+            {
+                code = "library_cursor_invalidated",
+                message = exception.Message
+            });
         }
     }
 

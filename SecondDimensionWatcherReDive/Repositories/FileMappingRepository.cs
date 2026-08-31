@@ -423,6 +423,7 @@ public class FileMappingRepository(
         Guid animationInfoId,
         Guid? downloadAttemptId,
         Guid cancellationAttemptId,
+        Guid cancellationLeaseId,
         SubscriptionAutomationDisposition? terminalDisposition,
         CancellationToken cancellationToken)
     {
@@ -453,6 +454,25 @@ public class FileMappingRepository(
                 || animationInfo.DownloadCancellationId != cancellationAttemptId)
                 return false;
 
+            var databaseNow = await finalizeContext.Database
+                .SqlQueryRaw<DateTimeOffset>("SELECT clock_timestamp() AS \"Value\"")
+                .SingleAsync(cancellationToken);
+            if (animationInfo.DownloadCancellationLeaseId != cancellationLeaseId ||
+                animationInfo.DownloadCancellationLeaseUntil <= databaseNow)
+                return false;
+            if (animationInfo.DownloadSubmissionLeaseId is not null &&
+                (animationInfo.DownloadSubmissionLeaseUntil is null ||
+                 animationInfo.DownloadSubmissionLeaseUntil > databaseNow))
+                return false;
+            if (await finalizeContext.ReleaseUpgradeOperations.AnyAsync(
+                    operation => operation.CandidateReleaseId == animationInfoId &&
+                                 operation.DownloadSubmissionLeaseId != null &&
+                                 operation.DownloadSubmissionLeaseId != cancellationLeaseId &&
+                                 (operation.DownloadSubmissionLeaseUntil == null ||
+                                  operation.DownloadSubmissionLeaseUntil > databaseNow),
+                    cancellationToken))
+                return false;
+
             var previousEpisodeIdentity = AnimationInfoRepository.GetEpisodeIdentity(
                 finalizeContext,
                 animationInfo);
@@ -466,9 +486,13 @@ public class FileMappingRepository(
             animationInfo.IsDownloadFinished = false;
             animationInfo.IsActiveRelease = false;
             animationInfo.DownloadAttemptId = null;
+            animationInfo.DownloadSubmissionLeaseId = null;
+            animationInfo.DownloadSubmissionLeaseUntil = null;
             // Retain the completed cancellation id until the next Start so a
             // lost commit acknowledgement can be retried idempotently.
             animationInfo.DownloadCancellationId = cancellationAttemptId;
+            animationInfo.DownloadCancellationLeaseId = null;
+            animationInfo.DownloadCancellationLeaseUntil = null;
             animationInfo.AutomationDisposition = terminalDisposition
                 ?? (animationInfo.AutomationDisposition is
                     SubscriptionAutomationDisposition.AutoDownloadQueued or
@@ -477,7 +501,6 @@ public class FileMappingRepository(
                         ? SubscriptionAutomationDisposition.DownloadCancelled
                         : animationInfo.AutomationDisposition);
             animationInfo.StateVersion = checked(animationInfo.StateVersion + 1);
-            var cancelledAt = DateTimeOffset.UtcNow;
             await finalizeContext.ReleaseUpgradeOperations
                 .Where(operation => operation.CandidateReleaseId == animationInfoId &&
                                     (operation.Status == ReleaseUpgradeStatus.Downloading ||
@@ -488,7 +511,19 @@ public class FileMappingRepository(
                         .SetProperty(
                             operation => operation.FailureSummary,
                             "Candidate download was cancelled before upgrade activation.")
-                        .SetProperty(operation => operation.CompletedAt, cancelledAt),
+                        .SetProperty(operation => operation.CompletedAt, databaseNow),
+                    cancellationToken);
+            await finalizeContext.ReleaseUpgradeOperations
+                .Where(operation =>
+                    operation.CandidateReleaseId == animationInfoId &&
+                    operation.DownloadSubmissionLeaseId != null &&
+                    (operation.Status == ReleaseUpgradeStatus.Failed ||
+                     operation.Status == ReleaseUpgradeStatus.RolledBack ||
+                     operation.Status == ReleaseUpgradeStatus.Completed))
+                .ExecuteUpdateAsync(setters => setters
+                        .SetProperty(operation => operation.DownloadSubmissionLeaseId, (Guid?)null)
+                        .SetProperty(operation => operation.DownloadSubmissionLeaseUntil,
+                            (DateTimeOffset?)null),
                     cancellationToken);
             await finalizeContext.SaveChangesAsync(cancellationToken);
             await AnimationInfoRepository.PromotePreviousEpisodeSuccessorAsync(

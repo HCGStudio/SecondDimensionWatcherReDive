@@ -23,7 +23,17 @@ public class AnimationInfo
 
     public Guid? DownloadAttemptId { get; set; }
 
+    public Guid? DownloadSubmissionLeaseId { get; set; }
+
+    public DateTimeOffset? DownloadSubmissionLeaseUntil { get; set; }
+
     public Guid? DownloadCancellationId { get; set; }
+
+    public Guid? DownloadCancellationLeaseId { get; set; }
+
+    public DateTimeOffset? DownloadCancellationLeaseUntil { get; set; }
+
+    public bool DownloadCancellationRemoveFile { get; set; }
 
     public DateTimeOffset DownloadStartTime { get; set; }
 

@@ -445,8 +445,22 @@ public class AnimationInfoRepository(
                 || entity.MediaLibrarySourceId != expectedSourceId
                 || entity.DownloadType != FileDownloadTypes.MediaLibraryImport)
                 return false;
+            if (await writeContext.ReleaseUpgradeOperations.AnyAsync(
+                    operation =>
+                        (operation.CurrentReleaseId == entity.Id ||
+                         operation.CandidateReleaseId == entity.Id) &&
+                        operation.DownloadSubmissionLeaseId != null,
+                    cancellationToken))
+                return false;
             var previousEpisodeIdentity = GetEpisodeIdentity(writeContext, entity);
             var wasActiveRelease = entity.IsActiveRelease;
+            if (!wasActiveRelease)
+            {
+                await CollapseReleaseUpgradeLineageBeforeDeleteAsync(
+                    writeContext,
+                    entity,
+                    cancellationToken);
+            }
             var previousMappings = await writeContext.FileMappings
                 .AsNoTracking()
                 .Where(mapping => mapping.AnimationInfoId == entity.Id)
@@ -464,10 +478,11 @@ public class AnimationInfoRepository(
                 previousMappings,
                 retainChangedReleaseMappings: false,
                 cancellationToken);
-            await writeContext.ReleaseUpgradeOperations
+            var operationsToDelete = await writeContext.ReleaseUpgradeOperations
                 .Where(operation => operation.CurrentReleaseId == entity.Id ||
                                     operation.CandidateReleaseId == entity.Id)
-                .ExecuteDeleteAsync(cancellationToken);
+                .ToListAsync(cancellationToken);
+            writeContext.ReleaseUpgradeOperations.RemoveRange(operationsToDelete);
             await writeContext.FileMappings
                 .Where(mapping => mapping.AnimationInfoId == id)
                 .ExecuteDeleteAsync(cancellationToken);
@@ -476,6 +491,150 @@ public class AnimationInfoRepository(
             await transaction.CommitAsync(cancellationToken);
             return true;
         });
+    }
+
+    private static async Task CollapseReleaseUpgradeLineageBeforeDeleteAsync(
+        Models.ApplicationContext writeContext,
+        Models.AnimationInfo removedRelease,
+        CancellationToken cancellationToken)
+    {
+        var databaseNow = await writeContext.Database
+            .SqlQueryRaw<DateTimeOffset>("SELECT clock_timestamp() AS \"Value\"")
+            .SingleAsync(cancellationToken);
+        var incomingActiveOperations = await writeContext.ReleaseUpgradeOperations
+            .Where(operation =>
+                operation.CandidateReleaseId == removedRelease.Id &&
+                (operation.Status == ReleaseUpgradeStatus.Downloading ||
+                 operation.Status == ReleaseUpgradeStatus.Verifying ||
+                 operation.Status == ReleaseUpgradeStatus.Applied))
+            .ToListAsync(cancellationToken);
+        foreach (var operation in incomingActiveOperations)
+        {
+            if (operation.Status == ReleaseUpgradeStatus.Applied)
+            {
+                operation.Status = ReleaseUpgradeStatus.Completed;
+            }
+            else
+            {
+                operation.Status = ReleaseUpgradeStatus.Failed;
+                operation.FailureSummary =
+                    "Upgrade was superseded because its candidate was removed from the media library.";
+            }
+            operation.CompletedAt ??= databaseNow;
+        }
+        if (incomingActiveOperations.Count > 0)
+            await writeContext.SaveChangesAsync(cancellationToken);
+
+        var lineages = await GetAncestorLineagesAsync(
+            writeContext,
+            removedRelease.Id,
+            cancellationToken);
+        if (lineages.Count == 0)
+            return;
+
+        var ancestorIds = lineages.Keys.ToArray();
+        var existingAncestors = await writeContext.AnimationInfo
+            .AsNoTracking()
+            .Where(info => ancestorIds.Contains(info.Id))
+            .Select(info => info.Id)
+            .ToListAsync(cancellationToken);
+        var existingIds = existingAncestors.ToHashSet();
+        if (existingIds.Count == 0)
+            return;
+
+        var occupiedActiveCurrentIds = await writeContext.ReleaseUpgradeOperations
+            .AsNoTracking()
+            .Where(operation =>
+                ancestorIds.Contains(operation.CurrentReleaseId) &&
+                (operation.Status == ReleaseUpgradeStatus.Downloading ||
+                 operation.Status == ReleaseUpgradeStatus.Verifying ||
+                 operation.Status == ReleaseUpgradeStatus.Applied))
+            .Select(operation => operation.CurrentReleaseId)
+            .ToListAsync(cancellationToken);
+        var occupiedIds = occupiedActiveCurrentIds.ToHashSet();
+
+        var outgoingOperations = await writeContext.ReleaseUpgradeOperations
+            .Include(operation => operation.MappingSnapshots)
+            .Where(operation =>
+                operation.CurrentReleaseId == removedRelease.Id &&
+                (operation.Status == ReleaseUpgradeStatus.Applied ||
+                 operation.Status == ReleaseUpgradeStatus.Completed))
+            .ToListAsync(cancellationToken);
+        foreach (var operation in outgoingOperations)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            // Compose the historical edges structurally. Release metadata and
+            // availability are mutable, while the operation snapshots are the
+            // durable account of the upgrade. Later promotion/rollback still
+            // performs its own current eligibility and episode checks.
+            var structuralAncestors = lineages
+                .Where(pair => existingIds.Contains(pair.Key) &&
+                               pair.Key != operation.CandidateReleaseId)
+                .OrderBy(pair => pair.Value.Depth)
+                .ToList();
+            var selected = structuralAncestors
+                .Where(pair => operation.Status != ReleaseUpgradeStatus.Applied ||
+                               !occupiedIds.Contains(pair.Key))
+                .Select(pair => new
+                {
+                    ReleaseId = pair.Key,
+                    Lineage = pair.Value
+                })
+                .FirstOrDefault();
+            if (selected is null && operation.Status == ReleaseUpgradeStatus.Applied)
+            {
+                if (structuralAncestors.Count > 0)
+                {
+                    var fallback = structuralAncestors[0];
+                    operation.Status = ReleaseUpgradeStatus.Completed;
+                    operation.CompletedAt ??= databaseNow;
+                    selected = new
+                    {
+                        ReleaseId = fallback.Key,
+                        Lineage = fallback.Value
+                    };
+                }
+            }
+            if (selected is null)
+                continue;
+
+            var previousSnapshots = operation.MappingSnapshots
+                .Where(snapshot => snapshot.Kind == ReleaseUpgradeMappingKind.Previous)
+                .ToList();
+            writeContext.ReleaseUpgradeMappingSnapshots.RemoveRange(previousSnapshots);
+            await writeContext.ReleaseUpgradeMappingSnapshots.AddRangeAsync(
+                selected.Lineage.PreviousMappings.Select(mapping =>
+                    new Models.ReleaseUpgradeMappingSnapshot
+                    {
+                        Id = Guid.NewGuid(),
+                        OperationId = operation.Id,
+                        Kind = ReleaseUpgradeMappingKind.Previous,
+                        OriginalMappingId = mapping.Id,
+                        AnimationInfoId = selected.ReleaseId,
+                        VirtualPath = mapping.VirtualPath,
+                        PhysicalPath = mapping.PhysicalPath,
+                        FileStore = mapping.FileStore
+                    }),
+                cancellationToken);
+            operation.CurrentReleaseId = selected.ReleaseId;
+            operation.CurrentScore = selected.Lineage.HistoricalScore;
+
+            await writeContext.Database.ExecuteSqlInterpolatedAsync(
+                $"""
+                 DELETE FROM "ReleaseUpgradeEntryIdentitySnapshots"
+                 WHERE "OperationId" = {operation.Id}
+                 """,
+                cancellationToken);
+            await writeContext.Database.ExecuteSqlInterpolatedAsync(
+                $"""
+                 INSERT INTO "ReleaseUpgradeEntryIdentitySnapshots"
+                     ("OperationId", "Path", "EntryId", "IsDirectory")
+                 SELECT {operation.Id}, "Path", "EntryId", "IsDirectory"
+                 FROM "ReleaseUpgradeEntryIdentitySnapshots"
+                 WHERE "OperationId" = {selected.Lineage.SourceOperationId}
+                 """,
+                cancellationToken);
+        }
     }
 
     public async IAsyncEnumerable<AnimationInfo> GetUnfinishedTorrentDownloadsAsync(
@@ -667,39 +826,141 @@ public class AnimationInfoRepository(
         });
     }
 
-    public Task<bool> TryStartDownloadAsync(
+    public async Task<DownloadSubmissionLease?> TryStartDownloadAsync(
         Guid id,
         Guid downloadAttemptId,
+        Guid submissionLeaseId,
+        TimeSpan submissionLeaseDuration,
         DateTimeOffset startedAt,
         SubscriptionAutomationDisposition? queuedDisposition,
-        CancellationToken cancellationToken) =>
-        TryStartDownloadCoreAsync(
+        CancellationToken cancellationToken)
+    {
+        if (submissionLeaseDuration <= TimeSpan.Zero ||
+            submissionLeaseDuration > TimeSpan.FromMinutes(30))
+            throw new ArgumentOutOfRangeException(nameof(submissionLeaseDuration));
+
+        var result = await TryStartDownloadCoreAsync(
             id,
             releaseUpgradeOperationId: null,
             downloadAttemptId,
+            submissionLeaseId,
+            submissionLeaseDuration,
             startedAt,
             queuedDisposition,
             cancellationToken);
+        return result.IsSuccess && result.SubmissionLeaseUntil is { } leaseUntil
+            ? new DownloadSubmissionLease(submissionLeaseId, leaseUntil)
+            : null;
+    }
 
-    public Task<bool> TryStartUpgradeDownloadAsync(
+    public async Task<bool> TryMarkDownloadSubmittedAsync(
+        Guid id,
+        Guid downloadAttemptId,
+        Guid submissionLeaseId,
+        CancellationToken cancellationToken)
+    {
+        var strategy = context.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(async () =>
+        {
+            await using var writeContext = new Models.ApplicationContext(contextOptions);
+            await using var transaction = await writeContext.Database
+                .BeginTransactionAsync(cancellationToken);
+            await MappingTransactionLock.AcquireAsync(writeContext, cancellationToken);
+            var entity = await MappingTransactionLock.LockAnimationInfoAsync(
+                writeContext,
+                id,
+                cancellationToken);
+            if (entity is null ||
+                !entity.IsDownloadTracked ||
+                entity.DownloadAttemptId != downloadAttemptId ||
+                entity.DownloadCancellationId is not null)
+                return false;
+
+            if (entity.DownloadSubmissionLeaseId is null)
+            {
+                await transaction.CommitAsync(cancellationToken);
+                return true;
+            }
+
+            var databaseNow = await writeContext.Database
+                .SqlQueryRaw<DateTimeOffset>("SELECT clock_timestamp() AS \"Value\"")
+                .SingleAsync(cancellationToken);
+            if (entity.DownloadSubmissionLeaseId != submissionLeaseId ||
+                entity.DownloadSubmissionLeaseUntil <= databaseNow)
+                return false;
+
+            entity.DownloadSubmissionLeaseId = null;
+            entity.DownloadSubmissionLeaseUntil = null;
+            await writeContext.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return true;
+        });
+    }
+
+    public async Task<IReadOnlyList<PendingDownloadSubmission>> GetPendingDownloadSubmissionsAsync(
+        int take,
+        CancellationToken cancellationToken)
+    {
+        if (take is < 1 or > 200)
+            throw new ArgumentOutOfRangeException(nameof(take));
+
+        var databaseNow = await context.Database
+            .SqlQueryRaw<DateTimeOffset>("SELECT clock_timestamp() AS \"Value\"")
+            .SingleAsync(cancellationToken);
+        return await context.AnimationInfo
+            .AsNoTracking()
+            .Where(info =>
+                info.IsDownloadTracked &&
+                !info.IsDownloadFinished &&
+                info.DownloadAttemptId != null &&
+                info.DownloadCancellationId == null &&
+                info.DownloadSubmissionLeaseId != null &&
+                (info.DownloadSubmissionLeaseUntil == null ||
+                 info.DownloadSubmissionLeaseUntil <= databaseNow) &&
+                !context.ReleaseUpgradeOperations.Any(operation =>
+                    operation.CandidateReleaseId == info.Id &&
+                    (operation.Status == ReleaseUpgradeStatus.Downloading ||
+                     operation.Status == ReleaseUpgradeStatus.Verifying)))
+            .OrderBy(info => info.DownloadSubmissionLeaseUntil)
+            .ThenBy(info => info.DownloadStartTime)
+            .ThenBy(info => info.Id)
+            .Select(info => new PendingDownloadSubmission(
+                info.Id,
+                info.DownloadAttemptId!.Value))
+            .Take(take)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<bool> TryStartUpgradeDownloadAsync(
         Guid id,
         Guid releaseUpgradeOperationId,
         Guid downloadAttemptId,
         DateTimeOffset startedAt,
         SubscriptionAutomationDisposition? queuedDisposition,
-        CancellationToken cancellationToken) =>
-        TryStartDownloadCoreAsync(
+        CancellationToken cancellationToken)
+    {
+        var result = await TryStartDownloadCoreAsync(
             id,
             releaseUpgradeOperationId,
             downloadAttemptId,
+            submissionLeaseId: null,
+            submissionLeaseDuration: null,
             startedAt,
             queuedDisposition,
             cancellationToken);
+        return result.IsSuccess;
+    }
 
-    private async Task<bool> TryStartDownloadCoreAsync(
+    private readonly record struct DownloadStartResult(
+        bool IsSuccess,
+        DateTimeOffset? SubmissionLeaseUntil);
+
+    private async Task<DownloadStartResult> TryStartDownloadCoreAsync(
         Guid id,
         Guid? releaseUpgradeOperationId,
         Guid downloadAttemptId,
+        Guid? submissionLeaseId,
+        TimeSpan? submissionLeaseDuration,
         DateTimeOffset startedAt,
         SubscriptionAutomationDisposition? queuedDisposition,
         CancellationToken cancellationToken)
@@ -716,14 +977,41 @@ public class AnimationInfoRepository(
                 id,
                 cancellationToken);
             if (entity is null)
-                return false;
+                return new DownloadStartResult(false, null);
+
+            var databaseNow = await writeContext.Database
+                .SqlQueryRaw<DateTimeOffset>("SELECT clock_timestamp() AS \"Value\"")
+                .SingleAsync(cancellationToken);
+            var hasLiveSubmissionLease =
+                entity.DownloadSubmissionLeaseId is not null &&
+                (entity.DownloadSubmissionLeaseUntil is null ||
+                 entity.DownloadSubmissionLeaseUntil > databaseNow);
+            if (hasLiveSubmissionLease &&
+                (releaseUpgradeOperationId is not null ||
+                 entity.DownloadSubmissionLeaseId != submissionLeaseId))
+                return new DownloadStartResult(false, null);
+
+            // Once an upgrade has claimed the candidate, only its attempt may
+            // establish tracking. This makes every tracked attempt on an active
+            // operation recoverably owned by that operation.
+            if (releaseUpgradeOperationId is null &&
+                (entity.DownloadCancellationLeaseUntil > databaseNow ||
+                 await writeContext.ReleaseUpgradeOperations.AnyAsync(
+                     operation => operation.CandidateReleaseId == id &&
+                                  (operation.Status == ReleaseUpgradeStatus.Downloading ||
+                                   operation.Status == ReleaseUpgradeStatus.Verifying ||
+                                   (operation.DownloadSubmissionLeaseId != null &&
+                                    (operation.DownloadSubmissionLeaseUntil == null ||
+                                     operation.DownloadSubmissionLeaseUntil > databaseNow))),
+                     cancellationToken)))
+                return new DownloadStartResult(false, null);
             if (releaseUpgradeOperationId is { } operationId &&
                 !await writeContext.ReleaseUpgradeOperations.AnyAsync(
                     operation => operation.Id == operationId &&
                                  operation.CandidateReleaseId == id &&
                                  operation.Status == ReleaseUpgradeStatus.Downloading,
                     cancellationToken))
-                return false;
+                return new DownloadStartResult(false, null);
             if (entity.IsDownloadTracked)
             {
                 // A transaction whose commit acknowledgement was lost can be
@@ -732,7 +1020,7 @@ public class AnimationInfoRepository(
                 // must not resume that attempt while remote cleanup is in flight.
                 if (entity.DownloadAttemptId != downloadAttemptId ||
                     entity.DownloadCancellationId is not null)
-                    return false;
+                    return new DownloadStartResult(false, null);
             }
             else
             {
@@ -755,26 +1043,49 @@ public class AnimationInfoRepository(
                 entity.IsDownloadTracked = true;
                 entity.IsDownloadFinished = false;
                 entity.DownloadAttemptId = downloadAttemptId;
+                entity.DownloadSubmissionLeaseId = null;
+                entity.DownloadSubmissionLeaseUntil = null;
                 entity.DownloadCancellationId = null;
+                entity.DownloadCancellationLeaseId = null;
+                entity.DownloadCancellationLeaseUntil = null;
+                entity.DownloadCancellationRemoveFile = false;
                 entity.DownloadStartTime = startedAt;
                 entity.FileStore = null;
                 entity.StorePath = null;
                 entity.AutomationDisposition = nextDisposition;
                 entity.StateVersion = checked(entity.StateVersion + 1);
-                await writeContext.SaveChangesAsync(cancellationToken);
             }
 
+            DateTimeOffset? submissionLeaseUntil = null;
+            if (submissionLeaseId is { } ordinaryLeaseId &&
+                submissionLeaseDuration is { } ordinaryLeaseDuration)
+            {
+                submissionLeaseUntil = databaseNow.Add(ordinaryLeaseDuration);
+                entity.DownloadSubmissionLeaseId = ordinaryLeaseId;
+                entity.DownloadSubmissionLeaseUntil = submissionLeaseUntil;
+            }
+
+            await writeContext.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
-            return true;
+            return new DownloadStartResult(true, submissionLeaseUntil);
         });
     }
 
-    public async Task<bool> TryBeginCancelDownloadAsync(
+    public async Task<DownloadCancellationLease?> TryBeginCancelDownloadAsync(
         Guid id,
         Guid? downloadAttemptId,
         Guid cancellationAttemptId,
+        Guid cancellationLeaseId,
+        TimeSpan cancellationLeaseDuration,
+        bool removeFile,
+        bool requireUnfinished,
+        SubscriptionAutomationDisposition? terminalDisposition,
         CancellationToken cancellationToken)
     {
+        if (cancellationLeaseDuration <= TimeSpan.Zero ||
+            cancellationLeaseDuration > TimeSpan.FromMinutes(30))
+            throw new ArgumentOutOfRangeException(nameof(cancellationLeaseDuration));
+
         var strategy = context.Database.CreateExecutionStrategy();
         return await strategy.ExecuteAsync(async () =>
         {
@@ -786,14 +1097,65 @@ public class AnimationInfoRepository(
                 writeContext,
                 id,
                 cancellationToken);
-            if (entity is null
-                || !entity.IsDownloadTracked
-                || entity.DownloadAttemptId != downloadAttemptId)
-                return false;
+            if (entity is null)
+                return null;
+
+            if (requireUnfinished && entity.IsDownloadFinished)
+                return null;
+
+            var databaseNow = await writeContext.Database
+                .SqlQueryRaw<DateTimeOffset>("SELECT clock_timestamp() AS \"Value\"")
+                .SingleAsync(cancellationToken);
+
+            // A current release must not be deleted remotely while an upgrade
+            // candidate has only a durable local start and has not yet been
+            // confirmed remotely. Recovery owns that gap until SubmittedAt is
+            // persisted.
+            if (await writeContext.ReleaseUpgradeOperations.AnyAsync(
+                    operation =>
+                        operation.CurrentReleaseId == entity.Id &&
+                        (operation.Status == ReleaseUpgradeStatus.Downloading ||
+                         operation.Status == ReleaseUpgradeStatus.Verifying) &&
+                        operation.DownloadSubmittedAt == null &&
+                        operation.CandidateRelease.IsDownloadTracked &&
+                        !operation.CandidateRelease.IsDownloadFinished,
+                    cancellationToken))
+                return null;
+
+            if (entity.DownloadCancellationLeaseUntil > databaseNow &&
+                entity.DownloadCancellationLeaseId != cancellationLeaseId)
+                return null;
+
+            var hasLiveOrdinarySubmissionLease =
+                entity.DownloadSubmissionLeaseId is not null &&
+                (entity.DownloadSubmissionLeaseUntil is null ||
+                 entity.DownloadSubmissionLeaseUntil > databaseNow);
+            if (hasLiveOrdinarySubmissionLease &&
+                entity.DownloadSubmissionLeaseId != cancellationLeaseId)
+                return null;
+
+            if (!entity.IsDownloadTracked)
+            {
+                // A remote submission can complete after cancellation was
+                // finalized. Re-establish the same durable cancellation fence
+                // before deleting that late remote task, so a newer Start wins
+                // atomically and can never be deleted by the stale attempt.
+                if (entity.IsDownloadFinished ||
+                    entity.DownloadAttemptId is not null ||
+                    entity.DownloadCancellationId != cancellationAttemptId)
+                    return null;
+                entity.IsDownloadTracked = true;
+                entity.DownloadAttemptId = downloadAttemptId;
+                entity.StateVersion = checked(entity.StateVersion + 1);
+            }
+            else if (entity.DownloadAttemptId != downloadAttemptId)
+            {
+                return null;
+            }
 
             if (entity.DownloadCancellationId is not null &&
                 entity.DownloadCancellationId != cancellationAttemptId)
-                return false;
+                return null;
 
             // If activation acquired the shared mapping lock first, this is a
             // stale cancellation request for a release that is now live. Do
@@ -802,34 +1164,152 @@ public class AnimationInfoRepository(
                     operation => operation.CandidateReleaseId == entity.Id &&
                                  operation.Status == ReleaseUpgradeStatus.Applied,
                     cancellationToken))
-                return false;
+                return null;
 
-            if (entity.DownloadCancellationId is null)
+            var isNewCancellation = entity.DownloadCancellationId is null;
+            if (isNewCancellation)
             {
                 entity.DownloadCancellationId = cancellationAttemptId;
+                if (terminalDisposition is { } disposition &&
+                    entity.AutomationDisposition != disposition)
+                {
+                    await ResetTodoStateForTransitionAsync(
+                        writeContext,
+                        entity,
+                        entity.MetadataStatus,
+                        disposition,
+                        cancellationToken);
+                    entity.AutomationDisposition = disposition;
+                }
                 entity.StateVersion = checked(entity.StateVersion + 1);
             }
+
+            var effectiveRemoveFile = entity.DownloadCancellationRemoveFile || removeFile;
+            entity.DownloadCancellationRemoveFile = effectiveRemoveFile;
 
             // Persist the cancellation intent and terminate the pending
             // upgrade atomically. Activation uses the same global lock, so it
             // can no longer commit between remote deletion and local finalize.
-            var cancelledAt = DateTimeOffset.UtcNow;
-            await writeContext.ReleaseUpgradeOperations
+            var outgoingOperations = await writeContext.ReleaseUpgradeOperations
+                .Where(operation => operation.CurrentReleaseId == entity.Id &&
+                                    (operation.Status == ReleaseUpgradeStatus.Downloading ||
+                                     operation.Status == ReleaseUpgradeStatus.Verifying))
+                .ToListAsync(cancellationToken);
+            foreach (var operation in outgoingOperations)
+            {
+                operation.Status = ReleaseUpgradeStatus.Failed;
+                operation.FailureSummary =
+                    "Current release cancellation superseded the pending upgrade.";
+                operation.CompletedAt = databaseNow;
+            }
+
+            var pendingOperations = await writeContext.ReleaseUpgradeOperations
                 .Where(operation => operation.CandidateReleaseId == entity.Id &&
                                     (operation.Status == ReleaseUpgradeStatus.Downloading ||
                                      operation.Status == ReleaseUpgradeStatus.Verifying))
-                .ExecuteUpdateAsync(
-                    setters => setters
-                        .SetProperty(operation => operation.Status, ReleaseUpgradeStatus.Failed)
-                        .SetProperty(
-                            operation => operation.FailureSummary,
-                            "Candidate download cancellation was requested before upgrade activation.")
-                        .SetProperty(operation => operation.CompletedAt, cancelledAt),
-                    cancellationToken);
+                .OrderByDescending(operation => operation.CreatedAt)
+                .ToListAsync(cancellationToken);
+            foreach (var operation in pendingOperations)
+            {
+                operation.Status = ReleaseUpgradeStatus.Failed;
+                operation.FailureSummary =
+                    "Candidate download cancellation was requested before upgrade activation.";
+                operation.CompletedAt = databaseNow;
+            }
+
+            var terminalOperations = await writeContext.ReleaseUpgradeOperations
+                .Where(operation =>
+                    operation.CandidateReleaseId == entity.Id &&
+                    (operation.Status == ReleaseUpgradeStatus.Failed ||
+                     operation.Status == ReleaseUpgradeStatus.RolledBack ||
+                     operation.Status == ReleaseUpgradeStatus.Completed))
+                .OrderByDescending(operation => operation.CreatedAt)
+                .ToListAsync(cancellationToken);
+            terminalOperations.InsertRange(0, pendingOperations);
+            foreach (var operation in terminalOperations)
+                operation.DownloadCancellationRemoveFile = effectiveRemoveFile;
+
+            var activeSubmissionOperations = terminalOperations
+                .Where(operation =>
+                    operation.DownloadSubmissionLeaseId != null &&
+                    operation.DownloadSubmissionLeaseId != cancellationLeaseId &&
+                    operation.DownloadSubmissionLeaseUntil > databaseNow)
+                .ToList();
+            var cancellationLeaseUntil = databaseNow.Add(cancellationLeaseDuration);
+            if (hasLiveOrdinarySubmissionLease &&
+                entity.DownloadSubmissionLeaseUntil > cancellationLeaseUntil)
+                cancellationLeaseUntil = entity.DownloadSubmissionLeaseUntil.Value;
+            if (activeSubmissionOperations.Count > 0)
+            {
+                var latestSubmissionLeaseUntil = activeSubmissionOperations
+                    .Max(operation => operation.DownloadSubmissionLeaseUntil);
+                if (latestSubmissionLeaseUntil > cancellationLeaseUntil)
+                    cancellationLeaseUntil = latestSubmissionLeaseUntil.Value;
+            }
+
+            entity.DownloadCancellationLeaseId = cancellationLeaseId;
+            entity.DownloadCancellationLeaseUntil = cancellationLeaseUntil;
+
+            if (activeSubmissionOperations.Count == 0)
+            {
+                var recoveryOperation = terminalOperations.FirstOrDefault();
+                foreach (var operation in terminalOperations)
+                {
+                    operation.DownloadSubmissionLeaseId = null;
+                    operation.DownloadSubmissionLeaseUntil = null;
+                }
+                if (recoveryOperation is not null)
+                {
+                    recoveryOperation.DownloadSubmissionLeaseId = cancellationLeaseId;
+                    recoveryOperation.DownloadSubmissionLeaseUntil = cancellationLeaseUntil;
+                }
+            }
+            else
+            {
+                // Preserve every still-live submission fence. A cancellation
+                // may delete now, but it cannot finalize until any potentially
+                // late submission has expired and been deleted again.
+                foreach (var operation in terminalOperations.Except(activeSubmissionOperations))
+                {
+                    operation.DownloadSubmissionLeaseId = null;
+                    operation.DownloadSubmissionLeaseUntil = null;
+                }
+            }
             await writeContext.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
-            return true;
+            return new DownloadCancellationLease(
+                cancellationLeaseId,
+                cancellationLeaseUntil,
+                effectiveRemoveFile);
         });
+    }
+
+    public async Task<IReadOnlyList<PendingDownloadCancellation>>
+        GetPendingDownloadCancellationsAsync(
+            int take,
+            CancellationToken cancellationToken)
+    {
+        if (take is < 1 or > 200)
+            throw new ArgumentOutOfRangeException(nameof(take));
+
+        var databaseNow = await context.Database
+            .SqlQueryRaw<DateTimeOffset>("SELECT clock_timestamp() AS \"Value\"")
+            .SingleAsync(cancellationToken);
+        return await context.AnimationInfo
+            .AsNoTracking()
+            .Where(info =>
+                info.IsDownloadTracked &&
+                info.DownloadCancellationId != null &&
+                (info.DownloadCancellationLeaseUntil == null ||
+                 info.DownloadCancellationLeaseUntil <= databaseNow))
+            .OrderBy(info => info.DownloadCancellationLeaseUntil)
+            .ThenBy(info => info.DownloadStartTime)
+            .ThenBy(info => info.Id)
+            .Select(info => new PendingDownloadCancellation(
+                info.Id,
+                info.DownloadCancellationRemoveFile))
+            .Take(take)
+            .ToListAsync(cancellationToken);
     }
 
     public async Task<AnimationInfo?> TryCompleteDownloadAsync(
@@ -874,6 +1354,14 @@ public class AnimationInfoRepository(
                 // A delayed completion for an older download must not replace
                 // the location persisted by a newer completion.
                 return null;
+            }
+
+            if (entity.DownloadSubmissionLeaseId is not null ||
+                entity.DownloadSubmissionLeaseUntil is not null)
+            {
+                entity.DownloadSubmissionLeaseId = null;
+                entity.DownloadSubmissionLeaseUntil = null;
+                changed = true;
             }
 
             if (entity.AutomationDisposition is
@@ -929,6 +1417,24 @@ public class AnimationInfoRepository(
 
             if (entity.IsDownloadTracked)
             {
+                var databaseNow = await writeContext.Database
+                    .SqlQueryRaw<DateTimeOffset>("SELECT clock_timestamp() AS \"Value\"")
+                    .SingleAsync(cancellationToken);
+                if ((entity.DownloadSubmissionLeaseId is not null &&
+                     (entity.DownloadSubmissionLeaseUntil is null ||
+                      entity.DownloadSubmissionLeaseUntil > databaseNow)) ||
+                    entity.DownloadCancellationLeaseUntil > databaseNow ||
+                    await writeContext.ReleaseUpgradeOperations.AnyAsync(
+                        operation => operation.CandidateReleaseId == entity.Id &&
+                                     operation.DownloadSubmissionLeaseId != null &&
+                                     (operation.DownloadSubmissionLeaseUntil == null ||
+                                      operation.DownloadSubmissionLeaseUntil > databaseNow),
+                        cancellationToken))
+                    return null;
+            }
+
+            if (entity.IsDownloadTracked)
+            {
                 if (entity.DownloadAttemptId != downloadAttemptId
                     || entity.DownloadCancellationId is not null)
                     return null;
@@ -936,7 +1442,12 @@ public class AnimationInfoRepository(
                 entity.IsDownloadTracked = false;
                 entity.IsDownloadFinished = false;
                 entity.DownloadAttemptId = null;
+                entity.DownloadSubmissionLeaseId = null;
+                entity.DownloadSubmissionLeaseUntil = null;
                 entity.DownloadCancellationId = null;
+                entity.DownloadCancellationLeaseId = null;
+                entity.DownloadCancellationLeaseUntil = null;
+                entity.DownloadCancellationRemoveFile = false;
                 var nextDisposition = terminalDisposition
                     ?? (entity.AutomationDisposition is
                         SubscriptionAutomationDisposition.AutoDownloadQueued or
@@ -1196,6 +1707,17 @@ public class AnimationInfoRepository(
     {
         if (!wasActiveRelease || previousIdentity is not { } previous || previous == currentIdentity)
             return;
+        if (await writeContext.ReleaseUpgradeOperations.AnyAsync(
+                operation =>
+                    operation.CurrentReleaseId == changedReleaseId &&
+                    (operation.Status == ReleaseUpgradeStatus.Downloading ||
+                     operation.Status == ReleaseUpgradeStatus.Verifying) &&
+                    operation.DownloadSubmittedAt == null &&
+                    operation.CandidateRelease.IsDownloadTracked &&
+                    !operation.CandidateRelease.IsDownloadFinished,
+                cancellationToken))
+            throw new InvalidOperationException(
+                "The release cannot leave its episode while an upgrade submission is awaiting remote confirmation.");
         var supersededAt = DateTimeOffset.UtcNow;
         await writeContext.ReleaseUpgradeOperations
             .Where(operation =>
@@ -1230,14 +1752,21 @@ public class AnimationInfoRepository(
                 cancellationToken))
             return;
 
+        var ancestorLineages = await GetAncestorLineagesAsync(
+            writeContext,
+            changedReleaseId,
+            cancellationToken);
+        var ancestorIds = ancestorLineages.Keys.ToArray();
         var successorId = await writeContext.AnimationInfo
             .AsNoTracking()
             .Where(info => info.Id != changedReleaseId &&
                            !info.IsActiveRelease &&
                            info.MediaLibraryMissingSince == null &&
                            info.IsDownloadFinished &&
+                           info.DownloadCancellationId == null &&
                            (writeContext.FileMappings.Any(mapping => mapping.AnimationInfoId == info.Id) ||
-                            writeContext.StagedFileMappings.Any(mapping => mapping.AnimationInfoId == info.Id)) &&
+                            writeContext.StagedFileMappings.Any(mapping => mapping.AnimationInfoId == info.Id) ||
+                            ancestorIds.Contains(info.Id)) &&
                            EF.Property<Guid?>(info, "AnimationId") == previous.AnimationId &&
                            info.Season == previous.Season &&
                            info.Episode == previous.Episode)
@@ -1256,6 +1785,7 @@ public class AnimationInfoRepository(
             successor.IsActiveRelease ||
             successor.MediaLibraryMissingSince is not null ||
             !successor.IsDownloadFinished ||
+            successor.DownloadCancellationId is not null ||
             GetEpisodeIdentity(writeContext, successor) != previous)
             return;
 
@@ -1271,9 +1801,15 @@ public class AnimationInfoRepository(
         if (successorLiveMappings.Count > 0 && successorStagedMappings.Count > 0)
             return;
 
-        var candidateMappings = successorLiveMappings.Count > 0
-            ? successorLiveMappings
-            : successorStagedMappings
+        AncestorLineage? ancestorLineage = null;
+        List<Models.FileMapping> candidateMappings;
+        if (successorLiveMappings.Count > 0)
+        {
+            candidateMappings = successorLiveMappings;
+        }
+        else if (successorStagedMappings.Count > 0)
+        {
+            candidateMappings = successorStagedMappings
                 .Select(mapping => new Models.FileMapping
                 {
                     Id = mapping.Id,
@@ -1283,6 +1819,12 @@ public class AnimationInfoRepository(
                     FileStore = mapping.FileStore
                 })
                 .ToList();
+        }
+        else
+        {
+            ancestorLineages.TryGetValue(successor.Id, out ancestorLineage);
+            candidateMappings = ancestorLineage?.PreviousMappings ?? [];
+        }
         if (candidateMappings.Count == 0) return;
 
         var replacement = ReleaseUpgradeRepository.BuildCandidateReplacement(
@@ -1317,6 +1859,10 @@ public class AnimationInfoRepository(
         var vacatedCandidatePaths = replacement.CandidatePathReplacements
             .Where(pair => !string.Equals(pair.Key, pair.Value, StringComparison.Ordinal))
             .ToDictionary(pair => pair.Value, pair => pair.Key, StringComparer.Ordinal);
+        var retainedSnapshotPaths = ancestorLineage?.ChangedCandidateMappings
+            .GroupBy(mapping => (mapping.PhysicalPath, mapping.FileStore))
+            .ToDictionary(group => group.Key, group => group.First().VirtualPath)
+            ?? [];
         var retainedPlaybackRelocations = new Dictionary<
             ReleaseUpgradeRepository.PlaybackLocation,
             ReleaseUpgradeRepository.PlaybackLocation>();
@@ -1338,16 +1884,29 @@ public class AnimationInfoRepository(
         }
 
         var retainedDesiredMappings = new List<Models.FileMapping>(retainedMappings.Count);
+        var reservedPaths = successorPaths.ToHashSet(StringComparer.Ordinal);
         foreach (var mapping in retainedMappings)
         {
-            if (successorPaths.Contains(mapping.VirtualPath) &&
-                vacatedCandidatePaths.TryGetValue(mapping.VirtualPath, out var vacatedPath))
+            if (successorPaths.Contains(mapping.VirtualPath))
             {
+                var preferredPath = vacatedCandidatePaths.GetValueOrDefault(mapping.VirtualPath)
+                                    ?? retainedSnapshotPaths.GetValueOrDefault(
+                                        (mapping.PhysicalPath, mapping.FileStore))
+                                    ?? mapping.VirtualPath;
+                var relocatedPath = await FindAvailableRetainedPathAsync(
+                    writeContext,
+                    [changedReleaseId, successor.Id],
+                    preferredPath,
+                    mapping.VirtualPath,
+                    reservedPaths,
+                    cancellationToken);
+                if (relocatedPath is null)
+                    return;
                 retainedDesiredMappings.Add(new Models.FileMapping
                 {
                     Id = Guid.NewGuid(),
                     AnimationInfoId = mapping.AnimationInfoId,
-                    VirtualPath = vacatedPath,
+                    VirtualPath = relocatedPath,
                     PhysicalPath = mapping.PhysicalPath,
                     FileStore = mapping.FileStore
                 });
@@ -1357,11 +1916,13 @@ public class AnimationInfoRepository(
                         mapping.VirtualPath)] =
                     new ReleaseUpgradeRepository.PlaybackLocation(
                         mapping.AnimationInfoId,
-                        vacatedPath);
+                        relocatedPath);
+                reservedPaths.Add(relocatedPath);
             }
             else
             {
                 retainedDesiredMappings.Add(mapping);
+                reservedPaths.Add(mapping.VirtualPath);
             }
         }
 
@@ -1407,6 +1968,132 @@ public class AnimationInfoRepository(
         await writeContext.SaveChangesAsync(cancellationToken);
         await reconciliation.RestoreEntryIdentitiesAsync(writeContext, cancellationToken);
     }
+
+    private static async Task<Dictionary<Guid, AncestorLineage>> GetAncestorLineagesAsync(
+        Models.ApplicationContext writeContext,
+        Guid changedReleaseId,
+        CancellationToken cancellationToken)
+    {
+        var result = new Dictionary<Guid, AncestorLineage>();
+        var visited = new HashSet<Guid> { changedReleaseId };
+        var descendantReleaseId = changedReleaseId;
+        var depth = 0;
+        List<Models.FileMapping>? changedCandidateMappings = null;
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var operation = await writeContext.ReleaseUpgradeOperations
+                .AsNoTracking()
+                .Include(item => item.MappingSnapshots)
+                .Where(item =>
+                    item.CandidateReleaseId == descendantReleaseId &&
+                    (item.Status == ReleaseUpgradeStatus.Applied ||
+                     item.Status == ReleaseUpgradeStatus.Completed))
+                .OrderByDescending(item => item.AppliedAt)
+                .ThenByDescending(item => item.CreatedAt)
+                .FirstOrDefaultAsync(cancellationToken);
+            if (operation is null || !visited.Add(operation.CurrentReleaseId))
+                break;
+            depth++;
+
+            changedCandidateMappings ??= operation.MappingSnapshots
+                .Where(snapshot =>
+                    snapshot.Kind == ReleaseUpgradeMappingKind.Candidate &&
+                    snapshot.AnimationInfoId == changedReleaseId)
+                .OrderBy(snapshot => snapshot.VirtualPath, StringComparer.Ordinal)
+                .Select(FromUpgradeSnapshot)
+                .ToList();
+            var previousMappings = operation.MappingSnapshots
+                .Where(snapshot =>
+                    snapshot.Kind == ReleaseUpgradeMappingKind.Previous &&
+                    snapshot.AnimationInfoId == operation.CurrentReleaseId)
+                .OrderBy(snapshot => snapshot.VirtualPath, StringComparer.Ordinal)
+                .Select(FromUpgradeSnapshot)
+                .ToList();
+            if (previousMappings.Count > 0)
+            {
+                result[operation.CurrentReleaseId] = new AncestorLineage(
+                    previousMappings,
+                    changedCandidateMappings,
+                    operation.Id,
+                    operation.CurrentScore,
+                    depth);
+            }
+
+            descendantReleaseId = operation.CurrentReleaseId;
+        }
+
+        return result;
+    }
+
+    private static Models.FileMapping FromUpgradeSnapshot(
+        Models.ReleaseUpgradeMappingSnapshot snapshot) => new()
+        {
+            Id = snapshot.OriginalMappingId,
+            AnimationInfoId = snapshot.AnimationInfoId,
+            VirtualPath = snapshot.VirtualPath,
+            PhysicalPath = snapshot.PhysicalPath,
+            FileStore = snapshot.FileStore
+        };
+
+    private static async Task<string?> FindAvailableRetainedPathAsync(
+        Models.ApplicationContext writeContext,
+        IReadOnlyCollection<Guid> mappingOwners,
+        string preferredPath,
+        string fallbackPath,
+        IReadOnlyCollection<string> reservedPaths,
+        CancellationToken cancellationToken)
+    {
+        foreach (var basePath in new[] { preferredPath, fallbackPath }
+                     .Distinct(StringComparer.Ordinal))
+        {
+            var candidate = basePath;
+            for (var suffix = 2; suffix <= 65; suffix++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (reservedPaths.Any(path =>
+                        VirtualPathNamespaceGuard.IsAncestor(path, candidate)))
+                    break;
+                var hasBatchConflict = reservedPaths.Any(path =>
+                    string.Equals(path, candidate, StringComparison.Ordinal) ||
+                    VirtualPathNamespaceGuard.IsAncestor(candidate, path));
+                if (!hasBatchConflict)
+                {
+                    var conflicts = await VirtualPathNamespaceGuard.FindConflictsAsync(
+                        writeContext,
+                        mappingOwners,
+                        [candidate],
+                        cancellationToken);
+                    if (conflicts.Count == 0)
+                        return candidate;
+                    if (conflicts.Any(conflict =>
+                            conflict.Kind == VirtualPathConflictKind.AncestorFile))
+                        break;
+                }
+
+                candidate = AddCollisionSuffix(basePath, suffix);
+            }
+        }
+
+        return null;
+    }
+
+    private static string AddCollisionSuffix(string virtualPath, int suffix)
+    {
+        var slash = virtualPath.LastIndexOf('/');
+        var directory = virtualPath[..(slash + 1)];
+        var fileName = virtualPath[(slash + 1)..];
+        var extension = Path.GetExtension(fileName);
+        var stem = extension.Length == 0 ? fileName : fileName[..^extension.Length];
+        return $"{directory}{stem} ({suffix}){extension}";
+    }
+
+    private sealed record AncestorLineage(
+        List<Models.FileMapping> PreviousMappings,
+        List<Models.FileMapping> ChangedCandidateMappings,
+        Guid SourceOperationId,
+        int HistoricalScore,
+        int Depth);
 
     internal readonly record struct EpisodeReleaseIdentity(Guid AnimationId, int Season, int Episode);
 

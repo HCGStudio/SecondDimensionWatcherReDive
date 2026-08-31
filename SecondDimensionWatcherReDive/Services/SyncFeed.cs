@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text.Json;
 using BencodeNET.Objects;
@@ -30,6 +31,9 @@ internal partial class SyncFeed(
     : ScheduledTaskBase
 {
     private static readonly JsonSerializerOptions ExplanationJsonOptions = new(JsonSerializerDefaults.Web);
+    private static readonly TimeSpan DownloadSubmissionLeaseDuration = TimeSpan.FromMinutes(3);
+    private static readonly TimeSpan DownloadSubmissionRemoteBudget = TimeSpan.FromSeconds(90);
+    private static readonly TimeSpan DownloadCancellationLeaseDuration = TimeSpan.FromMinutes(3);
 
     public override string Id => "SyncFeed";
     public override TimeSpan Interval => TimeSpan.FromMinutes(10);
@@ -278,6 +282,7 @@ internal partial class SyncFeed(
                 var started = await QueueAutomaticDownloadAsync(
                     info,
                     animationInfoRepository,
+                    scope.ServiceProvider.GetRequiredService<IFileMappingRepository>(),
                     scope.ServiceProvider.GetRequiredService<IFileDownloadClientProvider>(),
                     cancellationToken);
                 if (!started && notificationPublisher is not null)
@@ -320,40 +325,87 @@ internal partial class SyncFeed(
     private async Task<bool> QueueAutomaticDownloadAsync(
         AnimationInfo info,
         IAnimationInfoRepository animationInfoRepository,
+        IFileMappingRepository fileMappingRepository,
         IFileDownloadClientProvider downloadClientProvider,
         CancellationToken cancellationToken)
     {
         var downloadClient = downloadClientProvider.GetRequiredClient(info.DownloadType);
         var downloadAttemptId = Guid.NewGuid();
+        var submissionLeaseId = Guid.NewGuid();
+        var leaseRequestStartedAt = Stopwatch.GetTimestamp();
         var submissionAttempted = false;
         try
         {
-            if (!await animationInfoRepository.TryStartDownloadAsync(
+            var submissionLease = await animationInfoRepository.TryStartDownloadAsync(
                     info.Id,
                     downloadAttemptId,
+                    submissionLeaseId,
+                    DownloadSubmissionLeaseDuration,
                     DateTimeOffset.UtcNow,
                     SubscriptionAutomationDisposition.AutoDownloadQueued,
-                    cancellationToken))
+                    cancellationToken);
+            if (submissionLease is null)
             {
                 LogAutomaticDownloadWarning(logger, info.Title, "download state changed");
                 return false;
             }
 
+            var remainingRemoteBudget = DownloadSubmissionRemoteBudget -
+                                        Stopwatch.GetElapsedTime(leaseRequestStartedAt);
+            if (remainingRemoteBudget <= TimeSpan.Zero)
+            {
+                await CompensateAutomaticStartAsync(
+                    info,
+                    animationInfoRepository,
+                    fileMappingRepository,
+                    downloadClient,
+                    downloadAttemptId,
+                    submissionLeaseId,
+                    remoteMayHaveAccepted: false);
+                LogAutomaticDownloadWarning(logger, info.Title, "download submission lease expired");
+                return false;
+            }
+
+            using var submissionCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken);
+            submissionCancellation.CancelAfter(remainingRemoteBudget);
+            submissionCancellation.Token.ThrowIfCancellationRequested();
             submissionAttempted = true;
             if (!await downloadClient.SubmitDownloadTaskAsync(
                     info.Id,
                     info.DownloadUrl,
                     info.CachedDownloadData,
                     info.AdditionalDownloadInfo,
-                    cancellationToken))
+                    submissionCancellation.Token))
             {
                 await CompensateAutomaticStartAsync(
                     info,
                     animationInfoRepository,
+                    fileMappingRepository,
                     downloadClient,
                     downloadAttemptId,
+                    submissionLeaseId,
                     remoteMayHaveAccepted: false);
                 LogAutomaticDownloadWarning(logger, info.Title, "download client rejected the task");
+                return false;
+            }
+
+            using var markCancellation = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            if (!await animationInfoRepository.TryMarkDownloadSubmittedAsync(
+                    info.Id,
+                    downloadAttemptId,
+                    submissionLeaseId,
+                    markCancellation.Token))
+            {
+                await CompensateAutomaticStartAsync(
+                    info,
+                    animationInfoRepository,
+                    fileMappingRepository,
+                    downloadClient,
+                    downloadAttemptId,
+                    submissionLeaseId,
+                    remoteMayHaveAccepted: true);
+                LogAutomaticDownloadWarning(logger, info.Title, "download state changed during submission");
                 return false;
             }
             return true;
@@ -365,8 +417,10 @@ internal partial class SyncFeed(
                 await CompensateAutomaticStartAsync(
                     info,
                     animationInfoRepository,
+                    fileMappingRepository,
                     downloadClient,
                     downloadAttemptId,
+                    submissionLeaseId,
                     submissionAttempted);
             }
             catch
@@ -382,8 +436,10 @@ internal partial class SyncFeed(
                 await CompensateAutomaticStartAsync(
                     info,
                     animationInfoRepository,
+                    fileMappingRepository,
                     downloadClient,
                     downloadAttemptId,
+                    submissionLeaseId,
                     submissionAttempted);
             }
             catch
@@ -398,21 +454,38 @@ internal partial class SyncFeed(
     private static async Task CompensateAutomaticStartAsync(
         AnimationInfo info,
         IAnimationInfoRepository animationInfoRepository,
+        IFileMappingRepository fileMappingRepository,
         IFileDownloadClient downloadClient,
         Guid downloadAttemptId,
+        Guid submissionLeaseId,
         bool remoteMayHaveAccepted)
     {
         using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var cancellationAttemptId = Guid.NewGuid();
+        var cancellationLease = await animationInfoRepository.TryBeginCancelDownloadAsync(
+            info.Id,
+            downloadAttemptId,
+            cancellationAttemptId,
+            submissionLeaseId,
+            DownloadCancellationLeaseDuration,
+            removeFile: false,
+            requireUnfinished: true,
+            SubscriptionAutomationDisposition.AutoDownloadFailed,
+            cleanup.Token);
+        if (cancellationLease is null)
+            return;
+
         if (remoteMayHaveAccepted)
         {
             try
             {
+                cleanup.Token.ThrowIfCancellationRequested();
                 var cancellation = await downloadClient.CancelDownloadTaskAsync(
                     info.Id,
                     info.DownloadUrl,
                     info.CachedDownloadData,
                     info.AdditionalDownloadInfo,
-                    removeFile: false,
+                    cancellationLease.RemoveFile,
                     cleanup.Token);
                 if (!cancellation.IsSuccess)
                 {
@@ -427,9 +500,12 @@ internal partial class SyncFeed(
             }
         }
 
-        await animationInfoRepository.TryCancelDownloadAsync(
+        cleanup.Token.ThrowIfCancellationRequested();
+        await fileMappingRepository.TryFinalizeDownloadCancellationAsync(
             info.Id,
             downloadAttemptId,
+            cancellationAttemptId,
+            cancellationLease.Id,
             SubscriptionAutomationDisposition.AutoDownloadFailed,
             cleanup.Token);
     }

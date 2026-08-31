@@ -21,6 +21,18 @@ public interface IReleaseUpgradeCoordinator
         Guid candidateReleaseId,
         CancellationToken cancellationToken);
 
+    Task ReconcilePendingDownloadCancellationAsync(
+        ReleaseUpgradePendingDownloadCancellation pendingCancellation,
+        CancellationToken cancellationToken);
+
+    Task ReconcilePendingDownloadCancellationAsync(
+        PendingDownloadCancellation pendingCancellation,
+        CancellationToken cancellationToken);
+
+    Task ReconcilePendingDownloadSubmissionAsync(
+        PendingDownloadSubmission pendingSubmission,
+        CancellationToken cancellationToken);
+
     Task<ReleaseUpgradeMutationResult> RollbackAsync(
         Guid operationId,
         CancellationToken cancellationToken);

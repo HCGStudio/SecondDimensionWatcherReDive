@@ -1,6 +1,9 @@
+using System.Diagnostics;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Framework.FileDownload;
 using SecondDimensionWatcherReDive.Framework.FileStore;
+using SecondDimensionWatcherReDive.Framework.PluginParams;
+using SecondDimensionWatcherReDive.Plugin;
 using SecondDimensionWatcherReDive.Utils.FileStore;
 using SecondDimensionWatcherReDive.Utils.Incidents;
 
@@ -13,9 +16,17 @@ public sealed class ReleaseUpgradeCoordinator(
     IFileMappingRepository fileMappingRepository,
     IFileDownloadClientProvider downloadClientProvider,
     IFileStoreProvider fileStoreProvider,
+    IPluginEventTrigger<FileDownloadStartParam> beforeDownloadStartEventTrigger,
     IIncidentReporter incidentReporter,
     ILogger<ReleaseUpgradeCoordinator> logger) : IReleaseUpgradeCoordinator
 {
+    private static readonly TimeSpan DownloadSubmissionLeaseDuration = TimeSpan.FromMinutes(3);
+    private static readonly TimeSpan DownloadSubmissionRemoteBudget = TimeSpan.FromSeconds(90);
+    private static readonly TimeSpan DownloadCancellationLeaseDuration = TimeSpan.FromMinutes(3);
+    private static readonly TimeSpan DownloadCancellationRemoteBudget = TimeSpan.FromSeconds(90);
+    private static readonly TimeSpan DownloadCancellationRetryDelay = TimeSpan.FromMinutes(2);
+    private static readonly TimeSpan DownloadLeaseSafetyMargin = TimeSpan.FromSeconds(1);
+
     public async Task<ReleaseUpgradeExecutionResult> ExecuteAsync(
         ReleaseUpgradeCandidate candidate,
         bool dryRun,
@@ -64,6 +75,187 @@ public sealed class ReleaseUpgradeCoordinator(
             : await ContinueOperationAsync(operation, cancellationToken);
     }
 
+    public Task ReconcilePendingDownloadCancellationAsync(
+        ReleaseUpgradePendingDownloadCancellation pendingCancellation,
+        CancellationToken cancellationToken) =>
+        ReconcilePendingDownloadCancellationCoreAsync(
+            pendingCancellation.CandidateReleaseId,
+            pendingCancellation.RemoveFile,
+            pendingCancellation,
+            cancellationToken);
+
+    public Task ReconcilePendingDownloadCancellationAsync(
+        PendingDownloadCancellation pendingCancellation,
+        CancellationToken cancellationToken) =>
+        ReconcilePendingDownloadCancellationCoreAsync(
+            pendingCancellation.AnimationInfoId,
+            pendingCancellation.RemoveFile,
+            upgradeCancellation: null,
+            cancellationToken);
+
+    public async Task ReconcilePendingDownloadSubmissionAsync(
+        PendingDownloadSubmission pendingSubmission,
+        CancellationToken cancellationToken)
+    {
+        var info = await animationInfoRepository.FindByIdAsync(
+            pendingSubmission.AnimationInfoId,
+            cancellationToken);
+        if (info is null ||
+            !info.IsDownloadTracked ||
+            info.IsDownloadFinished ||
+            info.DownloadAttemptId != pendingSubmission.DownloadAttemptId ||
+            info.DownloadCancellationId is not null)
+            return;
+
+        var cancellationAttemptId = Guid.NewGuid();
+        var leaseRequestStartedAt = Stopwatch.GetTimestamp();
+        var cancellationLease = await animationInfoRepository.TryBeginCancelDownloadAsync(
+            info.Id,
+            pendingSubmission.DownloadAttemptId,
+            cancellationAttemptId,
+            Guid.NewGuid(),
+            DownloadCancellationLeaseDuration,
+            removeFile: false,
+            requireUnfinished: true,
+            info.AutomationDisposition == SubscriptionAutomationDisposition.AutoDownloadQueued
+                ? SubscriptionAutomationDisposition.AutoDownloadFailed
+                : null,
+            cancellationToken);
+        if (cancellationLease is null)
+            return;
+
+        await TryReconcileClaimedCancellationAsync(
+            info,
+            pendingSubmission.DownloadAttemptId,
+            cancellationAttemptId,
+            cancellationLease,
+            leaseRequestStartedAt,
+            cancellationToken);
+    }
+
+    private async Task ReconcilePendingDownloadCancellationCoreAsync(
+        Guid animationInfoId,
+        bool removeFile,
+        ReleaseUpgradePendingDownloadCancellation? upgradeCancellation,
+        CancellationToken cancellationToken)
+    {
+        var info = await animationInfoRepository.FindByIdAsync(
+            animationInfoId,
+            cancellationToken);
+        if (info?.DownloadCancellationId is not { } cancellationAttemptId)
+            return;
+
+        Guid? downloadAttemptId = info.IsDownloadTracked
+            ? info.DownloadAttemptId
+            : Guid.NewGuid();
+        var leaseRequestStartedAt = Stopwatch.GetTimestamp();
+        var cancellationLease = await animationInfoRepository.TryBeginCancelDownloadAsync(
+                info.Id,
+                downloadAttemptId,
+                cancellationAttemptId,
+                Guid.NewGuid(),
+                DownloadCancellationLeaseDuration,
+                removeFile,
+                requireUnfinished: false,
+                terminalDisposition: null,
+                cancellationToken);
+        if (cancellationLease is null)
+        {
+            if (upgradeCancellation is not null)
+                await DeferDownloadCancellationSafelyAsync(
+                    upgradeCancellation,
+                    cancellationToken);
+            return;
+        }
+
+        if (!await TryReconcileClaimedCancellationAsync(
+                info,
+                downloadAttemptId,
+                cancellationAttemptId,
+                cancellationLease,
+                leaseRequestStartedAt,
+                cancellationToken))
+            return;
+
+        if (upgradeCancellation is not null)
+            await upgradeRepository.TryMarkDownloadCancellationReconciledAsync(
+                upgradeCancellation.OperationId,
+                upgradeCancellation.SubmissionLeaseId,
+                cancellationToken);
+    }
+
+    private async Task<bool> TryReconcileClaimedCancellationAsync(
+        AnimationInfo info,
+        Guid? downloadAttemptId,
+        Guid cancellationAttemptId,
+        DownloadCancellationLease cancellationLease,
+        long leaseRequestStartedAt,
+        CancellationToken cancellationToken)
+    {
+        var client = downloadClientProvider.GetRequiredClient(info.DownloadType);
+        var remainingRemoteBudget = DownloadCancellationRemoteBudget -
+                                    Stopwatch.GetElapsedTime(leaseRequestStartedAt);
+        if (remainingRemoteBudget <= TimeSpan.Zero)
+            return false;
+        using var remoteCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken);
+        remoteCancellation.CancelAfter(remainingRemoteBudget);
+        remoteCancellation.Token.ThrowIfCancellationRequested();
+        var cancellation = await client.CancelDownloadTaskAsync(
+            info.Id,
+            info.DownloadUrl,
+            info.CachedDownloadData,
+            info.AdditionalDownloadInfo,
+            cancellationLease.RemoveFile,
+            remoteCancellation.Token);
+        if (!cancellation.IsSuccess)
+        {
+            await QueryDownloadProgressSafelyAsync(client, info, cancellationToken);
+            return false;
+        }
+
+        using var finalizeCancellation = CreateLeaseBoundTokenSource(
+            cancellationToken,
+            leaseRequestStartedAt,
+            DownloadCancellationLeaseDuration);
+        if (finalizeCancellation is null)
+            return false;
+        if (!await fileMappingRepository.TryFinalizeDownloadCancellationAsync(
+                info.Id,
+                downloadAttemptId,
+                cancellationAttemptId,
+                cancellationLease.Id,
+                terminalDisposition: null,
+                finalizeCancellation.Token))
+            return false;
+        return true;
+    }
+
+    private async Task DeferDownloadCancellationSafelyAsync(
+        ReleaseUpgradePendingDownloadCancellation pendingCancellation,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await upgradeRepository.TryDeferDownloadCancellationAsync(
+                pendingCancellation.OperationId,
+                pendingCancellation.SubmissionLeaseId,
+                DownloadCancellationRetryDelay,
+                cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(
+                exception,
+                "Could not defer release-upgrade cancellation reconciliation for operation {OperationId}",
+                pendingCancellation.OperationId);
+        }
+    }
+
     private async Task<ReleaseUpgradeExecutionResult> ContinueOperationAsync(
         ReleaseUpgradeOperation operation,
         CancellationToken cancellationToken)
@@ -78,63 +270,202 @@ public sealed class ReleaseUpgradeCoordinator(
             return await FailAsync(operation, "Candidate release disappeared after claim.", cancellationToken);
         if (next.IsDownloadFinished)
             return await ActivateAsync(operation.CandidateReleaseId, cancellationToken);
-        if (next.IsDownloadTracked && next.DownloadCancellationId is null)
+        if (next.IsDownloadTracked &&
+            next.DownloadCancellationId is null &&
+            operation.DownloadSubmittedAt is not null)
             return Result(true, "download_in_progress", false, true, operation, []);
         if (next.DownloadCancellationId is not null)
             return await FailAsync(operation, "Candidate download cancellation is in progress.", cancellationToken);
 
-        var downloadAttemptId = Guid.NewGuid();
+        var leaseId = Guid.NewGuid();
+        var leaseRequestStartedAt = Stopwatch.GetTimestamp();
+        var lease = await upgradeRepository.TryClaimDownloadSubmissionAsync(
+                operation.Id,
+                leaseId,
+                DownloadSubmissionLeaseDuration,
+                cancellationToken);
+        if (lease is null)
+            return Result(true, "download_submission_in_progress", false, true, operation, []);
+
+        var downloadAttemptId = next.DownloadAttemptId ?? Guid.NewGuid();
+        var recoveringPersistedSubmission = next.IsDownloadTracked;
         IFileDownloadClient? client = null;
+        var preparationAttempted = false;
         var downloadStartAttempted = false;
         var submissionAttempted = false;
+        var submissionUncertain = false;
         try
         {
-            downloadStartAttempted = true;
-            if (!await animationInfoRepository.TryStartUpgradeDownloadAsync(
-                    next.Id,
-                    operation.Id,
-                    downloadAttemptId,
-                    DateTimeOffset.UtcNow,
-                    SubscriptionAutomationDisposition.AutoDownloadQueued,
-                    cancellationToken))
-            {
-                var racedCandidate = await animationInfoRepository.FindByIdAsync(
-                    next.Id,
+            var remainingRemoteBudget = DownloadSubmissionRemoteBudget -
+                                        Stopwatch.GetElapsedTime(leaseRequestStartedAt);
+            if (remainingRemoteBudget <= TimeSpan.Zero)
+                return await RecoveryPendingAsync(
+                    operation,
+                    "The durable submission lease was acquired too late to begin remote reconciliation safely.",
                     cancellationToken);
-                if (racedCandidate?.IsDownloadFinished == true)
-                    return await ActivateAsync(operation.CandidateReleaseId, cancellationToken);
-                if (racedCandidate?.IsDownloadTracked == true &&
-                    racedCandidate.DownloadCancellationId is null)
-                    return Result(true, "download_in_progress", false, true, operation, []);
-                return await FailAsync(operation, "Candidate download state changed.", cancellationToken);
+            using var submissionCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken);
+            submissionCancellation.CancelAfter(remainingRemoteBudget);
+            client = downloadClientProvider.GetRequiredClient(next.DownloadType);
+            if (!lease.IsPrepared)
+            {
+                preparationAttempted = true;
+                await beforeDownloadStartEventTrigger.InvokeAsync(
+                    new FileDownloadStartParam(
+                        next.Id,
+                        next.DownloadUrl,
+                        next.CachedDownloadData,
+                        next.AdditionalDownloadInfo),
+                    submissionCancellation.Token);
+                if (!await upgradeRepository.TryMarkDownloadPreparedAsync(
+                        operation.Id,
+                        leaseId,
+                        DateTimeOffset.UtcNow,
+                        submissionCancellation.Token))
+                    return Result(
+                        true,
+                        "download_submission_in_progress",
+                        false,
+                        true,
+                        operation,
+                        []);
             }
 
-            client = downloadClientProvider.GetRequiredClient(next.DownloadType);
+            if (!next.IsDownloadTracked)
+            {
+                downloadStartAttempted = true;
+                if (!await animationInfoRepository.TryStartUpgradeDownloadAsync(
+                        next.Id,
+                        operation.Id,
+                        downloadAttemptId,
+                        DateTimeOffset.UtcNow,
+                        SubscriptionAutomationDisposition.AutoDownloadQueued,
+                        cancellationToken))
+                {
+                    var racedCandidate = await animationInfoRepository.FindByIdAsync(
+                        next.Id,
+                        cancellationToken);
+                    if (racedCandidate?.IsDownloadFinished == true)
+                        return await ActivateAsync(operation.CandidateReleaseId, cancellationToken);
+                    if (racedCandidate?.IsDownloadTracked != true ||
+                        racedCandidate.DownloadCancellationId is not null ||
+                        racedCandidate.DownloadAttemptId is not { } racedAttemptId)
+                        return await FailAsync(operation, "Candidate download state changed.", cancellationToken);
+
+                    next = racedCandidate;
+                    downloadAttemptId = racedAttemptId;
+                    recoveringPersistedSubmission = true;
+                }
+            }
+
             submissionAttempted = true;
-            if (!await client.SubmitDownloadTaskAsync(
-                    next.Id,
-                    next.DownloadUrl,
-                    next.CachedDownloadData,
-                    next.AdditionalDownloadInfo,
-                    cancellationToken))
+            var reconciliation = await client.EnsureDownloadTaskAsync(
+                next.Id,
+                next.DownloadUrl,
+                next.CachedDownloadData,
+                next.AdditionalDownloadInfo,
+                submissionCancellation.Token);
+            if (reconciliation == DownloadTaskReconciliationOutcome.Unknown)
+            {
+                submissionUncertain = true;
+                return await RecoveryPendingAsync(
+                    operation,
+                    "The candidate submission could not yet be confirmed remotely.",
+                    cancellationToken);
+            }
+            if (reconciliation == DownloadTaskReconciliationOutcome.Rejected)
             {
                 var compensation = await CompensateDownloadStartAsync(
                     next,
                     client,
-                    downloadAttemptId,
-                    remoteMayHaveAccepted: false);
+                    recoveringPersistedSubmission ? next.DownloadAttemptId : downloadAttemptId,
+                    remoteMayHaveAccepted: true);
                 if (compensation == DownloadCompensationOutcome.RetainedForRecovery)
                     return await RecoveryPendingAsync(
                         operation,
-                        "Download client rejected the candidate, but local state could not be restored.",
+                        "The remote client rejected the candidate, but durable cancellation is still pending.",
                         cancellationToken);
-                return await FailAsync(operation, "Download client rejected the candidate.", cancellationToken);
+                return await FailAsync(
+                    operation,
+                    "The remote client rejected the candidate submission.",
+                    cancellationToken);
             }
 
-            return Result(true, "download_queued", false, true, operation, []);
+            if (reconciliation != DownloadTaskReconciliationOutcome.Confirmed)
+            {
+                submissionUncertain = true;
+                return await RecoveryPendingAsync(
+                    operation,
+                    "The candidate submission remains unresolved.",
+                    cancellationToken);
+            }
+
+            var markOutcome = await upgradeRepository.TryMarkDownloadSubmittedAsync(
+                operation.Id,
+                leaseId,
+                recoveringPersistedSubmission ? next.DownloadAttemptId : downloadAttemptId,
+                DateTimeOffset.UtcNow,
+                cancellationToken);
+            if (markOutcome == ReleaseUpgradeDownloadSubmissionMarkOutcome.LeaseLost)
+                return Result(
+                    true,
+                    "download_submission_in_progress",
+                    false,
+                    true,
+                    operation,
+                    []);
+            if (markOutcome is ReleaseUpgradeDownloadSubmissionMarkOutcome.StateChanged or
+                ReleaseUpgradeDownloadSubmissionMarkOutcome.NotFound)
+            {
+                var current = await animationInfoRepository.FindByIdAsync(
+                    next.Id,
+                    cancellationToken);
+                if (current?.DownloadCancellationId is not null)
+                    return await RecoveryPendingAsync(
+                        operation,
+                        "The download was submitted while cancellation was in progress; durable cleanup is pending.",
+                        cancellationToken);
+                return Result(
+                    false,
+                    "upgrade_no_longer_active",
+                    false,
+                    true,
+                    operation,
+                    ["The download continues independently because the upgrade operation changed state."]);
+            }
+
+            return Result(
+                true,
+                recoveringPersistedSubmission ? "download_submission_recovered" : "download_queued",
+                false,
+                true,
+                operation,
+                []);
+        }
+        catch (HttpRequestException exception)
+        {
+            logger.LogWarning(
+                exception,
+                "Remote submission response was uncertain for release upgrade {OperationId}",
+                operation.Id);
+            return await RecoveryPendingAsync(
+                operation,
+                $"{exception.Message} Remote submission reconciliation will be retried.",
+                cancellationToken);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested &&
+                                                 (preparationAttempted || submissionAttempted))
+        {
+            return await RecoveryPendingAsync(
+                operation,
+                "The remote submission deadline elapsed; reconciliation will resume after the durable lease expires.",
+                cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+            if (recoveringPersistedSubmission || submissionUncertain)
+                throw;
+
             var compensation = downloadStartAttempted
                 ? await CompensateDownloadStartAsync(
                     next,
@@ -148,6 +479,18 @@ public sealed class ReleaseUpgradeCoordinator(
         }
         catch (Exception exception)
         {
+            if (recoveringPersistedSubmission || submissionUncertain)
+            {
+                logger.LogWarning(
+                    exception,
+                    "Could not reconcile persisted download submission for release upgrade {OperationId}",
+                    operation.Id);
+                return await RecoveryPendingAsync(
+                    operation,
+                    $"{exception.Message} The persisted submission will be retried after its lease expires.",
+                    cancellationToken);
+            }
+
             var compensation = downloadStartAttempted
                 ? await CompensateDownloadStartAsync(
                     next,
@@ -425,29 +768,54 @@ public sealed class ReleaseUpgradeCoordinator(
     private async Task<DownloadCompensationOutcome> CompensateDownloadStartAsync(
         AnimationInfo info,
         IFileDownloadClient? downloadClient,
-        Guid downloadAttemptId,
+        Guid? downloadAttemptId,
         bool remoteMayHaveAccepted)
     {
         using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         var cancellationAttemptId = Guid.NewGuid();
+        DownloadCancellationLease? cancellationLease;
         try
         {
             // Register cancellation before any remote I/O. Activation and the
             // cancellation saga share the mapping lock, so an activation that
             // already committed makes this return false and its live files are
             // never deleted by stale compensation.
-            if (!await animationInfoRepository.TryBeginCancelDownloadAsync(
+            cancellationLease = await animationInfoRepository.TryBeginCancelDownloadAsync(
                     info.Id,
                     downloadAttemptId,
                     cancellationAttemptId,
-                    cleanup.Token))
+                    Guid.NewGuid(),
+                    DownloadCancellationLeaseDuration,
+                    removeFile: false,
+                    requireUnfinished: true,
+                    SubscriptionAutomationDisposition.AutoDownloadFailed,
+                    cleanup.Token);
+            if (cancellationLease is null)
             {
                 var current = await animationInfoRepository.FindByIdAsync(
                     info.Id,
                     cleanup.Token);
-                return current is null || !current.IsDownloadTracked
-                    ? DownloadCompensationOutcome.LocalStateRestored
-                    : DownloadCompensationOutcome.RetainedForRecovery;
+                if (current?.DownloadCancellationId is not { } durableCancellationId ||
+                    (current.IsDownloadTracked
+                        ? current.DownloadAttemptId != downloadAttemptId
+                        : current.IsDownloadFinished || current.DownloadAttemptId is not null))
+                    return current is null || !current.IsDownloadTracked
+                        ? DownloadCompensationOutcome.LocalStateRestored
+                        : DownloadCompensationOutcome.RetainedForRecovery;
+
+                cancellationAttemptId = durableCancellationId;
+                cancellationLease = await animationInfoRepository.TryBeginCancelDownloadAsync(
+                        info.Id,
+                        downloadAttemptId,
+                        cancellationAttemptId,
+                        Guid.NewGuid(),
+                        DownloadCancellationLeaseDuration,
+                        removeFile: false,
+                        requireUnfinished: true,
+                        SubscriptionAutomationDisposition.AutoDownloadFailed,
+                        cleanup.Token);
+                if (cancellationLease is null)
+                    return DownloadCompensationOutcome.RetainedForRecovery;
             }
         }
         catch (Exception exception)
@@ -463,12 +831,13 @@ public sealed class ReleaseUpgradeCoordinator(
         {
             try
             {
+                cleanup.Token.ThrowIfCancellationRequested();
                 var cancellation = await downloadClient.CancelDownloadTaskAsync(
                     info.Id,
                     info.DownloadUrl,
                     info.CachedDownloadData,
                     info.AdditionalDownloadInfo,
-                    removeFile: false,
+                    cancellationLease.RemoveFile,
                     cleanup.Token);
                 if (!cancellation.IsSuccess)
                 {
@@ -493,11 +862,13 @@ public sealed class ReleaseUpgradeCoordinator(
 
         try
         {
+            cleanup.Token.ThrowIfCancellationRequested();
             var restored = await fileMappingRepository.TryFinalizeDownloadCancellationAsync(
                 info.Id,
                 downloadAttemptId,
                 cancellationAttemptId,
-                SubscriptionAutomationDisposition.AutoDownloadFailed,
+                cancellationLease.Id,
+                terminalDisposition: null,
                 cleanup.Token);
             if (restored)
                 return DownloadCompensationOutcome.LocalStateRestored;
@@ -535,6 +906,22 @@ public sealed class ReleaseUpgradeCoordinator(
         {
             // Startup recovery can rediscover the persisted attempt.
         }
+    }
+
+    private static CancellationTokenSource? CreateLeaseBoundTokenSource(
+        CancellationToken cancellationToken,
+        long leaseRequestStartedAt,
+        TimeSpan leaseDuration)
+    {
+        var remaining = leaseDuration -
+                        Stopwatch.GetElapsedTime(leaseRequestStartedAt) -
+                        DownloadLeaseSafetyMargin;
+        if (remaining <= TimeSpan.Zero)
+            return null;
+        var tokenSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        tokenSource.CancelAfter(
+            remaining < TimeSpan.FromSeconds(10) ? remaining : TimeSpan.FromSeconds(10));
+        return tokenSource;
     }
 
     private static string UpgradeSource(Guid operationId) => $"release-upgrade:{operationId:N}";

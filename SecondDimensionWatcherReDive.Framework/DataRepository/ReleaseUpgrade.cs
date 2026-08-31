@@ -16,6 +16,27 @@ public enum ReleaseUpgradeMappingKind
     Candidate
 }
 
+public enum ReleaseUpgradeDownloadSubmissionMarkOutcome
+{
+    Submitted,
+    AlreadySubmitted,
+    Settled,
+    LeaseLost,
+    StateChanged,
+    NotFound
+}
+
+public sealed record ReleaseUpgradeDownloadSubmissionLease(
+    Guid Id,
+    DateTimeOffset ExpiresAt,
+    bool IsPrepared);
+
+public sealed record ReleaseUpgradePendingDownloadCancellation(
+    Guid OperationId,
+    Guid CandidateReleaseId,
+    Guid SubmissionLeaseId,
+    bool RemoveFile);
+
 public sealed record ReleaseUpgradeOperation(
     Guid Id,
     Guid CurrentReleaseId,
@@ -28,7 +49,12 @@ public sealed record ReleaseUpgradeOperation(
     DateTimeOffset? AppliedAt,
     DateTimeOffset? RollbackUntil,
     DateTimeOffset? CompletedAt,
-    string? FailureSummary);
+    string? FailureSummary,
+    DateTimeOffset? DownloadPreparedAt = null,
+    DateTimeOffset? DownloadSubmittedAt = null,
+    Guid? DownloadSubmissionLeaseId = null,
+    DateTimeOffset? DownloadSubmissionLeaseUntil = null,
+    bool DownloadCancellationRemoveFile = false);
 
 public sealed record ReleaseUpgradeMappingSnapshot(
     Guid Id,
@@ -73,6 +99,44 @@ public interface IReleaseUpgradeRepository
 
     Task<IReadOnlyList<Guid>> GetReadyCandidateIdsAsync(
         int take,
+        CancellationToken cancellationToken);
+
+    Task<ReleaseUpgradeDownloadSubmissionLease?> TryClaimDownloadSubmissionAsync(
+        Guid operationId,
+        Guid leaseId,
+        TimeSpan leaseDuration,
+        CancellationToken cancellationToken);
+
+    Task<ReleaseUpgradeDownloadSubmissionMarkOutcome> TryMarkDownloadSubmittedAsync(
+        Guid operationId,
+        Guid leaseId,
+        Guid? downloadAttemptId,
+        DateTimeOffset submittedAt,
+        CancellationToken cancellationToken);
+
+    Task<bool> TryMarkDownloadPreparedAsync(
+        Guid operationId,
+        Guid leaseId,
+        DateTimeOffset preparedAt,
+        CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<ReleaseUpgradePendingDownloadCancellation>>
+        GetPendingDownloadCancellationsAsync(
+            int take,
+            CancellationToken cancellationToken);
+
+    Task<int> ClearExpiredDownloadSubmissionLeasesWithoutCancellationAsync(
+        CancellationToken cancellationToken);
+
+    Task<bool> TryDeferDownloadCancellationAsync(
+        Guid operationId,
+        Guid submissionLeaseId,
+        TimeSpan retryDelay,
+        CancellationToken cancellationToken);
+
+    Task<bool> TryMarkDownloadCancellationReconciledAsync(
+        Guid operationId,
+        Guid submissionLeaseId,
         CancellationToken cancellationToken);
 
     Task<ReleaseUpgradeActivation?> GetActivationAsync(

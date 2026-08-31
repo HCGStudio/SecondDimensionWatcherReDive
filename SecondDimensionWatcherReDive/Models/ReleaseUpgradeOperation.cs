@@ -18,6 +18,11 @@ public class ReleaseUpgradeOperation
     public DateTimeOffset? RollbackUntil { get; set; }
     public DateTimeOffset? CompletedAt { get; set; }
     public string? FailureSummary { get; set; }
+    public DateTimeOffset? DownloadPreparedAt { get; set; }
+    public DateTimeOffset? DownloadSubmittedAt { get; set; }
+    public Guid? DownloadSubmissionLeaseId { get; set; }
+    public DateTimeOffset? DownloadSubmissionLeaseUntil { get; set; }
+    public bool DownloadCancellationRemoveFile { get; set; }
     public ICollection<ReleaseUpgradeMappingSnapshot> MappingSnapshots { get; set; } = [];
 }
 

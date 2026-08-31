@@ -43,6 +43,7 @@ public sealed partial class ReleaseUpgradeRepository(
                                 policy.MinimumUpgradeScore)
             where current.IsActiveRelease &&
                   current.IsDownloadFinished &&
+                  current.DownloadCancellationId == null &&
                   current.MediaLibraryMissingSince == null &&
                   current.Animation != null &&
                   current.Season != null &&
@@ -144,6 +145,7 @@ public sealed partial class ReleaseUpgradeRepository(
                                 policy.MinimumUpgradeScore)
             where current.IsActiveRelease &&
                   current.IsDownloadFinished &&
+                  current.DownloadCancellationId == null &&
                   current.MediaLibraryMissingSince == null &&
                   current.Animation != null &&
                   current.Season != null &&
@@ -221,6 +223,9 @@ public sealed partial class ReleaseUpgradeRepository(
                 return null;
             await writeContext.Entry(current).Reference(info => info.Animation).LoadAsync(cancellationToken);
             await writeContext.Entry(next).Reference(info => info.Animation).LoadAsync(cancellationToken);
+            // An in-flight download that predates this operation is owned by
+            // its original submitter. Waiting for it to finish avoids making
+            // upgrade recovery race that submitter's compensation path.
             if (current.Animation is null || next.Animation is null ||
                 current.Animation.Id != next.Animation.Id ||
                 current.Season != next.Season ||
@@ -228,7 +233,11 @@ public sealed partial class ReleaseUpgradeRepository(
                 next.ReleaseScore <= current.ReleaseScore ||
                 !current.IsActiveRelease ||
                 next.IsActiveRelease ||
-                (next.IsDownloadTracked && next.DownloadCancellationId is not null) ||
+                current.DownloadCancellationId is not null ||
+                current.MediaLibraryMissingSince is not null ||
+                next.MediaLibraryMissingSince is not null ||
+                (next.IsDownloadTracked && !next.IsDownloadFinished) ||
+                next.DownloadCancellationId is not null ||
                 !current.IsDownloadFinished ||
                 !await writeContext.FileMappings.AnyAsync(
                     mapping => mapping.AnimationInfoId == current.Id,
@@ -303,6 +312,9 @@ public sealed partial class ReleaseUpgradeRepository(
         CancellationToken cancellationToken)
     {
         if (take is < 1 or > 200) throw new ArgumentOutOfRangeException(nameof(take));
+        var databaseNow = await context.Database
+            .SqlQueryRaw<DateTimeOffset>("SELECT clock_timestamp() AS \"Value\"")
+            .SingleAsync(cancellationToken);
         return await context.ReleaseUpgradeOperations.AsNoTracking()
             .Where(operation =>
                 (operation.Status == ReleaseUpgradeStatus.Downloading ||
@@ -312,12 +324,299 @@ public sealed partial class ReleaseUpgradeRepository(
                       mapping.AnimationInfoId == operation.CandidateReleaseId)) ||
                  (operation.Status == ReleaseUpgradeStatus.Downloading &&
                   !operation.CandidateRelease.IsDownloadFinished &&
-                  !operation.CandidateRelease.IsDownloadTracked &&
-                  operation.CandidateRelease.DownloadCancellationId == null)))
+                  operation.CandidateRelease.DownloadCancellationId == null &&
+                  operation.DownloadSubmittedAt == null &&
+                  (operation.DownloadSubmissionLeaseUntil == null ||
+                   operation.DownloadSubmissionLeaseUntil <= databaseNow))))
             .OrderBy(operation => operation.CreatedAt)
             .Select(operation => operation.CandidateReleaseId)
             .Take(take)
             .ToListAsync(cancellationToken);
+    }
+
+    public async Task<ReleaseUpgradeDownloadSubmissionLease?> TryClaimDownloadSubmissionAsync(
+        Guid operationId,
+        Guid leaseId,
+        TimeSpan leaseDuration,
+        CancellationToken cancellationToken)
+    {
+        if (leaseDuration <= TimeSpan.Zero || leaseDuration > TimeSpan.FromMinutes(30))
+            throw new ArgumentOutOfRangeException(nameof(leaseDuration));
+
+        var strategy = context.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(async () =>
+        {
+            await using var writeContext = new Models.ApplicationContext(contextOptions);
+            await using var transaction = await writeContext.Database.BeginTransactionAsync(cancellationToken);
+            await MappingTransactionLock.AcquireAsync(writeContext, cancellationToken);
+            await writeContext.Database.ExecuteSqlInterpolatedAsync(
+                $"SELECT 1 FROM \"ReleaseUpgradeOperations\" WHERE \"Id\" = {operationId} FOR UPDATE",
+                cancellationToken);
+            var operation = await writeContext.ReleaseUpgradeOperations
+                .SingleOrDefaultAsync(item => item.Id == operationId, cancellationToken);
+            if (operation is null ||
+                operation.Status != ReleaseUpgradeStatus.Downloading ||
+                operation.DownloadSubmittedAt is not null)
+                return null;
+
+            var databaseNow = await writeContext.Database
+                .SqlQueryRaw<DateTimeOffset>("SELECT clock_timestamp() AS \"Value\"")
+                .SingleAsync(cancellationToken);
+            if (operation.DownloadSubmissionLeaseId == leaseId &&
+                operation.DownloadSubmissionLeaseUntil > databaseNow)
+                return new ReleaseUpgradeDownloadSubmissionLease(
+                    leaseId,
+                    operation.DownloadSubmissionLeaseUntil.Value,
+                    operation.DownloadPreparedAt is not null);
+            if (operation.DownloadSubmissionLeaseUntil > databaseNow)
+                return null;
+
+            var leaseUntil = databaseNow.Add(leaseDuration);
+            operation.DownloadSubmissionLeaseId = leaseId;
+            operation.DownloadSubmissionLeaseUntil = leaseUntil;
+            await writeContext.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return new ReleaseUpgradeDownloadSubmissionLease(
+                leaseId,
+                leaseUntil,
+                operation.DownloadPreparedAt is not null);
+        });
+    }
+
+    public async Task<bool> TryMarkDownloadPreparedAsync(
+        Guid operationId,
+        Guid leaseId,
+        DateTimeOffset preparedAt,
+        CancellationToken cancellationToken)
+    {
+        var strategy = context.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(async () =>
+        {
+            await using var writeContext = new Models.ApplicationContext(contextOptions);
+            await using var transaction = await writeContext.Database.BeginTransactionAsync(cancellationToken);
+            await MappingTransactionLock.AcquireAsync(writeContext, cancellationToken);
+            await writeContext.Database.ExecuteSqlInterpolatedAsync(
+                $"SELECT 1 FROM \"ReleaseUpgradeOperations\" WHERE \"Id\" = {operationId} FOR UPDATE",
+                cancellationToken);
+            var operation = await writeContext.ReleaseUpgradeOperations
+                .SingleOrDefaultAsync(item => item.Id == operationId, cancellationToken);
+            if (operation is null ||
+                operation.Status != ReleaseUpgradeStatus.Downloading ||
+                operation.DownloadSubmissionLeaseId != leaseId)
+                return false;
+            if (operation.DownloadPreparedAt is not null)
+                return true;
+
+            operation.DownloadPreparedAt = preparedAt;
+            await writeContext.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return true;
+        });
+    }
+
+    public async Task<ReleaseUpgradeDownloadSubmissionMarkOutcome> TryMarkDownloadSubmittedAsync(
+        Guid operationId,
+        Guid leaseId,
+        Guid? downloadAttemptId,
+        DateTimeOffset submittedAt,
+        CancellationToken cancellationToken)
+    {
+        var strategy = context.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(async () =>
+        {
+            await using var writeContext = new Models.ApplicationContext(contextOptions);
+            await using var transaction = await writeContext.Database.BeginTransactionAsync(cancellationToken);
+            await MappingTransactionLock.AcquireAsync(writeContext, cancellationToken);
+            await writeContext.Database.ExecuteSqlInterpolatedAsync(
+                $"SELECT 1 FROM \"ReleaseUpgradeOperations\" WHERE \"Id\" = {operationId} FOR UPDATE",
+                cancellationToken);
+            var operation = await writeContext.ReleaseUpgradeOperations
+                .SingleOrDefaultAsync(item => item.Id == operationId, cancellationToken);
+            if (operation is null)
+                return ReleaseUpgradeDownloadSubmissionMarkOutcome.NotFound;
+            if (operation.Status is ReleaseUpgradeStatus.Verifying or
+                ReleaseUpgradeStatus.Applied or
+                ReleaseUpgradeStatus.Completed or
+                ReleaseUpgradeStatus.RolledBack)
+            {
+                if (operation.DownloadSubmissionLeaseId == leaseId)
+                {
+                    operation.DownloadSubmissionLeaseId = null;
+                    operation.DownloadSubmissionLeaseUntil = null;
+                    await writeContext.SaveChangesAsync(cancellationToken);
+                    await transaction.CommitAsync(cancellationToken);
+                }
+                return ReleaseUpgradeDownloadSubmissionMarkOutcome.Settled;
+            }
+            if (operation.Status != ReleaseUpgradeStatus.Downloading)
+                return ReleaseUpgradeDownloadSubmissionMarkOutcome.StateChanged;
+            if (operation.DownloadSubmittedAt is not null)
+                return ReleaseUpgradeDownloadSubmissionMarkOutcome.AlreadySubmitted;
+            if (operation.DownloadSubmissionLeaseId != leaseId)
+                return ReleaseUpgradeDownloadSubmissionMarkOutcome.LeaseLost;
+
+            var candidate = await MappingTransactionLock.LockAnimationInfoAsync(
+                writeContext,
+                operation.CandidateReleaseId,
+                cancellationToken);
+            if (candidate is null ||
+                !candidate.IsDownloadTracked ||
+                candidate.DownloadAttemptId != downloadAttemptId ||
+                candidate.DownloadCancellationId is not null)
+                return ReleaseUpgradeDownloadSubmissionMarkOutcome.StateChanged;
+
+            operation.DownloadSubmittedAt = submittedAt;
+            operation.DownloadSubmissionLeaseId = null;
+            operation.DownloadSubmissionLeaseUntil = null;
+            await writeContext.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return ReleaseUpgradeDownloadSubmissionMarkOutcome.Submitted;
+        });
+    }
+
+    public async Task<IReadOnlyList<ReleaseUpgradePendingDownloadCancellation>>
+        GetPendingDownloadCancellationsAsync(
+            int take,
+            CancellationToken cancellationToken)
+    {
+        if (take is < 1 or > 200) throw new ArgumentOutOfRangeException(nameof(take));
+        var databaseNow = await context.Database
+            .SqlQueryRaw<DateTimeOffset>("SELECT clock_timestamp() AS \"Value\"")
+            .SingleAsync(cancellationToken);
+        return await context.ReleaseUpgradeOperations
+            .AsNoTracking()
+            .Where(operation =>
+                (operation.Status == ReleaseUpgradeStatus.Failed ||
+                 operation.Status == ReleaseUpgradeStatus.RolledBack ||
+                 operation.Status == ReleaseUpgradeStatus.Completed) &&
+                operation.DownloadSubmissionLeaseId != null &&
+                operation.CandidateRelease.DownloadCancellationId != null &&
+                (operation.DownloadSubmissionLeaseUntil == null ||
+                 operation.DownloadSubmissionLeaseUntil <= databaseNow))
+            .OrderBy(operation => operation.DownloadSubmissionLeaseUntil)
+            .ThenBy(operation => operation.CreatedAt)
+            .Select(operation => new ReleaseUpgradePendingDownloadCancellation(
+                operation.Id,
+                operation.CandidateReleaseId,
+                operation.DownloadSubmissionLeaseId!.Value,
+                operation.DownloadCancellationRemoveFile))
+            .Take(take)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<int> ClearExpiredDownloadSubmissionLeasesWithoutCancellationAsync(
+        CancellationToken cancellationToken)
+    {
+        var strategy = context.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(async () =>
+        {
+            await using var writeContext = new Models.ApplicationContext(contextOptions);
+            await using var transaction = await writeContext.Database
+                .BeginTransactionAsync(cancellationToken);
+            await MappingTransactionLock.AcquireAsync(writeContext, cancellationToken);
+            var databaseNow = await writeContext.Database
+                .SqlQueryRaw<DateTimeOffset>("SELECT clock_timestamp() AS \"Value\"")
+                .SingleAsync(cancellationToken);
+            var cleared = await writeContext.ReleaseUpgradeOperations
+                .Where(operation =>
+                    (operation.Status == ReleaseUpgradeStatus.Applied ||
+                     operation.Status == ReleaseUpgradeStatus.Failed ||
+                     operation.Status == ReleaseUpgradeStatus.RolledBack ||
+                     operation.Status == ReleaseUpgradeStatus.Completed) &&
+                    operation.DownloadSubmissionLeaseId != null &&
+                    operation.CandidateRelease.DownloadCancellationId == null &&
+                    (operation.DownloadSubmissionLeaseUntil == null ||
+                     operation.DownloadSubmissionLeaseUntil <= databaseNow))
+                .ExecuteUpdateAsync(setters => setters
+                        .SetProperty(operation => operation.DownloadSubmissionLeaseId, (Guid?)null)
+                        .SetProperty(operation => operation.DownloadSubmissionLeaseUntil,
+                            (DateTimeOffset?)null),
+                    cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return cleared;
+        });
+    }
+
+    public async Task<bool> TryDeferDownloadCancellationAsync(
+        Guid operationId,
+        Guid submissionLeaseId,
+        TimeSpan retryDelay,
+        CancellationToken cancellationToken)
+    {
+        if (retryDelay <= TimeSpan.Zero || retryDelay > TimeSpan.FromMinutes(30))
+            throw new ArgumentOutOfRangeException(nameof(retryDelay));
+
+        var strategy = context.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(async () =>
+        {
+            await using var writeContext = new Models.ApplicationContext(contextOptions);
+            await using var transaction = await writeContext.Database
+                .BeginTransactionAsync(cancellationToken);
+            await MappingTransactionLock.AcquireAsync(writeContext, cancellationToken);
+            await writeContext.Database.ExecuteSqlInterpolatedAsync(
+                $"SELECT 1 FROM \"ReleaseUpgradeOperations\" WHERE \"Id\" = {operationId} FOR UPDATE",
+                cancellationToken);
+            var operation = await writeContext.ReleaseUpgradeOperations
+                .SingleOrDefaultAsync(item => item.Id == operationId, cancellationToken);
+            if (operation is null ||
+                operation.Status is not (ReleaseUpgradeStatus.Failed or
+                    ReleaseUpgradeStatus.RolledBack or
+                    ReleaseUpgradeStatus.Completed) ||
+                operation.DownloadSubmissionLeaseId != submissionLeaseId)
+                return false;
+
+            var candidate = await MappingTransactionLock.LockAnimationInfoAsync(
+                writeContext,
+                operation.CandidateReleaseId,
+                cancellationToken);
+            if (candidate?.DownloadCancellationId is null)
+                return false;
+
+            var databaseNow = await writeContext.Database
+                .SqlQueryRaw<DateTimeOffset>("SELECT clock_timestamp() AS \"Value\"")
+                .SingleAsync(cancellationToken);
+            if (operation.DownloadSubmissionLeaseUntil > databaseNow)
+                return true;
+
+            operation.DownloadSubmissionLeaseUntil = databaseNow.Add(retryDelay);
+            await writeContext.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return true;
+        });
+    }
+
+    public async Task<bool> TryMarkDownloadCancellationReconciledAsync(
+        Guid operationId,
+        Guid submissionLeaseId,
+        CancellationToken cancellationToken)
+    {
+        var strategy = context.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(async () =>
+        {
+            await using var writeContext = new Models.ApplicationContext(contextOptions);
+            await using var transaction = await writeContext.Database.BeginTransactionAsync(cancellationToken);
+            await MappingTransactionLock.AcquireAsync(writeContext, cancellationToken);
+            await writeContext.Database.ExecuteSqlInterpolatedAsync(
+                $"SELECT 1 FROM \"ReleaseUpgradeOperations\" WHERE \"Id\" = {operationId} FOR UPDATE",
+                cancellationToken);
+            var operation = await writeContext.ReleaseUpgradeOperations
+                .SingleOrDefaultAsync(item => item.Id == operationId, cancellationToken);
+            if (operation is null)
+                return false;
+            if (operation.DownloadSubmissionLeaseId is null)
+                return true;
+            if (operation.Status is not (ReleaseUpgradeStatus.Failed or
+                    ReleaseUpgradeStatus.RolledBack or
+                    ReleaseUpgradeStatus.Completed) ||
+                operation.DownloadSubmissionLeaseId != submissionLeaseId)
+                return false;
+
+            operation.DownloadSubmissionLeaseId = null;
+            operation.DownloadSubmissionLeaseUntil = null;
+            await writeContext.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return true;
+        });
     }
 
     public async Task<ReleaseUpgradeActivation?> GetActivationAsync(
@@ -416,7 +715,9 @@ public sealed partial class ReleaseUpgradeRepository(
                 cancellationToken);
             if (!infos.TryGetValue(operation.CurrentReleaseId, out var current) ||
                 !infos.TryGetValue(operation.CandidateReleaseId, out var candidate) ||
-                !candidate.IsDownloadFinished)
+                !candidate.IsDownloadFinished ||
+                current.MediaLibraryMissingSince is not null ||
+                candidate.MediaLibraryMissingSince is not null)
                 return new ReleaseUpgradeMutationResult(false, "candidate_not_ready", operation.ToRecord());
             if (current.DownloadCancellationId is not null ||
                 candidate.DownloadCancellationId is not null)
@@ -562,6 +863,14 @@ public sealed partial class ReleaseUpgradeRepository(
                 current.IsActiveRelease ||
                 !activeCandidate.IsActiveRelease)
                 return new ReleaseUpgradeMutationResult(false, "release_changed", operation.ToRecord());
+            if (current.DownloadCancellationId is not null ||
+                activeCandidate.DownloadCancellationId is not null)
+                return new ReleaseUpgradeMutationResult(false, "download_cancelling", operation.ToRecord());
+            if (!current.IsDownloadFinished ||
+                !activeCandidate.IsDownloadFinished ||
+                current.MediaLibraryMissingSince is not null ||
+                activeCandidate.MediaLibraryMissingSince is not null)
+                return new ReleaseUpgradeMutationResult(false, "release_unavailable", operation.ToRecord());
             var previous = operation.MappingSnapshots
                 .Where(snapshot => snapshot.Kind == ReleaseUpgradeMappingKind.Previous)
                 .ToList();
@@ -1001,5 +1310,10 @@ internal static class ReleaseUpgradeRepositoryConverters
             operation.AppliedAt,
             operation.RollbackUntil,
             operation.CompletedAt,
-            operation.FailureSummary);
+            operation.FailureSummary,
+            operation.DownloadPreparedAt,
+            operation.DownloadSubmittedAt,
+            operation.DownloadSubmissionLeaseId,
+            operation.DownloadSubmissionLeaseUntil,
+            operation.DownloadCancellationRemoveFile);
 }

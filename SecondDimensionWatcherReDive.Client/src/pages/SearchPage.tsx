@@ -17,6 +17,7 @@ import { Button } from "../components/ui/Button";
 import { EmptyPrompt } from "../components/ui/EmptyPrompt";
 import { Input } from "../components/ui/Input";
 import { Spinner } from "../components/ui/Spinner";
+import { ApiError } from "../errors/apiError";
 import { cn } from "../lib/cn";
 import {
   executeReleaseUpgrade,
@@ -55,6 +56,19 @@ export const SearchPage: React.FC = () => {
   const { data: integrity, mutate: refreshIntegrity } = useLibraryIntegrity();
 
   React.useEffect(() => setQuery(params.get("q") ?? ""), [params]);
+
+  React.useEffect(() => {
+    if (
+      !params.has("cursor") ||
+      !(error instanceof ApiError) ||
+      error.code !== "library_cursor_invalidated"
+    )
+      return;
+
+    const next = new URLSearchParams(params);
+    next.delete("cursor");
+    setParams(next, { replace: true });
+  }, [error, params, setParams]);
 
   const setFilter = React.useCallback(
     (key: string, value: string) => {
