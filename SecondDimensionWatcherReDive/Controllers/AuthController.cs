@@ -10,6 +10,7 @@ using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using SecondDimensionWatcherReDive.Auth;
 using SecondDimensionWatcherReDive.Configuration;
+using SecondDimensionWatcherReDive.Framework.DataRepository;
 
 namespace SecondDimensionWatcherReDive.Controllers;
 
@@ -19,6 +20,7 @@ namespace SecondDimensionWatcherReDive.Controllers;
 internal partial class AuthController : ControllerBase
 {
     private readonly IConfiguration _configuration;
+    private readonly IAuthenticationStateRepository _authenticationStateRepository;
     private readonly ILogger<AuthController> _logger;
     private readonly RefreshTokenStore _refreshTokens;
     private readonly TokenValidationParameters _tokenValidationParams;
@@ -27,6 +29,7 @@ internal partial class AuthController : ControllerBase
 
     public AuthController(
         IConfiguration configuration,
+        IAuthenticationStateRepository authenticationStateRepository,
         TokenValidationParameters tokenValidationParams,
         RefreshTokenStore refreshTokens,
         IOptions<TokenSecurityOptions> securityOptions,
@@ -34,6 +37,7 @@ internal partial class AuthController : ControllerBase
         ILogger<AuthController> logger)
     {
         _configuration = configuration;
+        _authenticationStateRepository = authenticationStateRepository;
         _tokenValidationParams = tokenValidationParams;
         _refreshTokens = refreshTokens;
         _securityOptions = securityOptions.Value;
@@ -59,13 +63,29 @@ internal partial class AuthController : ControllerBase
     {
         if (!string.IsNullOrWhiteSpace(_configuration["Password:Value"]))
             return BadRequest();
+        if (!string.IsNullOrWhiteSpace(
+                await _authenticationStateRepository.GetPasswordHashAsync(cancellationToken)))
+            return BadRequest();
+
+        var passwordHash = BCrypt.Net.BCrypt.HashPassword(data.Password);
+        if (!await _authenticationStateRepository.TryClaimPasswordAsync(
+                passwordHash,
+                Guid.NewGuid(),
+                _timeProvider.GetUtcNow(),
+                cancellationToken))
+            return BadRequest();
 
         var passwordFile = _configuration["PasswordFile"] ?? "password.json";
-        await System.IO.File.WriteAllBytesAsync(passwordFile,
-            JsonSerializer.SerializeToUtf8Bytes(
-                new External.PasswordConfig(new External.PasswordHash(BCrypt.Net.BCrypt.HashPassword(data.Password))),
-                External.AppJsonSerializerContext.Default.PasswordConfig),
-            cancellationToken);
+        try
+        {
+            await PersistPasswordFileAsync(passwordFile, passwordHash, cancellationToken);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            // PostgreSQL is authoritative. A failed compatibility-file update must not strand
+            // the sole successful claimant without its access/refresh credentials.
+            LogPasswordFilePersistenceFailed(_logger, exception);
+        }
 
         return Ok(await GenerateJwtTokenAsync(cancellationToken));
     }
@@ -75,7 +95,7 @@ internal partial class AuthController : ControllerBase
         [FromBody] External.LoginData data,
         CancellationToken cancellationToken)
     {
-        var storedValue = _configuration["Password:Value"];
+        var storedValue = await GetPasswordHashAsync(cancellationToken);
         if (string.IsNullOrWhiteSpace(storedValue))
             return BadRequest();
 
@@ -138,6 +158,7 @@ internal partial class AuthController : ControllerBase
 
     [HttpPost("logout")]
     [AllowAnonymous]
+    [DisableRateLimiting]
     public async Task<IActionResult> Logout(
         [FromBody] External.RevokeTokenRequest request,
         CancellationToken cancellationToken)
@@ -154,9 +175,62 @@ internal partial class AuthController : ControllerBase
     }
 
     [HttpGet("allowRegister")]
-    public IActionResult CanRegister()
+    public async Task<IActionResult> CanRegister(CancellationToken cancellationToken)
     {
-        return Ok(new { Allow = string.IsNullOrWhiteSpace(_configuration["Password:Value"]) });
+        return Ok(new
+        {
+            Allow = string.IsNullOrWhiteSpace(await GetPasswordHashAsync(cancellationToken))
+        });
+    }
+
+    private async Task<string?> GetPasswordHashAsync(CancellationToken cancellationToken)
+    {
+        var deploymentHash = _configuration["Password:Value"];
+        return !string.IsNullOrWhiteSpace(deploymentHash)
+            ? deploymentHash
+            : await _authenticationStateRepository.GetPasswordHashAsync(cancellationToken);
+    }
+
+    private static async Task PersistPasswordFileAsync(
+        string passwordFile,
+        string passwordHash,
+        CancellationToken cancellationToken)
+    {
+        var fullPath = Path.GetFullPath(passwordFile);
+        var directory = Path.GetDirectoryName(fullPath)!;
+        Directory.CreateDirectory(directory);
+        var temporaryPath = Path.Combine(
+            directory,
+            $".{Path.GetFileName(fullPath)}.{Guid.NewGuid():N}.tmp");
+        var contents = JsonSerializer.SerializeToUtf8Bytes(
+            new External.PasswordConfig(new External.PasswordHash(passwordHash)),
+            External.AppJsonSerializerContext.Default.PasswordConfig);
+        var options = new FileStreamOptions
+        {
+            Mode = FileMode.CreateNew,
+            Access = FileAccess.Write,
+            Share = FileShare.None,
+            Options = FileOptions.Asynchronous | FileOptions.WriteThrough
+        };
+        if (!OperatingSystem.IsWindows())
+            options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+
+        try
+        {
+            await using (var stream = new FileStream(temporaryPath, options))
+            {
+                await stream.WriteAsync(contents, cancellationToken);
+                await stream.FlushAsync(cancellationToken);
+                stream.Flush(flushToDisk: true);
+            }
+            System.IO.File.Move(temporaryPath, fullPath, overwrite: true);
+            if (!OperatingSystem.IsWindows())
+                System.IO.File.SetUnixFileMode(fullPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        }
+        finally
+        {
+            System.IO.File.Delete(temporaryPath);
+        }
     }
 
     private External.LoginResult CreateLoginResult(IssuedRefreshToken refreshToken)
@@ -185,4 +259,8 @@ internal partial class AuthController : ControllerBase
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Token verification failed")]
     private static partial void LogTokenVerificationFailed(ILogger logger, Exception ex);
+
+    [LoggerMessage(Level = LogLevel.Error,
+        Message = "The durable password claim succeeded, but the compatibility password file could not be updated")]
+    private static partial void LogPasswordFilePersistenceFailed(ILogger logger, Exception exception);
 }

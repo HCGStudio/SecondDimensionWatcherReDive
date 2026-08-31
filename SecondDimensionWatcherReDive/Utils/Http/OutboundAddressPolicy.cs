@@ -102,11 +102,26 @@ internal sealed class OutboundAddressPolicy
             address.IsIPv6LinkLocal || address.IsIPv6Multicast || address.IsIPv6SiteLocal)
             return false;
 
+        // Fail closed for IPv6 transition mechanisms which embed an IPv4 destination.
+        // Validating only the outer IPv6 address would otherwise allow a connector or an
+        // upstream NAT64/6to4/Teredo gateway to reach private IPv4 services.
+        var isIpv4Compatible = bytes.AsSpan(0, 12).IndexOfAnyExcept((byte)0) < 0;
+        var isNat64WellKnown = bytes[0] == 0x00 && bytes[1] == 0x64 &&
+                               bytes[2] == 0xff && bytes[3] == 0x9b &&
+                               bytes.AsSpan(4, 8).IndexOfAnyExcept((byte)0) < 0;
+        var isNat64LocalUse = bytes[0] == 0x00 && bytes[1] == 0x64 &&
+                             bytes[2] == 0xff && bytes[3] == 0x9b &&
+                             bytes[4] == 0x00 && bytes[5] == 0x01;
+        var isTeredo = bytes[0] == 0x20 && bytes[1] == 0x01 &&
+                       bytes[2] == 0x00 && bytes[3] == 0x00;
+        var is6To4 = bytes[0] == 0x20 && bytes[1] == 0x02;
+
         // fc00::/7 (unique local), 100::/64 (discard-only), and 2001:db8::/32
         // (documentation) are never valid public feed destinations.
         if ((bytes[0] & 0xfe) == 0xfc ||
             (bytes[0] == 0x01 && bytes[1] == 0x00 && bytes.Skip(2).Take(6).All(value => value == 0)) ||
-            (bytes[0] == 0x20 && bytes[1] == 0x01 && bytes[2] == 0x0d && bytes[3] == 0xb8))
+            (bytes[0] == 0x20 && bytes[1] == 0x01 && bytes[2] == 0x0d && bytes[3] == 0xb8) ||
+            isIpv4Compatible || isNat64WellKnown || isNat64LocalUse || isTeredo || is6To4)
             return false;
 
         return true;

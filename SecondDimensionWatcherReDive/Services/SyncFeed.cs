@@ -9,6 +9,7 @@ using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Framework.Tasks;
 using SecondDimensionWatcherReDive.Utils.Incidents;
 using SecondDimensionWatcherReDive.Utils.Http;
+using SecondDimensionWatcherReDive.Utils.Feed;
 
 namespace SecondDimensionWatcherReDive.Services;
 
@@ -35,7 +36,7 @@ internal partial class SyncFeed(
         await Task.WhenAll(feeds.Select(f => ProcessFeed(f, cancellationToken)));
     }
 
-    private readonly record struct TorrentData(byte[] CachedDownloadData, string Hash, long? PayloadSizeBytes);
+    internal readonly record struct TorrentData(byte[] CachedDownloadData, string Hash, long? PayloadSizeBytes);
 
     private async Task<TorrentData> DownloadTorrentData(
         AnimationAddRequest request,
@@ -49,12 +50,18 @@ internal partial class SyncFeed(
         {
             throw new InvalidTorrentDataException(request.DownloadUrl);
         }
+        return ParseTorrentData(data, request.DownloadUrl);
+    }
+
+    internal static TorrentData ParseTorrentData(byte[] data, string url)
+    {
         var parser = new BencodeParser();
         BDictionary info;
         try
         {
+            TorrentBencodeComplexityValidator.Validate(data);
             info = parser.Parse<BDictionary>(data).Get<BDictionary>("info")
-                ?? throw new InvalidTorrentDataException(request.DownloadUrl, "info dictionary is missing");
+                ?? throw new InvalidTorrentDataException(url, "info dictionary is missing");
         }
         catch (InvalidTorrentDataException)
         {
@@ -62,10 +69,10 @@ internal partial class SyncFeed(
         }
         catch (Exception exception)
         {
-            throw new InvalidTorrentDataException(request.DownloadUrl, exception.Message);
+            throw new InvalidTorrentDataException(url, exception.Message);
         }
 
-        var payloadSize = GetTorrentPayloadSize(info, request.DownloadUrl);
+        var payloadSize = GetTorrentPayloadSize(info, url);
         var hash = BitConverter
             .ToString(SHA1.HashData(
                 info.EncodeAsBytes()))

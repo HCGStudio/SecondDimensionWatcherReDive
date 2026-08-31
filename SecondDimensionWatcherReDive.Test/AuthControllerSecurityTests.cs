@@ -1,5 +1,6 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Text;
+using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -9,6 +10,7 @@ using SecondDimensionWatcherReDive.Auth;
 using SecondDimensionWatcherReDive.Configuration;
 using SecondDimensionWatcherReDive.Controllers;
 using SecondDimensionWatcherReDive.Controllers.External;
+using SecondDimensionWatcherReDive.Framework.DataRepository;
 
 namespace SecondDimensionWatcherReDive.Test;
 
@@ -70,14 +72,106 @@ public sealed class AuthControllerSecurityTests
         Assert.IsInstanceOfType<BadRequestObjectResult>(descendant);
     }
 
-    private static AuthController CreateController(TimeProvider? timeProvider = null)
+    [TestMethod]
+    public async Task ConcurrentFirstRegistration_HasOneDurableWinner_AndWritesPrivateAtomicFile()
     {
-        var configuration = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?>
+        var repository = new InMemoryAuthenticationStateRepository();
+        var directory = Path.Combine(Path.GetTempPath(), $"sdw-auth-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var passwordFile = Path.Combine(directory, "password.json");
+        var passwords = Enumerable.Range(0, 8).Select(index => $"candidate-{index}").ToArray();
+        try
+        {
+            var controllers = passwords
+                .Select(_ => CreateController(
+                    authenticationStateRepository: repository,
+                    configuredPassword: null,
+                    passwordFile: passwordFile))
+                .ToArray();
+
+            var registrations = await Task.WhenAll(controllers.Select((controller, index) =>
+                controller.Register(new LoginData(passwords[index]), CancellationToken.None)));
+
+            var winnerIndex = Array.FindIndex(registrations, result => result is OkObjectResult);
+            Assert.IsGreaterThanOrEqualTo(0, winnerIndex);
+            Assert.AreEqual(1, registrations.Count(result => result is OkObjectResult));
+            Assert.AreEqual(7, registrations.Count(result => result is BadRequestResult));
+            var winnerRegistration = (LoginResult)((OkObjectResult)registrations[winnerIndex]).Value!;
+            var winnerRefresh = await controllers[winnerIndex].Refresh(
+                new AuthRequest(winnerRegistration.Token!, winnerRegistration.RefreshToken!),
+                CancellationToken.None);
+            Assert.IsInstanceOfType<OkObjectResult>(winnerRefresh);
+
+            for (var index = 0; index < passwords.Length; index++)
             {
-                ["JwtSecret"] = Secret,
-                ["Password:Value"] = BCrypt.Net.BCrypt.HashPassword(Password)
-            })
+                var login = await controllers[0].Login(
+                    new LoginData(passwords[index]), CancellationToken.None);
+                Assert.AreEqual(index == winnerIndex, login is OkObjectResult);
+            }
+
+            var passwordConfig = JsonSerializer.Deserialize(
+                await File.ReadAllTextAsync(passwordFile),
+                AppJsonSerializerContext.Default.PasswordConfig);
+            Assert.IsNotNull(passwordConfig);
+            Assert.IsTrue(BCrypt.Net.BCrypt.Verify(
+                passwords[winnerIndex],
+                passwordConfig.Password.Value));
+            if (!OperatingSystem.IsWindows())
+            {
+                Assert.AreEqual(
+                    UnixFileMode.UserRead | UnixFileMode.UserWrite,
+                    File.GetUnixFileMode(passwordFile));
+            }
+            Assert.IsEmpty(Directory.GetFiles(directory, "*.tmp", SearchOption.TopDirectoryOnly));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task CompatibilityFileFailure_DoesNotUndoDurablePasswordClaim()
+    {
+        var repository = new InMemoryAuthenticationStateRepository();
+        var directory = Path.Combine(Path.GetTempPath(), $"sdw-auth-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var controller = CreateController(
+                authenticationStateRepository: repository,
+                configuredPassword: null,
+                passwordFile: directory);
+
+            var registration = await controller.Register(
+                new LoginData(Password), CancellationToken.None);
+            var login = await controller.Login(new LoginData(Password), CancellationToken.None);
+
+            Assert.IsInstanceOfType<OkObjectResult>(registration);
+            Assert.IsInstanceOfType<OkObjectResult>(login);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    private static AuthController CreateController(
+        TimeProvider? timeProvider = null,
+        IAuthenticationStateRepository? authenticationStateRepository = null,
+        string? configuredPassword = Password,
+        string? passwordFile = null)
+    {
+        var configurationValues = new Dictionary<string, string?>
+        {
+            ["JwtSecret"] = Secret,
+            ["Password:Value"] = configuredPassword is null
+                ? null
+                : BCrypt.Net.BCrypt.HashPassword(configuredPassword),
+            ["PasswordFile"] = passwordFile
+        };
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(configurationValues)
             .Build();
         var security = new TokenSecurityOptions
         {
@@ -108,10 +202,26 @@ public sealed class AuthControllerSecurityTests
             timeProvider);
         return new AuthController(
             configuration,
+            authenticationStateRepository ?? new InMemoryAuthenticationStateRepository(),
             validation,
             store,
             Options.Create(security),
             timeProvider,
             NullLogger<AuthController>.Instance);
+    }
+
+    private sealed class InMemoryAuthenticationStateRepository : IAuthenticationStateRepository
+    {
+        private string? _passwordHash;
+
+        public Task<string?> GetPasswordHashAsync(CancellationToken cancellationToken) =>
+            Task.FromResult(Volatile.Read(ref _passwordHash));
+
+        public Task<bool> TryClaimPasswordAsync(
+            string passwordHash,
+            Guid claimId,
+            DateTimeOffset registeredAt,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(Interlocked.CompareExchange(ref _passwordHash, passwordHash, null) is null);
     }
 }

@@ -340,7 +340,7 @@ export const PlayerPage: React.FC = () => {
         if (cancelled) return;
 
         generatedLinks = true;
-        setExternalPlaybackUrl(videoLink.url);
+        setExternalPlaybackUrl(videoLink.externalUrl ?? null);
         setSubtitles(subtitleLinks);
 
         if (!isMkvPath(playbackContext.media.path)) {

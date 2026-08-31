@@ -11,6 +11,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Tokens;
 using Moq;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
@@ -51,6 +52,8 @@ internal sealed class WebDavWebApplicationFactory : WebApplicationFactory<Migrat
     public List<FileMapping> Mappings { get; } = new();
     public Mock<IFileStore> FileStoreMock { get; } = new();
     public Mock<IFileStoreProvider> FileStoreProviderMock { get; } = new();
+    public Mock<IAnimationInfoRepository> AnimationInfoRepositoryMock { get; } = new();
+    public RecordingLoggerProvider Logs { get; } = new();
     public Helpers.FakeFileMappingRepository MappingRepository { get; }
 
     private readonly object _mappingsLock = new();
@@ -70,6 +73,9 @@ internal sealed class WebDavWebApplicationFactory : WebApplicationFactory<Migrat
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
+        builder.ConfigureLogging(logging => logging.AddFilter<RecordingLoggerProvider>(
+            "Microsoft.AspNetCore.Hosting.Diagnostics",
+            LogLevel.Trace));
 
         builder.ConfigureAppConfiguration((_, config) =>
         {
@@ -122,6 +128,8 @@ internal sealed class WebDavWebApplicationFactory : WebApplicationFactory<Migrat
             services.RemoveAll<IFileExplorer>();
             services.RemoveAll<IWebDavTokenRepository>();
             services.RemoveAll<IApplicationSettingsRepository>();
+            services.RemoveAll<IAuthenticationStateRepository>();
+            services.RemoveAll<IAnimationInfoRepository>();
 
             services.AddSingleton(FileStoreMock.Object);
             services.AddSingleton(FileStoreProviderMock.Object);
@@ -130,6 +138,9 @@ internal sealed class WebDavWebApplicationFactory : WebApplicationFactory<Migrat
             services.AddSingleton<IWebDavTokenRepository>(_ =>
                 new FakeWebDavTokenRepository(TestUserName, BCrypt.Net.BCrypt.HashPassword(TestPassword)));
             services.AddSingleton<IApplicationSettingsRepository, FakeApplicationSettingsRepository>();
+            services.AddSingleton<IAuthenticationStateRepository, FakeAuthenticationStateRepository>();
+            services.AddSingleton(AnimationInfoRepositoryMock.Object);
+            services.AddSingleton<ILoggerProvider>(Logs);
         });
     }
 
@@ -143,6 +154,8 @@ internal sealed class WebDavWebApplicationFactory : WebApplicationFactory<Migrat
         FileStoreProviderMock
             .Setup(p => p.GetRequiredClient(It.IsAny<string>()))
             .Returns(FileStoreMock.Object);
+        AnimationInfoRepositoryMock.Reset();
+        Logs.Clear();
         FileStoreProviderMock
             .Setup(p => p.GetClient(It.IsAny<string>()))
             .Returns(FileStoreMock.Object);
@@ -168,7 +181,12 @@ internal sealed class WebDavWebApplicationFactory : WebApplicationFactory<Migrat
         var token = new JwtSecurityToken(
             issuer: "SecondDimensionWatcherReDive",
             audience: "SecondDimensionWatcherReDive.Client",
-            claims: new[] { new Claim(ClaimTypes.Name, TestUserName) },
+            claims:
+            [
+                new Claim(ClaimTypes.Name, TestUserName),
+                new Claim("Id", Guid.Empty.ToString()),
+                new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString("N"))
+            ],
             expires: DateTime.UtcNow.AddMinutes(10),
             signingCredentials: creds);
         var jwt = new JwtSecurityTokenHandler().WriteToken(token);
@@ -224,6 +242,53 @@ internal sealed class WebDavWebApplicationFactory : WebApplicationFactory<Migrat
                     updatedAt);
                 return Task.FromResult<ApplicationSettings?>(_settings);
             }
+        }
+    }
+
+    private sealed class FakeAuthenticationStateRepository : IAuthenticationStateRepository
+    {
+        private string? _passwordHash;
+
+        public Task<string?> GetPasswordHashAsync(CancellationToken cancellationToken) =>
+            Task.FromResult(Volatile.Read(ref _passwordHash));
+
+        public Task<bool> TryClaimPasswordAsync(
+            string passwordHash,
+            Guid claimId,
+            DateTimeOffset registeredAt,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(Interlocked.CompareExchange(ref _passwordHash, passwordHash, null) is null);
+    }
+
+    internal sealed class RecordingLoggerProvider : ILoggerProvider
+    {
+        private readonly System.Collections.Concurrent.ConcurrentQueue<string> _messages = new();
+
+        public IReadOnlyCollection<string> Messages => _messages.ToArray();
+
+        public ILogger CreateLogger(string categoryName) => new RecordingLogger(_messages);
+
+        public void Dispose() { }
+
+        public void Clear()
+        {
+            while (_messages.TryDequeue(out _)) { }
+        }
+
+        private sealed class RecordingLogger(
+            System.Collections.Concurrent.ConcurrentQueue<string> messages) : ILogger
+        {
+            public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+            public bool IsEnabled(LogLevel logLevel) => true;
+
+            public void Log<TState>(
+                LogLevel logLevel,
+                EventId eventId,
+                TState state,
+                Exception? exception,
+                Func<TState, Exception?, string> formatter) =>
+                messages.Enqueue(formatter(state, exception));
         }
     }
 }

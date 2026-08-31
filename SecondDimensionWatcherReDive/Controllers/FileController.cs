@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.IdentityModel.Tokens.Jwt;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -10,6 +11,7 @@ using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Options;
 using Microsoft.AspNetCore.WebUtilities;
 using SecondDimensionWatcherReDive.Configuration;
+using SecondDimensionWatcherReDive.Auth;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Framework.FileStore;
 
@@ -22,10 +24,14 @@ internal partial class FileController(
     IAnimationInfoRepository animationInfoRepository,
     IFileExplorer fileExplorer,
     IDistributedCache distributedCache,
+    IDeviceTokenHasher tokenHasher,
     IContentTypeProvider contentTypeProvider,
     IOptions<TokenSecurityOptions> tokenSecurityOptions,
     ILogger<FileController> logger) : ControllerBase
 {
+    private const string SecurePlaybackCookie = "__Host-sdw-playback";
+    private const string DevelopmentPlaybackCookie = "sdw-playback";
+
     private static string GenerateToken(int length)
     {
         var arr = length > 128 ? new byte[length] : stackalloc byte[length];
@@ -33,13 +39,17 @@ internal partial class FileController(
         return WebEncoders.Base64UrlEncode(arr);
     }
 
-    private static string TokenCacheKey(string token) =>
-        "playback-link:" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token)));
+    private static string ResourceCacheKey(string resourceId) =>
+        "playback-resource:" + resourceId;
+
+    private static string Fingerprint(string credential) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(credential)));
 
     [HttpPost("generateLink")]
     public async Task<IActionResult> GetFileLink([FromBody] External.FileLinkResultRequest payload,
         CancellationToken cancellationToken)
     {
+        Response.Headers.CacheControl = "private,no-store";
         LogGenerateLinkRequest(logger, payload.Id, payload.Path);
 
         var info = await animationInfoRepository.FindByIdWithAnimationAsync(payload.Id, cancellationToken);
@@ -52,48 +62,82 @@ internal partial class FileController(
         var virtualPath = ResolveVirtualPath(info, payload.Path);
         LogResolvedTargetPath(logger, virtualPath, "virtual path");
 
-        var token = GenerateToken(64);
+        var sessionSubject = User.FindFirst("Id")?.Value
+                             ?? User.FindFirst(JwtRegisteredClaimNames.Jti)?.Value;
+        if (string.IsNullOrWhiteSpace(sessionSubject))
+            return Unauthorized();
+
+        // The HMAC-derived cookie is stable for concurrent link requests and token refreshes
+        // for this account. This avoids Set-Cookie races while keeping credentials out of URLs.
+        var playbackSession = WebEncoders.Base64UrlEncode(SHA256.HashData(
+            Encoding.UTF8.GetBytes(tokenHasher.Hash("playback-session:" + sessionSubject))));
+        var resourceId = GenerateToken(16);
         var lifetime = TimeSpan.FromMinutes(tokenSecurityOptions.Value.PlaybackLinkMinutes);
-        await distributedCache.SetStringAsync(TokenCacheKey(token),
-            JsonSerializer.Serialize(new External.FileStoreToken(virtualPath, string.Empty),
-                External.AppJsonSerializerContext.Default.FileStoreToken),
+        await distributedCache.SetStringAsync(ResourceCacheKey(resourceId),
+            JsonSerializer.Serialize(new External.PlaybackGrant(
+                    virtualPath,
+                    Fingerprint(playbackSession)),
+                External.AppJsonSerializerContext.Default.PlaybackGrant),
             new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = lifetime },
             cancellationToken);
-        var url = Url.ActionLink(nameof(GetFile), values: new { token })!;
+        var cookieName = Request.IsHttps ? SecurePlaybackCookie : DevelopmentPlaybackCookie;
+        Response.Cookies.Append(cookieName, playbackSession, new CookieOptions
+        {
+            HttpOnly = true,
+            Secure = Request.IsHttps,
+            SameSite = SameSiteMode.Strict,
+            Path = Request.IsHttps ? "/" : "/api/file/play",
+            MaxAge = lifetime,
+            IsEssential = true
+        });
+        var url = Url.ActionLink(nameof(GetFile), values: new { resourceId })!;
         LogLinkGenerated(logger, payload.Id, lifetime.TotalMinutes);
         return Ok(new External.FileLinkResultResponse(url));
     }
 
     [AllowAnonymous]
-    [HttpGet("play")]
-    public async Task<IActionResult> GetFile([FromQuery] [Required] string token,
+    [HttpGet("play/{resourceId}")]
+    public async Task<IActionResult> GetFile([FromRoute, Required] string resourceId,
         CancellationToken cancellationToken)
     {
         Response.Headers.CacheControl = "private,no-store";
         Response.Headers.Pragma = "no-cache";
         Response.Headers["Referrer-Policy"] = "no-referrer";
 
-        var json = await distributedCache.GetStringAsync(TokenCacheKey(token), cancellationToken);
-        var fileStoreToken = json is null ? null : JsonSerializer.Deserialize(json, External.AppJsonSerializerContext.Default.FileStoreToken);
-        if (fileStoreToken is null)
+        var json = await distributedCache.GetStringAsync(ResourceCacheKey(resourceId), cancellationToken);
+        var grant = json is null
+            ? null
+            : JsonSerializer.Deserialize(json, External.AppJsonSerializerContext.Default.PlaybackGrant);
+        var playbackSession = Request.Cookies[SecurePlaybackCookie]
+                              ?? Request.Cookies[DevelopmentPlaybackCookie];
+        if (grant is null || string.IsNullOrEmpty(playbackSession) ||
+            !FixedTimeEquals(grant.SessionFingerprint, Fingerprint(playbackSession)))
         {
             LogPlayTokenInvalid(logger);
             return NotFound();
         }
 
-        var fileName = Path.GetFileName(fileStoreToken.Path);
+        var fileName = Path.GetFileName(grant.Path);
         var contentType = contentTypeProvider.TryGetContentType(fileName, out var type)
             ? type
             : "application/octet-stream";
 
-        LogStreamingFile(logger, fileStoreToken.Path, contentType);
+        LogStreamingFile(logger, grant.Path, contentType);
         var stream = await fileExplorer.OpenReadStreamAsync(
-            new FileToken(fileStoreToken.Path, fileName), cancellationToken);
+            new FileToken(grant.Path, fileName), cancellationToken);
         return File(stream, contentType, fileName, enableRangeProcessing: true);
     }
 
+    private static bool FixedTimeEquals(string expected, string actual)
+    {
+        var expectedBytes = Encoding.ASCII.GetBytes(expected);
+        var actualBytes = Encoding.ASCII.GetBytes(actual);
+        return expectedBytes.Length == actualBytes.Length &&
+               CryptographicOperations.FixedTimeEquals(expectedBytes, actualBytes);
+    }
+
     [HttpGet("list")]
-    public async Task<IActionResult> GetSubDir([FromQuery] [Required] Guid id,
+    public async Task<IActionResult> GetSubDir([FromQuery, Required] Guid id,
         [FromQuery] string? relativeDir,
         CancellationToken cancellationToken)
     {

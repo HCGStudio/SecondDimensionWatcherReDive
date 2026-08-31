@@ -17,6 +17,7 @@
     "account": "アカウント",
     "language": "言語",
     "logout": "ログアウト",
+    "logoutFailed": "セッションを取り消せませんでした。ログイン状態は維持されています。",
     "login": "ログイン"
   },
   "languages": {

@@ -88,6 +88,23 @@ public sealed class FileMappingRepositoryPostgreSqlTests
         CollectionAssert.AreEquivalent(new long[] { 0, 1 }, versions);
     }
 
+    [TestMethod]
+    public async Task AuthenticationClaim_AcrossIndependentContexts_HasExactlyOneWinner()
+    {
+        var candidates = Enumerable.Range(0, 16)
+            .Select(index => (Hash: $"hash-{index}", ClaimId: Guid.NewGuid()))
+            .ToArray();
+
+        var results = await Task.WhenAll(candidates.Select(candidate =>
+            Fixture.TryClaimPasswordAsync(candidate.Hash, candidate.ClaimId, CancellationToken.None)));
+
+        Assert.AreEqual(1, results.Count(result => result));
+        var winner = candidates[Array.FindIndex(results, result => result)];
+        Assert.AreEqual(winner.Hash, await Fixture.GetPasswordHashAsync(CancellationToken.None));
+        Assert.IsTrue(await Fixture.TryClaimPasswordAsync(
+            winner.Hash, winner.ClaimId, CancellationToken.None));
+    }
+
     private static FileMapping Mapping(Guid animationInfoId, string virtualPath) =>
         new(Guid.NewGuid(), animationInfoId, virtualPath, "/physical/" + Guid.NewGuid(), "local");
 }

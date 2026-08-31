@@ -493,6 +493,32 @@ public sealed class RuntimeSettingsServiceTests
     }
 
     [TestMethod]
+    public async Task EquivalentNfsNetworkSequences_DoNotRequireRestart()
+    {
+        await using var host = await SettingsTestHost.CreateAsync();
+        var initial = await host.RuntimeSettings.GetAsync(CancellationToken.None);
+        Assert.IsFalse(initial.PendingRestart);
+        var equivalentNfs = initial.Desired.Nfs with
+        {
+            AllowedNetworks = ["0:0:0:0:0:0:0:1/128", "127.0.0.0/8"]
+        };
+
+        var saved = await host.RuntimeSettings.UpdateAsync(
+            new RuntimeSettingsPatch(
+                initial.Revision,
+                Ai: null,
+                Tmdb: null,
+                Torrent: null,
+                MediaLibrary: null,
+                Incidents: null,
+                Nfs: equivalentNfs),
+            CancellationToken.None);
+
+        Assert.AreEqual(RuntimeSettingsUpdateStatus.Saved, saved.Status);
+        Assert.IsFalse(saved.State.PendingRestart);
+    }
+
+    [TestMethod]
     public async Task StaleRevision_ReturnsConflictWithoutPersisting()
     {
         await using var host = await SettingsTestHost.CreateAsync();
@@ -534,6 +560,7 @@ public sealed class RuntimeSettingsServiceTests
         Assert.IsFalse(reloadedSecret.IsConfigured);
         Assert.AreEqual(SecretConfigurationSource.Runtime, reloadedSecret.Source);
         Assert.AreEqual(string.Empty, second.Configuration[RuntimeSecretKeys.TmdbApiKey]);
+        Assert.IsFalse(stale.State.PendingRestart);
         Assert.DoesNotContain(
             "must-not-be-saved",
             repository.Document?.ProtectedSecrets ?? string.Empty,

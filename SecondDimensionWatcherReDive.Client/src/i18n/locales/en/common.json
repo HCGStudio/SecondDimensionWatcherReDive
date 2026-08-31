@@ -17,6 +17,7 @@
     "account": "Account",
     "language": "Language",
     "logout": "Sign out",
+    "logoutFailed": "Could not revoke this session. You are still signed in.",
     "login": "Sign in"
   },
   "languages": {

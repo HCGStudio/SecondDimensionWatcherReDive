@@ -120,6 +120,29 @@ public sealed class RefreshTokenStoreTests
             CancellationToken.None));
     }
 
+    [TestMethod]
+    public async Task LogoutOfRotatedTokenFamilyRevokesDescendant()
+    {
+        var time = new ManualTimeProvider();
+        var store = CreateStore(new MemoryRefreshTokenStorage(), time);
+        var first = await store.IssueAsync("jwt-1", CancellationToken.None);
+        Assert.IsNotNull(first);
+        var second = await store.RotateAsync(
+            first.Token,
+            "jwt-1",
+            "jwt-2",
+            CancellationToken.None);
+        Assert.IsNotNull(second);
+
+        await store.RevokeAsync(first.Token, CancellationToken.None);
+
+        Assert.IsNull(await store.RotateAsync(
+            second.Token,
+            "jwt-2",
+            "jwt-3",
+            CancellationToken.None));
+    }
+
     private static RefreshTokenStore CreateStore(
         IRefreshTokenStorage storage,
         TimeProvider timeProvider) =>

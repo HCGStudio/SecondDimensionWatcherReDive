@@ -21,7 +21,7 @@ namespace SecondDimensionWatcherReDive.Controllers.External;
 [JsonSerializable(typeof(FileLinkResultRequest))]
 [JsonSerializable(typeof(IEnumerable<FileStoreListResult>))]
 [JsonSerializable(typeof(FileStoreListResult[]))]
-[JsonSerializable(typeof(FileStoreToken))]
+[JsonSerializable(typeof(PlaybackGrant))]
 [JsonSerializable(typeof(AddFeedRequest))]
 [JsonSerializable(typeof(UpsertSubscriptionAutomationPolicyRequest))]
 [JsonSerializable(typeof(SubscriptionAutomationPolicy))]

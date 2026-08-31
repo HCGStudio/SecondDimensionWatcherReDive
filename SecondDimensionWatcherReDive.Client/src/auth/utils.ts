@@ -35,7 +35,7 @@ export const revokeSession = async (auth: IAuthResult): Promise<void> => {
     },
     body: JSON.stringify({ refreshToken: auth.refreshToken }),
   });
-  if (!response.ok && response.status !== 401) {
+  if (!response.ok) {
     throw new Error(`Logout failed (${response.status})`);
   }
 };

@@ -2516,12 +2516,16 @@ async function route(method, pathname, searchParams, req, res) {
 
   if (method === "POST" && pathname === "/api/file/generatelink") {
     return readBody(req).then((body) => {
-      const token = randomBytes(32).toString("base64url");
-      return json(res, { url: `/api/file/play?token=${token}` });
+      const resourceId = randomBytes(16).toString("base64url");
+      res.setHeader(
+        "Set-Cookie",
+        `sdw-mock-playback=${randomBytes(32).toString("base64url")}; HttpOnly; SameSite=Strict; Path=/api/file/play`,
+      );
+      return json(res, { url: `/api/file/play/${resourceId}`, externalUrl: null });
     });
   }
 
-  if (method === "GET" && pathname === "/api/file/play") {
+  if (method === "GET" && pathname.startsWith("/api/file/play/")) {
     // Return a small placeholder response for mock playback
     res.writeHead(200, { "Content-Type": "text/plain" });
     return res.end(
@@ -2902,7 +2906,6 @@ const server = createServer((req, res) => {
     });
   }
 });
-
 server.listen(PORT, () => {
   console.log(`Mock API server running on http://localhost:${PORT}`);
   const finishedCount = [...animations.values()].filter(

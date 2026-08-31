@@ -38,6 +38,7 @@
     <ItemGroup>
       <InternalsVisibleTo Include="SecondDimensionWatcherReDive.Test" />
       <InternalsVisibleTo Include="SecondDimensionWatcherReDive.IntegrationTest" />
+      <InternalsVisibleTo Include="SecondDimensionWatcherReDive.SecurityProbe" />
       <InternalsVisibleTo Include="DynamicProxyGenAssembly2" />
     </ItemGroup>
 

@@ -16,6 +16,11 @@ public sealed class OutboundHttpSecurityTests
     [DataRow("192.168.1.10")]
     [DataRow("::1")]
     [DataRow("fd00::1")]
+    [DataRow("::192.168.1.10")]
+    [DataRow("64:ff9b::7f00:1")]
+    [DataRow("64:ff9b:1::a00:1")]
+    [DataRow("2002:7f00:1::")]
+    [DataRow("2001:0000:4136:e378:8000:63bf:3fff:fdd2")]
     public void PrivateAndMetadataAddressesAreNotPublic(string value)
     {
         Assert.IsFalse(OutboundAddressPolicy.IsPubliclyRoutable(IPAddress.Parse(value)));
@@ -28,6 +33,47 @@ public sealed class OutboundHttpSecurityTests
 
         await Assert.ThrowsExactlyAsync<OutboundRequestBlockedException>(() =>
             policy.ValidateUriAsync(new Uri("http://169.254.169.254/latest/meta-data"), CancellationToken.None));
+    }
+
+    [TestMethod]
+    [DataRow("::192.168.1.10")]
+    [DataRow("64:ff9b::7f00:1")]
+    [DataRow("64:ff9b:1::a00:1")]
+    [DataRow("2002:7f00:1::")]
+    [DataRow("2001:0000:4136:e378:8000:63bf:3fff:fdd2")]
+    public async Task EmbeddedIpv4LiteralIsRejected(string value)
+    {
+        var policy = CreatePolicy(new StubResolver([]));
+
+        await Assert.ThrowsExactlyAsync<OutboundRequestBlockedException>(() =>
+            policy.ValidateUriAsync(new Uri($"http://[{value}]/feed"), CancellationToken.None));
+    }
+
+    [TestMethod]
+    public async Task EmbeddedIpv4DnsAnswerIsRejected()
+    {
+        var policy = CreatePolicy(new StubResolver([IPAddress.Parse("64:ff9b::7f00:1")]));
+
+        await Assert.ThrowsExactlyAsync<OutboundRequestBlockedException>(() =>
+            policy.ValidateUriAsync(new Uri("https://feed.example/rss"), CancellationToken.None));
+    }
+
+    [TestMethod]
+    public async Task ConnectCallbackRejectsEmbeddedIpv4BeforeOpeningSocket()
+    {
+        var policy = CreatePolicy(new StubResolver([IPAddress.Parse("2002:7f00:1::")]));
+        var connector = new StubSocketConnector((_, _) =>
+            Task.FromException<Stream>(new AssertFailedException("Connector must not be called.")));
+        var factory = new OutboundConnectionFactory(
+            policy,
+            connector,
+            Options.Create(new OutboundHttpOptions()));
+
+        await Assert.ThrowsExactlyAsync<OutboundRequestBlockedException>(() =>
+            factory.ConnectAsync(
+                new DnsEndPoint("feed.example", 443),
+                CancellationToken.None).AsTask());
+        Assert.IsEmpty(connector.Attempts);
     }
 
     [TestMethod]
