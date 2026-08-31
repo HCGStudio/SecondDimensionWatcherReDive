@@ -61,8 +61,8 @@ while IFS=$'\t' read -r _object_id ref_name; do
 done <<< "$remote_tags"
 
 if [ -n "${PRERELEASE_TAG_NAMES_FILE:-}" ]; then
-  if [ ! -f "$PRERELEASE_TAG_NAMES_FILE" ]; then
-    echo "prerelease tag names file does not exist: $PRERELEASE_TAG_NAMES_FILE" >&2
+  if [ ! -r "$PRERELEASE_TAG_NAMES_FILE" ]; then
+    echo "prerelease tag names file is not readable: $PRERELEASE_TAG_NAMES_FILE" >&2
     exit 1
   fi
   while IFS= read -r tag_name || [ -n "$tag_name" ]; do
