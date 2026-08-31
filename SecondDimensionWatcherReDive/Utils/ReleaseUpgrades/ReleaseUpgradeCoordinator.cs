@@ -1,6 +1,7 @@
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Framework.FileDownload;
 using SecondDimensionWatcherReDive.Framework.FileStore;
+using SecondDimensionWatcherReDive.Utils.FileStore;
 using SecondDimensionWatcherReDive.Utils.Incidents;
 
 namespace SecondDimensionWatcherReDive.Utils.ReleaseUpgrades;
@@ -158,9 +159,34 @@ public sealed class ReleaseUpgradeCoordinator(
         Guid operationId,
         CancellationToken cancellationToken)
     {
+        var rolledBackAt = DateTimeOffset.UtcNow;
+        var rollback = await upgradeRepository.GetRollbackAsync(operationId, cancellationToken);
+        if (rollback?.Operation.RollbackUntil >= rolledBackAt)
+        {
+            var errors = await ValidateReadableMappingsAsync(
+                rollback.PreviousMappings,
+                requireVideo: true,
+                cancellationToken);
+            if (errors.Count > 0)
+            {
+                var summary = string.Join(" ", errors);
+                await incidentReporter.ReportAsync(new IncidentReport(
+                        IncidentType.FileMappingFailure,
+                        IncidentSeverity.Error,
+                        "Release upgrade rollback validation failed",
+                        summary,
+                        UpgradeSource(operationId)),
+                    cancellationToken);
+                return new ReleaseUpgradeMutationResult(
+                    false,
+                    "rollback_validation_failed",
+                    rollback.Operation);
+            }
+        }
+
         var result = await upgradeRepository.RollbackAsync(
             operationId,
-            DateTimeOffset.UtcNow,
+            rolledBackAt,
             cancellationToken);
         if (result.IsSuccess)
         {
@@ -253,8 +279,22 @@ public sealed class ReleaseUpgradeCoordinator(
         if (candidateMappings.Count == 0)
             errors.Add("The candidate release has no mapped files.");
 
+        errors.AddRange(await ValidateReadableMappingsAsync(
+            candidateMappings,
+            requireVideo: true,
+            cancellationToken));
+        return errors;
+    }
+
+    private async Task<IReadOnlyList<string>> ValidateReadableMappingsAsync(
+        IReadOnlyList<FileMapping> mappings,
+        bool requireVideo,
+        CancellationToken cancellationToken)
+    {
+        var errors = new List<string>();
         var readableFiles = 0;
-        foreach (var mapping in candidateMappings)
+        var readableVideos = 0;
+        foreach (var mapping in mappings)
         {
             cancellationToken.ThrowIfCancellationRequested();
             try
@@ -262,24 +302,30 @@ public sealed class ReleaseUpgradeCoordinator(
                 var store = fileStoreProvider.GetRequiredClient(mapping.FileStore);
                 if (!await store.ExistAsync(mapping.PhysicalPath, cancellationToken))
                 {
-                    errors.Add($"Candidate file is missing: {mapping.PhysicalPath}");
+                    errors.Add($"Release file is missing: {mapping.PhysicalPath}");
                     continue;
                 }
 
                 var info = await store.FileInfoAsync(mapping.PhysicalPath, cancellationToken);
                 if (info.IsDirectory || info.Length is <= 0)
-                    errors.Add($"Candidate file is not a readable non-empty file: {mapping.PhysicalPath}");
+                    errors.Add($"Release file is not a readable non-empty file: {mapping.PhysicalPath}");
                 else
+                {
                     readableFiles++;
+                    if (MediaFileTypes.IsVideo(mapping.PhysicalPath))
+                        readableVideos++;
+                }
             }
             catch (Exception exception) when (exception is not OperationCanceledException)
             {
-                errors.Add($"Candidate file validation failed for {mapping.PhysicalPath}: {exception.Message}");
+                errors.Add($"Release file validation failed for {mapping.PhysicalPath}: {exception.Message}");
             }
         }
 
-        if (candidateMappings.Count > 0 && readableFiles == 0)
-            errors.Add("Candidate validation found no readable file.");
+        if (mappings.Count > 0 && readableFiles == 0)
+            errors.Add("Release validation found no readable file.");
+        if (requireVideo && mappings.Count > 0 && readableVideos == 0)
+            errors.Add("Release validation found no readable video file.");
         return errors;
     }
 

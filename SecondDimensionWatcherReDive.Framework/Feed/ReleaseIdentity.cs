@@ -29,4 +29,3 @@ public static class ReleaseIdentity
         return $"import:{Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(source))).ToLowerInvariant()}";
     }
 }
-

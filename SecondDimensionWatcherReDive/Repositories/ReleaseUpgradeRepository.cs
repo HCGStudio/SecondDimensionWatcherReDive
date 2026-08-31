@@ -9,6 +9,18 @@ public sealed partial class ReleaseUpgradeRepository(
     Models.ApplicationContext context,
     DbContextOptions<Models.ApplicationContext> contextOptions) : IReleaseUpgradeRepository
 {
+    private sealed record CandidateRow(
+        Guid CurrentReleaseId,
+        Guid CandidateReleaseId,
+        string AnimationName,
+        int? Season,
+        int? Episode,
+        int CurrentScore,
+        int CandidateScore,
+        DateTimeOffset CandidatePublishTime,
+        string? ReleaseScoreReasonsJson,
+        bool Automatic);
+
     public async Task<IReadOnlyList<ReleaseUpgradeCandidate>> GetCandidatesAsync(
         bool automaticOnly,
         int take,
@@ -17,74 +29,112 @@ public sealed partial class ReleaseUpgradeRepository(
         if (take is < 1 or > 200)
             throw new ArgumentOutOfRangeException(nameof(take));
 
-        var releases = await context.AnimationInfo.AsNoTracking()
-            .Include(info => info.Animation)
-            .Where(info => info.Animation != null && info.Season != null && info.Episode != null &&
-                           info.MediaLibraryMissingSince == null)
+        var candidatePairs = BuildCandidatePairs(automaticOnly, DateTimeOffset.UtcNow);
+
+        // Rank only candidates that are actually eligible for this scan. In
+        // particular, an ineligible higher-scored release must not hide a lower
+        // release whose source policy permits automatic upgrades.
+        var rows = await SelectBestCandidatePairs(candidatePairs)
+            .OrderByDescending(pair => pair.CandidateScore - pair.CurrentScore)
+            .ThenBy(pair => pair.AnimationName)
+            .ThenBy(pair => pair.Season)
+            .ThenBy(pair => pair.Episode)
+            .ThenBy(pair => pair.CandidateReleaseId)
+            .Take(take)
             .ToListAsync(cancellationToken);
-        var ids = releases.Select(info => info.Id).ToArray();
-        var mapped = await context.FileMappings.AsNoTracking()
-            .Where(mapping => ids.Contains(mapping.AnimationInfoId))
-            .Select(mapping => mapping.AnimationInfoId)
-            .Distinct()
-            .ToHashSetAsync(cancellationToken);
-        var policies = await context.SubscriptionAutomationPolicies.AsNoTracking()
-            .ToDictionaryAsync(policy => policy.FeedId, cancellationToken);
-        var attempted = await context.ReleaseUpgradeOperations.AsNoTracking()
-            .Where(operation => automaticOnly || operation.Status != ReleaseUpgradeStatus.Failed)
-            .Select(operation => operation.CandidateReleaseId)
-            .ToHashSetAsync(cancellationToken);
+        return rows.Select(ToCandidate).ToList();
+    }
 
-        var candidates = new List<ReleaseUpgradeCandidate>();
-        foreach (var episode in releases.GroupBy(info => new
-        {
-            AnimationId = info.Animation!.Id,
-            info.Season,
-            info.Episode
-        }))
-        {
-            var current = episode
-                .Where(info => info.IsActiveRelease && info.IsDownloadFinished && mapped.Contains(info.Id))
-                .OrderByDescending(info => info.ReleaseScore)
-                .ThenByDescending(info => info.PublishTime)
-                .FirstOrDefault();
-            if (current is null) continue;
+    public async Task<ReleaseUpgradeCandidate?> FindCandidateAsync(
+        Guid currentReleaseId,
+        Guid candidateReleaseId,
+        CancellationToken cancellationToken)
+    {
+        var row = await SelectBestCandidatePairs(
+                BuildCandidatePairs(automaticOnly: false, DateTimeOffset.UtcNow))
+            .SingleOrDefaultAsync(pair =>
+                    pair.CurrentReleaseId == currentReleaseId &&
+                    pair.CandidateReleaseId == candidateReleaseId,
+                cancellationToken);
+        return row is null ? null : ToCandidate(row);
+    }
 
-            var candidate = episode
-                .Where(info => info.Id != current.Id &&
-                               info.ReleaseScore > current.ReleaseScore &&
-                               !attempted.Contains(info.Id))
-                .OrderByDescending(info => info.ReleaseScore)
-                .ThenByDescending(info => info.PublishTime)
-                .FirstOrDefault();
-            if (candidate is null) continue;
-
-            var automatic = candidate.SourceFeedId is { } feedId &&
-                            policies.TryGetValue(feedId, out var policy) &&
-                            policy.EnableVersionUpgrade &&
-                            candidate.ReleaseScore - current.ReleaseScore >= policy.MinimumUpgradeScore;
-            if (automaticOnly && !automatic) continue;
-
-            candidates.Add(new ReleaseUpgradeCandidate(
+    private IQueryable<CandidateRow> BuildCandidatePairs(bool automaticOnly, DateTimeOffset now)
+    {
+        var eligibleCandidates = context.AnimationInfo.AsNoTracking()
+            .Where(candidate =>
+                !candidate.IsActiveRelease &&
+                candidate.MediaLibraryMissingSince == null &&
+                candidate.Season != null &&
+                candidate.Episode != null &&
+                candidate.DownloadCancellationId == null &&
+                !context.ReleaseUpgradeOperations.Any(operation =>
+                    operation.CandidateReleaseId == candidate.Id &&
+                    (automaticOnly || operation.Status != ReleaseUpgradeStatus.Failed)));
+        var candidatePairs =
+            from current in context.AnimationInfo.AsNoTracking()
+            from candidate in eligibleCandidates
+            let automatic = candidate.SourceFeedId != null &&
+                            context.SubscriptionAutomationPolicies.Any(policy =>
+                                policy.FeedId == candidate.SourceFeedId &&
+                                policy.EnableVersionUpgrade &&
+                                candidate.ReleaseScore - current.ReleaseScore >=
+                                policy.MinimumUpgradeScore)
+            where current.IsActiveRelease &&
+                  current.IsDownloadFinished &&
+                  current.MediaLibraryMissingSince == null &&
+                  current.Animation != null &&
+                  current.Season != null &&
+                  current.Episode != null &&
+                  context.FileMappings.Any(mapping => mapping.AnimationInfoId == current.Id) &&
+                  !context.ReleaseUpgradeOperations.Any(operation =>
+                      operation.CandidateReleaseId == current.Id &&
+                      operation.Status == ReleaseUpgradeStatus.Applied &&
+                      (operation.RollbackUntil == null || operation.RollbackUntil > now)) &&
+                  EF.Property<Guid?>(candidate, "AnimationId") ==
+                  EF.Property<Guid?>(current, "AnimationId") &&
+                  candidate.Season == current.Season &&
+                  candidate.Episode == current.Episode &&
+                  candidate.ReleaseScore > current.ReleaseScore &&
+                  (!automaticOnly || automatic)
+            select new CandidateRow(
                 current.Id,
                 candidate.Id,
                 current.Animation!.Name,
-                current.Season!.Value,
-                current.Episode!.Value,
+                current.Season,
+                current.Episode,
                 current.ReleaseScore,
                 candidate.ReleaseScore,
-                ParseReasons(candidate.ReleaseScoreReasonsJson),
-                automatic));
-        }
-
-        return candidates
-            .OrderByDescending(candidate => candidate.CandidateScore - candidate.CurrentScore)
-            .ThenBy(candidate => candidate.AnimationName)
-            .ThenBy(candidate => candidate.Season)
-            .ThenBy(candidate => candidate.Episode)
-            .Take(take)
-            .ToList();
+                candidate.PublishTime,
+                candidate.ReleaseScoreReasonsJson,
+                automatic);
+        return candidatePairs;
     }
+
+    private static IQueryable<CandidateRow> SelectBestCandidatePairs(
+        IQueryable<CandidateRow> candidatePairs)
+    {
+        var bestCandidateIds = candidatePairs
+            .GroupBy(pair => pair.CurrentReleaseId)
+            .Select(group => group
+                .OrderByDescending(pair => pair.CandidateScore)
+                .ThenByDescending(pair => pair.CandidatePublishTime)
+                .ThenBy(pair => pair.CandidateReleaseId)
+                .Select(pair => pair.CandidateReleaseId)
+                .First());
+        return candidatePairs.Where(pair => bestCandidateIds.Contains(pair.CandidateReleaseId));
+    }
+
+    private static ReleaseUpgradeCandidate ToCandidate(CandidateRow row) => new(
+        row.CurrentReleaseId,
+        row.CandidateReleaseId,
+        row.AnimationName,
+        row.Season.GetValueOrDefault(),
+        row.Episode.GetValueOrDefault(),
+        row.CurrentScore,
+        row.CandidateScore,
+        ParseReasons(row.ReleaseScoreReasonsJson),
+        row.Automatic);
 
     public async Task<ReleaseUpgradeOperation?> TryBeginAsync(
         ReleaseUpgradeCandidate candidate,
@@ -117,6 +167,20 @@ public sealed partial class ReleaseUpgradeRepository(
                 !current.IsDownloadFinished ||
                 !await writeContext.FileMappings.AnyAsync(
                     mapping => mapping.AnimationInfoId == current.Id,
+                    cancellationToken))
+                return null;
+
+            await writeContext.ReleaseUpgradeOperations
+                .Where(operation => operation.Status == ReleaseUpgradeStatus.Applied &&
+                                    operation.RollbackUntil <= createdAt)
+                .ExecuteUpdateAsync(
+                    setters => setters
+                        .SetProperty(operation => operation.Status, ReleaseUpgradeStatus.Completed)
+                        .SetProperty(operation => operation.CompletedAt, createdAt),
+                    cancellationToken);
+            if (await writeContext.ReleaseUpgradeOperations.AnyAsync(
+                    operation => operation.CandidateReleaseId == current.Id &&
+                                 operation.Status == ReleaseUpgradeStatus.Applied,
                     cancellationToken))
                 return null;
 
@@ -211,6 +275,33 @@ public sealed partial class ReleaseUpgradeRepository(
                 .Select(mapping => mapping.ToRecord()).ToList());
     }
 
+    public async Task<ReleaseUpgradeActivation?> GetRollbackAsync(
+        Guid operationId,
+        CancellationToken cancellationToken)
+    {
+        var operation = await context.ReleaseUpgradeOperations.AsNoTracking()
+            .Include(item => item.MappingSnapshots)
+            .SingleOrDefaultAsync(item => item.Id == operationId &&
+                                          item.Status == ReleaseUpgradeStatus.Applied,
+                cancellationToken);
+        if (operation is null) return null;
+
+        var candidateMappings = await context.FileMappings.AsNoTracking()
+            .Where(mapping => mapping.AnimationInfoId == operation.CandidateReleaseId)
+            .OrderBy(mapping => mapping.VirtualPath)
+            .Select(mapping => mapping.ToRecord())
+            .ToListAsync(cancellationToken);
+        var previousMappings = operation.MappingSnapshots
+            .Where(snapshot => snapshot.Kind == ReleaseUpgradeMappingKind.Previous)
+            .OrderBy(snapshot => snapshot.VirtualPath, StringComparer.Ordinal)
+            .Select(snapshot => FromSnapshot(snapshot).ToRecord())
+            .ToList();
+        return new ReleaseUpgradeActivation(
+            operation.ToRecord(),
+            previousMappings,
+            candidateMappings);
+    }
+
     public async Task<ReleaseUpgradeMutationResult> ActivateAsync(
         Guid operationId,
         IReadOnlyList<FileMapping> expectedPreviousMappings,
@@ -279,9 +370,12 @@ public sealed partial class ReleaseUpgradeRepository(
                 snapshots,
                 cancellationToken);
 
-            writeContext.FileMappings.RemoveRange(mappings);
             var replacement = BuildCandidateReplacement(previous, next, candidate.Id);
-            await writeContext.FileMappings.AddRangeAsync(replacement.Mappings, cancellationToken);
+            var reconciliation = await FileMappingSetReconciler.ReconcileAcrossOwnersAsync(
+                writeContext,
+                [current.Id, candidate.Id],
+                replacement.Mappings,
+                cancellationToken);
             await TransferPlaybackProgressAsync(
                 writeContext,
                 BuildActivationPlaybackTransfers(current.Id, candidate.Id, replacement),
@@ -303,6 +397,7 @@ public sealed partial class ReleaseUpgradeRepository(
             operation.AppliedAt = verifiedAt;
             operation.RollbackUntil = rollbackUntil;
             await writeContext.SaveChangesAsync(cancellationToken);
+            await reconciliation.RestoreEntryIdentitiesAsync(writeContext, cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             return new ReleaseUpgradeMutationResult(true, "applied", operation.ToRecord());
         });
@@ -400,17 +495,19 @@ public sealed partial class ReleaseUpgradeRepository(
                     replacement),
                 cancellationToken);
 
-            await writeContext.FileMappings
-                .Where(mapping => mapping.AnimationInfoId == operation.CandidateReleaseId)
-                .ExecuteDeleteAsync(cancellationToken);
-            await writeContext.FileMappings.AddRangeAsync(previous.Select(snapshot => new Models.FileMapping
+            var desiredPreviousMappings = previous.Select(snapshot => new Models.FileMapping
             {
                 Id = snapshot.OriginalMappingId,
                 AnimationInfoId = snapshot.AnimationInfoId,
                 VirtualPath = snapshot.VirtualPath,
                 PhysicalPath = snapshot.PhysicalPath,
                 FileStore = snapshot.FileStore
-            }), cancellationToken);
+            }).ToList();
+            var reconciliation = await FileMappingSetReconciler.ReconcileAcrossOwnersAsync(
+                writeContext,
+                [operation.CurrentReleaseId, operation.CandidateReleaseId],
+                desiredPreviousMappings,
+                cancellationToken);
             await writeContext.AnimationInfo
                 .Where(info => info.Id == operation.CandidateReleaseId)
                 .ExecuteUpdateAsync(setters => setters
@@ -426,6 +523,7 @@ public sealed partial class ReleaseUpgradeRepository(
             operation.Status = ReleaseUpgradeStatus.RolledBack;
             operation.CompletedAt = rolledBackAt;
             await writeContext.SaveChangesAsync(cancellationToken);
+            await reconciliation.RestoreEntryIdentitiesAsync(writeContext, cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             return new ReleaseUpgradeMutationResult(true, "rolled_back", operation.ToRecord());
         });

@@ -3,12 +3,17 @@ import { useTranslation } from "react-i18next";
 
 import { Network, RadioTower } from "lucide-react";
 
+import { apiErrorStatus } from "../../errors/apiError";
 import {
   NfsSettings,
   NfsSettingsPatch,
   SystemSettings,
 } from "../../settings/systemTypes";
-import { isIntegerInRange, isIpAddress } from "../../settings/validation";
+import {
+  isIntegerInRange,
+  isIpAddress,
+  isIpCidr,
+} from "../../settings/validation";
 import { useToast } from "../ToastProvider";
 import { Card } from "../ui/Card";
 import { FormRow } from "../ui/FormRow";
@@ -27,6 +32,9 @@ const editableNfs = (value: NfsSettings): NfsSettingsPatch => ({
   bindAddress: value.bindAddress,
   leaseSeconds: value.leaseSeconds,
   maxConnections: value.maxConnections,
+  idleTimeoutSeconds: value.idleTimeoutSeconds,
+  allowAnonymous: value.allowAnonymous,
+  allowedNetworks: [...value.allowedNetworks],
 });
 
 export interface AccessSettingsSectionProps {
@@ -53,7 +61,10 @@ export const AccessSettingsSection: React.FC<AccessSettingsSectionProps> = ({
     !isIntegerInRange(draft.port, 0, 65_535) ||
     !isIpAddress(draft.bindAddress) ||
     !isIntegerInRange(draft.leaseSeconds, 1, 2_147_483_647) ||
-    !isIntegerInRange(draft.maxConnections, 1, 2_147_483_647);
+    !isIntegerInRange(draft.maxConnections, 1, 2_147_483_647) ||
+    !isIntegerInRange(draft.idleTimeoutSeconds, 1, 3_600) ||
+    draft.allowedNetworks.length === 0 ||
+    draft.allowedNetworks.some((network) => !isIpCidr(network));
 
   const reset = React.useCallback(() => {
     setDraft(editableNfs(value));
@@ -80,7 +91,7 @@ export const AccessSettingsSection: React.FC<AccessSettingsSectionProps> = ({
     } catch (error) {
       addToast({
         title:
-          error instanceof Error && error.message === "409"
+          apiErrorStatus(error) === 409
             ? t("system.save.conflict")
             : t("system.save.failed"),
         color: "danger",
@@ -110,6 +121,16 @@ export const AccessSettingsSection: React.FC<AccessSettingsSectionProps> = ({
             setDraft((current) => ({ ...current, enabled }))
           }
         />
+        <div className="mt-4">
+          <ToggleField
+            checked={draft.allowAnonymous}
+            label={t("system.access.nfs.allowAnonymous")}
+            description={t("system.access.nfs.allowAnonymousHelp")}
+            onChange={(allowAnonymous) =>
+              setDraft((current) => ({ ...current, allowAnonymous }))
+            }
+          />
+        </div>
         <div className="mt-5 grid gap-5 sm:grid-cols-2">
           <FormRow label={t("system.access.nfs.bindAddress")}>
             <Input
@@ -168,6 +189,39 @@ export const AccessSettingsSection: React.FC<AccessSettingsSectionProps> = ({
                 setDraft((current) => ({
                   ...current,
                   maxConnections: Number(event.target.value),
+                }))
+              }
+            />
+          </FormRow>
+          <FormRow label={t("system.access.nfs.idleTimeoutSeconds")}>
+            <Input
+              type="number"
+              min={1}
+              max={3600}
+              value={draft.idleTimeoutSeconds}
+              isInvalid={!isIntegerInRange(draft.idleTimeoutSeconds, 1, 3_600)}
+              onChange={(event) =>
+                setDraft((current) => ({
+                  ...current,
+                  idleTimeoutSeconds: Number(event.target.value),
+                }))
+              }
+            />
+          </FormRow>
+          <FormRow label={t("system.access.nfs.allowedNetworks")}>
+            <Input
+              value={draft.allowedNetworks.join(", ")}
+              isInvalid={
+                draft.allowedNetworks.length === 0 ||
+                draft.allowedNetworks.some((network) => !isIpCidr(network))
+              }
+              onChange={(event) =>
+                setDraft((current) => ({
+                  ...current,
+                  allowedNetworks: event.target.value
+                    .split(/[\s,]+/)
+                    .map((value) => value.trim())
+                    .filter(Boolean),
                 }))
               }
             />

@@ -29,6 +29,33 @@ function empty(res, status = 200) {
   res.end();
 }
 
+function mockPoster(res, fileName) {
+  const hue = [...fileName].reduce(
+    (value, character) => (value * 31 + character.codePointAt(0)) % 360,
+    24,
+  );
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 450" role="img" aria-label="Mock poster">
+      <defs>
+        <linearGradient id="paper" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="hsl(${hue} 42% 82%)" />
+          <stop offset="1" stop-color="hsl(${(hue + 38) % 360} 34% 58%)" />
+        </linearGradient>
+      </defs>
+      <rect width="300" height="450" fill="url(#paper)" />
+      <circle cx="150" cy="175" r="72" fill="rgba(255,255,255,.28)" />
+      <path d="M70 385c18-82 52-122 80-122s62 40 80 122" fill="rgba(255,255,255,.3)" />
+      <text x="150" y="420" text-anchor="middle" fill="rgba(35,28,24,.72)" font-family="serif" font-size="24">SDW MOCK</text>
+    </svg>`;
+  res.writeHead(200, {
+    "Content-Type": "image/svg+xml; charset=utf-8",
+    "Cache-Control": "private, max-age=3600",
+    "X-Content-Type-Options": "nosniff",
+    "Access-Control-Allow-Origin": "*",
+  });
+  res.end(svg);
+}
+
 function readBody(req) {
   return new Promise((resolve) => {
     const chunks = [];
@@ -57,6 +84,17 @@ function hasAuth(req) {
 // ---------------------------------------------------------------------------
 
 let registered = false;
+const activeRefreshTokens = new Set();
+
+function issueAuth() {
+  const refreshToken = fakeToken();
+  activeRefreshTokens.add(refreshToken);
+  return {
+    token: fakeToken(),
+    refreshToken,
+    success: true,
+  };
+}
 
 const ANIME_TITLES = [
   {
@@ -1066,9 +1104,12 @@ let systemSettings = {
   nfs: {
     enabled: false,
     port: 2049,
-    bindAddress: "0.0.0.0",
+    bindAddress: "127.0.0.1",
     leaseSeconds: 90,
     maxConnections: 32,
+    idleTimeoutSeconds: 120,
+    allowAnonymous: false,
+    allowedNetworks: ["127.0.0.0/8", "::1/128"],
     restartRequired: true,
     pendingRestart: false,
   },
@@ -1517,29 +1558,26 @@ async function route(method, pathname, searchParams, req, res) {
 
   if (method === "POST" && pathname === "/api/auth/register") {
     registered = true;
-    return json(res, {
-      token: fakeToken(),
-      refreshToken: fakeToken(),
-      success: true,
-    });
+    return json(res, issueAuth());
   }
 
   if (method === "POST" && pathname === "/api/auth/login") {
     if (!registered)
       return json(res, { token: "", refreshToken: "", success: false });
-    return json(res, {
-      token: fakeToken(),
-      refreshToken: fakeToken(),
-      success: true,
-    });
+    return json(res, issueAuth());
   }
 
   if (method === "POST" && pathname === "/api/auth/refresh") {
-    return json(res, {
-      token: fakeToken(),
-      refreshToken: fakeToken(),
-      success: true,
-    });
+    const body = await readBody(req);
+    if (!activeRefreshTokens.delete(body.refreshToken))
+      return json(res, { token: null, refreshToken: null, success: false }, 400);
+    return json(res, issueAuth());
+  }
+
+  if (method === "POST" && pathname === "/api/auth/logout") {
+    const body = await readBody(req);
+    activeRefreshTokens.delete(body.refreshToken);
+    return empty(res, 204);
   }
 
   if (method === "GET" && pathname === "/api/auth/verify") {
@@ -1550,6 +1588,13 @@ async function route(method, pathname, searchParams, req, res) {
   // --- All remaining endpoints require auth ---
   if (!hasAuth(req) && !pathname.startsWith("/api/auth/")) {
     return empty(res, 401);
+  }
+
+  if (method === "GET") {
+    const posterMatch = pathname.match(
+      /^\/api\/images\/tmdb\/(?:w92|w154|w185|w300|w342|w500|w780|original)\/([a-z0-9][a-z0-9._-]{0,199}\.(?:avif|jpe?g|png|webp))$/i,
+    );
+    if (posterMatch) return mockPoster(res, posterMatch[1]);
   }
 
   // --- Runtime system settings ---
@@ -1671,6 +1716,9 @@ async function route(method, pathname, searchParams, req, res) {
           bindAddress: systemSettings.nfs.bindAddress,
           leaseSeconds: systemSettings.nfs.leaseSeconds,
           maxConnections: systemSettings.nfs.maxConnections,
+          idleTimeoutSeconds: systemSettings.nfs.idleTimeoutSeconds,
+          allowAnonymous: systemSettings.nfs.allowAnonymous,
+          allowedNetworks: [...systemSettings.nfs.allowedNetworks],
         };
         const changed = JSON.stringify(runningNfs) !== JSON.stringify(body.nfs);
         systemSettings.nfs = {
@@ -2360,7 +2408,6 @@ async function route(method, pathname, searchParams, req, res) {
   if (method === "GET" && pathname === "/api/animationinfo/grouped") {
     const all = [...animations.values()];
     const grouped = new Map();
-    const uncategorized = [];
     for (const item of all) {
       if (item.animation && item.animation.tmdbId) {
         const key = item.animation.tmdbId;
@@ -2374,30 +2421,102 @@ async function route(method, pathname, searchParams, req, res) {
           });
         }
         grouped.get(key).episodes.push(item);
-      } else {
-        uncategorized.push(item);
       }
     }
-    const animationsList = [...grouped.values()]
+    const items = [...grouped.values()]
       .map((g) => {
         g.episodes.sort(
           (a, b) =>
             new Date(b.publishTime).getTime() -
               new Date(a.publishTime).getTime() || b.id.localeCompare(a.id),
         );
-        g.episodeCount = g.episodes.length;
-        return g;
+        const episodeCount = new Set(
+          g.episodes
+            .filter((episode) => episode.episode != null)
+            .map((episode) => `${episode.season ?? ""}:${episode.episode}`),
+        ).size;
+        return {
+          tmdbId: g.tmdbId,
+          name: g.name,
+          originalName: g.originalName,
+          posterPath: g.posterPath,
+          episodeCount,
+          releaseCount: g.episodes.length,
+          automationAttentionCount: g.episodes.filter((episode) =>
+            ["Notified", "PendingConfirmation", "AutoDownloadFailed"].includes(
+              episode.automationDisposition ?? "",
+            ),
+          ).length,
+          latestPublishTime: g.episodes[0].publishTime,
+        };
       })
-      .sort((a, b) => {
-        const aMax = Math.max(
-          ...a.episodes.map((e) => new Date(e.publishTime).getTime()),
-        );
-        const bMax = Math.max(
-          ...b.episodes.map((e) => new Date(e.publishTime).getTime()),
-        );
-        return bMax - aMax;
-      });
-    return json(res, { animations: animationsList, uncategorized });
+      .sort(
+        (a, b) =>
+          new Date(b.latestPublishTime).getTime() -
+            new Date(a.latestPublishTime).getTime() ||
+          b.tmdbId.localeCompare(a.tmdbId),
+      );
+    const take = parseInt(searchParams.get("take") ?? "24", 10);
+    const offset = parseInt(searchParams.get("cursor") ?? "0", 10);
+    return json(res, {
+      items: items.slice(offset, offset + take),
+      nextCursor: offset + take < items.length ? String(offset + take) : null,
+    });
+  }
+
+  if (method === "GET" && pathname === "/api/animationinfo/uncategorized") {
+    const items = [...animations.values()]
+      .filter((item) => !item.animation?.tmdbId)
+      .sort(
+        (a, b) =>
+          new Date(b.publishTime).getTime() -
+            new Date(a.publishTime).getTime() || b.id.localeCompare(a.id),
+      );
+    const take = parseInt(searchParams.get("take") ?? "24", 10);
+    const offset = parseInt(searchParams.get("cursor") ?? "0", 10);
+    return json(res, {
+      items: items.slice(offset, offset + take),
+      nextCursor: offset + take < items.length ? String(offset + take) : null,
+    });
+  }
+
+  const episodeCatalogMatch = pathname.match(
+    /^\/api\/animationinfo\/grouped\/([^/]+)\/episodes$/,
+  );
+  if (method === "GET" && episodeCatalogMatch) {
+    const tmdbId = decodeURIComponent(episodeCatalogMatch[1]);
+    const episodes = [...animations.values()]
+      .filter((item) => item.animation?.tmdbId === tmdbId)
+      .sort(
+        (a, b) =>
+          new Date(b.publishTime).getTime() -
+            new Date(a.publishTime).getTime() || b.id.localeCompare(a.id),
+      );
+    if (episodes.length === 0) return json(res, {}, 404);
+    const take = parseInt(searchParams.get("take") ?? "50", 10);
+    const offset = parseInt(searchParams.get("cursor") ?? "0", 10);
+    const episodeCount = new Set(
+      episodes
+        .filter((episode) => episode.episode != null)
+        .map((episode) => `${episode.season ?? ""}:${episode.episode}`),
+    ).size;
+    const first = episodes[0];
+    return json(res, {
+      animation: {
+        ...first.animation,
+        episodeCount,
+        releaseCount: episodes.length,
+        automationAttentionCount: episodes.filter((episode) =>
+          ["Notified", "PendingConfirmation", "AutoDownloadFailed"].includes(
+            episode.automationDisposition ?? "",
+          ),
+        ).length,
+        latestPublishTime: first.publishTime,
+      },
+      episodes: episodes.slice(offset, offset + take),
+      nextCursor:
+        offset + take < episodes.length ? String(offset + take) : null,
+    });
   }
 
   if (method === "GET" && pathname === "/api/animationinfo/downloading") {
@@ -2893,12 +3012,16 @@ async function route(method, pathname, searchParams, req, res) {
 
   if (method === "POST" && pathname === "/api/file/generatelink") {
     return readBody(req).then((body) => {
-      const token = randomBytes(32).toString("base64url");
-      return json(res, { url: `/api/file/play?token=${token}` });
+      const resourceId = randomBytes(16).toString("base64url");
+      res.setHeader(
+        "Set-Cookie",
+        `sdw-mock-playback=${randomBytes(32).toString("base64url")}; HttpOnly; SameSite=Strict; Path=/api/file/play`,
+      );
+      return json(res, { url: `/api/file/play/${resourceId}`, externalUrl: null });
     });
   }
 
-  if (method === "GET" && pathname === "/api/file/play") {
+  if (method === "GET" && pathname.startsWith("/api/file/play/")) {
     // Return a small placeholder response for mock playback
     res.writeHead(200, { "Content-Type": "text/plain" });
     return res.end(
@@ -3279,7 +3402,6 @@ const server = createServer((req, res) => {
     });
   }
 });
-
 server.listen(PORT, () => {
   console.log(`Mock API server running on http://localhost:${PORT}`);
   const finishedCount = [...animations.values()].filter(

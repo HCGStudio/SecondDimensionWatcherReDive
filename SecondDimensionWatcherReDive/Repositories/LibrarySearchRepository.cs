@@ -10,7 +10,50 @@ namespace SecondDimensionWatcherReDive.Repositories;
 public sealed class LibrarySearchRepository(Models.ApplicationContext context)
     : ILibrarySearchRepository
 {
-    private sealed record SearchCursor(int Offset, DateTimeOffset SnapshotUtc, string Signature);
+    private sealed record SearchCursor(
+        DateTimeOffset SnapshotUtc,
+        string Signature,
+        Guid LastId,
+        DateTimeOffset? PublishedAt,
+        int? Score,
+        string? SortTitle,
+        int? Season,
+        int? Episode);
+
+    private sealed record SearchRow(
+        Guid Id,
+        string Title,
+        string SortTitle,
+        string? AnimationName,
+        string? AnimationOriginalName,
+        string? TmdbId,
+        int? Season,
+        int? Episode,
+        string? ReleaseSubtitleGroup,
+        string? GroupName,
+        string? ReleaseResolution,
+        string? ReleaseCodec,
+        string[] ReleaseLanguages,
+        bool IsDownloadTracked,
+        bool IsDownloadFinished,
+        string DownloadType,
+        int ReleaseScore,
+        string? ReleaseScoreReasonsJson,
+        DateTimeOffset PublishTime);
+
+    private sealed record IntegrityRelease(
+        Guid Id,
+        string TmdbId,
+        string AnimationName,
+        int? Season,
+        int? Episode,
+        int? ExpectedEpisodeCount,
+        bool IsDownloadFinished,
+        bool IsActiveRelease,
+        int ReleaseScore,
+        DateTimeOffset PublishTime,
+        Guid? SourceFeedId,
+        string? ReleaseScoreReasonsJson);
 
     public async Task<LibrarySearchResult> SearchAsync(
         LibrarySearchRequest request,
@@ -24,14 +67,11 @@ public sealed class LibrarySearchRepository(Models.ApplicationContext context)
         if (cursor is not null && !string.Equals(cursor.Signature, signature, StringComparison.Ordinal))
             throw new ArgumentException("The search cursor does not match the active filters.", nameof(request));
         var snapshot = cursor?.SnapshotUtc ?? DateTimeOffset.UtcNow;
-        var offset = cursor?.Offset ?? 0;
-        if (offset is < 0 or > 1_000_000)
-            throw new ArgumentException("The search cursor is outside the supported range.", nameof(request));
+        if (cursor is not null && cursor.LastId == Guid.Empty)
+            throw new ArgumentException("The search cursor is invalid.", nameof(request));
 
         var query = context.AnimationInfo
             .AsNoTracking()
-            .Include(info => info.Animation)
-            .Include(info => info.Group)
             .Where(info => info.MediaLibraryMissingSince == null && info.IngestedAt <= snapshot);
 
         if (!string.IsNullOrWhiteSpace(request.Query))
@@ -97,28 +137,53 @@ public sealed class LibrarySearchRepository(Models.ApplicationContext context)
             _ => query
         };
 
+        if (cursor is not null)
+            query = SeekAfter(query, request.Sort, cursor);
+
         var ordered = request.Sort switch
         {
             LibrarySearchSort.TitleAscending => query
                 .OrderBy(info => info.Animation == null ? info.Title : info.Animation.Name)
-                .ThenBy(info => info.Season)
-                .ThenBy(info => info.Episode)
+                .ThenBy(info => info.Season ?? int.MaxValue)
+                .ThenBy(info => info.Episode ?? int.MaxValue)
                 .ThenBy(info => info.Id),
             LibrarySearchSort.EpisodeAscending => query
-                .OrderBy(info => info.Animation == null ? info.Title : info.Animation.Name)
-                .ThenBy(info => info.Season)
-                .ThenBy(info => info.Episode)
+                .OrderBy(info => info.Season ?? int.MaxValue)
+                .ThenBy(info => info.Episode ?? int.MaxValue)
+                .ThenBy(info => info.Animation == null ? info.Title : info.Animation.Name)
                 .ThenBy(info => info.Id),
             LibrarySearchSort.ScoreDescending => query
                 .OrderByDescending(info => info.ReleaseScore)
                 .ThenByDescending(info => info.PublishTime)
-                .ThenBy(info => info.Id),
+                .ThenByDescending(info => info.Id),
             _ => query
                 .OrderByDescending(info => info.PublishTime)
-                .ThenBy(info => info.Id)
+                .ThenByDescending(info => info.Id)
         };
 
-        var page = await ordered.Skip(offset).Take(request.Take + 1).ToListAsync(cancellationToken);
+        var page = await ordered
+            .Select(info => new SearchRow(
+                info.Id,
+                info.Title,
+                info.Animation == null ? info.Title : info.Animation.Name,
+                info.Animation == null ? null : info.Animation.Name,
+                info.Animation == null ? null : info.Animation.OriginalName,
+                info.Animation == null ? null : info.Animation.TmdbId,
+                info.Season,
+                info.Episode,
+                info.ReleaseSubtitleGroup,
+                info.Group == null ? null : info.Group.Name,
+                info.ReleaseResolution,
+                info.ReleaseCodec,
+                info.ReleaseLanguages,
+                info.IsDownloadTracked,
+                info.IsDownloadFinished,
+                info.DownloadType,
+                info.ReleaseScore,
+                info.ReleaseScoreReasonsJson,
+                info.PublishTime))
+            .Take(request.Take + 1)
+            .ToListAsync(cancellationToken);
         var hasMore = page.Count > request.Take;
         if (hasMore) page.RemoveAt(page.Count - 1);
         var ids = page.Select(info => info.Id).ToArray();
@@ -142,12 +207,12 @@ public sealed class LibrarySearchRepository(Models.ApplicationContext context)
             return new LibrarySearchItem(
                 info.Id,
                 info.Title,
-                info.Animation?.Name,
-                info.Animation?.OriginalName,
-                info.Animation?.TmdbId,
+                info.AnimationName,
+                info.AnimationOriginalName,
+                info.TmdbId,
                 info.Season,
                 info.Episode,
-                info.ReleaseSubtitleGroup ?? info.Group?.Name,
+                info.ReleaseSubtitleGroup ?? info.GroupName,
                 info.ReleaseResolution,
                 info.ReleaseCodec,
                 info.ReleaseLanguages,
@@ -163,10 +228,81 @@ public sealed class LibrarySearchRepository(Models.ApplicationContext context)
         }).ToList();
 
         var nextCursor = hasMore
-            ? EncodeCursor(new SearchCursor(offset + request.Take, snapshot, signature))
+            ? EncodeCursor(CreateCursor(page[^1], request.Sort, snapshot, signature))
             : null;
         return new LibrarySearchResult(items, nextCursor);
     }
+
+    private static IQueryable<Models.AnimationInfo> SeekAfter(
+        IQueryable<Models.AnimationInfo> query,
+        LibrarySearchSort sort,
+        SearchCursor cursor)
+    {
+        return sort switch
+        {
+            LibrarySearchSort.ScoreDescending when cursor.Score is { } score &&
+                                                       cursor.PublishedAt is { } publishedAt =>
+                query.Where(info => EF.Functions.LessThan(
+                    ValueTuple.Create(info.ReleaseScore, info.PublishTime, info.Id),
+                    ValueTuple.Create(score, publishedAt, cursor.LastId))),
+            LibrarySearchSort.TitleAscending when cursor.SortTitle is { } sortTitle =>
+                query.Where(info => EF.Functions.GreaterThan(
+                    ValueTuple.Create(
+                        info.Animation == null ? info.Title : info.Animation.Name,
+                        info.Season ?? int.MaxValue,
+                        info.Episode ?? int.MaxValue,
+                        info.Id
+                    ),
+                    ValueTuple.Create(
+                        sortTitle,
+                        cursor.Season ?? int.MaxValue,
+                        cursor.Episode ?? int.MaxValue,
+                        cursor.LastId
+                    ))),
+            LibrarySearchSort.EpisodeAscending when cursor.SortTitle is { } sortTitle =>
+                query.Where(info => EF.Functions.GreaterThan(
+                    ValueTuple.Create(
+                        info.Season ?? int.MaxValue,
+                        info.Episode ?? int.MaxValue,
+                        info.Animation == null ? info.Title : info.Animation.Name,
+                        info.Id
+                    ),
+                    ValueTuple.Create(
+                        cursor.Season ?? int.MaxValue,
+                        cursor.Episode ?? int.MaxValue,
+                        sortTitle,
+                        cursor.LastId
+                    ))),
+            LibrarySearchSort.PublishedDescending when cursor.PublishedAt is { } publishedAt =>
+                query.Where(info => EF.Functions.LessThan(
+                    ValueTuple.Create(info.PublishTime, info.Id),
+                    ValueTuple.Create(publishedAt, cursor.LastId))),
+            _ => throw new ArgumentException("The search cursor is invalid.")
+        };
+    }
+
+    private static SearchCursor CreateCursor(
+        SearchRow row,
+        LibrarySearchSort sort,
+        DateTimeOffset snapshot,
+        string signature) =>
+        new(
+            snapshot,
+            signature,
+            row.Id,
+            sort is LibrarySearchSort.PublishedDescending or LibrarySearchSort.ScoreDescending
+                ? row.PublishTime
+                : null,
+            sort == LibrarySearchSort.ScoreDescending ? row.ReleaseScore : null,
+            sort is LibrarySearchSort.TitleAscending or LibrarySearchSort.EpisodeAscending
+                ? row.SortTitle
+                : null,
+            sort is LibrarySearchSort.TitleAscending or LibrarySearchSort.EpisodeAscending
+                ? row.Season
+                : null,
+            sort is LibrarySearchSort.TitleAscending or LibrarySearchSort.EpisodeAscending
+                ? row.Episode
+                : null);
 
     public async Task<IReadOnlyList<LibraryIntegritySummary>> GetIntegrityAsync(
         string? tmdbId,
@@ -174,14 +310,27 @@ public sealed class LibrarySearchRepository(Models.ApplicationContext context)
         CancellationToken cancellationToken)
     {
         var query = context.AnimationInfo.AsNoTracking()
-            .Include(info => info.Animation)
             .Where(info => info.Animation != null && info.MediaLibraryMissingSince == null);
         if (!string.IsNullOrWhiteSpace(tmdbId))
             query = query.Where(info => info.Animation!.TmdbId == tmdbId);
         if (season is not null) query = query.Where(info => info.Season == season);
 
-        var releases = await query.ToListAsync(cancellationToken);
-        var releaseIds = releases.Select(info => info.Id).ToArray();
+        var releaseIds = query.Select(info => info.Id);
+        var releases = await query
+            .Select(info => new IntegrityRelease(
+                info.Id,
+                info.Animation!.TmdbId,
+                info.Animation.Name,
+                info.Season,
+                info.Episode,
+                info.ExpectedEpisodeCount,
+                info.IsDownloadFinished,
+                info.IsActiveRelease,
+                info.ReleaseScore,
+                info.PublishTime,
+                info.SourceFeedId,
+                info.ReleaseScoreReasonsJson))
+            .ToListAsync(cancellationToken);
         var mappedIds = await context.FileMappings.AsNoTracking()
             .Where(mapping => releaseIds.Contains(mapping.AnimationInfoId))
             .Select(mapping => mapping.AnimationInfoId)
@@ -194,8 +343,8 @@ public sealed class LibrarySearchRepository(Models.ApplicationContext context)
             .Where(info => info.Season is > 0)
             .GroupBy(info => new
             {
-                info.Animation!.TmdbId,
-                info.Animation.Name,
+                info.TmdbId,
+                info.AnimationName,
                 Season = info.Season!.Value
             })
             .Select(group => BuildIntegrity(group, mappedIds, policies))
@@ -205,7 +354,7 @@ public sealed class LibrarySearchRepository(Models.ApplicationContext context)
     }
 
     private static LibraryIntegritySummary BuildIntegrity(
-        IEnumerable<Models.AnimationInfo> source,
+        IEnumerable<IntegrityRelease> source,
         IReadOnlySet<Guid> mappedIds,
         IReadOnlyDictionary<Guid, Models.SubscriptionAutomationPolicy> policies)
     {
@@ -249,7 +398,7 @@ public sealed class LibrarySearchRepository(Models.ApplicationContext context)
             candidates.Add(new ReleaseUpgradeCandidate(
                 current.Id,
                 candidate.Id,
-                first.Animation!.Name,
+                first.AnimationName,
                 first.Season!.Value,
                 episodeGroup.Key,
                 current.ReleaseScore,
@@ -259,8 +408,8 @@ public sealed class LibrarySearchRepository(Models.ApplicationContext context)
         }
 
         return new LibraryIntegritySummary(
-            first.Animation!.TmdbId,
-            first.Animation.Name,
+            first.TmdbId,
+            first.AnimationName,
             first.Season!.Value,
             expected,
             missing,

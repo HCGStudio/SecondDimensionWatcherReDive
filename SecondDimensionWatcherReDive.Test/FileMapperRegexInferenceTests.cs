@@ -308,17 +308,6 @@ public class FileMapperRegexInferenceTests
                 new FileNameInferenceResult(VideoFileNames[0], 1, 1),
                 new FileNameInferenceResult(VideoFileNames[1], 1, 2)
             ]);
-        fixture.FileMappingRepository
-            .Setup(repository => repository.FindByVirtualPathAsync(
-                It.IsAny<string>(),
-                CancellationToken.None))
-            .ReturnsAsync((string path, CancellationToken _) => new FileMapping(
-                Guid.NewGuid(),
-                fixture.AnimationInfoId,
-                path,
-                "/old/file.mkv",
-                "test-store"));
-
         var result = await fixture.Mapper.ReidentifyFilesWithAiAsync(
             fixture.AnimationInfoId,
             CancellationToken.None);
@@ -523,10 +512,11 @@ public class FileMapperRegexInferenceTests
 
         var fileMappingRepository = new Mock<IFileMappingRepository>();
         fileMappingRepository
-            .Setup(repository => repository.VirtualPathExistsAsync(
-                It.IsAny<string>(),
+            .Setup(repository => repository.FindNamespaceConflictsAsync(
+                It.IsAny<Guid>(),
+                It.IsAny<IReadOnlyCollection<string>>(),
                 It.IsAny<CancellationToken>()))
-            .ReturnsAsync(false);
+            .ReturnsAsync([]);
         fileMappingRepository
             .Setup(repository => repository.ReplaceForAnimationInfoAsync(
                 It.IsAny<Guid>(),

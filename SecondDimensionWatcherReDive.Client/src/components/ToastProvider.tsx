@@ -1,6 +1,9 @@
-import * as ToastPrimitive from "@radix-ui/react-toast";
-import { X } from "lucide-react";
 import React from "react";
+import { useTranslation } from "react-i18next";
+
+import * as ToastPrimitive from "@radix-ui/react-toast";
+
+import { X } from "lucide-react";
 
 import { cn } from "../lib/cn";
 
@@ -31,6 +34,7 @@ const colorBorderClasses: Record<string, string> = {
 export const ToastProvider: React.FC<React.PropsWithChildren> = ({
   children,
 }) => {
+  const { t } = useTranslation("common");
   const [toasts, setToasts] = React.useState<Toast[]>([]);
   const idRef = React.useRef(0);
 
@@ -45,7 +49,10 @@ export const ToastProvider: React.FC<React.PropsWithChildren> = ({
 
   return (
     <ToastContext.Provider value={{ addToast }}>
-      <ToastPrimitive.Provider swipeDirection="right">
+      <ToastPrimitive.Provider
+        swipeDirection="right"
+        label={t("notifications.label")}
+      >
         {children}
         {toasts.map((toast) => (
           <ToastPrimitive.Root
@@ -56,6 +63,7 @@ export const ToastProvider: React.FC<React.PropsWithChildren> = ({
               colorBorderClasses[toast.color ?? "primary"],
             )}
             duration={5000}
+            type={toast.color === "danger" ? "foreground" : "background"}
             onOpenChange={(open) => {
               if (!open) removeToast(toast.id);
             }}
@@ -71,13 +79,16 @@ export const ToastProvider: React.FC<React.PropsWithChildren> = ({
                   </ToastPrimitive.Description>
                 ) : null}
               </div>
-              <ToastPrimitive.Close className="shrink-0 rounded-md p-1 text-subtle hover:text-foreground transition-colors">
+              <ToastPrimitive.Close
+                aria-label={t("notifications.dismiss")}
+                className="shrink-0 rounded-md p-1.5 text-subtle transition-colors hover:text-foreground focus:outline-hidden focus:ring-2 focus:ring-focus"
+              >
                 <X size={14} />
               </ToastPrimitive.Close>
             </div>
           </ToastPrimitive.Root>
         ))}
-        <ToastPrimitive.Viewport className="fixed bottom-4 right-4 z-50 flex w-80 flex-col gap-2" />
+        <ToastPrimitive.Viewport className="fixed bottom-4 left-4 right-4 z-50 flex flex-col gap-2 sm:left-auto sm:w-80" />
       </ToastPrimitive.Provider>
     </ToastContext.Provider>
   );

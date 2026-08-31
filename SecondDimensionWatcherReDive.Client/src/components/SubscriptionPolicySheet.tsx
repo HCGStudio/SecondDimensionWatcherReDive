@@ -16,6 +16,7 @@ import {
   X,
 } from "lucide-react";
 
+import { apiErrorStatus } from "../errors/apiError";
 import { IFeed } from "../feed/IFeed";
 import { cn } from "../lib/cn";
 import {
@@ -66,11 +67,18 @@ export interface SubscriptionPolicySheetProps {
   initialPolicy?: ISubscriptionPolicy;
   onOpenChange: (open: boolean) => void;
   onPolicyChanged: () => Promise<unknown> | unknown;
+  restoreFocusRef: React.RefObject<HTMLButtonElement | null>;
 }
 
 export const SubscriptionPolicySheet: React.FC<
   SubscriptionPolicySheetProps
-> = ({ feed, initialPolicy, onOpenChange, onPolicyChanged }) => {
+> = ({
+  feed,
+  initialPolicy,
+  onOpenChange,
+  onPolicyChanged,
+  restoreFocusRef,
+}) => {
   const { t } = useTranslation("feeds");
   const { addToast } = useToast();
   const [draft, setDraft] = React.useState<ISubscriptionPolicyDraft>(
@@ -107,7 +115,7 @@ export const SubscriptionPolicySheet: React.FC<
       })
       .catch((error: unknown) => {
         if (!isCurrent) return;
-        if (error instanceof Error && error.message === "404") {
+        if (apiErrorStatus(error) === 404) {
           setDraft(createEmptySubscriptionPolicy());
           setHasSavedPolicy(false);
           return;
@@ -233,7 +241,13 @@ export const SubscriptionPolicySheet: React.FC<
 
   return (
     <Sheet open={feed != null} onOpenChange={onOpenChange}>
-      <SheetContent className="max-w-3xl">
+      <SheetContent
+        className="max-w-3xl"
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          restoreFocusRef.current?.focus();
+        }}
+      >
         <SheetHeader>
           <SheetTitle>{t("automation.editor.title")}</SheetTitle>
           <p className="mt-1 truncate pr-8 text-sm text-muted">
@@ -247,7 +261,7 @@ export const SubscriptionPolicySheet: React.FC<
             </div>
           ) : (
             <div className="divide-y divide-border-light">
-              <section className="px-6 py-5">
+              <section className="px-4 py-5 sm:px-6">
                 <SectionHeading
                   number="01"
                   title={t("automation.mode.title")}
@@ -264,7 +278,7 @@ export const SubscriptionPolicySheet: React.FC<
                       <label
                         key={option.value}
                         className={cn(
-                          "relative cursor-pointer rounded-lg border p-4 transition-colors",
+                          "relative cursor-pointer rounded-lg border p-4 transition-colors focus-within:ring-2 focus-within:ring-focus",
                           selected
                             ? "border-brand bg-brand/5 shadow-ring-brand"
                             : "border-border bg-surface hover:border-ring-deep",
@@ -308,7 +322,7 @@ export const SubscriptionPolicySheet: React.FC<
                 </fieldset>
               </section>
 
-              <section className="px-6 py-5">
+              <section className="px-4 py-5 sm:px-6">
                 <SectionHeading
                   number="02"
                   title={t("automation.filters.title")}
@@ -385,7 +399,11 @@ export const SubscriptionPolicySheet: React.FC<
                     />
                   </div>
                   {sizeRangeIsInvalid ? (
-                    <p className="mt-2 flex items-center gap-1.5 text-xs text-error">
+                    <p
+                      role="status"
+                      aria-live="polite"
+                      className="mt-2 flex items-center gap-1.5 text-xs text-error"
+                    >
                       <CircleAlert size={13} />
                       {t("automation.filters.sizeRangeError")}
                     </p>
@@ -412,7 +430,7 @@ export const SubscriptionPolicySheet: React.FC<
                 </div>
               </section>
 
-              <section className="px-6 py-5">
+              <section className="px-4 py-5 sm:px-6">
                 <SectionHeading
                   number="03"
                   title={t("automation.upgrades.title")}
@@ -487,7 +505,17 @@ export const SubscriptionPolicySheet: React.FC<
                 ) : null}
               </section>
 
-              <section className="px-6 py-5">
+              <section className="px-4 py-5 sm:px-6">
+                {simulating ? (
+                  <span
+                    className="sr-only"
+                    role="status"
+                    aria-live="polite"
+                    aria-atomic="true"
+                  >
+                    {t("automation.simulation.running")}
+                  </span>
+                ) : null}
                 <div className="flex flex-wrap items-start justify-between gap-4">
                   <SectionHeading
                     number="04"
@@ -524,7 +552,7 @@ export const SubscriptionPolicySheet: React.FC<
             </div>
           )}
         </SheetBody>
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border bg-surface px-6 py-4">
+        <div className="flex flex-col gap-3 border-t border-border bg-surface px-4 py-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:px-6">
           <div>
             {hasSavedPolicy ? (
               <Button
@@ -542,11 +570,16 @@ export const SubscriptionPolicySheet: React.FC<
               </span>
             )}
           </div>
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <div className="flex w-full gap-2 sm:w-auto">
+            <Button
+              variant="outline"
+              className="flex-1 sm:flex-none"
+              onClick={() => onOpenChange(false)}
+            >
               {t("automation.actions.cancel")}
             </Button>
             <Button
+              className="flex-1 sm:flex-none"
               onClick={handleSave}
               disabled={
                 saving ||
@@ -652,7 +685,7 @@ const TagField: React.FC<TagFieldProps> = ({
             {value}
             <button
               type="button"
-              className="rounded text-subtle transition-colors hover:text-error focus:outline-hidden focus:ring-2 focus:ring-focus"
+              className="relative rounded text-subtle transition-colors before:absolute before:-inset-1.5 hover:text-error focus:outline-hidden focus:ring-2 focus:ring-focus"
               aria-label={t("automation.filters.removeValue", { value })}
               onClick={() => onChange(values.filter((item) => item !== value))}
             >
@@ -668,6 +701,7 @@ const TagField: React.FC<TagFieldProps> = ({
           placeholder={values.length === 0 ? placeholder : ""}
           onChange={(event) => setInput(event.target.value)}
           onKeyDown={(event) => {
+            if (event.nativeEvent.isComposing) return;
             if (event.key === "Enter" || event.key === ",") {
               event.preventDefault();
               addValues(input);
@@ -699,7 +733,7 @@ const TagField: React.FC<TagFieldProps> = ({
               <button
                 type="button"
                 key={suggestion}
-                className="rounded-md border border-border-light px-2 py-0.5 text-xs text-muted transition-colors hover:border-border hover:bg-canvas hover:text-foreground focus:outline-hidden focus:ring-2 focus:ring-focus"
+                className="rounded-md border border-border-light px-2 py-1 text-xs text-muted transition-colors hover:border-border hover:bg-canvas hover:text-foreground focus:outline-hidden focus:ring-2 focus:ring-focus"
                 onClick={() => addValues(suggestion)}
               >
                 + {suggestion}
@@ -768,7 +802,12 @@ const SimulationResults: React.FC<{
   return (
     <div className="mt-4">
       <div className="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-lg border border-border bg-canvas/60 px-4 py-3">
-        <p className="text-sm font-medium text-foreground">
+        <p
+          className="text-sm font-medium text-foreground"
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+        >
           {t("automation.simulation.summary", {
             matched: result.matched,
             total: result.total,

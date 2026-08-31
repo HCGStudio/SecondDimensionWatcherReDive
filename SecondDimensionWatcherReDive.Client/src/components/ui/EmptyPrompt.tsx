@@ -8,6 +8,7 @@ export interface EmptyPromptProps {
   body?: React.ReactNode;
   actions?: React.ReactNode;
   className?: string;
+  role?: "alert" | "status";
 }
 
 export const EmptyPrompt: React.FC<EmptyPromptProps> = ({
@@ -16,17 +17,18 @@ export const EmptyPrompt: React.FC<EmptyPromptProps> = ({
   body,
   actions,
   className,
+  role,
 }) => {
   return (
     <div
+      role={role}
+      aria-live={role === "status" ? "polite" : undefined}
       className={cn(
         "flex flex-col items-center justify-center py-16 text-center",
         className,
       )}
     >
-      {icon ? (
-        <div className="mb-4 text-subtle">{icon}</div>
-      ) : null}
+      {icon ? <div className="mb-4 text-subtle">{icon}</div> : null}
       <div className="font-serif text-xl font-medium leading-heading text-foreground">
         {title}
       </div>

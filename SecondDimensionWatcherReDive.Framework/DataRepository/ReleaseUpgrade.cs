@@ -57,6 +57,11 @@ public interface IReleaseUpgradeRepository
         int take,
         CancellationToken cancellationToken);
 
+    Task<ReleaseUpgradeCandidate?> FindCandidateAsync(
+        Guid currentReleaseId,
+        Guid candidateReleaseId,
+        CancellationToken cancellationToken);
+
     Task<ReleaseUpgradeOperation?> TryBeginAsync(
         ReleaseUpgradeCandidate candidate,
         DateTimeOffset createdAt,
@@ -72,6 +77,10 @@ public interface IReleaseUpgradeRepository
 
     Task<ReleaseUpgradeActivation?> GetActivationAsync(
         Guid candidateReleaseId,
+        CancellationToken cancellationToken);
+
+    Task<ReleaseUpgradeActivation?> GetRollbackAsync(
+        Guid operationId,
         CancellationToken cancellationToken);
 
     Task<ReleaseUpgradeMutationResult> ActivateAsync(

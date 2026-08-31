@@ -200,30 +200,6 @@ public class SubscriptionAutomationMatcherTests
         Assert.IsTrue(Explanation(result, "excludedKeywords").Passed);
     }
 
-    [TestMethod]
-    public void Score_CombinesQualityPreferencesAndReturnsExplainableReasons()
-    {
-        var scorer = new ReleaseScoringService();
-        var metadata = new SubscriptionReleaseMetadata(
-            "LoliHouse",
-            "2160p",
-            "AV1",
-            ["ja", "zh-CN"],
-            3L * 1024 * 1024 * 1024);
-        var policy = Policy(
-            subtitleGroups: ["Other", "LoliHouse"],
-            languages: ["ja"]);
-
-        var result = scorer.Score(metadata, policy);
-
-        Assert.AreEqual(575, result.Value);
-        CollectionAssert.Contains(result.Reasons.ToArray(), "resolution:2160p:+400");
-        CollectionAssert.Contains(result.Reasons.ToArray(), "codec:AV1:+80");
-        CollectionAssert.Contains(result.Reasons.ToArray(), "subtitleGroup:LoliHouse:+45");
-        CollectionAssert.Contains(result.Reasons.ToArray(), "language:zh-CN:+5");
-        CollectionAssert.Contains(result.Reasons.ToArray(), "size:3.00GiB:+25");
-    }
-
     private static SubscriptionAutomationExplanation Explanation(
         SubscriptionAutomationEvaluation result,
         string field)

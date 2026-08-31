@@ -9,6 +9,7 @@ using SecondDimensionWatcherReDive.Framework.FileDownload;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Services;
 using SecondDimensionWatcherReDive.Utils.Feed;
+using SecondDimensionWatcherReDive.Utils.Http;
 
 namespace SecondDimensionWatcherReDive.Test;
 
@@ -29,9 +30,9 @@ public class SyncFeedTests
         _mockPolicyRepo = new Mock<ISubscriptionAutomationPolicyRepository>();
         _mockDownloadProvider = new Mock<IFileDownloadClientProvider>();
         _mockDownloadClient = new Mock<IFileDownloadClient>();
-        _mockRepo.Setup(repository => repository.TryAddReleaseAsync(
+        _mockRepo.Setup(repository => repository.AddAsync(
                 It.IsAny<AnimationInfo>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(true);
+            .Returns(Task.CompletedTask);
         _mockRepo.Setup(repository => repository.UpdateAsync(
                 It.IsAny<AnimationInfo>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
@@ -53,13 +54,12 @@ public class SyncFeedTests
             .Returns(_mockDownloadProvider.Object);
 
         var mockServiceProvider = new Mock<IServiceProvider>();
-        var mockHttpClientFactory = new Mock<IHttpClientFactory>();
-        mockHttpClientFactory.Setup(f => f.CreateClient("Feed")).Returns(new HttpClient());
+        var outboundFetcher = new Mock<ISafeOutboundHttpFetcher>();
 
         _syncFeed = new SyncFeed(
             mockServiceProvider.Object,
             Mock.Of<ILogger<SyncFeed>>(),
-            mockHttpClientFactory.Object,
+            outboundFetcher.Object,
             mockScopeFactory.Object,
             new SubscriptionAutomationMatcher(new SubscriptionReleaseMetadataExtractor()));
 
@@ -68,7 +68,7 @@ public class SyncFeedTests
     }
 
     [TestMethod]
-    public async Task ProcessSingle_ExistingReleaseIdentity_SkipsDuplicate()
+    public async Task ProcessSingle_ExistingTitle_SkipsAdd()
     {
         var request = new AnimationAddRequest(
             DateTimeOffset.UtcNow,
@@ -78,16 +78,23 @@ public class SyncFeedTests
             FileDownloadTypes.HttpDownload,
             "");
 
-        _mockRepo.Setup(repository => repository.TryAddReleaseAsync(
-                It.IsAny<AnimationInfo>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(false);
+        _mockRepo
+            .Setup(r => r.FindByTitleAsync("Existing Title", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AnimationInfo(
+                Guid.NewGuid(), "Existing Title", "Description",
+                DateTimeOffset.UtcNow, "https://example.com/download",
+                FileDownloadTypes.HttpDownload,
+                Array.Empty<byte>(), "",
+                false, default, default, false,
+                null, null, null, null, null, null,
+                false, 0));
 
         await (Task)_processSingleMethod.Invoke(
             _syncFeed, new object[] { request, CancellationToken.None })!;
 
         _mockRepo.Verify(
-            r => r.TryAddReleaseAsync(It.IsAny<AnimationInfo>(), It.IsAny<CancellationToken>()),
-            Times.Once);
+            r => r.AddAsync(It.IsAny<AnimationInfo>(), It.IsAny<CancellationToken>()),
+            Times.Never);
     }
 
     [TestMethod]
@@ -110,7 +117,7 @@ public class SyncFeedTests
             _syncFeed, new object[] { request, CancellationToken.None })!;
 
         _mockRepo.Verify(
-            r => r.TryAddReleaseAsync(
+            r => r.AddAsync(
                 It.Is<AnimationInfo>(info =>
                     info.Title == "New Title" &&
                     info.Description == "New Description" &&
@@ -135,7 +142,7 @@ public class SyncFeedTests
 
         await InvokeProcessSingleAsync(request);
 
-        _mockRepo.Verify(repository => repository.TryAddReleaseAsync(
+        _mockRepo.Verify(repository => repository.AddAsync(
             It.IsAny<AnimationInfo>(), It.IsAny<CancellationToken>()), Times.Never);
         _mockDownloadClient.Verify(client => client.SubmitDownloadTaskAsync(
             It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<byte[]>(), It.IsAny<string>(),
@@ -149,10 +156,10 @@ public class SyncFeedTests
         var request = PolicyRequest(feedId, "[Group] Anime [1080p HEVC][CHS]");
         SetupNewPolicyRequest(request, Policy(feedId, SubscriptionAutomationMode.NotifyOnly));
         AnimationInfo? added = null;
-        _mockRepo.Setup(repository => repository.TryAddReleaseAsync(
+        _mockRepo.Setup(repository => repository.AddAsync(
                 It.IsAny<AnimationInfo>(), It.IsAny<CancellationToken>()))
             .Callback<AnimationInfo, CancellationToken>((info, _) => added = info)
-            .ReturnsAsync(true);
+            .Returns(Task.CompletedTask);
 
         await InvokeProcessSingleAsync(request);
 
@@ -175,7 +182,7 @@ public class SyncFeedTests
 
         await InvokeProcessSingleAsync(request);
 
-        _mockRepo.Verify(repository => repository.TryAddReleaseAsync(
+        _mockRepo.Verify(repository => repository.AddAsync(
             It.Is<AnimationInfo>(info =>
                 info.AutomationDisposition == SubscriptionAutomationDisposition.PendingConfirmation &&
                 !info.IsDownloadTracked),

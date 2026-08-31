@@ -1,10 +1,13 @@
 using System.Text;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using Moq;
+using SecondDimensionWatcherReDive.Configuration;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Framework.Feed;
 using SecondDimensionWatcherReDive.Utils.Feed;
+using SecondDimensionWatcherReDive.Utils.Http;
 
 namespace SecondDimensionWatcherReDive.Test;
 
@@ -49,12 +52,6 @@ public class MikananiFeedServiceTests
     [TestMethod]
     public async Task Sync_ParsesRssFeed_ReturnsCorrectItems()
     {
-        var messageHandler = new MockHttpMessageHandler(SampleRss);
-        var httpClient = new HttpClient(messageHandler) { BaseAddress = new Uri("https://mikanani.me") };
-
-        var httpClientFactory = new Mock<IHttpClientFactory>();
-        httpClientFactory.Setup(f => f.CreateClient("Feed")).Returns(httpClient);
-
         var configSection = new Mock<Microsoft.Extensions.Configuration.IConfigurationSection>();
         var configuration = new Mock<Microsoft.Extensions.Configuration.IConfiguration>();
         configuration.Setup(c => c.GetSection("MikananiFeeds")).Returns(configSection.Object);
@@ -63,7 +60,7 @@ public class MikananiFeedServiceTests
         // we need to test the XML parsing logic directly.
         // Instead, test the feed service with a real-ish config that returns a URL.
         // For simplicity, verify the XML parsing via the HttpClient mock.
-        var service = CreateServiceForDirectParsing(httpClient);
+        var service = CreateServiceForDirectParsing();
         Assert.IsNotNull(service);
     }
 
@@ -111,11 +108,7 @@ public class MikananiFeedServiceTests
     public async Task SubscriptionFeedReader_UsesTorrentContentLengthAndCarriesFeedId()
     {
         var feedId = Guid.NewGuid();
-        var messageHandler = new MockHttpMessageHandler(SampleRss);
-        var httpClient = new HttpClient(messageHandler);
-        var httpClientFactory = new Mock<IHttpClientFactory>();
-        httpClientFactory.Setup(factory => factory.CreateClient("Feed")).Returns(httpClient);
-        var reader = new MikananiSubscriptionFeedReader(httpClientFactory.Object);
+        var reader = CreateReader(SampleRss);
 
         var entries = await reader.ReadAsync("https://mikanani.me/rss", feedId, CancellationToken.None);
 
@@ -145,10 +138,7 @@ public class MikananiFeedServiceTests
               </channel>
             </rss>
             """;
-        var httpClient = new HttpClient(new MockHttpMessageHandler(rss));
-        var httpClientFactory = new Mock<IHttpClientFactory>();
-        httpClientFactory.Setup(factory => factory.CreateClient("Feed")).Returns(httpClient);
-        var reader = new MikananiSubscriptionFeedReader(httpClientFactory.Object);
+        var reader = CreateReader(rss);
 
         var entries = await reader.ReadAsync("https://example.com/rss", Guid.NewGuid(), CancellationToken.None);
 
@@ -201,25 +191,25 @@ public class MikananiFeedServiceTests
             It.IsAny<string>(), It.IsAny<Guid?>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
     }
 
-    private static MikananiFeedService CreateServiceForDirectParsing(HttpClient httpClient)
+    private static MikananiFeedService CreateServiceForDirectParsing()
     {
-        var httpClientFactory = new Mock<IHttpClientFactory>();
-        httpClientFactory.Setup(f => f.CreateClient("Feed")).Returns(httpClient);
         var configuration = new Mock<Microsoft.Extensions.Configuration.IConfiguration>();
         var scopeFactory = new Mock<Microsoft.Extensions.DependencyInjection.IServiceScopeFactory>();
 
-        ISubscriptionFeedReader feedReader = new MikananiSubscriptionFeedReader(httpClientFactory.Object);
+        ISubscriptionFeedReader feedReader = CreateReader(SampleRss);
         return new MikananiFeedService(configuration.Object, scopeFactory.Object, feedReader);
     }
 
-    private class MockHttpMessageHandler(string content) : HttpMessageHandler
+    private static MikananiSubscriptionFeedReader CreateReader(string content)
     {
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
-        {
-            return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)
-            {
-                Content = new StringContent(content, Encoding.UTF8, "application/xml")
-            });
-        }
+        var fetcher = new Mock<ISafeOutboundHttpFetcher>();
+        fetcher.Setup(item => item.GetBytesAsync(
+                It.IsAny<string>(),
+                OutboundPayloadKind.Feed,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Encoding.UTF8.GetBytes(content));
+        return new MikananiSubscriptionFeedReader(
+            fetcher.Object,
+            Options.Create(new OutboundHttpOptions()));
     }
 }

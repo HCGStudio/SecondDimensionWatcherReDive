@@ -98,4 +98,3 @@ public sealed record LibraryIntegritySummary(
     IReadOnlyList<EpisodeDuplicate> DuplicateEpisodes,
     int UnidentifiedReleaseCount,
     IReadOnlyList<ReleaseUpgradeCandidate> UpgradeCandidates);
-

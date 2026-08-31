@@ -7,12 +7,14 @@
   "unknownFile": "未知文件",
   "unknownAnime": "未知动画",
   "back": "返回",
+  "retry": "刷新重试",
   "useExternalHint": "播放进度会跨设备同步；若网页无法播放，可尝试本地播放器。",
   "openInExternal": "使用本地播放器打开：",
   "continue": {
     "title": "继续观看",
     "subtitle": "在任意设备上从上次离开的地方继续",
-    "resume": "继续"
+    "resume": "继续",
+    "progress": "播放进度"
   },
   "progress": {
     "resumed": "已从 {{time}} 继续播放",

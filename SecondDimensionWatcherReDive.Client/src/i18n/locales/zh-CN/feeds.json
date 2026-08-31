@@ -33,6 +33,7 @@
     },
     "status": {
       "notConfigured": "未配置 · 默认不自动处理",
+      "unavailable": "状态不可用",
       "filterCount": "{{count}} 项筛选"
     },
     "editor": {
@@ -111,6 +112,7 @@
       "title": "用历史条目模拟",
       "description": "以当前尚未保存的配置重放近期条目，不会发送通知或创建下载。",
       "run": "运行模拟",
+      "running": "正在运行模拟",
       "empty": "运行一次模拟，预览哪些历史条目会命中以及逐项原因。",
       "summary": "{{matched}} / {{total}} 个历史条目命中",
       "matchedCount": "命中 {{count}}",

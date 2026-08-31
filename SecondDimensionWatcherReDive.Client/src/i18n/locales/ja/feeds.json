@@ -33,6 +33,7 @@
     },
     "status": {
       "notConfigured": "未設定 · 自動処理なし",
+      "unavailable": "状態を取得できません",
       "filterCount": "フィルター {{count}} 件"
     },
     "editor": {
@@ -111,6 +112,7 @@
       "title": "履歴でシミュレーション",
       "description": "現在の未保存設定で最近の項目を再判定します。通知やダウンロードは作成されません。",
       "run": "シミュレーション実行",
+      "running": "シミュレーションを実行しています",
       "empty": "シミュレーションを実行すると、一致する履歴と項目ごとの理由を確認できます。",
       "summary": "履歴 {{total}} 件中 {{matched}} 件が一致",
       "matchedCount": "一致 {{count}} 件",

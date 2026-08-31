@@ -96,9 +96,10 @@ internal sealed class LibraryController(
         [FromBody] External.ExecuteReleaseUpgradeRequest request,
         CancellationToken cancellationToken)
     {
-        var candidate = (await upgradeRepository.GetCandidatesAsync(false, 200, cancellationToken))
-            .SingleOrDefault(item => item.CurrentReleaseId == request.CurrentReleaseId &&
-                                     item.CandidateReleaseId == request.CandidateReleaseId);
+        var candidate = await upgradeRepository.FindCandidateAsync(
+            request.CurrentReleaseId,
+            request.CandidateReleaseId,
+            cancellationToken);
         if (candidate is null)
             return Conflict(new { message = "The requested release is no longer an available upgrade." });
 

@@ -1,6 +1,7 @@
-import { AlertTriangle, Loader2, Play } from "lucide-react";
 import React from "react";
 import { useTranslation } from "react-i18next";
+
+import { AlertTriangle, Loader2, Play } from "lucide-react";
 
 import { useToast } from "../components/ToastProvider";
 import { Button } from "../components/ui/Button";
@@ -9,8 +10,8 @@ import { Spinner } from "../components/ui/Spinner";
 import { Table, type TableColumn } from "../components/ui/Table";
 import { useTasks } from "../tasks/hooks";
 import { useTaskMetadata } from "../tasks/taskMetadata";
-import { runTask } from "../tasks/utils";
 import { ITask } from "../tasks/types";
+import { runTask } from "../tasks/utils";
 import { PageTemplate } from "./PageTemplate";
 
 function useFormatInterval(): (interval: string) => string {
@@ -44,10 +45,16 @@ export const TasksPage: React.FC = () => {
   const formatInterval = useFormatInterval();
   const { data: tasks, error, mutate } = useTasks();
   const { addToast } = useToast();
-  const [runningTasks, setRunningTasks] = React.useState<Set<string>>(new Set());
+  const [runningTasks, setRunningTasks] = React.useState<Set<string>>(
+    new Set(),
+  );
+  const [taskAnnouncement, setTaskAnnouncement] = React.useState("");
 
   const onRun = React.useCallback(
     async (id: string) => {
+      setTaskAnnouncement(
+        t("tasks:announcements.started", { name: getTaskMetadata(id).name }),
+      );
       setRunningTasks((prev) => new Set(prev).add(id));
       try {
         await runTask(id);
@@ -62,6 +69,7 @@ export const TasksPage: React.FC = () => {
           color: "danger",
         });
       } finally {
+        setTaskAnnouncement("");
         setRunningTasks((prev) => {
           const next = new Set(prev);
           next.delete(id);
@@ -76,21 +84,25 @@ export const TasksPage: React.FC = () => {
     {
       name: t("tasks:columns.name"),
       render: (_value: any, item: ITask) => getTaskMetadata(item.id).name,
+      mobile: "primary",
     },
     {
       name: t("tasks:columns.description"),
-      render: (_value: any, item: ITask) => getTaskMetadata(item.id).description,
+      render: (_value: any, item: ITask) =>
+        getTaskMetadata(item.id).description,
     },
     {
       field: "interval",
       name: t("tasks:columns.interval"),
       render: (value: string) => formatInterval(value),
+      mobile: "hidden",
     },
     {
       field: "lastRunAt",
       name: t("tasks:columns.lastRun"),
       render: (value: string | null) =>
         value ? new Date(value).toLocaleString() : "-",
+      mobile: "hidden",
     },
     {
       name: t("tasks:columns.status"),
@@ -124,11 +136,20 @@ export const TasksPage: React.FC = () => {
 
   return (
     <PageTemplate>
+      <span
+        className="sr-only"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        {taskAnnouncement}
+      </span>
       <h2 className="mb-6 font-serif text-xl font-medium text-foreground">
         {t("tasks:title")}
       </h2>
       {error ? (
         <EmptyPrompt
+          role="alert"
           icon={<AlertTriangle size={48} />}
           title={<h2>{t("errors:loadFailed")}</h2>}
           body={<p>{t("tasks:loadFailed")}</p>}
@@ -138,7 +159,12 @@ export const TasksPage: React.FC = () => {
           <Spinner />
         </div>
       ) : tasks.length > 0 ? (
-        <Table items={tasks} columns={columns} />
+        <Table
+          items={tasks}
+          columns={columns}
+          label={t("tasks:title")}
+          rowKey={(task) => task.id}
+        />
       ) : (
         <EmptyPrompt
           title={<h2>{t("tasks:empty.title")}</h2>}

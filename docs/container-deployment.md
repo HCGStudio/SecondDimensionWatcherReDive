@@ -122,6 +122,10 @@ podman logs qbittorrent 2>&1 | grep "temporary password"
 | `MediaLibrary__AllowedRoots__0`, `__1`, ... | 允许导入的服务端根目录白名单 | `/media` |
 | `Torrent__Remote__Url` | qBittorrent API 地址 | `http://qbittorrent:8080` |
 | `Valkey__ConnectionString` | Valkey 连接字符串 | 空（使用内存缓存） |
+| `Authentication__RefreshTokenReuseGraceSeconds` | 并发 refresh 返回同一轮换结果的短宽限（秒） | `3` |
+| `OutboundHttp__HappyEyeballsDelayMilliseconds` | 双栈建连交错尝试间隔 | `250` |
+| `ReverseProxy__KnownProxies__0`, `__1`, ... | 非 loopback 反向代理的受信地址 | 空 |
+| `ReverseProxy__KnownNetworks__0`, `__1`, ... | 非 loopback 反向代理的最小受信 CIDR | 空 |
 | `TmdbApiKey` | TMDB API 密钥 | 空（海报功能不可用） |
 | `DisableCors` | 允许跨域 | `true` |
 | `MikananiFeeds__0`, `__1`, ... | RSS 订阅源 URL | 空 |
@@ -244,6 +248,10 @@ volumes:
 ## 反向代理
 
 生产环境建议在前面放置反向代理处理 TLS。
+同机 loopback 代理默认受信，转发的客户端地址会在限流前生效。若代理作为另一容器或
+主机运行，必须通过 `ReverseProxy__KnownProxies__0`（精确地址）或
+`ReverseProxy__KnownNetworks__0`（最小 CIDR）信任代理自身；不要填写客户端网段，
+否则客户端可伪造转发头。多级代理还需把 `ReverseProxy__ForwardLimit` 设为实际受信跳数。
 
 ### Caddy 示例
 

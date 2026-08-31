@@ -33,10 +33,110 @@ internal class AnimationInfoController(
     }
 
     [HttpGet("grouped")]
-    public async Task<IActionResult> GetGroupedAsync(CancellationToken cancellationToken)
+    public async Task<IActionResult> GetGroupedAsync(
+        [FromQuery] string? cursor,
+        [FromQuery] int take = 24,
+        [FromQuery] long? catalogRevision = null,
+        CancellationToken cancellationToken = default)
     {
-        var result = await animationInfoRepository.GetGroupedAsync(cancellationToken);
-        return Ok(result.ToExternal());
+        if (!TryDecodeCursor<AnimationCatalogCursor>(cursor, out var decoded))
+            return BadRequest(new { message = "Invalid catalog cursor." });
+        var result = await animationInfoRepository.GetAnimationCatalogPageAsync(
+            decoded,
+            NormalizeTake(take),
+            cancellationToken);
+        if (result.CursorInvalidated) return Conflict();
+        if (catalogRevision is not null && result.Revision != catalogRevision.Value)
+            return Conflict();
+        return Ok(new External.AnimationCatalogResponse(
+            result.Items.Select(item => item.ToExternal()).ToList(),
+            EncodeCursor(result.NextCursor),
+            result.Revision));
+    }
+
+    [HttpGet("catalog-revision")]
+    public async Task<IActionResult> GetCatalogRevisionAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var revision = await animationInfoRepository.GetAnimationCatalogRevisionAsync(
+            cancellationToken);
+        return Ok(new External.AnimationCatalogRevisionResponse(revision));
+    }
+
+    [HttpGet("uncategorized")]
+    public async Task<IActionResult> GetUncategorizedAsync(
+        [FromQuery] string? cursor,
+        [FromQuery] int take = 24,
+        [FromQuery] long? catalogRevision = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryDecodeCursor<AnimationInfoCursor>(cursor, out var decoded))
+            return BadRequest(new { message = "Invalid animation cursor." });
+        var result = await animationInfoRepository.GetUncategorizedPageAsync(
+            decoded,
+            NormalizeTake(take),
+            cancellationToken);
+        if (result.CursorInvalidated) return Conflict();
+        if (catalogRevision is not null && result.Revision != catalogRevision.Value)
+            return Conflict();
+        return Ok(new External.AnimationInfoSummaryResponse(
+            result.Items.Select(item => item.ToExternal()).ToList(),
+            EncodeCursor(result.NextCursor),
+            result.Revision));
+    }
+
+    [HttpGet("grouped/{tmdbId}/episodes")]
+    public async Task<IActionResult> GetEpisodesAsync(
+        [FromRoute] string tmdbId,
+        [FromQuery] string? cursor,
+        [FromQuery] int take = 50,
+        [FromQuery] long? catalogRevision = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryDecodeCursor<AnimationInfoCursor>(cursor, out var decoded))
+            return BadRequest(new { message = "Invalid episode cursor." });
+        var result = await animationInfoRepository.GetAnimationEpisodesPageAsync(
+            tmdbId,
+            decoded,
+            NormalizeTake(take),
+            cancellationToken);
+        if (result is null) return NotFound();
+        if (result.CursorInvalidated) return Conflict();
+        if (catalogRevision is not null && result.Revision != catalogRevision.Value)
+            return Conflict();
+        return Ok(new External.AnimationEpisodeResponse(
+            result.Animation.ToExternal(),
+            result.Episodes.Select(item => item.ToExternal()).ToList(),
+            EncodeCursor(result.NextCursor),
+            result.Revision));
+    }
+
+    private static int NormalizeTake(int take) => Math.Clamp(take, 1, 100);
+
+    private static string? EncodeCursor<T>(T? cursor) where T : class
+    {
+        if (cursor is null) return null;
+        return Convert.ToBase64String(JsonSerializer.SerializeToUtf8Bytes(cursor))
+            .TrimEnd('=')
+            .Replace('+', '-')
+            .Replace('/', '_');
+    }
+
+    private static bool TryDecodeCursor<T>(string? cursor, out T? value) where T : class
+    {
+        value = null;
+        if (string.IsNullOrEmpty(cursor)) return true;
+        try
+        {
+            var base64 = cursor.Replace('-', '+').Replace('_', '/');
+            base64 = base64.PadRight(base64.Length + (4 - base64.Length % 4) % 4, '=');
+            value = JsonSerializer.Deserialize<T>(Convert.FromBase64String(base64));
+            return value is not null;
+        }
+        catch (Exception exception) when (exception is FormatException or JsonException)
+        {
+            return false;
+        }
     }
 
     [HttpGet("downloading")]

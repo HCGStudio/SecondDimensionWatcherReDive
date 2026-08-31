@@ -11,4 +11,3 @@ public interface ILibrarySearchRepository
         int? season,
         CancellationToken cancellationToken);
 }
-

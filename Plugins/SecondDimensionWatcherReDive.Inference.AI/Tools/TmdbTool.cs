@@ -194,6 +194,10 @@ public partial class TmdbTool
                 ?.EpisodeCount;
             return count is > 0 ? count : null;
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             LogGetSeasonsFailed(_logger, ex, tmdbId);

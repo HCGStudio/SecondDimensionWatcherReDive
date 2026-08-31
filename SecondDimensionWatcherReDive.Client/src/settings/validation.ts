@@ -122,3 +122,19 @@ export const isIpAddress = (value: string): boolean => {
     return false;
   }
 };
+
+export const isIpCidr = (value: string): boolean => {
+  const separator = value.lastIndexOf("/");
+  if (separator <= 0) return false;
+  const address = value.slice(0, separator);
+  const prefix = Number(value.slice(separator + 1));
+  if (!isIpAddress(address)) return false;
+  if (!address.includes(":")) return isIntegerInRange(prefix, 0, 32);
+
+  const normalized = new URL(`http://[${address.split("%", 1)[0]}]/`).hostname
+    .slice(1, -1)
+    .toLowerCase();
+  return normalized.startsWith("::ffff:")
+    ? isIntegerInRange(prefix, 96, 128)
+    : isIntegerInRange(prefix, 0, 128);
+};

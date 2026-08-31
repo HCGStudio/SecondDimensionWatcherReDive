@@ -180,6 +180,10 @@
         "port": "ポート",
         "leaseSeconds": "リース時間（秒）",
         "maxConnections": "最大接続数",
+        "idleTimeoutSeconds": "アイドルタイムアウト（秒）",
+        "allowedNetworks": "許可するクライアント CIDR",
+        "allowAnonymous": "AUTH_NONE クライアントを許可",
+        "allowAnonymousHelp": "既定では無効です。明示的に隔離された信頼済みネットワークでのみ有効にしてください。",
         "restartHelp": "NFS はアプリケーション起動時に待受ポートをバインドします。変更は保存され、再起動後に使用されます。"
       }
     }
@@ -254,6 +258,7 @@
       "warning": "アクセストークンは今すぐコピーしてください。このページを離れると再表示できません。",
       "usernameLabel": "ユーザー名",
       "tokenLabel": "アクセストークン",
+      "copyAria": "{{label}}をコピー",
       "dismiss": "保存しました"
     },
     "list": {

@@ -2,11 +2,13 @@ import React from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router";
 
-import { Film, Play } from "lucide-react";
+import { Play } from "lucide-react";
 
 import { tmdbImageUrl } from "../animation/tmdbImage";
 import { useContinueWatching } from "../playback/hooks";
 import { playbackPercent } from "../playback/types";
+import { preloadPlayerPage } from "../routes/pageLoaders";
+import { ResilientPoster } from "./ResilientPoster";
 
 const formatPlaybackTime = (seconds: number): string => {
   const value = Math.max(0, Math.floor(seconds));
@@ -61,25 +63,21 @@ export const ContinueWatching: React.FC = () => {
             <button
               key={`${media.animationInfoId}:${media.virtualPath}`}
               type="button"
+              onMouseEnter={preloadPlayerPage}
+              onFocus={preloadPlayerPage}
               onClick={() => {
                 const params = new URLSearchParams({ file: media.path });
                 navigate(`/play/${media.animationInfoId}?${params.toString()}`);
               }}
-              className="group overflow-hidden rounded-xl border border-border bg-surface text-left shadow-ring transition-all hover:border-accent/30 hover:shadow-ring-brand"
+              className="group overflow-hidden rounded-xl border border-border bg-surface text-left shadow-ring transition-all hover:border-accent/30 hover:shadow-ring-brand focus:outline-hidden focus:ring-2 focus:ring-focus"
             >
               <div className="flex min-w-0 gap-3 p-3">
-                {posterUrl ? (
-                  <img
-                    src={posterUrl}
-                    alt=""
-                    className="h-24 w-16 shrink-0 rounded-md bg-canvas object-cover"
-                    loading="lazy"
-                  />
-                ) : (
-                  <div className="flex h-24 w-16 shrink-0 items-center justify-center rounded-md bg-canvas text-subtle">
-                    <Film size={22} />
-                  </div>
-                )}
+                <ResilientPoster
+                  src={posterUrl}
+                  alt=""
+                  className="h-24 w-16 rounded-md"
+                  allowManualRetry={false}
+                />
                 <div className="flex min-w-0 flex-1 flex-col justify-between py-0.5">
                   <div>
                     <p className="line-clamp-1 text-xs text-accent">
@@ -105,6 +103,7 @@ export const ContinueWatching: React.FC = () => {
               <div
                 className="h-1 bg-canvas"
                 role="progressbar"
+                aria-label={t("continue.progress")}
                 aria-valuemin={0}
                 aria-valuemax={100}
                 aria-valuenow={Math.round(percent)}
