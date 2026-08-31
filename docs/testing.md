@@ -8,10 +8,11 @@ unit tests:
   PostgreSQL advisory locks, escaped `LIKE`, raw SQL, unique indexes, concurrent writes,
   and transaction rollback. Testcontainers and its resource reaper own cleanup.
 - `yarn test:unit` covers browser request boundaries such as concurrent JWT refresh and
-  playback progress persistence. `yarn test:e2e` starts the frontend mock API and Parcel,
-  then runs the registration/login, download, VFS, playback state, subscription policy,
-  metadata review, incident recovery, and chat SSE journeys in Chromium. Failed tests
-  retain a screenshot, video, and Playwright trace.
+  playback progress persistence. `yarn test:e2e` serves the prebuilt production `dist`
+  artifact with SPA fallback and starts the mock API as a separate process; it never uses
+  the Parcel development server. The Chromium journeys cover registration/login, download,
+  VFS, playback state, subscription policy, metadata review, incident recovery, and chat
+  SSE. Failed tests retain a screenshot, video, and Playwright trace.
 - The FUSE test project covers the HTTP client, retry/range behavior, errno mapping,
   TTL cache, and concurrent file handles without root. CI also invokes
   `deployments/ci/fuse-mount-smoke.sh`; it performs a real read-only mount when the Linux
@@ -32,6 +33,7 @@ dotnet test SecondDimensionWatcherReDive.slnx -c Release
 cd SecondDimensionWatcherReDive.Client
 yarn install --immutable
 yarn test:unit
+yarn build
 yarn playwright install chromium
 yarn test:e2e
 ```

@@ -53,6 +53,7 @@
     "start": "parcel --no-cache",
     "build": "rimraf dist && parcel build --no-source-maps",
     "mock": "node mock-server.mjs",
+    "serve:e2e": "node ../deployments/ci/frontend-artifact-server.mjs dist",
     "dev": "node mock-server.mjs & parcel --no-cache",
     "test": "yarn test:unit",
     "test:unit": "tsx --test src/auth/*.test.ts src/playback/*.test.ts src/playback/mkv/*.test.ts",

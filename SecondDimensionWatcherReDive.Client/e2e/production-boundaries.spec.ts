@@ -18,6 +18,30 @@ async function authenticate(page: Page): Promise<void> {
 }
 
 test.describe("production boundary journeys", () => {
+  test("serves the optimized production bundle through SPA fallback", async ({
+    request,
+  }) => {
+    const routeResponse = await request.get("/metadata-review", {
+      headers: { Accept: "text/html" },
+    });
+    expect(routeResponse.ok()).toBeTruthy();
+    expect(routeResponse.headers()["x-sdw-frontend-artifact"]).toBe(
+      "production",
+    );
+    const html = await routeResponse.text();
+    expect(html).not.toContain("/@parcel/");
+    const scriptMatch = html.match(
+      /<script[^>]+\bsrc=(?:"([^"]+)"|'([^']+)'|([^\s>]+))/i,
+    );
+    const optimizedScript = scriptMatch?.slice(1).find(Boolean);
+    expect(optimizedScript).toMatch(/^\/[^?]+\.[a-f0-9]{8,}\.js$/i);
+
+    const assetResponse = await request.get(optimizedScript!);
+    expect(assetResponse.ok()).toBeTruthy();
+    expect(assetResponse.headers()["content-type"]).toContain("javascript");
+    expect(assetResponse.headers()["cache-control"]).toContain("immutable");
+  });
+
   test("registers, signs out locally, and signs back in", async ({ page }) => {
     await selectEnglish(page);
     await page.goto("/login");

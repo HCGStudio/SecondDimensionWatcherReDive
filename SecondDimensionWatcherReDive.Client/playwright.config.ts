@@ -11,7 +11,7 @@ export default defineConfig({
     ["html", { outputFolder: "playwright-report", open: "never" }],
   ],
   use: {
-    baseURL: "http://127.0.0.1:1234",
+    baseURL: "http://127.0.0.1:4173",
     locale: "en-US",
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
@@ -25,8 +25,8 @@ export default defineConfig({
       timeout: 120_000,
     },
     {
-      command: "yarn start --host 127.0.0.1 --port 1234",
-      url: "http://127.0.0.1:1234/login",
+      command: "yarn serve:e2e",
+      url: "http://127.0.0.1:4173/index.html",
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,
     },
