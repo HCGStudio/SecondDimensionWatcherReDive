@@ -34,6 +34,6 @@ internal enum TodoStateAction
 }
 
 internal sealed record UpdateTodoStateRequest(
-    [property: Required, MinLength(1), MaxLength(100)] IReadOnlyList<string> Keys,
-    [property: Required] TodoStateAction Action,
+    [Required, MinLength(1), MaxLength(100)] IReadOnlyList<string> Keys,
+    [Required] TodoStateAction? Action,
     DateTimeOffset? SnoozedUntil);

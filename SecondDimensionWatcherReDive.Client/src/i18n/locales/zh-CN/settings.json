@@ -171,7 +171,7 @@
       "title": "通知",
       "description": "在不阻塞下载、推断或异常处理的前提下投递所选领域事件。",
       "saved": "通知设置已保存",
-      "validationFailed": "请配置 Webhook、至少一个事件和有效的免打扰时段",
+      "validationFailed": "请配置通知渠道、至少一个事件和有效的免打扰时段",
       "testQueued": "测试通知已进入队列",
       "testFailed": "无法加入测试通知",
       "webhook": {
@@ -183,6 +183,24 @@
         "secretHelp": "完整 URL 会加密保存，绝不返回浏览器或写入日志。",
         "test": "发送测试",
         "testing": "正在加入队列…"
+      },
+      "webPush": {
+        "title": "浏览器 Web Push",
+        "description": "向在安全来源上明确订阅的浏览器发送端到端加密通知。",
+        "enabled": "启用 Web Push 投递",
+        "enabledHelp": "每个浏览器订阅独立持久重试，并可在不暴露能力 URL 的情况下撤销。",
+        "subject": "VAPID 联系方式（mailto: 或 HTTPS URL）",
+        "keysConfigured": "VAPID 私钥已加密保存；公钥只用于浏览器订阅。",
+        "keysGeneratedOnSave": "保存时会在服务端生成 VAPID 密钥对，并加密保存私钥。",
+        "enableDevice": "在此设备启用",
+        "disableDevice": "在此设备停用",
+        "unsupported": "Web Push 需要受支持的浏览器以及安全的 HTTPS 或 localhost 来源。",
+        "deviceEnabled": "已在此设备启用 Web Push",
+        "deviceDisabled": "已在此设备停用 Web Push",
+        "deviceFailed": "无法更新此 Web Push 订阅",
+        "subscriptionActive": "订阅有效",
+        "subscriptionRevoked": "已撤销 Web Push 订阅",
+        "revokeSubscription": "撤销订阅"
       },
       "events": {
         "title": "事件订阅",
@@ -209,6 +227,10 @@
         "title": "最近投递记录",
         "description": "查看排队、成功、重试和永久失败记录，且不会暴露目标地址。",
         "empty": "还没有投递记录。",
+        "channel": {
+          "Webhook": "Webhook",
+          "WebPush": "Web Push"
+        },
         "status": {
           "Pending": "等待中",
           "Processing": "投递中",

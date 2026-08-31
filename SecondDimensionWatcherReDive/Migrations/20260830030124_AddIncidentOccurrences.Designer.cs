@@ -199,6 +199,8 @@ namespace SecondDimensionWatcherReDive.Migrations
 
                     b.HasIndex("SourceFeedId");
 
+                    b.HasIndex("AutomationDisposition", "PublishTime");
+
                     b.HasIndex("FileStore", "StorePath")
                         .IsUnique()
                         .HasFilter("\"DownloadType\" = 'http://schemas.hcgstudio.com/ws/2023/06/sdw/downloadtype/media-library-import'");

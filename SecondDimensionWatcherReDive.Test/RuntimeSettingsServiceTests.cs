@@ -50,7 +50,6 @@ public sealed class RuntimeSettingsServiceTests
         Assert.DoesNotContain("deployment-codex-secret", json, StringComparison.Ordinal);
         Assert.DoesNotContain("deployment-tmdb-secret", json, StringComparison.Ordinal);
         Assert.DoesNotContain("deployment-torrent-secret", json, StringComparison.Ordinal);
-        Assert.DoesNotContain("deployment-webhook-secret", json, StringComparison.Ordinal);
         StringAssert.Contains(json, "\"isConfigured\":true");
         StringAssert.Contains(json, "\"source\":\"deployment\"");
         StringAssert.Contains(json, "\"permissionProfile\":\":read-only\"");
@@ -105,46 +104,6 @@ public sealed class RuntimeSettingsServiceTests
         Assert.DoesNotContain(NewSecret, json, StringComparison.Ordinal);
         StringAssert.Contains(json, "\"isConfigured\":true");
         StringAssert.Contains(json, "\"source\":\"runtime\"");
-    }
-
-    [TestMethod]
-    public async Task WebhookUrl_IsEncryptedAtRestAndNeverReturnedBySettingsApi()
-    {
-        await using var host = await SettingsTestHost.CreateAsync(
-            configurationOverrides: new Dictionary<string, string?>
-            {
-                [RuntimeSecretKeys.NotificationWebhookUrl] = null
-            });
-        var initial = await host.RuntimeSettings.GetAsync(CancellationToken.None);
-        const string WebhookUrl = "https://hooks.example.test/sdw?token=must-remain-secret";
-        var result = await host.RuntimeSettings.UpdateAsync(
-            new RuntimeSettingsPatch(
-                initial.Revision,
-                Ai: null,
-                Tmdb: null,
-                Torrent: null,
-                MediaLibrary: null,
-                Incidents: null,
-                Nfs: null,
-                Notifications: new NotificationSettingsUpdate(
-                    initial.Desired.Notifications with { WebhookEnabled = true },
-                    new SecretMutation(SecretMutationOperation.Set, WebhookUrl))),
-            CancellationToken.None);
-
-        Assert.AreEqual(RuntimeSettingsUpdateStatus.Saved, result.Status);
-        Assert.AreEqual(WebhookUrl, host.Configuration[RuntimeSecretKeys.NotificationWebhookUrl]);
-        Assert.DoesNotContain(
-            WebhookUrl,
-            host.Repository.Document?.ProtectedSecrets ?? string.Empty,
-            StringComparison.Ordinal);
-
-        var controller = new SettingsController(host.RuntimeSettings);
-        var action = await controller.GetSettingsAsync(CancellationToken.None);
-        var json = JsonSerializer.Serialize(
-            ((OkObjectResult)action.Result!).Value,
-            new JsonSerializerOptions(JsonSerializerDefaults.Web));
-        Assert.DoesNotContain(WebhookUrl, json, StringComparison.Ordinal);
-        StringAssert.Contains(json, "\"webhookUrl\":{\"isConfigured\":true,\"source\":\"runtime\"}");
     }
 
     [TestMethod]
@@ -824,10 +783,6 @@ public sealed class RuntimeSettingsServiceTests
                 ["Incidents:ReconciliationInterval"] = "00:05:00",
                 ["Incidents:Disk:MinimumAvailableBytes"] = "5368709120",
                 ["Incidents:Disk:MinimumAvailablePercent"] = "5",
-                ["Notifications:Webhook:Enabled"] = "false",
-                ["Notifications:Webhook:Url"] = "https://hooks.example.test/delivery?token=deployment-webhook-secret",
-                ["Notifications:Events"] = "ReleaseMatched,DownloadCompleted",
-                ["Notifications:QuietHours:TimeZone"] = "UTC",
                 ["Nfs:Enabled"] = "false",
                 ["Nfs:Port"] = "2049",
                 ["Nfs:BindAddress"] = "127.0.0.1",

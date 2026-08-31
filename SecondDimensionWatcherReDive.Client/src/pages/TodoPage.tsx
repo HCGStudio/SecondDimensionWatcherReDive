@@ -38,6 +38,7 @@ export const TodoPage: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const focus = searchParams.get("focus");
+  const focusedKeyRef = React.useRef<string | null>(null);
   const [includeRead, setIncludeRead] = React.useState(false);
   const [includeSnoozed, setIncludeSnoozed] = React.useState(false);
   const [page, setPage] = React.useState(0);
@@ -48,6 +49,7 @@ export const TodoPage: React.FC = () => {
     includeSnoozed,
     skip: page * PAGE_SIZE,
     take: PAGE_SIZE,
+    focus,
   });
 
   React.useEffect(() => {
@@ -56,16 +58,27 @@ export const TodoPage: React.FC = () => {
   }, [includeRead, includeSnoozed]);
 
   React.useEffect(() => {
+    setSelected(new Set());
+  }, [page]);
+
+  React.useEffect(() => {
     if (!data || page === 0 || page * PAGE_SIZE < data.totalCount) return;
     setPage(Math.max(0, Math.ceil(data.totalCount / PAGE_SIZE) - 1));
   }, [data, page]);
 
   React.useEffect(() => {
-    if (!focus || !data) return;
-    document.getElementById(`todo-${focus}`)?.scrollIntoView({
+    if (!focus) {
+      focusedKeyRef.current = null;
+      return;
+    }
+    if (!data || focusedKeyRef.current === focus) return;
+    const target = document.getElementById(`todo-${focus}`);
+    target?.scrollIntoView({
       behavior: "smooth",
       block: "center",
     });
+    target?.focus({ preventScroll: true });
+    if (target) focusedKeyRef.current = focus;
   }, [data, focus]);
 
   const apply = React.useCallback(

@@ -250,19 +250,23 @@ internal sealed class SettingsController(IRuntimeSettingsService settingsService
         if (request is null)
             return null;
         if (request.WebhookEnabled is null) AddRequired("notifications.webhookEnabled");
+        if (request.WebPushEnabled is null) AddRequired("notifications.webPushEnabled");
+        if (request.WebPushSubject is null) AddRequired("notifications.webPushSubject");
         if (request.Events is null) AddRequired("notifications.events");
         if (request.TimeZoneId is null) AddRequired("notifications.timeZoneId");
         if (!ModelState.IsValid)
             return null;
 
         return new NotificationSettingsUpdate(
-            new NotificationSettingsValues(
-                request.WebhookEnabled!.Value,
-                request.Events!,
-                request.QuietHoursStart,
-                request.QuietHoursEnd,
-                request.TimeZoneId!),
-            MapSecret(request.WebhookUrl, "notifications.webhook.url"));
+            request.WebhookEnabled!.Value,
+            request.WebPushEnabled!.Value,
+            request.WebPushSubject!,
+            request.Events!,
+            request.QuietHoursStart,
+            request.QuietHoursEnd,
+            request.TimeZoneId!,
+            MapSecret(request.WebhookUrl, "notifications.webhook.url"),
+            request.GenerateVapidKeys);
     }
 
     private SecretMutation? MapSecret(SecretMutationRequest? request, string path)
@@ -340,6 +344,10 @@ internal sealed class SettingsController(IRuntimeSettingsService settingsService
                 state.PendingRestart),
             new NotificationSettingsResponse(
                 values.Notifications.WebhookEnabled,
+                values.Notifications.WebPushEnabled,
+                values.Notifications.WebPushSubject,
+                values.Notifications.VapidPublicKey,
+                Secret(state, RuntimeSecretKeys.NotificationVapidPrivateKey),
                 values.Notifications.Events,
                 values.Notifications.QuietHoursStart,
                 values.Notifications.QuietHoursEnd,

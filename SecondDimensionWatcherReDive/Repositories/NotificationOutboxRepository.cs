@@ -27,69 +27,69 @@ public sealed class NotificationOutboxRepository(Models.ApplicationContext conte
     }
 
     public async Task<IReadOnlyList<NotificationOutboxMessage>> ClaimDueAsync(
-        DateTimeOffset now,
-        DateTimeOffset leaseUntil,
+        TimeSpan leaseDuration,
         int take,
         CancellationToken cancellationToken)
     {
-        var candidateIds = await context.NotificationOutboxMessages
-            .AsNoTracking()
-            .Where(message =>
-                (message.Status == NotificationDeliveryStatus.Pending
-                 || message.Status == NotificationDeliveryStatus.Processing)
-                && message.NextAttemptAt <= now)
-            .OrderBy(message => message.NextAttemptAt)
-            .ThenBy(message => message.OccurredAt)
-            .Select(message => message.Id)
-            .Take(take)
-            .ToListAsync(cancellationToken);
-
-        var claimedIds = new List<Guid>(candidateIds.Count);
-        foreach (var id in candidateIds)
-        {
-            var affected = await context.NotificationOutboxMessages
-                .Where(message => message.Id == id
-                                  && (message.Status == NotificationDeliveryStatus.Pending
-                                      || message.Status == NotificationDeliveryStatus.Processing)
-                                  && message.NextAttemptAt <= now)
-                .ExecuteUpdateAsync(setters => setters
-                    .SetProperty(message => message.Status, NotificationDeliveryStatus.Processing)
-                    .SetProperty(message => message.NextAttemptAt, leaseUntil), cancellationToken);
-            if (affected == 1) claimedIds.Add(id);
-        }
-
-        if (claimedIds.Count == 0) return [];
+        take = Math.Clamp(take, 1, 100);
+        // Claim the ordered batch in one PostgreSQL statement. SKIP LOCKED makes
+        // concurrent app instances cooperate without selecting the same work,
+        // while RETURNING gives each caller the exact lease value it owns.
         return (await context.NotificationOutboxMessages
+                .FromSqlInterpolated($$"""
+                    WITH candidates AS (
+                        SELECT "Id"
+                        FROM "NotificationOutboxMessages"
+                        WHERE "Status" IN ('Pending', 'Processing')
+                          AND "NextAttemptAt" <= CURRENT_TIMESTAMP
+                        ORDER BY "NextAttemptAt", "OccurredAt", "Id"
+                        FOR UPDATE SKIP LOCKED
+                        LIMIT {{take}}
+                    ), claimed AS (
+                        UPDATE "NotificationOutboxMessages" AS message
+                        SET "Status" = 'Processing',
+                            "NextAttemptAt" = CURRENT_TIMESTAMP + {{leaseDuration}}
+                        FROM candidates
+                        WHERE message."Id" = candidates."Id"
+                        RETURNING message.*
+                    )
+                    SELECT * FROM claimed
+                    ORDER BY "OccurredAt", "Id"
+                    """)
                 .AsNoTracking()
-                .Where(message => claimedIds.Contains(message.Id))
-                .OrderBy(message => message.OccurredAt)
                 .ToListAsync(cancellationToken))
             .Select(ToRecord)
             .ToList();
     }
 
-    public Task MarkDeliveredAsync(
+    public async Task<bool> MarkDeliveredAsync(
         Guid id,
+        DateTimeOffset expectedLeaseUntil,
         DateTimeOffset deliveredAt,
         CancellationToken cancellationToken) =>
-        context.NotificationOutboxMessages
-            .Where(message => message.Id == id)
+        await context.NotificationOutboxMessages
+            .Where(message => message.Id == id
+                              && message.Status == NotificationDeliveryStatus.Processing
+                              && message.NextAttemptAt == expectedLeaseUntil)
             .ExecuteUpdateAsync(setters => setters
                 .SetProperty(message => message.Status, NotificationDeliveryStatus.Delivered)
                 .SetProperty(message => message.AttemptCount, message => message.AttemptCount + 1)
                 .SetProperty(message => message.LastAttemptAt, deliveredAt)
                 .SetProperty(message => message.DeliveredAt, deliveredAt)
-                .SetProperty(message => message.LastError, (string?)null), cancellationToken);
+                .SetProperty(message => message.LastError, (string?)null), cancellationToken) == 1;
 
-    public Task MarkFailedAsync(
+    public async Task<bool> MarkFailedAsync(
         Guid id,
+        DateTimeOffset expectedLeaseUntil,
         int attemptCount,
         DateTimeOffset attemptedAt,
         DateTimeOffset? nextAttemptAt,
         string error,
         CancellationToken cancellationToken) =>
-        context.NotificationOutboxMessages
-            .Where(message => message.Id == id)
+        await context.NotificationOutboxMessages
+            .Where(message => message.Id == id
+                              && message.Status == NotificationDeliveryStatus.Processing
+                              && message.NextAttemptAt == expectedLeaseUntil)
             .ExecuteUpdateAsync(setters => setters
                 .SetProperty(message => message.Status,
                     nextAttemptAt.HasValue
@@ -98,32 +98,42 @@ public sealed class NotificationOutboxRepository(Models.ApplicationContext conte
                 .SetProperty(message => message.AttemptCount, attemptCount)
                 .SetProperty(message => message.LastAttemptAt, attemptedAt)
                 .SetProperty(message => message.NextAttemptAt, nextAttemptAt ?? attemptedAt)
-                .SetProperty(message => message.LastError, error), cancellationToken);
+                .SetProperty(message => message.LastError, error), cancellationToken) == 1;
 
-    public Task RescheduleAsync(
+    public async Task<bool> RescheduleAsync(
         Guid id,
+        DateTimeOffset expectedLeaseUntil,
         DateTimeOffset nextAttemptAt,
         CancellationToken cancellationToken) =>
-        context.NotificationOutboxMessages
-            .Where(message => message.Id == id)
+        await context.NotificationOutboxMessages
+            .Where(message => message.Id == id
+                              && message.Status == NotificationDeliveryStatus.Processing
+                              && message.NextAttemptAt == expectedLeaseUntil)
             .ExecuteUpdateAsync(setters => setters
                 .SetProperty(message => message.Status, NotificationDeliveryStatus.Pending)
-                .SetProperty(message => message.NextAttemptAt, nextAttemptAt), cancellationToken);
+                .SetProperty(message => message.NextAttemptAt, nextAttemptAt), cancellationToken) == 1;
 
     public async Task<IReadOnlyList<NotificationOutboxMessage>> GetRecentAsync(
         int take,
-        CancellationToken cancellationToken) =>
-        (await context.NotificationOutboxMessages
+        CancellationToken cancellationToken)
+    {
+        take = Math.Clamp(take, 1, 100);
+        return (await context.NotificationOutboxMessages
                 .AsNoTracking()
                 .OrderByDescending(message => message.OccurredAt)
+                .ThenByDescending(message => message.Id)
                 .Take(take)
                 .ToListAsync(cancellationToken))
             .Select(ToRecord)
             .ToList();
+    }
 
     private static NotificationOutboxMessage ToRecord(OutboxEntity message) => new(
         message.Id,
+        message.EventId,
         message.DeduplicationKey,
+        message.Channel,
+        message.WebPushSubscriptionId,
         message.Type,
         message.Title,
         message.Body,
@@ -140,7 +150,10 @@ public sealed class NotificationOutboxRepository(Models.ApplicationContext conte
     private static OutboxEntity ToEntity(NotificationOutboxMessage message) => new()
     {
         Id = message.Id,
+        EventId = message.EventId,
         DeduplicationKey = message.DeduplicationKey,
+        Channel = message.Channel,
+        WebPushSubscriptionId = message.WebPushSubscriptionId,
         Type = message.Type,
         Title = message.Title,
         Body = message.Body,

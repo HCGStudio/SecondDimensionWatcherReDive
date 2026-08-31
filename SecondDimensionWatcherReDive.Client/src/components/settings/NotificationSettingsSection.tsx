@@ -1,13 +1,34 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
 
-import { BellRing, Clock3, History, Send, Webhook } from "lucide-react";
+import {
+  BellRing,
+  Clock3,
+  History,
+  MonitorSmartphone,
+  Send,
+  Trash2,
+  Webhook,
+} from "lucide-react";
 
-import { sendTestNotification } from "../../notifications/api";
-import { useNotificationDeliveries } from "../../notifications/hooks";
+import {
+  removeWebPushSubscription,
+  sendTestNotification,
+} from "../../notifications/api";
+import {
+  useNotificationDeliveries,
+  useWebPushSubscriptions,
+} from "../../notifications/hooks";
+import {
+  disableWebPushForCurrentDevice,
+  enableWebPushForCurrentDevice,
+  getCurrentWebPushSubscription,
+  isWebPushSupported,
+} from "../../notifications/webPush";
 import {
   NotificationEventType,
   NotificationSettings,
+  NotificationSettingsPatch,
   SecretDraft,
   SystemSettings,
   createSecretDraft,
@@ -38,9 +59,7 @@ const eventTypes: NotificationEventType[] = [
 export interface NotificationSettingsSectionProps {
   value: NotificationSettings;
   onSave: (patch: {
-    notifications: Omit<NotificationSettings, "webhookUrl"> & {
-      webhookUrl: ReturnType<typeof toSecretMutation>;
-    };
+    notifications: NotificationSettingsPatch;
   }) => Promise<SystemSettings>;
 }
 
@@ -51,6 +70,8 @@ export const NotificationSettingsSection: React.FC<
   const { addToast } = useToast();
   const { data: deliveries, mutate: mutateDeliveries } =
     useNotificationDeliveries();
+  const { data: subscriptions, mutate: mutateSubscriptions } =
+    useWebPushSubscriptions();
   const [draft, setDraft] = React.useState<NotificationSettings>(() => ({
     ...value,
     events: [...value.events],
@@ -59,7 +80,23 @@ export const NotificationSettingsSection: React.FC<
     React.useState<SecretDraft>(createSecretDraft);
   const [saving, setSaving] = React.useState(false);
   const [testing, setTesting] = React.useState(false);
+  const [webPushBusy, setWebPushBusy] = React.useState(false);
+  const [deviceSubscribed, setDeviceSubscribed] = React.useState(false);
   const [saved, setSaved] = React.useState(false);
+
+  React.useEffect(() => {
+    let active = true;
+    void getCurrentWebPushSubscription()
+      .then((subscription) => {
+        if (active) setDeviceSubscribed(subscription !== null);
+      })
+      .catch(() => {
+        if (active) setDeviceSubscribed(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   React.useEffect(() => {
     setDraft({ ...value, events: [...value.events] });
@@ -80,6 +117,7 @@ export const NotificationSettingsSection: React.FC<
       !value.webhookUrl.isConfigured &&
       !urlDraft.value.trim()) ||
     (draft.webhookEnabled && urlDraft.operation === "clear");
+  const webPushInvalid = draft.webPushEnabled && !draft.webPushSubject.trim();
 
   const reset = React.useCallback(() => {
     setDraft({ ...value, events: [...value.events] });
@@ -88,8 +126,8 @@ export const NotificationSettingsSection: React.FC<
   }, [value]);
 
   const save = React.useCallback(async () => {
-    if (invalid || saving) {
-      if (invalid)
+    if (invalid || webPushInvalid || saving) {
+      if (invalid || webPushInvalid)
         addToast({
           title: t("system.notifications.validationFailed"),
           color: "warning",
@@ -102,11 +140,16 @@ export const NotificationSettingsSection: React.FC<
       await onSave({
         notifications: {
           webhookEnabled: draft.webhookEnabled,
+          webPushEnabled: draft.webPushEnabled,
+          webPushSubject: draft.webPushSubject,
           events: draft.events,
           quietHoursStart: draft.quietHoursStart || null,
           quietHoursEnd: draft.quietHoursEnd || null,
           timeZoneId: draft.timeZoneId,
           webhookUrl: secretMutation,
+          generateVapidKeys:
+            draft.webPushEnabled &&
+            (!value.vapidPublicKey || !value.vapidPrivateKey.isConfigured),
         },
       });
       setSaved(true);
@@ -125,7 +168,83 @@ export const NotificationSettingsSection: React.FC<
     } finally {
       setSaving(false);
     }
-  }, [addToast, draft, invalid, onSave, saving, secretMutation, t]);
+  }, [
+    addToast,
+    draft,
+    invalid,
+    onSave,
+    saving,
+    secretMutation,
+    t,
+    value.vapidPrivateKey.isConfigured,
+    value.vapidPublicKey,
+    webPushInvalid,
+  ]);
+
+  const enableCurrentDevice = React.useCallback(async () => {
+    if (webPushBusy || !value.vapidPublicKey) return;
+    setWebPushBusy(true);
+    try {
+      await enableWebPushForCurrentDevice(value.vapidPublicKey);
+      setDeviceSubscribed(true);
+      await mutateSubscriptions();
+      addToast({
+        title: t("system.notifications.webPush.deviceEnabled"),
+        color: "success",
+      });
+    } catch {
+      addToast({
+        title: t("system.notifications.webPush.deviceFailed"),
+        color: "danger",
+      });
+    } finally {
+      setWebPushBusy(false);
+    }
+  }, [addToast, mutateSubscriptions, t, value.vapidPublicKey, webPushBusy]);
+
+  const disableCurrentDevice = React.useCallback(async () => {
+    if (webPushBusy) return;
+    setWebPushBusy(true);
+    try {
+      await disableWebPushForCurrentDevice();
+      setDeviceSubscribed(false);
+      await mutateSubscriptions();
+      addToast({
+        title: t("system.notifications.webPush.deviceDisabled"),
+        color: "success",
+      });
+    } catch {
+      addToast({
+        title: t("system.notifications.webPush.deviceFailed"),
+        color: "danger",
+      });
+    } finally {
+      setWebPushBusy(false);
+    }
+  }, [addToast, mutateSubscriptions, t, webPushBusy]);
+
+  const revokeSubscription = React.useCallback(
+    async (id: string) => {
+      if (webPushBusy) return;
+      setWebPushBusy(true);
+      try {
+        await removeWebPushSubscription(id);
+        await mutateSubscriptions();
+        addToast({
+          title: t("system.notifications.webPush.subscriptionRevoked"),
+          color: "success",
+        });
+      } catch {
+        addToast({
+          title: t("system.notifications.webPush.deviceFailed"),
+          color: "danger",
+        });
+      } finally {
+        setWebPushBusy(false);
+      }
+    },
+    [addToast, mutateSubscriptions, t, webPushBusy],
+  );
 
   const test = React.useCallback(async () => {
     setTesting(true);
@@ -176,19 +295,119 @@ export const NotificationSettingsSection: React.FC<
             help={t("system.notifications.webhook.secretHelp")}
             onChange={setUrlDraft}
           />
-          <Button
-            type="button"
-            variant="outline"
-            disabled={testing || dirty || !value.webhookEnabled}
-            onClick={() => void test()}
-          >
-            <Send size={15} />
-            {testing
-              ? t("system.notifications.webhook.testing")
-              : t("system.notifications.webhook.test")}
-          </Button>
         </div>
       </Card>
+
+      <Card
+        className="mt-5"
+        icon={<MonitorSmartphone size={18} />}
+        title={t("system.notifications.webPush.title")}
+        description={t("system.notifications.webPush.description")}
+      >
+        <div className="space-y-5">
+          <ToggleField
+            checked={draft.webPushEnabled}
+            label={t("system.notifications.webPush.enabled")}
+            description={t("system.notifications.webPush.enabledHelp")}
+            onChange={(webPushEnabled) =>
+              setDraft((current) => ({ ...current, webPushEnabled }))
+            }
+          />
+          <FormRow label={t("system.notifications.webPush.subject")}>
+            <Input
+              placeholder="mailto:admin@example.com"
+              value={draft.webPushSubject}
+              onChange={(event) =>
+                setDraft((current) => ({
+                  ...current,
+                  webPushSubject: event.target.value,
+                }))
+              }
+            />
+          </FormRow>
+          <p className="text-xs leading-body text-muted">
+            {value.vapidPrivateKey.isConfigured
+              ? t("system.notifications.webPush.keysConfigured")
+              : t("system.notifications.webPush.keysGeneratedOnSave")}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant={deviceSubscribed ? "outline" : "solid"}
+              disabled={
+                webPushBusy ||
+                dirty ||
+                !value.webPushEnabled ||
+                !value.vapidPublicKey ||
+                !isWebPushSupported()
+              }
+              onClick={() =>
+                void (deviceSubscribed
+                  ? disableCurrentDevice()
+                  : enableCurrentDevice())
+              }
+            >
+              <MonitorSmartphone size={15} />
+              {deviceSubscribed
+                ? t("system.notifications.webPush.disableDevice")
+                : t("system.notifications.webPush.enableDevice")}
+            </Button>
+            {!isWebPushSupported() ? (
+              <span className="self-center text-xs text-warning">
+                {t("system.notifications.webPush.unsupported")}
+              </span>
+            ) : null}
+          </div>
+          {subscriptions?.length ? (
+            <ul className="divide-y divide-border-light rounded-lg border border-border-light">
+              {subscriptions.map((subscription) => (
+                <li
+                  key={subscription.id}
+                  className="flex items-center justify-between gap-3 px-3 py-2 text-sm"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-foreground">
+                      {subscription.endpointOrigin}
+                    </p>
+                    <p className="text-xs text-muted">
+                      {subscription.lastError ??
+                        t("system.notifications.webPush.subscriptionActive")}
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    disabled={webPushBusy}
+                    aria-label={t(
+                      "system.notifications.webPush.revokeSubscription",
+                    )}
+                    onClick={() => void revokeSubscription(subscription.id)}
+                  >
+                    <Trash2 size={14} />
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      </Card>
+
+      <div className="mt-5">
+        <Button
+          type="button"
+          variant="outline"
+          disabled={
+            testing || dirty || (!value.webhookEnabled && !value.webPushEnabled)
+          }
+          onClick={() => void test()}
+        >
+          <Send size={15} />
+          {testing
+            ? t("system.notifications.webhook.testing")
+            : t("system.notifications.webhook.test")}
+        </Button>
+      </div>
 
       <Card
         className="mt-5"
@@ -283,6 +502,11 @@ export const NotificationSettingsSection: React.FC<
                     {t(`system.notifications.events.items.${delivery.type}`, {
                       defaultValue: delivery.type,
                     })}
+                  </span>
+                  <span className="ml-2 text-xs text-subtle">
+                    {t(
+                      `system.notifications.delivery.channel.${delivery.channel}`,
+                    )}
                   </span>
                   {delivery.lastError ? (
                     <p className="text-xs text-error">{delivery.lastError}</p>

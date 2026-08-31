@@ -6,7 +6,10 @@ namespace SecondDimensionWatcherReDive.Models;
 public sealed class NotificationOutboxMessage
 {
     public Guid Id { get; set; }
+    public Guid EventId { get; set; }
     public string DeduplicationKey { get; set; } = string.Empty;
+    public NotificationChannel Channel { get; set; }
+    public Guid? WebPushSubscriptionId { get; set; }
     public NotificationEventType Type { get; set; }
     public string Title { get; set; } = string.Empty;
     public string Body { get; set; } = string.Empty;

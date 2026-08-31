@@ -1,0 +1,71 @@
+import {
+  registerWebPushSubscription,
+  removeCurrentWebPushSubscription,
+} from "./api";
+
+export const isWebPushSupported = (): boolean =>
+  window.isSecureContext &&
+  "serviceWorker" in navigator &&
+  "PushManager" in window &&
+  "Notification" in window;
+
+const decodeBase64Url = (value: string): Uint8Array<ArrayBuffer> => {
+  const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
+  const binary = window.atob(padded);
+  const bytes = new Uint8Array(new ArrayBuffer(binary.length));
+  for (let index = 0; index < binary.length; index += 1)
+    bytes[index] = binary.charCodeAt(index);
+  return bytes;
+};
+
+const keysEqual = (
+  current: ArrayBuffer | null,
+  expected: Uint8Array<ArrayBuffer>,
+): boolean => {
+  if (!current || current.byteLength !== expected.byteLength) return false;
+  const currentBytes = new Uint8Array(current);
+  return currentBytes.every((value, index) => value === expected[index]);
+};
+
+const getRegistration = () => navigator.serviceWorker.getRegistration("/");
+
+export const getCurrentWebPushSubscription = async () => {
+  if (!isWebPushSupported()) return null;
+  const registration = await getRegistration();
+  return registration?.pushManager.getSubscription() ?? null;
+};
+
+export const enableWebPushForCurrentDevice = async (vapidPublicKey: string) => {
+  if (!isWebPushSupported()) throw new Error("unsupported");
+  const permission = await Notification.requestPermission();
+  if (permission !== "granted") throw new Error("permissionDenied");
+
+  const workerUrl = new URL("./pushServiceWorker.js", import.meta.url);
+  const registration = await navigator.serviceWorker.register(workerUrl, {
+    scope: "/",
+    type: "module",
+  });
+  const expectedKey = decodeBase64Url(vapidPublicKey);
+  let subscription = await registration.pushManager.getSubscription();
+  if (
+    subscription &&
+    !keysEqual(subscription.options.applicationServerKey, expectedKey)
+  ) {
+    await removeCurrentWebPushSubscription(subscription.endpoint);
+    await subscription.unsubscribe();
+    subscription = null;
+  }
+  subscription ??= await registration.pushManager.subscribe({
+    userVisibleOnly: true,
+    applicationServerKey: expectedKey,
+  });
+  return registerWebPushSubscription(subscription);
+};
+
+export const disableWebPushForCurrentDevice = async (): Promise<boolean> => {
+  const subscription = await getCurrentWebPushSubscription();
+  if (!subscription) return false;
+  await removeCurrentWebPushSubscription(subscription.endpoint);
+  return subscription.unsubscribe();
+};

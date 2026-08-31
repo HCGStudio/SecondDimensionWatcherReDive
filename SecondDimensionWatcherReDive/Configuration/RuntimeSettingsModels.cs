@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Net;
+using System.Security.Cryptography;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Configuration;
 using SecondDimensionWatcherReDive.Framework.Notifications;
@@ -141,6 +142,9 @@ internal sealed record NfsSettingsValues(
 
 internal sealed record NotificationSettingsValues(
     bool WebhookEnabled,
+    bool WebPushEnabled,
+    string WebPushSubject,
+    string VapidPublicKey,
     IReadOnlyList<NotificationEventType> Events,
     TimeSpan? QuietHoursStart,
     TimeSpan? QuietHoursEnd,
@@ -194,8 +198,15 @@ internal sealed record TorrentSettingsUpdate(
     SecretMutation? Password);
 
 internal sealed record NotificationSettingsUpdate(
-    NotificationSettingsValues Values,
-    SecretMutation? WebhookUrl);
+    bool WebhookEnabled,
+    bool WebPushEnabled,
+    string WebPushSubject,
+    IReadOnlyList<NotificationEventType> Events,
+    TimeSpan? QuietHoursStart,
+    TimeSpan? QuietHoursEnd,
+    string TimeZoneId,
+    SecretMutation? WebhookUrl,
+    bool GenerateVapidKeys);
 
 internal sealed record RuntimeSettingsPatch(
     long ExpectedRevision,
@@ -238,6 +249,7 @@ internal static class RuntimeSecretKeys
     public const string TmdbApiKey = "TmdbApiKey";
     public const string TorrentPassword = "Torrent:Remote:Password";
     public const string NotificationWebhookUrl = "Notifications:Webhook:Url";
+    public const string NotificationVapidPrivateKey = "Notifications:WebPush:VapidPrivateKey";
 
     public static readonly string[] All =
     [
@@ -246,7 +258,8 @@ internal static class RuntimeSecretKeys
         CodexToken,
         TmdbApiKey,
         TorrentPassword,
-        NotificationWebhookUrl
+        NotificationWebhookUrl,
+        NotificationVapidPrivateKey
     ];
 }
 
@@ -286,6 +299,9 @@ internal static class RuntimeSettingsDefaults
             },
             new NotificationSettingsValues(
                 configuration.GetValue<bool?>("Notifications:Webhook:Enabled") ?? false,
+                configuration.GetValue<bool?>("Notifications:WebPush:Enabled") ?? false,
+                configuration["Notifications:WebPush:Subject"] ?? string.Empty,
+                configuration["Notifications:WebPush:VapidPublicKey"] ?? string.Empty,
                 ReadNotificationEvents(configuration["Notifications:Events"]),
                 configuration.GetValue<TimeSpan?>("Notifications:QuietHours:Start"),
                 configuration.GetValue<TimeSpan?>("Notifications:QuietHours:End"),
@@ -487,6 +503,26 @@ internal static class RuntimeSettingsValidator
         if (secrets[RuntimeSecretKeys.NotificationWebhookUrl] is { IsConfigured: true, Value: { } webhookUrl })
             ValidateWebhookUri(errors, "notifications.webhook.url", webhookUrl);
 
+        var vapidPrivateKey = secrets[RuntimeSecretKeys.NotificationVapidPrivateKey];
+        var hasVapidPublicKey = !string.IsNullOrWhiteSpace(values.Notifications.VapidPublicKey);
+        if (values.Notifications.WebPushEnabled)
+        {
+            if (!IsValidVapidSubject(values.Notifications.WebPushSubject))
+                Add(errors, "notifications.webPush.subject",
+                    "The VAPID subject must be a contact mailto: URI or an HTTPS URL.");
+            if (!hasVapidPublicKey || !vapidPrivateKey.IsConfigured)
+                Add(errors, "notifications.webPush.vapidKeys",
+                    "A VAPID key pair is required when Web Push is enabled.");
+        }
+        if (hasVapidPublicKey != vapidPrivateKey.IsConfigured)
+            Add(errors, "notifications.webPush.vapidKeys",
+                "The VAPID public and private keys must be configured together.");
+        if (hasVapidPublicKey && vapidPrivateKey is { IsConfigured: true, Value: { } privateKey })
+            ValidateVapidKeyPair(
+                errors,
+                values.Notifications.VapidPublicKey,
+                privateKey);
+
         foreach (var key in RuntimeSecretKeys.All)
         {
             if (secrets.TryGetValue(key, out var secret)
@@ -538,12 +574,89 @@ internal static class RuntimeSettingsValidator
         string key,
         string value)
     {
+        if (value.Length > 2048)
+        {
+            Add(errors, key, "The webhook URL cannot exceed 2048 characters.");
+            return;
+        }
         if (!Uri.TryCreate(value, UriKind.Absolute, out var uri)
             || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)
             || !string.IsNullOrEmpty(uri.UserInfo)
             || !string.IsNullOrEmpty(uri.Fragment))
+        {
             Add(errors, key,
                 "The webhook must be an absolute HTTP or HTTPS URL without user information or a fragment.");
+            return;
+        }
+        if (uri.Scheme == Uri.UriSchemeHttp && !uri.IsLoopback)
+            Add(errors, key, "Plain HTTP is allowed only for loopback webhook endpoints; use HTTPS remotely.");
+    }
+
+    private static bool IsValidVapidSubject(string value)
+    {
+        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri))
+            return false;
+        if (uri.Scheme == Uri.UriSchemeHttps)
+            return !string.IsNullOrWhiteSpace(uri.IdnHost)
+                   && string.IsNullOrEmpty(uri.UserInfo)
+                   && string.IsNullOrEmpty(uri.Fragment);
+        return uri.Scheme == Uri.UriSchemeMailto
+               && value.Length > "mailto:".Length
+               && string.IsNullOrEmpty(uri.Fragment);
+    }
+
+    private static void ValidateVapidKeyPair(
+        Dictionary<string, List<string>> errors,
+        string publicKey,
+        string privateKey)
+    {
+        if (!TryDecodeBase64Url(publicKey, out var publicBytes)
+            || publicBytes.Length != 65
+            || publicBytes[0] != 0x04
+            || !TryDecodeBase64Url(privateKey, out var privateBytes)
+            || privateBytes.Length != 32)
+        {
+            Add(errors, "notifications.webPush.vapidKeys", "The VAPID key pair is invalid.");
+            return;
+        }
+
+        try
+        {
+            using var ecdsa = ECDsa.Create(new ECParameters
+            {
+                Curve = ECCurve.NamedCurves.nistP256,
+                D = privateBytes
+            });
+            var derived = ecdsa.ExportParameters(includePrivateParameters: false);
+            if (derived.Q.X is null
+                || derived.Q.Y is null
+                || !CryptographicOperations.FixedTimeEquals(
+                    publicBytes.AsSpan(1, 32), derived.Q.X)
+                || !CryptographicOperations.FixedTimeEquals(
+                    publicBytes.AsSpan(33, 32), derived.Q.Y))
+                Add(errors, "notifications.webPush.vapidKeys", "The VAPID public and private keys do not match.");
+        }
+        catch (Exception exception) when (
+            exception is CryptographicException or ArgumentException)
+        {
+            Add(errors, "notifications.webPush.vapidKeys", "The VAPID key pair is invalid.");
+        }
+    }
+
+    private static bool TryDecodeBase64Url(string value, out byte[] bytes)
+    {
+        try
+        {
+            var normalized = value.Replace('-', '+').Replace('_', '/');
+            normalized = normalized.PadRight((normalized.Length + 3) / 4 * 4, '=');
+            bytes = Convert.FromBase64String(normalized);
+            return true;
+        }
+        catch (FormatException)
+        {
+            bytes = [];
+            return false;
+        }
     }
 
     private static void ValidateUserAgent(
@@ -604,6 +717,7 @@ internal static class RuntimeSettingsValidator
         RuntimeSecretKeys.TmdbApiKey => "tmdb.apiKey",
         RuntimeSecretKeys.TorrentPassword => "torrent.password",
         RuntimeSecretKeys.NotificationWebhookUrl => "notifications.webhook.url",
+        RuntimeSecretKeys.NotificationVapidPrivateKey => "notifications.webPush.vapidPrivateKey",
         _ => key
     };
 
@@ -688,6 +802,10 @@ internal static class RuntimeSettingsFlattener
 
         flattened["Notifications:Webhook:Enabled"] =
             values.Notifications.WebhookEnabled.ToString(CultureInfo.InvariantCulture);
+        flattened["Notifications:WebPush:Enabled"] =
+            values.Notifications.WebPushEnabled.ToString(CultureInfo.InvariantCulture);
+        flattened["Notifications:WebPush:Subject"] = values.Notifications.WebPushSubject;
+        flattened["Notifications:WebPush:VapidPublicKey"] = values.Notifications.VapidPublicKey;
         flattened["Notifications:Events"] = string.Join(',', values.Notifications.Events);
         flattened["Notifications:QuietHours:Start"] =
             values.Notifications.QuietHoursStart?.ToString("c", CultureInfo.InvariantCulture);

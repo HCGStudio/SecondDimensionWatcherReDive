@@ -36,6 +36,7 @@ public class ApplicationContext : DbContext
     public DbSet<ApplicationSettings> ApplicationSettings { get; set; }
     public DbSet<NotificationOutboxMessage> NotificationOutboxMessages { get; set; }
     public DbSet<TodoItemState> TodoItemStates { get; set; }
+    public DbSet<WebPushSubscription> WebPushSubscriptions { get; set; }
     public DbSet<AuthenticationState> AuthenticationStates { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -48,6 +49,9 @@ public class ApplicationContext : DbContext
             .HasIndex(message => new { message.Status, message.NextAttemptAt });
 
         modelBuilder.Entity<NotificationOutboxMessage>()
+            .HasIndex(message => message.WebPushSubscriptionId);
+
+        modelBuilder.Entity<NotificationOutboxMessage>()
             .Property(message => message.DeduplicationKey)
             .HasMaxLength(256);
 
@@ -55,6 +59,11 @@ public class ApplicationContext : DbContext
             .Property(message => message.Type)
             .HasConversion<string>()
             .HasMaxLength(48);
+
+        modelBuilder.Entity<NotificationOutboxMessage>()
+            .Property(message => message.Channel)
+            .HasConversion<string>()
+            .HasMaxLength(24);
 
         modelBuilder.Entity<NotificationOutboxMessage>()
             .Property(message => message.Status)
@@ -87,6 +96,34 @@ public class ApplicationContext : DbContext
         modelBuilder.Entity<TodoItemState>()
             .Property(state => state.Key)
             .HasMaxLength(128);
+
+        modelBuilder.Entity<WebPushSubscription>()
+            .Property(subscription => subscription.Id)
+            .ValueGeneratedNever();
+
+        modelBuilder.Entity<WebPushSubscription>()
+            .HasIndex(subscription => subscription.EndpointHash)
+            .IsUnique();
+
+        modelBuilder.Entity<WebPushSubscription>()
+            .Property(subscription => subscription.EndpointHash)
+            .HasMaxLength(64);
+
+        modelBuilder.Entity<WebPushSubscription>()
+            .Property(subscription => subscription.ProtectedEndpoint)
+            .HasMaxLength(4096);
+
+        modelBuilder.Entity<WebPushSubscription>()
+            .Property(subscription => subscription.ProtectedP256Dh)
+            .HasMaxLength(1024);
+
+        modelBuilder.Entity<WebPushSubscription>()
+            .Property(subscription => subscription.ProtectedAuth)
+            .HasMaxLength(1024);
+
+        modelBuilder.Entity<WebPushSubscription>()
+            .Property(subscription => subscription.LastError)
+            .HasMaxLength(256);
 
         modelBuilder.Entity<AuthenticationState>()
             .Property(state => state.Id)
@@ -355,6 +392,9 @@ public class ApplicationContext : DbContext
             .Property(info => info.AutomationDisposition)
             .HasConversion<string>()
             .HasMaxLength(32);
+
+        modelBuilder.Entity<AnimationInfo>()
+            .HasIndex(info => new { info.AutomationDisposition, info.PublishTime });
 
         modelBuilder.Entity<AnimationInfo>()
             .HasOne<Feed>()

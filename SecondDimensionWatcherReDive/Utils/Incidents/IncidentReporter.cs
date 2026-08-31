@@ -58,7 +58,7 @@ public sealed partial class IncidentReporter(
                     saved.Title,
                     saved.Detail,
                     isDiskSpaceLow
-                        ? "/incidents?type=diskSpaceLow"
+                        ? $"/incidents?type=diskSpaceLow&focus={saved.Id}"
                         : $"/incidents?focus={saved.Id}"), cancellationToken);
             }
             return saved;

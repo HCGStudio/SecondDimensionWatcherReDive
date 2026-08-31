@@ -11,6 +11,7 @@ public sealed class TodoRepository(Models.ApplicationContext context) : ITodoRep
         DateTimeOffset now,
         int skip,
         int take,
+        string? focusKey,
         CancellationToken cancellationToken)
     {
         var automation =
@@ -70,7 +71,7 @@ public sealed class TodoRepository(Models.ApplicationContext context) : ITodoRep
                 Title = incident.Title,
                 Detail = incident.Detail,
                 DeepLink = incident.Type == IncidentType.DiskSpaceLow
-                    ? "/incidents?type=diskSpaceLow"
+                    ? "/incidents?type=diskSpaceLow&focus=" + incident.Id.ToString()
                     : "/incidents?focus=" + incident.Id.ToString(),
                 ResourceId = incident.Id,
                 OccurredAt = incident.UpdatedAt,
@@ -126,6 +127,17 @@ public sealed class TodoRepository(Models.ApplicationContext context) : ITodoRep
             .Take(take)
             .ToListAsync(cancellationToken);
 
+        if (focusKey is not null && rows.All(item => item.Key != focusKey))
+        {
+            // Notification deep links must remain actionable even when the
+            // target is outside the current page or was already read/snoozed.
+            var focused = await allItems
+                .Where(item => item.Key == focusKey)
+                .SingleOrDefaultAsync(cancellationToken);
+            if (focused is not null)
+                rows.Insert(0, focused);
+        }
+
         return new TodoPage(
             rows.Select(item => new TodoItem(
                 item.Key,
@@ -150,22 +162,123 @@ public sealed class TodoRepository(Models.ApplicationContext context) : ITodoRep
         bool updateSnoozedUntil,
         CancellationToken cancellationToken)
     {
-        var existing = await context.TodoItemStates
-            .Where(state => keys.Contains(state.Key))
-            .ToDictionaryAsync(state => state.Key, cancellationToken);
+        var validKeys = await ResolveCurrentKeysAsync(keys, cancellationToken);
+        if (validKeys.Length == 0)
+            return;
+
         var now = DateTimeOffset.UtcNow;
-        foreach (var key in keys)
+        // One set-based upsert avoids the insert race produced when two tabs
+        // update a previously untouched todo at the same time.
+        await context.Database.ExecuteSqlInterpolatedAsync($$"""
+            INSERT INTO "TodoItemStates" ("Key", "ReadAt", "SnoozedUntil", "UpdatedAt")
+            SELECT input."Key", {{readAt}}, {{snoozedUntil}}, {{now}}
+            FROM unnest({{validKeys}}) AS input("Key")
+            ON CONFLICT ("Key") DO UPDATE SET
+                "ReadAt" = CASE
+                    WHEN {{updateReadAt}} THEN EXCLUDED."ReadAt"
+                    ELSE "TodoItemStates"."ReadAt"
+                END,
+                "SnoozedUntil" = CASE
+                    WHEN {{updateSnoozedUntil}} THEN EXCLUDED."SnoozedUntil"
+                    ELSE "TodoItemStates"."SnoozedUntil"
+                END,
+                "UpdatedAt" = EXCLUDED."UpdatedAt"
+            """, cancellationToken);
+
+        // Mark-unread/unsnooze of an otherwise pristine item does not need a
+        // tombstone. Keeping the table limited to meaningful state also bounds
+        // joins on long-lived installations.
+        await context.TodoItemStates
+            .Where(state => validKeys.Contains(state.Key)
+                            && state.ReadAt == null
+                            && state.SnoozedUntil == null)
+            .ExecuteDeleteAsync(cancellationToken);
+
+        var stillCurrent = await ResolveCurrentKeysAsync(validKeys, cancellationToken);
+        var staleKeys = validKeys.Except(stillCurrent, StringComparer.Ordinal).ToArray();
+        if (staleKeys.Length > 0)
         {
-            if (!existing.TryGetValue(key, out var state))
-            {
-                state = new Models.TodoItemState { Key = key };
-                await context.TodoItemStates.AddAsync(state, cancellationToken);
-            }
-            if (updateReadAt) state.ReadAt = readAt;
-            if (updateSnoozedUntil) state.SnoozedUntil = snoozedUntil;
-            state.UpdatedAt = now;
+            await context.TodoItemStates
+                .Where(state => staleKeys.Contains(state.Key))
+                .ExecuteDeleteAsync(cancellationToken);
         }
-        await context.SaveChangesAsync(cancellationToken);
+    }
+
+    private async Task<string[]> ResolveCurrentKeysAsync(
+        IReadOnlyCollection<string> requestedKeys,
+        CancellationToken cancellationToken)
+    {
+        var requested = requestedKeys.ToHashSet(StringComparer.Ordinal);
+        var automationIds = new HashSet<Guid>();
+        var metadataIds = new HashSet<Guid>();
+        var incidentIds = new HashSet<Guid>();
+        foreach (var key in requested)
+        {
+            var parts = key.Split(':');
+            if (parts.Length < 2 || !Guid.TryParse(parts[1], out var id))
+                continue;
+            switch (parts[0])
+            {
+                case "automation":
+                    automationIds.Add(id);
+                    break;
+                case "metadata":
+                    metadataIds.Add(id);
+                    break;
+                case "incident":
+                    incidentIds.Add(id);
+                    break;
+            }
+        }
+
+        var valid = new HashSet<string>(StringComparer.Ordinal);
+        if (automationIds.Count > 0)
+        {
+            var ids = await context.AnimationInfo
+                .AsNoTracking()
+                .Where(info => automationIds.Contains(info.Id)
+                               && (info.AutomationDisposition == SubscriptionAutomationDisposition.Notified
+                                   || info.AutomationDisposition == SubscriptionAutomationDisposition.PendingConfirmation
+                                   || info.AutomationDisposition == SubscriptionAutomationDisposition.AutoDownloadFailed))
+                .Select(info => info.Id)
+                .ToListAsync(cancellationToken);
+            foreach (var id in ids)
+                valid.Add("automation:" + id);
+        }
+
+        if (metadataIds.Count > 0)
+        {
+            var ids = await context.AnimationInfo
+                .AsNoTracking()
+                .Where(info => metadataIds.Contains(info.Id)
+                               && (info.MetadataStatus == MetadataReviewStatus.LowConfidence
+                                   || info.MetadataStatus == MetadataReviewStatus.Failed))
+                .Select(info => info.Id)
+                .ToListAsync(cancellationToken);
+            foreach (var id in ids)
+                valid.Add("metadata:" + id);
+        }
+
+        if (incidentIds.Count > 0)
+        {
+            var incidents = await context.Incidents
+                .AsNoTracking()
+                .Where(incident => incidentIds.Contains(incident.Id)
+                                   && incident.ResolvedAt == null)
+                .Select(incident => new { incident.Id, incident.Occurrence })
+                .ToListAsync(cancellationToken);
+            foreach (var incident in incidents)
+            {
+                valid.Add(incident.Occurrence <= 1
+                    ? "incident:" + incident.Id
+                    : $"incident:{incident.Id}:{incident.Occurrence}");
+            }
+        }
+
+        return valid
+            .Where(requested.Contains)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
     }
 
     private sealed class TodoQueryRow

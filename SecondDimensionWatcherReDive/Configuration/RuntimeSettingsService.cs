@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Framework.Networking;
 using SecondDimensionWatcherReDive.Repositories;
+using WebPush;
 
 namespace SecondDimensionWatcherReDive.Configuration;
 
@@ -137,11 +138,37 @@ public sealed partial class RuntimeSettingsService : IRuntimeSettingsInitializer
                     CreateState(),
                     mutationErrors);
 
-            var candidateOverrides = ApplyValues(_persistedOverrides, patch);
-            var candidateSecrets = ApplySecrets(_secretOverrides, patch);
             var deploymentValues = DeploymentValues();
             var deploymentSecrets = DeploymentSecrets();
             var currentValues = Merge(deploymentValues, _persistedOverrides);
+            var currentSecrets = ResolveSecrets(_secretOverrides, deploymentSecrets);
+            VapidDetails? generatedVapidKeys = null;
+            if (patch.Notifications?.GenerateVapidKeys is true)
+            {
+                if (!string.IsNullOrWhiteSpace(currentValues.Notifications.VapidPublicKey)
+                    || currentSecrets[RuntimeSecretKeys.NotificationVapidPrivateKey].IsConfigured)
+                {
+                    return new RuntimeSettingsUpdateResult(
+                        RuntimeSettingsUpdateStatus.Invalid,
+                        CreateState(),
+                        new Dictionary<string, string[]>(StringComparer.Ordinal)
+                        {
+                            ["notifications.webPush.vapidKeys"] =
+                                ["VAPID keys are already configured and cannot be rotated implicitly."]
+                        });
+                }
+                generatedVapidKeys = VapidHelper.GenerateVapidKeys();
+            }
+
+            var candidateOverrides = ApplyValues(
+                _persistedOverrides,
+                patch,
+                currentValues.Notifications,
+                generatedVapidKeys?.PublicKey);
+            var candidateSecrets = ApplySecrets(
+                _secretOverrides,
+                patch,
+                generatedVapidKeys?.PrivateKey);
             var desiredValues = Merge(deploymentValues, candidateOverrides);
             candidateSecrets = PinEmptyCredentialsAcrossOriginChanges(
                 candidateSecrets,
@@ -331,7 +358,9 @@ public sealed partial class RuntimeSettingsService : IRuntimeSettingsInitializer
 
     private static RuntimeSettingsOverrides ApplyValues(
         RuntimeSettingsOverrides current,
-        RuntimeSettingsPatch patch) =>
+        RuntimeSettingsPatch patch,
+        NotificationSettingsValues currentNotifications,
+        string? generatedVapidPublicKey) =>
         current with
         {
             Ai = patch.Ai?.Values ?? current.Ai,
@@ -339,12 +368,23 @@ public sealed partial class RuntimeSettingsService : IRuntimeSettingsInitializer
             MediaLibrary = patch.MediaLibrary ?? current.MediaLibrary,
             Incidents = patch.Incidents ?? current.Incidents,
             Nfs = patch.Nfs ?? current.Nfs,
-            Notifications = patch.Notifications?.Values ?? current.Notifications
+            Notifications = patch.Notifications is null
+                ? current.Notifications
+                : new NotificationSettingsValues(
+                    patch.Notifications.WebhookEnabled,
+                    patch.Notifications.WebPushEnabled,
+                    patch.Notifications.WebPushSubject,
+                    generatedVapidPublicKey ?? currentNotifications.VapidPublicKey,
+                    patch.Notifications.Events,
+                    patch.Notifications.QuietHoursStart,
+                    patch.Notifications.QuietHoursEnd,
+                    patch.Notifications.TimeZoneId)
         };
 
     private static RuntimeSecretOverrides ApplySecrets(
         RuntimeSecretOverrides current,
-        RuntimeSettingsPatch patch)
+        RuntimeSettingsPatch patch,
+        string? generatedVapidPrivateKey)
     {
         var values = new Dictionary<string, PersistedSecret>(current.Values, StringComparer.Ordinal);
         ApplySecret(values, RuntimeSecretKeys.OpenAiApiKey, patch.Ai?.OpenAiApiKey);
@@ -353,6 +393,12 @@ public sealed partial class RuntimeSettingsService : IRuntimeSettingsInitializer
         ApplySecret(values, RuntimeSecretKeys.TmdbApiKey, patch.Tmdb?.ApiKey);
         ApplySecret(values, RuntimeSecretKeys.TorrentPassword, patch.Torrent?.Password);
         ApplySecret(values, RuntimeSecretKeys.NotificationWebhookUrl, patch.Notifications?.WebhookUrl);
+        ApplySecret(
+            values,
+            RuntimeSecretKeys.NotificationVapidPrivateKey,
+            generatedVapidPrivateKey is null
+                ? null
+                : new SecretMutation(SecretMutationOperation.Set, generatedVapidPrivateKey));
         return new RuntimeSecretOverrides { Values = values };
     }
 

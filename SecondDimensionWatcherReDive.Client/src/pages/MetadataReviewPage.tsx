@@ -349,7 +349,12 @@ export const MetadataReviewPage: React.FC = () => {
   const status = parseStatus(searchParams.get("status"));
   const page = parsePage(searchParams.get("page"));
   const focus = searchParams.get("focus");
-  const { data, error, isLoading, mutate } = useMetadataReview(status, page);
+  const focusedIdRef = React.useRef<string | null>(null);
+  const { data, error, isLoading, mutate } = useMetadataReview(
+    status,
+    page,
+    focus,
+  );
   const { addToast } = useToast();
   const [selectedItem, setSelectedItem] =
     React.useState<MetadataReviewItem | null>(null);
@@ -377,11 +382,18 @@ export const MetadataReviewPage: React.FC = () => {
   }, [data, page, status, updateLocation]);
 
   React.useEffect(() => {
-    if (!focus || !data) return;
-    document.getElementById(`metadata-review-${focus}`)?.scrollIntoView({
+    if (!focus) {
+      focusedIdRef.current = null;
+      return;
+    }
+    if (!data || focusedIdRef.current === focus) return;
+    const target = document.getElementById(`metadata-review-${focus}`);
+    target?.scrollIntoView({
       behavior: "smooth",
       block: "center",
     });
+    target?.focus({ preventScroll: true });
+    if (target) focusedIdRef.current = focus;
   }, [data, focus]);
 
   const changeStatus = React.useCallback(

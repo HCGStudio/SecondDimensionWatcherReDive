@@ -19,6 +19,7 @@ internal sealed class MetadataReviewController(
         [FromQuery] string status = "pending",
         [FromQuery] int skip = 0,
         [FromQuery] int take = 20,
+        [FromQuery] Guid? focus = null,
         CancellationToken cancellationToken = default)
     {
         if (!TryParseQueueStatus(status, out var parsedStatus))
@@ -34,6 +35,7 @@ internal sealed class MetadataReviewController(
             parsedStatus,
             skip,
             take,
+            focus,
             cancellationToken);
         return Ok(ToExternal(page));
     }

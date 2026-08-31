@@ -17,6 +17,7 @@ internal sealed class TodosController(ITodoRepository todoRepository) : Controll
         [FromQuery] bool includeSnoozed = false,
         [FromQuery] int skip = 0,
         [FromQuery] int take = 50,
+        [FromQuery] string? focus = null,
         CancellationToken cancellationToken = default)
     {
         if (skip < 0 || take is < 1 or > 200)
@@ -24,6 +25,8 @@ internal sealed class TodosController(ITodoRepository todoRepository) : Controll
             {
                 message = "skip must be non-negative and take must be between 1 and 200."
             });
+        if (focus is not null && !IsValidKey(focus))
+            return BadRequest(new { message = "focus must be a valid todo resource key." });
 
         var page = await todoRepository.GetAsync(
             includeRead,
@@ -31,6 +34,7 @@ internal sealed class TodosController(ITodoRepository todoRepository) : Controll
             DateTimeOffset.UtcNow,
             skip,
             take,
+            focus,
             cancellationToken);
         return Ok(new TodoListResponse(
             page.Items.Select(item => new TodoItemResponse(

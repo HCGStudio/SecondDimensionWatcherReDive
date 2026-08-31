@@ -132,17 +132,25 @@ internal class AnimationInfoController(
         return Ok();
     }
 
-    private Task PublishDownloadFailureAsync(
+    private async Task PublishDownloadFailureAsync(
         Framework.DataRepository.AnimationInfo info,
         Guid downloadAttemptId,
-        CancellationToken cancellationToken) =>
-        notificationPublisher?.PublishAsync(new NotificationEvent(
+        CancellationToken cancellationToken)
+    {
+        if (notificationPublisher is null)
+            return;
+        var current = await animationInfoRepository.FindByIdAsync(
+            info.Id,
+            cancellationToken);
+        if (current is null || current.IsDownloadTracked || current.IsDownloadFinished)
+            return;
+        await notificationPublisher.PublishAsync(new NotificationEvent(
             NotificationEventType.DownloadFailed,
             $"download-failed:{info.Id}:{downloadAttemptId}",
             "Download failed to start",
             info.Title,
-            info.Animation is null ? "/" : $"/anime/{info.Animation.TmdbId}"), cancellationToken)
-        ?? Task.CompletedTask;
+            info.Animation is null ? "/" : $"/anime/{info.Animation.TmdbId}"), cancellationToken);
+    }
 
     [HttpPost("pause/{id:guid}")]
     public async Task<IActionResult> PauseDownload([FromRoute] Guid id, CancellationToken cancellationToken)
@@ -286,7 +294,10 @@ internal class AnimationInfoController(
         await animationInfoRepository.TryCancelDownloadAsync(
             info.Id,
             downloadAttemptId,
-            terminalDisposition: null,
+            terminalDisposition: info.AutomationDisposition ==
+                SubscriptionAutomationDisposition.AutoDownloadFailed
+                    ? SubscriptionAutomationDisposition.AutoDownloadFailed
+                    : null,
             cleanup.Token);
     }
 

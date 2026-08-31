@@ -13,24 +13,36 @@ namespace SecondDimensionWatcherReDive.Controllers;
 internal sealed class NotificationsController(
     INotificationPublisher publisher,
     INotificationOutboxRepository outboxRepository,
-    IConfiguration configuration) : ControllerBase
+    IConfiguration configuration,
+    IWebPushSubscriptionRepository? webPushSubscriptions = null) : ControllerBase
 {
     [HttpPost("test")]
     public async Task<ActionResult<TestNotificationResponse>> SendTestAsync(
         CancellationToken cancellationToken)
     {
-        if (!configuration.GetValue<bool>("Notifications:Webhook:Enabled")
-            || string.IsNullOrWhiteSpace(configuration["Notifications:Webhook:Url"]))
-            return Conflict(new { message = "Enable and configure the webhook channel first." });
+        var webhookReady = configuration.GetValue<bool>("Notifications:Webhook:Enabled")
+                           && !string.IsNullOrWhiteSpace(
+                               configuration["Notifications:Webhook:Url"]);
+        var webPushReady = configuration.GetValue<bool>("Notifications:WebPush:Enabled")
+                           && webPushSubscriptions is not null
+                           && !string.IsNullOrWhiteSpace(
+                               configuration["Notifications:WebPush:VapidPublicKey"])
+                           && (await webPushSubscriptions.GetAllAsync(cancellationToken)).Count > 0;
+        if (!webhookReady && !webPushReady)
+            return Conflict(new { message = "Enable and configure at least one notification destination first." });
 
         var id = Guid.NewGuid();
-        await publisher.PublishAsync(new NotificationEvent(
+        var enqueued = await publisher.PublishAsync(new NotificationEvent(
             NotificationEventType.Test,
             $"test:{id}",
             "SecondDimensionWatcher Re:Dive test",
-            "Your webhook notification channel is configured correctly.",
+            "Your notification channel is configured correctly.",
             "/settings?section=notifications",
             Id: id), cancellationToken);
+        if (!enqueued)
+            return StatusCode(
+                StatusCodes.Status503ServiceUnavailable,
+                new { message = "The test notification could not be persisted." });
         return Accepted(new TestNotificationResponse(id));
     }
 
@@ -43,6 +55,8 @@ internal sealed class NotificationsController(
         var items = await outboxRepository.GetRecentAsync(take, cancellationToken);
         return Ok(items.Select(item => new NotificationDeliveryItem(
             item.Id,
+            item.EventId,
+            item.Channel.ToString(),
             ToJsonName(item.Type),
             item.Status.ToString(),
             item.AttemptCount,

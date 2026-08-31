@@ -149,6 +149,7 @@ export const IncidentsPage: React.FC = () => {
     ? (requestedType as IncidentType)
     : null;
   const focus = searchParams.get("focus");
+  const focusedIdRef = React.useRef<string | null>(null);
   const [type, setType] = React.useState<IncidentType | null>(initialType);
   const [includeResolved, setIncludeResolved] = React.useState(false);
   const [page, setPage] = React.useState(0);
@@ -159,6 +160,7 @@ export const IncidentsPage: React.FC = () => {
     includeResolved,
     skip: page * 50,
     take: 50,
+    focus,
   });
 
   React.useEffect(() => {
@@ -170,11 +172,18 @@ export const IncidentsPage: React.FC = () => {
   }, [initialType]);
 
   React.useEffect(() => {
-    if (!focus || !data) return;
-    document.getElementById(`incident-${focus}`)?.scrollIntoView({
+    if (!focus) {
+      focusedIdRef.current = null;
+      return;
+    }
+    if (!data || focusedIdRef.current === focus) return;
+    const target = document.getElementById(`incident-${focus}`);
+    target?.scrollIntoView({
       behavior: "smooth",
       block: "center",
     });
+    target?.focus({ preventScroll: true });
+    if (target) focusedIdRef.current = focus;
   }, [data, focus]);
 
   const selectType = React.useCallback(

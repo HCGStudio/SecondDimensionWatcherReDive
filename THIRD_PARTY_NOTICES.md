@@ -39,6 +39,7 @@ direct dependencies listed here.
 | Npgsql.EntityFrameworkCore.PostgreSQL | PostgreSQL License | https://github.com/npgsql/efcore.pg |
 | Swashbuckle.AspNetCore | MIT | https://github.com/domaindrivendev/Swashbuckle.AspNetCore |
 | TMDbLib | MIT | https://github.com/LordMike/TMDbLib |
+| WebPush | MIT | https://github.com/web-push-libs/web-push-csharp |
 
 The PostgreSQL License (used by Npgsql) is a permissive license functionally
 equivalent to the MIT/BSD family; full text:

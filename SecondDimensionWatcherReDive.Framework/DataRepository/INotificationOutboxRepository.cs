@@ -10,9 +10,18 @@ public enum NotificationDeliveryStatus
     Failed
 }
 
+public enum NotificationChannel
+{
+    Webhook,
+    WebPush
+}
+
 public sealed record NotificationOutboxMessage(
     Guid Id,
+    Guid EventId,
     string DeduplicationKey,
+    NotificationChannel Channel,
+    Guid? WebPushSubscriptionId,
     NotificationEventType Type,
     string Title,
     string Body,
@@ -33,26 +42,28 @@ public interface INotificationOutboxRepository
         CancellationToken cancellationToken);
 
     Task<IReadOnlyList<NotificationOutboxMessage>> ClaimDueAsync(
-        DateTimeOffset now,
-        DateTimeOffset leaseUntil,
+        TimeSpan leaseDuration,
         int take,
         CancellationToken cancellationToken);
 
-    Task MarkDeliveredAsync(
+    Task<bool> MarkDeliveredAsync(
         Guid id,
+        DateTimeOffset expectedLeaseUntil,
         DateTimeOffset deliveredAt,
         CancellationToken cancellationToken);
 
-    Task MarkFailedAsync(
+    Task<bool> MarkFailedAsync(
         Guid id,
+        DateTimeOffset expectedLeaseUntil,
         int attemptCount,
         DateTimeOffset attemptedAt,
         DateTimeOffset? nextAttemptAt,
         string error,
         CancellationToken cancellationToken);
 
-    Task RescheduleAsync(
+    Task<bool> RescheduleAsync(
         Guid id,
+        DateTimeOffset expectedLeaseUntil,
         DateTimeOffset nextAttemptAt,
         CancellationToken cancellationToken);
 

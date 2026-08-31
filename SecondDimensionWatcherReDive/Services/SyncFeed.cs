@@ -227,12 +227,22 @@ internal partial class SyncFeed(
                         cancellationToken);
                     if (!started && notificationPublisher is not null)
                     {
-                        await notificationPublisher.PublishAsync(new NotificationEvent(
-                            NotificationEventType.DownloadFailed,
-                            $"auto-download-failed:{info.Id}",
-                            "Automatic download failed",
-                            info.Title,
-                            $"/todo?focus=automation:{info.Id}"), cancellationToken);
+                        // A failed compensation can leave the remote attempt
+                        // durably tracked for startup recovery. Only announce a
+                        // terminal failure once the database confirms that state.
+                        var failed = await animationInfoRepository.FindByIdAsync(
+                            info.Id,
+                            cancellationToken);
+                        if (failed?.AutomationDisposition ==
+                            SubscriptionAutomationDisposition.AutoDownloadFailed)
+                        {
+                            await notificationPublisher.PublishAsync(new NotificationEvent(
+                                NotificationEventType.DownloadFailed,
+                                $"auto-download-failed:{info.Id}",
+                                "Automatic download failed",
+                                info.Title,
+                                $"/todo?focus=automation:{info.Id}"), cancellationToken);
+                        }
                     }
                 }
             }

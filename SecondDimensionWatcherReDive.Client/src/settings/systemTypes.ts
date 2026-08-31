@@ -104,6 +104,10 @@ export type NotificationEventType =
 
 export interface NotificationSettings {
   webhookEnabled: boolean;
+  webPushEnabled: boolean;
+  webPushSubject: string;
+  vapidPublicKey: string;
+  vapidPrivateKey: SecretState;
   events: NotificationEventType[];
   quietHoursStart: string | null;
   quietHoursEnd: string | null;
@@ -168,9 +172,10 @@ export type NfsSettingsPatch = Omit<
 
 export interface NotificationSettingsPatch extends Omit<
   NotificationSettings,
-  "webhookUrl"
+  "webhookUrl" | "vapidPublicKey" | "vapidPrivateKey"
 > {
   webhookUrl?: SecretMutation | null;
+  generateVapidKeys?: boolean;
 }
 
 export interface SystemSettingsPatch {

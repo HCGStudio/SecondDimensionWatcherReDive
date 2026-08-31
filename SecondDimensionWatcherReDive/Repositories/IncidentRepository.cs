@@ -76,6 +76,8 @@ public sealed class IncidentRepository(Models.ApplicationContext context) : IInc
         }
         else
         {
+            if (entity.ResolvedAt is not null)
+                await RemoveTodoStateAsync(entity, cancellationToken);
             ApplyReport(entity, incident);
         }
 
@@ -92,6 +94,8 @@ public sealed class IncidentRepository(Models.ApplicationContext context) : IInc
             context.Entry(entity).State = EntityState.Detached;
             entity = await context.Incidents
                 .FirstAsync(candidate => candidate.Fingerprint == incident.Fingerprint, cancellationToken);
+            if (entity.ResolvedAt is not null)
+                await RemoveTodoStateAsync(entity, cancellationToken);
             ApplyReport(entity, incident);
             await context.SaveChangesAsync(cancellationToken);
         }
@@ -109,6 +113,7 @@ public sealed class IncidentRepository(Models.ApplicationContext context) : IInc
 
         if (entity.ResolvedAt is null)
         {
+            await RemoveTodoStateAsync(entity, cancellationToken);
             entity.ResolvedAt = resolvedAt;
             entity.UpdatedAt = resolvedAt;
             entity.LastRetryError = null;
@@ -118,6 +123,18 @@ public sealed class IncidentRepository(Models.ApplicationContext context) : IInc
         return ToRecord(entity);
     }
 
+    private async Task RemoveTodoStateAsync(
+        IncidentEntity incident,
+        CancellationToken cancellationToken)
+    {
+        var key = incident.Occurrence <= 1
+            ? "incident:" + incident.Id
+            : $"incident:{incident.Id}:{incident.Occurrence}";
+        var state = await context.TodoItemStates.FindAsync([key], cancellationToken);
+        if (state is not null)
+            context.TodoItemStates.Remove(state);
+    }
+
     public async Task<Incident?> RecordRetryAsync(
         Guid id,
         DateTimeOffset retriedAt,
@@ -125,6 +142,13 @@ public sealed class IncidentRepository(Models.ApplicationContext context) : IInc
         bool resolve,
         CancellationToken cancellationToken)
     {
+        var occurrence = resolve
+            ? await context.Incidents
+                .AsNoTracking()
+                .Where(incident => incident.Id == id)
+                .Select(incident => (int?)incident.Occurrence)
+                .SingleOrDefaultAsync(cancellationToken)
+            : null;
         var affected = resolve
             ? await context.Incidents
                 .Where(incident => incident.Id == id)
@@ -144,6 +168,15 @@ public sealed class IncidentRepository(Models.ApplicationContext context) : IInc
                         .SetProperty(incident => incident.UpdatedAt, retriedAt),
                     cancellationToken);
         if (affected == 0) return null;
+        if (resolve && occurrence.HasValue)
+        {
+            var key = occurrence.Value <= 1
+                ? "incident:" + id
+                : $"incident:{id}:{occurrence.Value}";
+            await context.TodoItemStates
+                .Where(state => state.Key == key)
+                .ExecuteDeleteAsync(cancellationToken);
+        }
         var entity = await context.Incidents
             .AsNoTracking()
             .FirstAsync(incident => incident.Id == id, cancellationToken);

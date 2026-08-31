@@ -171,7 +171,7 @@
       "title": "通知",
       "description": "ダウンロード、推論、障害処理を妨げずに選択したイベントを配信します。",
       "saved": "通知設定を保存しました",
-      "validationFailed": "Webhook、1 件以上のイベント、有効な静穏時間を設定してください",
+      "validationFailed": "通知チャネル、1 件以上のイベント、有効な静穏時間を設定してください",
       "testQueued": "テスト通知をキューに追加しました",
       "testFailed": "テスト通知を追加できませんでした",
       "webhook": {
@@ -183,6 +183,24 @@
         "secretHelp": "完全な URL は暗号化保存され、ブラウザーやログには返されません。",
         "test": "テストを送信",
         "testing": "キューに追加中…"
+      },
+      "webPush": {
+        "title": "ブラウザー Web Push",
+        "description": "安全なオリジンで明示的に購読したブラウザーへ暗号化通知を送信します。",
+        "enabled": "Web Push 配信を有効化",
+        "enabledHelp": "ブラウザーごとに独立して永続的に再試行し、能力 URL を公開せずに取り消せます。",
+        "subject": "VAPID 連絡先（mailto: または HTTPS URL）",
+        "keysConfigured": "VAPID 秘密鍵は暗号化保存され、公開鍵はブラウザー購読にのみ使用されます。",
+        "keysGeneratedOnSave": "保存時にサーバーで VAPID 鍵ペアを生成し、秘密鍵を暗号化します。",
+        "enableDevice": "このデバイスで有効化",
+        "disableDevice": "このデバイスで無効化",
+        "unsupported": "Web Push には対応ブラウザーと安全な HTTPS または localhost オリジンが必要です。",
+        "deviceEnabled": "このデバイスで Web Push を有効にしました",
+        "deviceDisabled": "このデバイスで Web Push を無効にしました",
+        "deviceFailed": "Web Push 購読を更新できませんでした",
+        "subscriptionActive": "有効な購読",
+        "subscriptionRevoked": "Web Push 購読を取り消しました",
+        "revokeSubscription": "購読を取り消す"
       },
       "events": {
         "title": "イベント購読",
@@ -209,6 +227,10 @@
         "title": "最近の配信記録",
         "description": "送信先を表示せず、待機、成功、再試行、失敗を確認できます。",
         "empty": "配信記録はまだありません。",
+        "channel": {
+          "Webhook": "Webhook",
+          "WebPush": "Web Push"
+        },
         "status": {
           "Pending": "待機中",
           "Processing": "配信中",

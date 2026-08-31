@@ -50,6 +50,11 @@ namespace SecondDimensionWatcherReDive.Migrations
                 });
 
             migrationBuilder.CreateIndex(
+                name: "IX_AnimationInfo_AutomationDisposition_PublishTime",
+                table: "AnimationInfo",
+                columns: new[] { "AutomationDisposition", "PublishTime" });
+
+            migrationBuilder.CreateIndex(
                 name: "IX_NotificationOutboxMessages_DeduplicationKey",
                 table: "NotificationOutboxMessages",
                 column: "DeduplicationKey",
@@ -64,6 +69,10 @@ namespace SecondDimensionWatcherReDive.Migrations
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
+            migrationBuilder.DropIndex(
+                name: "IX_AnimationInfo_AutomationDisposition_PublishTime",
+                table: "AnimationInfo");
+
             migrationBuilder.DropTable(
                 name: "NotificationOutboxMessages");
 

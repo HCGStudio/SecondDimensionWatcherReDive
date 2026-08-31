@@ -343,14 +343,61 @@ builder.Services.AddHttpClient("SafeFeed", client =>
     };
 });
 
-builder.Services.AddHttpClient("NotificationWebhook")
+builder.Services.AddHttpClient("NotificationWebhook", (serviceProvider, client) =>
+    {
+        var options = serviceProvider
+            .GetRequiredService<IOptions<OutboundHttpOptions>>()
+            .Value;
+        // Keep a delivery attempt comfortably inside the outbox lease. DNS and
+        // connect deadlines are also enforced by the pinned connection factory.
+        client.Timeout = TimeSpan.FromSeconds(Math.Min(options.TotalTimeoutSeconds, 90));
+    })
     // The destination URL can contain a token. Disable the factory's default
     // request logger because it includes the complete request URI.
     .RemoveAllLoggers()
-    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+    .ConfigurePrimaryHttpMessageHandler(serviceProvider =>
     {
-        // A redirect must not forward a secret-bearing webhook URL to another origin.
-        AllowAutoRedirect = false
+        var connectionFactory = serviceProvider.GetRequiredService<OutboundConnectionFactory>();
+        var options = serviceProvider.GetRequiredService<IOptions<OutboundHttpOptions>>().Value;
+        return new SocketsHttpHandler
+        {
+            // A redirect must not forward a secret-bearing webhook URL to another origin.
+            AllowAutoRedirect = false,
+            ConnectTimeout = TimeSpan.FromSeconds(options.ConnectTimeoutSeconds),
+            MaxConnectionsPerServer = options.MaxConcurrentRequests,
+            PooledConnectionLifetime = TimeSpan.FromMinutes(5),
+            // Do not let an ambient proxy bypass destination validation.
+            UseProxy = false,
+            ConnectCallback = (context, cancellationToken) =>
+                connectionFactory.ConnectAsync(context.DnsEndPoint, cancellationToken)
+        };
+    });
+
+builder.Services.AddHttpClient("WebPush", (serviceProvider, client) =>
+    {
+        var options = serviceProvider
+            .GetRequiredService<IOptions<OutboundHttpOptions>>()
+            .Value;
+        client.Timeout = TimeSpan.FromSeconds(Math.Min(options.TotalTimeoutSeconds, 90));
+    })
+    // A browser push endpoint is a bearer capability. Never emit its path or
+    // query through the HttpClient factory's request logger.
+    .RemoveAllLoggers()
+    .ConfigurePrimaryHttpMessageHandler(serviceProvider =>
+    {
+        var connectionFactory = serviceProvider.GetRequiredService<OutboundConnectionFactory>();
+        var options = serviceProvider.GetRequiredService<IOptions<OutboundHttpOptions>>().Value;
+        return new SocketsHttpHandler
+        {
+            AllowAutoRedirect = false,
+            AutomaticDecompression = DecompressionMethods.None,
+            ConnectTimeout = TimeSpan.FromSeconds(options.ConnectTimeoutSeconds),
+            MaxConnectionsPerServer = options.MaxConcurrentRequests,
+            PooledConnectionLifetime = TimeSpan.FromMinutes(5),
+            UseProxy = false,
+            ConnectCallback = (context, cancellationToken) =>
+                connectionFactory.ConnectAsync(context.DnsEndPoint, cancellationToken)
+        };
     });
 
 var contentTypeProvider = new FileExtensionContentTypeProvider();
@@ -433,6 +480,7 @@ builder.Services.AddScoped<IPlaybackRepository, PlaybackRepository>();
 builder.Services.AddScoped<IIncidentRepository, IncidentRepository>();
 builder.Services.AddScoped<IMediaLibrarySourceRepository, MediaLibrarySourceRepository>();
 builder.Services.AddScoped<INotificationOutboxRepository, NotificationOutboxRepository>();
+builder.Services.AddScoped<IWebPushSubscriptionRepository, WebPushSubscriptionRepository>();
 builder.Services.AddScoped<ITodoRepository, TodoRepository>();
 builder.Services.AddScoped<IAuthenticationStateRepository, AuthenticationStateRepository>();
 builder.Services.AddScoped<AuthenticationStateInitializer>();

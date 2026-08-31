@@ -42,6 +42,7 @@ public interface ITodoRepository
         DateTimeOffset now,
         int skip,
         int take,
+        string? focusKey,
         CancellationToken cancellationToken);
 
     Task SetStateAsync(

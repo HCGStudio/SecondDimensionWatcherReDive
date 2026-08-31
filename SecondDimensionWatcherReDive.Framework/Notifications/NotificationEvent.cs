@@ -35,7 +35,7 @@ public sealed record NotificationEvent(
 
 public interface INotificationPublisher
 {
-    Task PublishAsync(
+    Task<bool> PublishAsync(
         NotificationEvent notificationEvent,
         CancellationToken cancellationToken);
 }

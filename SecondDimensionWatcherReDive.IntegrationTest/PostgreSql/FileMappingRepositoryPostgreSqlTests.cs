@@ -109,5 +109,4 @@ public sealed class FileMappingRepositoryPostgreSqlTests
 
     private static FileMapping Mapping(Guid animationInfoId, string virtualPath) =>
         new(Guid.NewGuid(), animationInfoId, virtualPath, "/physical/" + Guid.NewGuid(), "local");
-
 }
