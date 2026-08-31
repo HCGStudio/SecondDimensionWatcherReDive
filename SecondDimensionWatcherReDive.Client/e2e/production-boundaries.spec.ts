@@ -162,7 +162,9 @@ test.describe("production boundary journeys", () => {
       page.getByRole("heading", { name: "Metadata review center" }),
     ).toBeVisible();
     await page.getByRole("tab", { name: /^Failed/ }).click();
-    await expect(page.getByText("Failed identifications")).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Failed identifications" }),
+    ).toBeVisible();
 
     await page.goto("/incidents");
     await expect(
