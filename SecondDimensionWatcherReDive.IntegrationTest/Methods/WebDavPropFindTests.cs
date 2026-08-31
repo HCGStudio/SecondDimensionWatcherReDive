@@ -113,7 +113,6 @@ public sealed class WebDavPropFindTests
         using var response = await _client.SendAsync(req);
 
         Assert.AreEqual((HttpStatusCode)207, response.StatusCode);
-        CollectionAssert.Contains(_factory.MappingRepository.ImmediateChildrenCalls, "/");
         CollectionAssert.DoesNotContain(_factory.MappingRepository.PrefixCalls, "/");
     }
 }

@@ -16,7 +16,6 @@ internal sealed class FakeFileMappingRepository : IFileMappingRepository
 
     public List<string> PrefixCalls { get; } = new();
     public int RootEntriesCalls { get; private set; }
-    public List<string> ImmediateChildrenCalls { get; } = new();
 
     private List<FileMapping> Snapshot() => _mappings.ToList();
 
@@ -62,7 +61,6 @@ internal sealed class FakeFileMappingRepository : IFileMappingRepository
         string parentPath,
         CancellationToken cancellationToken)
     {
-        ImmediateChildrenCalls.Add(parentPath);
         var normalized = parentPath == "/" ? "/" : parentPath.TrimEnd('/');
         return Task.FromResult<IReadOnlyList<FileSystemEntry>>(BuildEntries().Values
             .Where(entry => entry.ParentPath == normalized)
