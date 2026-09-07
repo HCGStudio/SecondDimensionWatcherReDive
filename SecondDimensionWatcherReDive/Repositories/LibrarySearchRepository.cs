@@ -424,13 +424,20 @@ public sealed class LibrarySearchRepository(
         var candidates = (await upgradeRepository.GetIntegrityCandidatesAsync(tmdbId, season, cancellationToken))
             .ToLookup(candidate => candidate.CurrentReleaseId);
 
-        var summaries = new List<LibraryIntegritySummary>();
-        foreach (var group in releases.Where(info => info.Season is > 0)
-                     .GroupBy(info => new { info.TmdbId, info.AnimationName, Season = info.Season!.Value }))
+        var groups = releases.Where(info => info.Season is > 0)
+            .GroupBy(info => new { info.TmdbId, info.AnimationName, Season = info.Season!.Value })
+            .ToList();
+        var summaries = new LibraryIntegritySummary[groups.Count];
+        await Parallel.ForEachAsync(Enumerable.Range(0, groups.Count), new ParallelOptions
         {
-            var calendar = await airCalendar.GetAsync(group.Key.TmdbId, group.Key.Season, cancellationToken);
-            summaries.Add(BuildIntegrity(group, mappedIds, candidates, calendar));
-        }
+            MaxDegreeOfParallelism = 4,
+            CancellationToken = cancellationToken
+        }, async (index, token) =>
+        {
+            var group = groups[index];
+            var calendar = await airCalendar.GetAsync(group.Key.TmdbId, group.Key.Season, token);
+            summaries[index] = BuildIntegrity(group, mappedIds, candidates, calendar);
+        });
         return summaries.OrderBy(item => item.AnimationName).ThenBy(item => item.Season).ToList();
     }
 
