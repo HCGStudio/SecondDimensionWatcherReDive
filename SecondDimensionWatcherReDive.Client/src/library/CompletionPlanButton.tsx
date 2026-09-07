@@ -117,46 +117,48 @@ export const CompletionPlanButton: React.FC<{
   const submit = async (onlyEpisode?: number) => {
     setBusy(true);
     setFailure(false);
+    const selections = Object.entries(selected)
+      .filter(
+        ([episode, id]) =>
+          id && (onlyEpisode == null || Number(episode) === onlyEpisode),
+      )
+      .map(([episode, releaseId]) => ({ episode: Number(episode), releaseId }));
     try {
-      const response = await fetcher<Result[]>("/api/library/completion", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          tmdbId,
-          season,
-          selections: Object.entries(selected)
-            .filter(
-              ([episode, id]) =>
-                id && (onlyEpisode == null || Number(episode) === onlyEpisode),
-            )
-            .map(([episode, releaseId]) => ({
-              episode: Number(episode),
-              releaseId,
-            })),
-        }),
-      });
-      setResults((old) => [
-        ...old.filter((x) => !response.some((y) => y.episode === x.episode)),
-        ...response,
-      ]);
-      setSelected((old) =>
-        Object.fromEntries(
-          Object.entries(old).map(([episode, releaseId]) => [
-            episode,
-            response.some(
-              (result) =>
-                result.episode === Number(episode) && result.isSuccess,
-            )
-              ? ""
-              : releaseId,
-          ]),
-        ),
-      );
-      // Submission results remain authoritative if refreshing the plan fails.
-      await mutate().catch(() => undefined);
+      // The API accepts at most 100 selections. Keep accepted earlier batches
+      // visible and leave failed/unsubmitted selections available for retry.
+      for (let offset = 0; offset < selections.length; offset += 100) {
+        const response = await fetcher<Result[]>("/api/library/completion", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            tmdbId,
+            season,
+            selections: selections.slice(offset, offset + 100),
+          }),
+        });
+        setResults((old) => [
+          ...old.filter((x) => !response.some((y) => y.episode === x.episode)),
+          ...response,
+        ]);
+        setSelected((old) =>
+          Object.fromEntries(
+            Object.entries(old).map(([episode, releaseId]) => [
+              episode,
+              response.some(
+                (result) =>
+                  result.episode === Number(episode) && result.isSuccess,
+              )
+                ? ""
+                : releaseId,
+            ]),
+          ),
+        );
+      }
     } catch {
       setFailure(true);
     } finally {
+      // Submission results remain authoritative if refreshing the plan fails.
+      await mutate().catch(() => undefined);
       setBusy(false);
     }
   };

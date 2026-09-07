@@ -115,18 +115,19 @@ public sealed partial class InferenceEngine(
 
     public Task<InferenceResult?> InferAsync(string title, string description,
         CancellationToken cancellationToken) =>
-        InferWithTargetAsync(title, description, null, cancellationToken);
+        InferWithTargetAsync(title, description, null, null, cancellationToken);
 
     public Task<InferenceResult?> InferForTmdbAsync(string title, string description, string tmdbId,
-        CancellationToken cancellationToken)
+        int? targetSeason, CancellationToken cancellationToken)
     {
         if (!int.TryParse(tmdbId, out var id) || id <= 0)
             throw new ArgumentException("TMDB ID must be a positive integer.", nameof(tmdbId));
-        return InferWithTargetAsync(title, description, tmdbId, cancellationToken);
+        if (targetSeason is < 0) throw new ArgumentOutOfRangeException(nameof(targetSeason));
+        return InferWithTargetAsync(title, description, tmdbId, targetSeason, cancellationToken);
     }
 
     private async Task<InferenceResult?> InferWithTargetAsync(string title, string description,
-        string? tmdbId, CancellationToken cancellationToken)
+        string? tmdbId, int? targetSeason, CancellationToken cancellationToken)
     {
         LogStartingInference(logger, title);
 
@@ -142,7 +143,7 @@ public sealed partial class InferenceEngine(
                 await Task.Delay(delay, cancellationToken);
             }
 
-            var result = await InferCoreAsync(title, description, tmdbId, cancellationToken);
+            var result = await InferCoreAsync(title, description, tmdbId, targetSeason, cancellationToken);
             _lastCallTime = DateTime.UtcNow;
 
             if (result != null)
@@ -207,7 +208,7 @@ public sealed partial class InferenceEngine(
     }
 
     private async Task<InferenceResult?> InferCoreAsync(
-        string title, string description, string? tmdbId, CancellationToken cancellationToken)
+        string title, string description, string? tmdbId, int? targetSeason, CancellationToken cancellationToken)
     {
         var systemPrompt = tmdbId is null ? SystemPrompt : SystemPrompt + $"""
 
@@ -217,6 +218,16 @@ public sealed partial class InferenceEngine(
             If needed, call get_tmdb_season_episodes with this same ID. The output tmdb_id must
             be "{tmdbId}". Return null coordinates with low confidence if mapping is uncertain.
             """;
+        if (targetSeason is { } season)
+            systemPrompt += $"""
+
+                The user also fixed the target TMDB season to {season}. This is an authoritative
+                destination, not a raw title season label. Call get_tmdb_season_episodes for this
+                season of TMDB {tmdbId}, and map the original title's numbering into that season.
+                Always return season={season}. If the episode cannot be mapped unambiguously into
+                this season, return episode=null and low confidence; never copy an incompatible
+                absolute episode number or switch to another season.
+                """;
         var messages = new List<IMessage>
         {
             new SystemMessage(systemPrompt),
@@ -254,6 +265,8 @@ public sealed partial class InferenceEngine(
         var result = ParseInferenceResult(fullText.Length > 0 ? fullText.ToString() : null);
         if (tmdbId is not null && result is not null && result.TmdbId != tmdbId)
             throw new InvalidOperationException("Inference returned coordinates for a different TMDB series.");
+        if (targetSeason is not null && result is not null && result.Season != targetSeason)
+            throw new InvalidOperationException("Inference returned coordinates outside the rule's target season.");
         return result;
     }
 

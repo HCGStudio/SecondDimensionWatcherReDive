@@ -45,7 +45,7 @@ export const TimelineControls: React.FC<{
   playerRef: React.RefObject<Artplayer | null>;
   autoSkip: boolean;
   onAutoSkipChange: (enabled: boolean) => void;
-  onSkipEnding: () => void;
+  onSkipEnding: (targetSeconds: number) => void;
   endingProgressGuardRef: React.RefObject<EndingProgressGuard | null>;
 }> = ({
   animationInfoId,
@@ -107,8 +107,9 @@ export const TimelineControls: React.FC<{
         point.endSeconds <= art.currentTime
       )
         return;
-      if (point.kind === "ending") skipEndingRef.current();
-      art.currentTime = Math.min(point.endSeconds, art.duration);
+      const targetSeconds = Math.min(point.endSeconds, art.duration);
+      if (point.kind === "ending") skipEndingRef.current(targetSeconds);
+      art.currentTime = targetSeconds;
     },
     [playerRef],
   );
