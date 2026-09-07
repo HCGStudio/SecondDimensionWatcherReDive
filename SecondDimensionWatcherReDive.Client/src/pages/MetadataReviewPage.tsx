@@ -338,13 +338,15 @@ const RecentOperations: React.FC<RecentOperationsProps> = ({
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => onCreateRule(operation.itemId)}
-                  >
-                    {t("rules.fromCorrection")}
-                  </Button>
+                  {operation.canUndo && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => onCreateRule(operation.itemId)}
+                    >
+                      {t("rules.fromCorrection")}
+                    </Button>
+                  )}
                   <Button
                     variant="outline"
                     size="sm"
