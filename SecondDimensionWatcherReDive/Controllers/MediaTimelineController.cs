@@ -85,8 +85,8 @@ internal sealed class MediaTimelineController(IMediaTimelineRepository repositor
         if (mapping is null || mapping.AnimationInfoId != id || !MediaFileTypes.IsVideo(virtualPath)) return null;
         FileStoreInfo metadata;
         try { metadata = await stores.GetRequiredClient(mapping.FileStore).FileInfoAsync(mapping.PhysicalPath, cancellationToken); }
-        catch (FileNotFoundException) { return null; }
-        if (metadata.IsDirectory) return null;
+        catch (IOException ex) when (ex is FileNotFoundException or DirectoryNotFoundException) { return null; }
+        if (metadata.IsDirectory || !metadata.Length.HasValue || !metadata.LastModifiedUtc.HasValue) return null;
         var version = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
             $"{mapping.Id}\0{mapping.AnimationInfoId}\0{mapping.VirtualPath}\0{mapping.FileStore}\0{mapping.PhysicalPath}\0{metadata.Length}\0{metadata.LastModifiedUtc:O}")));
         var seasonKey = info.Animation is not null && info.Group is not null && info.Season.HasValue

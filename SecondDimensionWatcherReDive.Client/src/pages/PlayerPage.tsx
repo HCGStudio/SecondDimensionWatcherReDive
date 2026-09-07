@@ -33,7 +33,10 @@ import { Button } from "../components/ui/Button";
 import { EmptyPrompt } from "../components/ui/EmptyPrompt";
 import { Spinner } from "../components/ui/Spinner";
 import { generatePlaybackLink } from "../file/utils";
-import { TimelineControls } from "../playback/TimelineControls";
+import {
+  type EndingProgressGuard,
+  TimelineControls,
+} from "../playback/TimelineControls";
 import {
   savePlaybackPreferences,
   savePlaybackProgress,
@@ -289,6 +292,7 @@ export const PlayerPage: React.FC = () => {
   const preferencesRef = React.useRef(playbackContext?.preferences);
   const lastSyncedTimeRef = React.useRef(-1);
   const skippedEndingRef = React.useRef(false);
+  const endingProgressGuardRef = React.useRef<EndingProgressGuard | null>(null);
   const initialSeekAppliedRef = React.useRef(false);
   const subtitleSelectionInitializedRef = React.useRef(false);
   const audioSelectionInitializedRef = React.useRef(false);
@@ -720,7 +724,16 @@ export const PlayerPage: React.FC = () => {
         path: context.media.path,
         positionSeconds,
         durationSeconds,
-        suppressWatched: skippedEndingRef.current,
+        suppressWatched:
+          skippedEndingRef.current ||
+          Boolean(
+            endingProgressGuardRef.current?.(
+              context.media.animationInfoId,
+              context.media.path,
+              positionSeconds,
+              durationSeconds,
+            ),
+          ),
       };
       const mediaKey = `${context.media.animationInfoId}\u0000${context.media.path}`;
       if (keepalive) {
@@ -1272,6 +1285,7 @@ export const PlayerPage: React.FC = () => {
             animationInfoId={playbackContext.media.animationInfoId}
             path={playbackContext.media.path}
             playerRef={artRef}
+            endingProgressGuardRef={endingProgressGuardRef}
             autoSkip={preferences?.autoSkip ?? false}
             onAutoSkipChange={(enabled) =>
               void updatePreferences({ autoSkip: enabled })
