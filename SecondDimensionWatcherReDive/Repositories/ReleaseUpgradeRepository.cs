@@ -742,9 +742,24 @@ public sealed partial class ReleaseUpgradeRepository(
                 return new ReleaseUpgradeMutationResult(false, "download_cancelling", operation.ToRecord());
             if (!AreSameEpisode(writeContext, current, candidate) ||
                 !current.IsActiveRelease ||
-                candidate.IsActiveRelease ||
-                candidate.ReleaseScore <= current.ReleaseScore)
+                candidate.IsActiveRelease)
                 return new ReleaseUpgradeMutationResult(false, "release_changed", operation.ToRecord());
+
+            var policyEntity = candidate.SourceFeedId is { } feedId
+                ? await writeContext.SubscriptionAutomationPolicies.AsNoTracking()
+                    .SingleOrDefaultAsync(policy => policy.FeedId == feedId, cancellationToken)
+                : null;
+            var policy = policyEntity?.ToRecord();
+            var currentScore = releaseScoringService.Score(new SubscriptionReleaseMetadata(
+                current.ReleaseSubtitleGroup, current.ReleaseResolution, current.ReleaseCodec,
+                current.ReleaseLanguages, current.ReleaseSizeBytes), policy);
+            var candidateScore = releaseScoringService.Score(new SubscriptionReleaseMetadata(
+                candidate.ReleaseSubtitleGroup, candidate.ReleaseResolution, candidate.ReleaseCodec,
+                candidate.ReleaseLanguages, candidate.ReleaseSizeBytes), policy);
+            if (candidateScore.Value <= currentScore.Value)
+                return new ReleaseUpgradeMutationResult(false, "release_changed", operation.ToRecord());
+            operation.CurrentScore = currentScore.Value;
+            operation.CandidateScore = candidateScore.Value;
 
             var previous = await writeContext.FileMappings
                 .Where(mapping => mapping.AnimationInfoId == current.Id)
