@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Framework.FileDownload;
+using SecondDimensionWatcherReDive.Utils.MetadataReview;
 
 namespace SecondDimensionWatcherReDive.Repositories;
 
@@ -1592,21 +1593,28 @@ public class AnimationInfoRepository(
                 cancellationToken);
             if (entity is null || entity.StateVersion != expectedStateVersion)
                 return false;
-            if (info.RecognitionRule is { } recognitionRule)
+            if (info.RevalidateRecognitionRules || info.RecognitionRule is not null)
             {
-                // A shared row lock makes disabling/editing and applying a rule ordered operations.
-                var currentRule = await writeContext.Set<Models.MetadataRecognitionRule>()
-                    .FromSqlInterpolated($"SELECT * FROM \"MetadataRecognitionRules\" WHERE \"Id\" = {recognitionRule.Id} FOR SHARE")
-                    .AsNoTracking().SingleOrDefaultAsync(cancellationToken);
-                if (currentRule is null || !currentRule.Enabled || currentRule.Revision != recognitionRule.Revision
-                    || info.IngestedAt is null || info.IngestedAt < currentRule.EffectiveFrom)
+                // Protect inserts and every rule edit until metadata commits, including the
+                // no-rule result of an inference that started before a matching rule was added.
+                await writeContext.Database.ExecuteSqlRawAsync(
+                    "LOCK TABLE \"MetadataRecognitionRules\" IN SHARE MODE", cancellationToken);
+                var rules = (await writeContext.Set<Models.MetadataRecognitionRule>().AsNoTracking()
+                    .Where(rule => rule.Enabled).ToListAsync(cancellationToken))
+                    .Select(MetadataRecognitionRuleRepository.ToRecord).ToList();
+                await writeContext.Entry(entity).Reference(value => value.Group).LoadAsync(cancellationToken);
+                MetadataRecognitionRule? currentRule;
+                try { currentRule = MetadataRecognitionRuleService.Select(rules, entity.ToRecord()); }
+                catch (MetadataRecognitionAmbiguousException) { return false; }
+                if (currentRule?.Id != info.RecognitionRule?.Id || currentRule?.Revision != info.RecognitionRule?.Revision)
                     return false;
-                writeContext.Add(new Models.MetadataRecognitionHit
-                {
-                    Id = Guid.NewGuid(), RuleId = recognitionRule.Id, RuleName = recognitionRule.Name,
-                    RuleRevision = recognitionRule.Revision, AnimationInfoId = info.Id, Title = info.Title,
-                    ItemRevision = checked(expectedStateVersion + 1), AppliedAt = DateTimeOffset.UtcNow
-                });
+                if (info.RecognitionRule is { } recognitionRule)
+                    writeContext.Add(new Models.MetadataRecognitionHit
+                    {
+                        Id = Guid.NewGuid(), RuleId = recognitionRule.Id, RuleName = recognitionRule.Name,
+                        RuleRevision = recognitionRule.Revision, AnimationInfoId = info.Id, Title = info.Title,
+                        ItemRevision = checked(expectedStateVersion + 1), AppliedAt = DateTimeOffset.UtcNow
+                    });
             }
             var previousEpisodeIdentity = GetEpisodeIdentity(writeContext, entity);
             var wasActiveRelease = entity.IsActiveRelease;

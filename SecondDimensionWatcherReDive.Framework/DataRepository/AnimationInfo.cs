@@ -51,4 +51,5 @@ public sealed record AnimationInfo(
 {
     // Transient inference context, consumed atomically with metadata persistence.
     public MetadataRecognitionRule? RecognitionRule { get; init; }
+    public bool RevalidateRecognitionRules { get; init; }
 }
