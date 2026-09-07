@@ -11,7 +11,8 @@
       "media": "Media & metadata",
       "health": "Health monitoring",
       "notifications": "Notifications",
-      "access": "Access protocols",      "plugins": "Plugins"
+      "access": "Access protocols",
+      "plugins": "Plugins"
     },
     "pendingRestart": {
       "title": "Some settings are waiting for a restart",

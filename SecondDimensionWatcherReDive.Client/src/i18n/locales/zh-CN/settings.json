@@ -11,7 +11,8 @@
       "media": "媒体与元数据",
       "health": "健康监控",
       "notifications": "通知",
-      "access": "访问协议",      "plugins": "插件"
+      "access": "访问协议",
+      "plugins": "插件"
     },
     "pendingRestart": {
       "title": "存在等待重启生效的设置",

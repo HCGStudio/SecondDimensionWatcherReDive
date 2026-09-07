@@ -9,8 +9,8 @@ import { AiSettingsSection } from "../components/settings/AiSettingsSection";
 import { DownloadSettingsSection } from "../components/settings/DownloadSettingsSection";
 import { HealthSettingsSection } from "../components/settings/HealthSettingsSection";
 import { MediaSettingsSection } from "../components/settings/MediaSettingsSection";
-import { PluginSettingsSection } from "../components/settings/PluginSettingsSection";
 import { NotificationSettingsSection } from "../components/settings/NotificationSettingsSection";
+import { PluginSettingsSection } from "../components/settings/PluginSettingsSection";
 import {
   SettingsNavigation,
   SettingsSectionId,

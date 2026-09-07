@@ -11,7 +11,8 @@
       "media": "メディアとメタデータ",
       "health": "ヘルス監視",
       "notifications": "通知",
-      "access": "アクセスプロトコル",      "plugins": "プラグイン"
+      "access": "アクセスプロトコル",
+      "plugins": "プラグイン"
     },
     "pendingRestart": {
       "title": "再起動待ちの設定があります",
