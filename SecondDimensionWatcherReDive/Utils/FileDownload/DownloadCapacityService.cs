@@ -140,7 +140,10 @@ public sealed class DownloadCapacityService(
             var remaining = torrent.AmountLeft is > 0 ? torrent.AmountLeft.Value :
                 torrent.Progress >= 1 ? 0 : total is > 0 ?
                     (long)Math.Ceiling(total.Value * (1 - Math.Clamp(torrent.Progress, 0, 1))) : long.MaxValue;
-            entries[index] = entry with { State = "Submitted", RemainingBytes = Math.Max(0, remaining),
+            // Preserve a learned payload size for restart recovery and for a
+            // fresh admission if the remote torrent disappears later.
+            entries[index] = entry with { State = "Submitted", ExpectedBytes = total,
+                RemainingBytes = Math.Max(0, remaining),
                 Reason = "Capacity reserved for the remaining download.", UpdatedAt = now };
             await repository.SaveAsync(entries[index], cancellationToken);
         }
