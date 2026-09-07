@@ -90,7 +90,8 @@ public sealed record LogicalPlaybackPreferences(
     string? AudioLanguage,
     string? AudioTrackLabel,
     bool AutoPlayNext,
-    DateTimeOffset UpdatedAt);
+    DateTimeOffset UpdatedAt,
+    bool AutoSkip = false);
 
 public sealed record LogicalDataBundle(
     int FormatVersion,

@@ -4,7 +4,8 @@ public sealed record WatchlistEpisode(Guid AnimationInfoId, string Title, int? S
     DateTimeOffset PublishedAt, string Availability, string? Path, double PositionSeconds);
 public sealed record WatchlistEntry(Guid Id, string? TmdbId, int? MikanId, string Title, string Status,
     int? DayOfWeek, DateTimeOffset UpdatedAt, IReadOnlyList<WatchlistEpisode> Episodes);
-public sealed record WatchlistUpdate(Guid? Id, string? TmdbId, int? MikanId, string Title, string Status);
+public sealed record WatchlistUpdate(Guid? Id, string? TmdbId, int? MikanId, string Title, string Status,
+    bool TmdbIdSpecified, bool MikanIdSpecified);
 
 public interface IWatchlistRepository
 {

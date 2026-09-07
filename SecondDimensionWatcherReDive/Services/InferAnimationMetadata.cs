@@ -87,7 +87,9 @@ public partial class InferAnimationMetadata(
             }
             var result = deterministic
                 ? MetadataRecognitionRuleService.Apply(rule!, item, null)
-                : await inferenceEngine.InferAsync(item.Title, item.Description, cancellationToken);
+                : rule is not null
+                    ? await inferenceEngine.InferForTmdbAsync(item.Title, item.Description, rule.TmdbId, cancellationToken)
+                    : await inferenceEngine.InferAsync(item.Title, item.Description, cancellationToken);
             if (rule is not null && !deterministic && result is not null)
                 result = MetadataRecognitionRuleService.Apply(rule, item, result);
 

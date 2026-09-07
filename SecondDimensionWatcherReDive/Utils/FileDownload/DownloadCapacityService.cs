@@ -66,9 +66,9 @@ public sealed class DownloadCapacityService(
 
     public async Task<bool> ProcessNextAsync(CancellationToken cancellationToken)
     {
-        if (!Enabled) return false;
+        var enabled = Enabled;
         await using var transaction = await repository.BeginAsync(cancellationToken);
-        await repository.RecoverTrackedAsync(cancellationToken);
+        if (enabled) await repository.RecoverTrackedAsync(cancellationToken);
         var entries = (await repository.ListAsync(cancellationToken)).ToList();
         if (entries.Count == 0) return false;
         var current = new Dictionary<Guid, Framework.DataRepository.AnimationInfo>();
@@ -100,7 +100,7 @@ public sealed class DownloadCapacityService(
                     ?? throw new IOException("The downloader did not return torrent status.");
                 foreach (var torrent in torrents) remote[torrent.Hash] = torrent;
             }
-            available = await GetAvailableBytesAsync(client, cancellationToken);
+            available = enabled ? await GetAvailableBytesAsync(client, cancellationToken) : long.MaxValue;
         }
         catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
@@ -113,7 +113,27 @@ public sealed class DownloadCapacityService(
         for (var index = 0; index < entries.Count; index++)
         {
             var entry = entries[index];
-            if (!remote.TryGetValue(entry.Hash, out var torrent)) continue;
+            if (!remote.TryGetValue(entry.Hash, out var torrent))
+            {
+                if (entry.State == "Submitted")
+                {
+                    // Successful status lookup confirmed remote absence. Release
+                    // the stale reservation and assess a fresh submission normally.
+                    entries[index] = entry with { State = "Waiting", RemainingBytes = 0,
+                        Reason = entry.ExpectedBytes is > 0 || !enabled
+                            ? "Remote task is absent; queued for resubmission."
+                            : "Remote task is absent and its size is unknown. Cancel and retry after correcting it.",
+                        UpdatedAt = now };
+                    await repository.SaveAsync(entries[index], cancellationToken);
+                }
+                continue;
+            }
+            if (!enabled)
+            {
+                await repository.RemoveAsync(entry.ItemId, cancellationToken);
+                entries.RemoveAt(index--);
+                continue;
+            }
             // A remote task may outlive a process restart. Adopt its remaining
             // bytes before admitting any additional work.
             var total = torrent.TotalSize is > 0 ? torrent.TotalSize : entry.ExpectedBytes;
@@ -138,11 +158,14 @@ public sealed class DownloadCapacityService(
                 var accepted = await downloader.SubmitAdmittedAsync(info.Id, info.CachedDownloadData,
                     info.AdditionalDownloadInfo, cancellationToken);
                 submitted = accepted;
-                await repository.SaveAsync(reserved with {
-                    State = accepted ? "Submitted" : "Failed",
-                    RemainingBytes = accepted ? reserved.RemainingBytes : 0,
-                    Reason = accepted ? "Submitted to downloader." : "Downloader rejected the torrent. Cancel and retry after correcting it.",
-                    UpdatedAt = now }, cancellationToken);
+                if (accepted && !enabled)
+                    await repository.RemoveAsync(reserved.ItemId, cancellationToken);
+                else
+                    await repository.SaveAsync(reserved with {
+                        State = accepted ? "Submitted" : "Failed",
+                        RemainingBytes = accepted ? reserved.RemainingBytes : 0,
+                        Reason = accepted ? "Submitted to downloader." : "Downloader rejected the torrent. Cancel and retry after correcting it.",
+                        UpdatedAt = now }, cancellationToken);
             }
             catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
             {
@@ -157,22 +180,22 @@ public sealed class DownloadCapacityService(
         }
 
         var waiting = entries.FirstOrDefault(entry => entry.State == "Waiting" && !entry.Paused
-            && current[entry.ItemId].DownloadCancellationId is null && entry.ExpectedBytes is > 0);
+            && current[entry.ItemId].DownloadCancellationId is null && (!enabled || entry.ExpectedBytes is > 0));
         if (waiting is null)
         {
             await transaction.CommitAsync(cancellationToken);
             return false;
         }
         var remainingReservations = entries.Where(entry => entry.State is "Reserved" or "Submitted").Sum(entry => (decimal)entry.RemainingBytes);
-        if (serviceProvider.GetService<ITranscodeCapacityBudget>() is { } transcoding)
+        if (enabled && serviceProvider.GetService<ITranscodeCapacityBudget>() is { } transcoding)
             remainingReservations += await transcoding.GetRemainingBytesAsync(cancellationToken);
         var balance = Math.Max(0, (decimal)available - SafetyBytes - remainingReservations);
-        var admitted = waiting.ExpectedBytes!.Value <= balance;
+        var admitted = !enabled || waiting.ExpectedBytes!.Value <= balance;
         await repository.SaveAsync(waiting with {
             State = admitted ? "Reserved" : "Waiting",
-            RemainingBytes = admitted ? waiting.ExpectedBytes.Value : 0,
+            RemainingBytes = admitted && enabled ? waiting.ExpectedBytes!.Value : 0,
             Reason = admitted ? "Capacity reserved; preparing submission." :
-                $"FIFO queue: requires {waiting.ExpectedBytes.Value} bytes; {balance:0} bytes available after safety reserve ({SafetyBytes} bytes) and active reservations. Resumes when capacity recovers.",
+                $"FIFO queue: requires {waiting.ExpectedBytes!.Value} bytes; {balance:0} bytes available after safety reserve ({SafetyBytes} bytes) and active reservations. Resumes when capacity recovers.",
             // A new reservation can be dispatched on the next supervised iteration.
             UpdatedAt = admitted ? now.AddSeconds(-10) : now
         }, cancellationToken);
@@ -211,10 +234,19 @@ public sealed class DownloadCapacityService(
         throw new IOException("The downloader did not report usable free-space information.");
     }
 
-    internal static DriveInfo? FindDrive(string path) => DriveInfo.GetDrives().Where(drive => drive.IsReady)
-        .Where(drive => Path.GetFullPath(path) == drive.RootDirectory.FullName.TrimEnd(Path.DirectorySeparatorChar)
-            || Path.GetFullPath(path).StartsWith(Path.TrimEndingDirectorySeparator(drive.RootDirectory.FullName) + Path.DirectorySeparatorChar, StringComparison.Ordinal))
-        .OrderByDescending(drive => drive.RootDirectory.FullName.Length).FirstOrDefault();
+    internal static DriveInfo? FindDrive(string path)
+    {
+        var fullPath = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        return DriveInfo.GetDrives().Where(drive => drive.IsReady)
+            .Where(drive =>
+            {
+                var root = Path.TrimEndingDirectorySeparator(drive.RootDirectory.FullName);
+                var prefix = Path.EndsInDirectorySeparator(root) ? root : root + Path.DirectorySeparatorChar;
+                return string.Equals(fullPath, root, comparison) || fullPath.StartsWith(prefix, comparison);
+            })
+            .OrderByDescending(drive => drive.RootDirectory.FullName.Length).FirstOrDefault();
+    }
 }
 
 public interface ITranscodeCapacityBudget

@@ -1,4 +1,4 @@
-using System.ComponentModel.DataAnnotations;
+using System.Globalization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -25,16 +25,24 @@ internal sealed class WatchlistController(IWatchlistRepository repository) : Con
     public async Task<IActionResult> Save([FromBody] External.WatchlistRequest request, CancellationToken cancellationToken)
     {
         if (!User.TryGetProfileId(out var profileId)) return Unauthorized();
-        if (!Statuses.Contains(request.Status) || (request.TmdbId is null && request.MikanId is null)
-            || (request.TmdbId is not null && (!long.TryParse(request.TmdbId, out var tmdb) || tmdb <= 0))
+        if (!Statuses.Contains(request.Status) || (request.Id is null && request.TmdbId is null && request.MikanId is null)
             || request.MikanId <= 0 || string.IsNullOrWhiteSpace(request.Title)) return BadRequest();
+        string? tmdbId = null;
+        if (request.TmdbId is not null)
+        {
+            if (!long.TryParse(request.TmdbId, NumberStyles.Integer, CultureInfo.InvariantCulture, out var tmdb) || tmdb <= 0)
+                return BadRequest();
+            tmdbId = tmdb.ToString(CultureInfo.InvariantCulture);
+        }
         try
         {
             await repository.UpsertAsync(profileId,
-                new WatchlistUpdate(request.Id, request.TmdbId, request.MikanId, request.Title, request.Status), cancellationToken);
+                new WatchlistUpdate(request.Id, tmdbId, request.MikanId, request.Title, request.Status,
+                    request.TmdbIdSpecified, request.MikanIdSpecified), cancellationToken);
             return NoContent();
         }
         catch (KeyNotFoundException) { return NotFound(); }
+        catch (ArgumentException) { return BadRequest(); }
         catch (Microsoft.EntityFrameworkCore.DbUpdateException) { return Conflict(); }
     }
 
