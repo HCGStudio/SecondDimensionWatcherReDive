@@ -54,10 +54,15 @@ export function planFor(animations, tmdbId, season) {
       airDate,
       candidates,
       selectedReleaseId:
-        state === "candidate"
+        state === "candidate" && airDate !== null
           ? (candidates.find((x) => x.eligible)?.releaseId ?? null)
           : null,
-      reason: state === "candidate" ? "highest_eligible_score" : state,
+      reason:
+        state === "candidate"
+          ? airDate === null
+            ? "air_date_unknown"
+            : "highest_eligible_score"
+          : state,
     };
   });
   return {

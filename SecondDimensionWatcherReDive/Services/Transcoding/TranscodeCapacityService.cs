@@ -25,7 +25,7 @@ internal sealed class TranscodeCapacityService(
         var budget = options.Value.MaxDiskBytesPerJob;
         if (budget <= 0)
             throw new InvalidOperationException("Transcoding:MaxDiskBytesPerJob must be positive for capacity reservation.");
-        var path = CapacityVolume.CanonicalPath(directoryPath);
+        var path = CapacityVolume.DirectoryIdentity(directoryPath);
         var cacheRoot = CapacityVolume.CanonicalPath(options.Value.CachePath);
         var cacheVolume = CapacityVolume.Identity(cacheRoot);
         var downloadPath = configuration["DownloadCapacity:LocalVolumePath"];

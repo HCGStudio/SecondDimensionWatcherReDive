@@ -1,22 +1,24 @@
 using Microsoft.EntityFrameworkCore;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
+using SecondDimensionWatcherReDive.Utils.FileDownload;
 
 namespace SecondDimensionWatcherReDive.Repositories;
 
 public sealed class TranscodeCapacityRepository([FromKeyedServices("capacity")] Models.ApplicationContext context) : ITranscodeCapacityRepository
 {
     public async Task<IReadOnlyList<TranscodeCapacityReservation>> ListActiveAsync(CancellationToken cancellationToken) =>
-        await context.Set<Models.TranscodeCapacityReservation>()
+        (await context.Set<Models.TranscodeCapacityReservation>()
             .FromSqlRaw("SELECT * FROM \"TranscodeCapacityReservations\" WHERE \"LeaseUntil\" > clock_timestamp()")
-            .AsNoTracking().Select(row => new TranscodeCapacityReservation(row.Id, row.DirectoryPath,
-                row.VolumeIdentity, row.CountsAgainstDownloads, row.BudgetBytes, row.WrittenBytes, row.LeaseUntil)).ToListAsync(cancellationToken);
+            .AsNoTracking().ToListAsync(cancellationToken))
+            .Select(row => new TranscodeCapacityReservation(row.Id, CapacityVolume.NormalizeDirectoryIdentity(row.DirectoryPath),
+                row.VolumeIdentity, row.CountsAgainstDownloads, row.BudgetBytes, row.WrittenBytes, row.LeaseUntil)).ToList();
 
     public async Task AddAsync(Guid id, string directoryPath, string? volumeIdentity, bool countsAgainstDownloads, long budgetBytes,
         int leaseSeconds, CancellationToken cancellationToken) =>
         await context.Database.ExecuteSqlInterpolatedAsync($"""
             INSERT INTO "TranscodeCapacityReservations"
                 ("Id", "DirectoryPath", "VolumeIdentity", "CountsAgainstDownloads", "BudgetBytes", "WrittenBytes", "LeaseUntil")
-            VALUES ({id}, {directoryPath}, {volumeIdentity}, {countsAgainstDownloads}, {budgetBytes}, 0,
+            VALUES ({id}, {CapacityVolume.NormalizeDirectoryIdentity(directoryPath)}, {volumeIdentity}, {countsAgainstDownloads}, {budgetBytes}, 0,
                 clock_timestamp() + make_interval(secs => {leaseSeconds}))
             """, cancellationToken);
 
@@ -47,16 +49,17 @@ public sealed class TranscodeCapacityRepository([FromKeyedServices("capacity")] 
     }
 
     public async Task<IReadOnlyList<TranscodeCacheReader>> ListActiveReadersAsync(CancellationToken cancellationToken) =>
-        await context.Set<Models.TranscodeCacheReader>()
+        (await context.Set<Models.TranscodeCacheReader>()
             .FromSqlRaw("SELECT * FROM \"TranscodeCacheReaders\" WHERE \"LeaseUntil\" > clock_timestamp()")
-            .AsNoTracking().Select(row => new TranscodeCacheReader(row.Id, row.DirectoryPath))
-            .ToListAsync(cancellationToken);
+            .AsNoTracking().ToListAsync(cancellationToken))
+            .Select(row => new TranscodeCacheReader(row.Id, CapacityVolume.NormalizeDirectoryIdentity(row.DirectoryPath)))
+            .ToList();
 
     public async Task RegisterReaderAsync(Guid id, string directoryPath, int leaseSeconds, CancellationToken cancellationToken) =>
         await context.Database.ExecuteSqlInterpolatedAsync($"""
             INSERT INTO "TranscodeCacheReaders" ("Id", "DirectoryPath", "LeaseUntil")
-            VALUES ({id}, {directoryPath}, clock_timestamp() + make_interval(secs => {leaseSeconds}))
-            ON CONFLICT ("Id") DO UPDATE SET "LeaseUntil" = EXCLUDED."LeaseUntil"
+            VALUES ({id}, {CapacityVolume.NormalizeDirectoryIdentity(directoryPath)}, clock_timestamp() + make_interval(secs => {leaseSeconds}))
+            ON CONFLICT ("Id") DO UPDATE SET "DirectoryPath" = EXCLUDED."DirectoryPath", "LeaseUntil" = EXCLUDED."LeaseUntil"
             """, cancellationToken);
 
     public async Task<bool> RenewReaderAsync(Guid id, int leaseSeconds, CancellationToken cancellationToken) =>

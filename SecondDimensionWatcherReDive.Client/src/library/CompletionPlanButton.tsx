@@ -60,6 +60,7 @@ export const CompletionPlanButton: React.FC<{
   const [open, setOpen] = React.useState(false);
   const [selected, setSelected] = React.useState<Record<number, string>>({});
   const selectionPlan = React.useRef<string | null>(null);
+  const editedSelections = React.useRef(new Set<number>());
   const [results, setResults] = React.useState<Result[]>([]);
   const [busy, setBusy] = React.useState(false);
   const [failure, setFailure] = React.useState(false);
@@ -72,18 +73,23 @@ export const CompletionPlanButton: React.FC<{
   React.useEffect(() => {
     if (!open) {
       selectionPlan.current = null;
+      editedSelections.current.clear();
       return;
     }
     if (!data || data.tmdbId !== tmdbId || data.season !== season) return;
     const planKey = `${tmdbId}:${season}`;
     const isNewPlan = selectionPlan.current !== planKey;
+    if (isNewPlan) editedSelections.current.clear();
     selectionPlan.current = planKey;
     setSelected((old) =>
       Object.fromEntries(
         data.episodes.map((episode) => {
           const previous = old[episode.episode];
           const releaseId =
-            !isNewPlan && previous !== undefined
+            !isNewPlan &&
+            previous !== undefined &&
+            (episode.airDate !== null ||
+              editedSelections.current.has(episode.episode))
               ? previous
               : (episode.selectedReleaseId ?? "");
           const selectable = ![
@@ -255,12 +261,13 @@ export const CompletionPlanButton: React.FC<{
                                 "mapping_pending",
                               ].includes(episode.state)
                             }
-                            onChange={(event) =>
+                            onChange={(event) => {
+                              editedSelections.current.add(episode.episode);
                               setSelected((old) => ({
                                 ...old,
                                 [episode.episode]: event.target.value,
-                              }))
-                            }
+                              }));
+                            }}
                           >
                             <option value="">{t("completion.skip")}</option>
                             {episode.candidates.map((c) => (
