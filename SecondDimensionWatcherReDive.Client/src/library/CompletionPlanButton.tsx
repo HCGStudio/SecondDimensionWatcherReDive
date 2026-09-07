@@ -59,6 +59,7 @@ export const CompletionPlanButton: React.FC<{
   const { canContentWrite } = useAccess();
   const [open, setOpen] = React.useState(false);
   const [selected, setSelected] = React.useState<Record<number, string>>({});
+  const selectionPlan = React.useRef<string | null>(null);
   const [results, setResults] = React.useState<Result[]>([]);
   const [busy, setBusy] = React.useState(false);
   const [failure, setFailure] = React.useState(false);
@@ -69,15 +70,46 @@ export const CompletionPlanButton: React.FC<{
     fetcher,
   );
   React.useEffect(() => {
-    if (data)
-      setSelected(
-        Object.fromEntries(
-          data.episodes
-            .filter((x) => x.selectedReleaseId)
-            .map((x) => [x.episode, x.selectedReleaseId!]),
-        ),
-      );
-  }, [data]);
+    if (!open) {
+      selectionPlan.current = null;
+      return;
+    }
+    if (!data || data.tmdbId !== tmdbId || data.season !== season) return;
+    const planKey = `${tmdbId}:${season}`;
+    const isNewPlan = selectionPlan.current !== planKey;
+    selectionPlan.current = planKey;
+    setSelected((old) =>
+      Object.fromEntries(
+        data.episodes.map((episode) => {
+          const previous = old[episode.episode];
+          const releaseId =
+            !isNewPlan && previous !== undefined
+              ? previous
+              : (episode.selectedReleaseId ?? "");
+          const selectable = ![
+            "unaired",
+            "downloaded",
+            "downloading",
+            "mapping_pending",
+          ].includes(episode.state);
+          return [
+            episode.episode,
+            selectable &&
+            episode.candidates.some(
+              (candidate) =>
+                candidate.releaseId === releaseId && candidate.eligible,
+            )
+              ? releaseId
+              : "",
+          ];
+        }),
+      ),
+    );
+    if (isNewPlan) {
+      setResults([]);
+      setFailure(false);
+    }
+  }, [data, open, tmdbId, season]);
   const chosen =
     data?.episodes.flatMap((x) =>
       x.candidates.filter((c) => selected[x.episode] === c.releaseId),

@@ -26,7 +26,7 @@ This is an anime/animation download management system (二次元观测器 Re:Div
 The system uses **System.Threading.Channels** for async inter-service communication:
 
 1. User triggers download via `AnimationInfoController`
-2. `RemoteTorrentDownloadClient` submits torrent to qBittorrent API with savepath `{FileStore:Local}/{torrentHash}` so concurrent downloads never collide on disk, then writes to `RemoteTorrentTrackRequest` channel
+2. `RemoteTorrentDownloadClient` queues downloads for durable capacity admission before submitting to qBittorrent with savepath `{FileStore:Local}/{torrentHash}`, then writes to `RemoteTorrentTrackRequest`. Recovery reconciles existing reservations against remote status and requeues missing torrents for fresh admission. Disabling `DownloadCapacity:Enabled` drains existing unpaused work without capacity checks; remote tasks and completed rows leave the queue, while queued pause/resume/cancel controls remain available.
 3. `FetchRemoteTorrentBackgroundService` polls qBittorrent status, writes to `FileDownloadStatus` channel
 4. `UpdateDownloadStatusBackgroundService` updates an in-memory cache with progress (finished items expire after 5 min)
 5. On completion, `DownloadCompleteRequest` channel triggers `CompleteDownloadBackgroundService` to update the DB (`IsDownloadFinished`, `FileStore`, `StorePath`)
@@ -142,6 +142,7 @@ AI inference is decoupled from feed sync — runs offline as a background task (
 - Tool system: `ITool`/`IToolResult`/`ToolDefinition` live in Framework (`Framework.AI`), `[Tool<TParam>]` attribute in `Framework.Attributes`. Tool authors implement `ExecuteCoreAsync` returning `ToolSuccessResult<T>` or `ToolFailureResult`; the source generator (`Share/SecondDimensionWatcherReDive.Analyzers`) generates `Definition` and `ExecuteAsync`. `IToolExecutor`/`IToolExecutorBuilder` (in the AI plugin) handle dispatch and serialization — `DefaultToolExecutor` serializes success results to `JsonElement` and wraps failures as `{"error":"..."}`, returning `ToolResult(IsSuccess, JsonElement)` which implements `IToolResult`.
 - `InferenceEngine` (in `SecondDimensionWatcherReDive.Inference.AI`) — provider-agnostic orchestrator with rate limiting (`SemaphoreSlim` + configurable delay), system prompt, tool dispatch (max 8 rounds), JSON parsing (handles markdown fences). Three TMDB tools registered via `ToolExecutorBuilder`: `SearchTmdbTool`, `GetTmdbSeasonsTool`, `GetTmdbSeasonEpisodesTool`
 - TMDB season normalization handles: merged cours, absolute episode numbering, mismatched season labels
+- Recognition rules that still need AI inference supply their TMDB target to `InferForTmdbAsync`; series search is disabled and results for a different ID are rejected. Historical previews recover the pre-offset episode from an unchanged rule hit, preserve manually finalized coordinates, and require explicit captures or manual correction when the applied rule revision is no longer available. Rules can be seeded from the current correction in Recent Operations.
 
 ### Controllers
 
@@ -170,7 +171,7 @@ Feeds can be configured two ways (merged at sync time):
 
 Search → Integrity opens a per-episode completion plan backed by `GET /api/library/completion?tmdbId=…&season=…`; `POST /api/library/completion` submits selected episode/release pairs and requires `ContentWrite` (Admin/Member). Candidates come only from collected, reliably identified single-episode torrent releases. The current feed rules filter candidates, existing release scoring chooses one default version per episode, and the preview exposes reasons, estimated size and unavailable states.
 
-`EpisodeAirCalendarService` reads TMDB season episode dates, caching successful lookups for six hours and unavailable lookups for ten minutes. The comparison uses the current UTC date, not an inferred precise broadcast time. Group publication time is displayed separately. Future and unknown-date episodes are excluded from actionable missing counts; unknown-date episodes can still be selected manually when a reliable collected candidate exists. A completed release requires live file mappings to count as downloaded; awaiting mappings blocks duplicate downloads.
+`EpisodeAirCalendarService` reads TMDB season episode dates, caching successful lookups for six hours and unavailable lookups for ten minutes. Integrity listings fetch season calendars with at most four concurrent requests after database reads finish. The comparison uses the current UTC date, not an inferred precise broadcast time. Group publication time is displayed separately. Future and unknown-date episodes are excluded from actionable missing counts; unknown-date episodes can still be selected manually when a reliable collected candidate exists. A completed release requires live file mappings to count as downloaded; awaiting mappings blocks duplicate downloads. While a completion plan is open, revalidation preserves skipped episodes and selected versions that remain eligible; opening a new plan initializes the current defaults.
 
 Each submitted episode re-reads current state and claims the TMDB/season/episode identity in `EpisodeAcquisitions` before using the existing download submission/cancellation saga through `IFileDownloadClientProvider`. Claims expire after five minutes if their owner is lost, while persistent download state prevents already tracked episodes from being submitted again. Results are returned per item, and failures can be retried independently. Specials, batches and uncertain episode identities remain manual; no external torrent search is added. `mock-completion.mjs` supports local development against the mock library with explicitly illustrative dates.
 
@@ -259,6 +260,8 @@ Features: 25 anime entries with TMDB poster paths and mixed download states, gro
 - `DisableCors` — Enable permissive CORS policy
 - `Valkey:ConnectionString` — Valkey/Redis connection string (optional; uses in-memory cache if empty)
 - `Valkey:InstanceName` — Cache key prefix (default: "sdw-redive:")
+
+`DownloadCapacity:Enabled` defaults to true. Disabled mode bypasses admission for new downloads and drains the existing durable queue. HLS cache reservations remain independent; after acquiring one, a worker rechecks the shared completed manifest and reuses it before considering cache recreation.
 
 EF Core migrations run automatically on application startup.
 

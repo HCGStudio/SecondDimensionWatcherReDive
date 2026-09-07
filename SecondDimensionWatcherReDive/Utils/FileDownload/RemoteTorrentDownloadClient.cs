@@ -191,7 +191,7 @@ public class RemoteTorrentDownloadClient(
         string additionalDownloadInfo,
         CancellationToken cancellationToken)
     {
-        if (capacity is { Enabled: true })
+        if (capacity is not null)
             return await capacity.ControlAsync(itemId, "pause",
                 token => SetRemotePausedAsync(additionalDownloadInfo, true, token), cancellationToken);
         return await SetRemotePausedAsync(additionalDownloadInfo, true, cancellationToken);
@@ -216,7 +216,7 @@ public class RemoteTorrentDownloadClient(
         string additionalDownloadInfo,
         CancellationToken cancellationToken)
     {
-        var result = capacity is { Enabled: true }
+        var result = capacity is not null
             ? await capacity.ControlAsync(itemId, "resume",
                 token => SetRemotePausedAsync(additionalDownloadInfo, false, token), cancellationToken)
             : await SetRemotePausedAsync(additionalDownloadInfo, false, cancellationToken);
@@ -232,7 +232,7 @@ public class RemoteTorrentDownloadClient(
         bool removeFile,
         CancellationToken cancellationToken)
     {
-        var result = capacity is { Enabled: true }
+        var result = capacity is not null
             ? await capacity.ControlAsync(itemId, "cancel",
                 token => DeleteRemoteAsync(additionalDownloadInfo, removeFile, token), cancellationToken)
             : await DeleteRemoteAsync(additionalDownloadInfo, removeFile, cancellationToken);
