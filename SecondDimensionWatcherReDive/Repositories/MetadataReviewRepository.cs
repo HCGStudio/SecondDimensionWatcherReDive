@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
+using SecondDimensionWatcherReDive.Utils.MetadataReview;
 using DataFileMapping = SecondDimensionWatcherReDive.Framework.DataRepository.FileMapping;
 
 namespace SecondDimensionWatcherReDive.Repositories;
@@ -177,6 +178,8 @@ public class MetadataReviewRepository(
             CreatedAt = draft.CreatedAt,
             ExpiresAt = draft.ExpiresAt,
             BaseVersion = draft.BaseVersion,
+            RecognitionRuleId = draft.RecognitionRuleId,
+            RecognitionRuleRevision = draft.RecognitionRuleRevision,
             BaseFileStore = draft.BaseFileStore,
             BaseStorePath = draft.BaseStorePath,
             BaseIsDownloadFinished = draft.BaseIsDownloadFinished,
@@ -288,6 +291,9 @@ public class MetadataReviewRepository(
                         MetadataReviewMutationOutcome.Conflict,
                         operationId,
                         animationInfo.Id);
+
+                if (!await ValidateRecognitionRuleAsync(applyContext, operation, animationInfo, cancellationToken))
+                    return Failure(MetadataReviewMutationOutcome.Conflict, operationId, animationInfo.Id);
 
                 var proposedSnapshots = operation.MappingSnapshots
                     .Where(snapshot => snapshot.Kind == MetadataReviewMappingKind.Proposed)
@@ -711,6 +717,37 @@ public class MetadataReviewRepository(
         {
             return Failure(MetadataReviewMutationOutcome.Conflict, operationId, animationInfoId);
         }
+    }
+
+    private static async Task<bool> ValidateRecognitionRuleAsync(
+        Models.ApplicationContext operationContext,
+        Models.MetadataReviewOperation operation,
+        Models.AnimationInfo animationInfo,
+        CancellationToken cancellationToken)
+    {
+        if (operation.RecognitionRuleId is not { } ruleId)
+            return operation.RecognitionRuleRevision is null;
+
+        // Protect the full rule set, including new conflicting rules, until the metadata
+        // transaction commits. Concurrent rule creates/edits acquire a conflicting write lock.
+        await operationContext.Database.ExecuteSqlRawAsync(
+            "LOCK TABLE \"MetadataRecognitionRules\" IN SHARE MODE", cancellationToken);
+        var rules = (await operationContext.Set<Models.MetadataRecognitionRule>().AsNoTracking()
+            .Where(rule => rule.Enabled || rule.Id == ruleId).ToListAsync(cancellationToken))
+            .Select(MetadataRecognitionRuleRepository.ToRecord).ToList();
+        var selected = rules.SingleOrDefault(rule => rule.Id == ruleId);
+        if (selected is null || !selected.Enabled || selected.Revision != operation.RecognitionRuleRevision)
+            return false;
+
+        await operationContext.Entry(animationInfo).Reference(info => info.Group).LoadAsync(cancellationToken);
+        var item = animationInfo.ToRecord();
+        try
+        {
+            return MetadataRecognitionRuleService.Matches(selected, item)
+                && !rules.Any(rule => rule.Enabled && rule.Id != ruleId
+                    && MetadataRecognitionRuleService.Matches(rule, item));
+        }
+        catch (MetadataRecognitionAmbiguousException) { return false; }
     }
 
     private static async Task<Models.MetadataReviewOperation?> LockOperationAsync(
