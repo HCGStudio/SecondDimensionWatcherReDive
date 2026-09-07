@@ -26,7 +26,7 @@
 
 在「下载中」查看预计大小、等待原因及恢复条件，可以暂停、恢复或取消。等待时不提交种子；预留先持久化，再与下载器对账和提交。剩余预留随远端 `amount_left` 减少，已写入字节不再次扣减。拒绝的提交释放容量；确认不明保留预留并对账，避免网络超时造成重复占用。取消已开始或确认不明的任务须等下载器确认；单纯等待的任务可以在下载器离线时取消。重启后从数据库继续处理，不依赖内存 Channel。
 
-容量必须来自实际下载卷。`DownloadCapacity:LocalVolumePath` 可显式填写下载器写入卷在应用内的共享挂载；应由部署管理员确认对应关系，不能填应用根盘代替远端盘。未配置时查询 qBittorrent 的路径容量接口；旧版本仅在默认保存路径与应用提交路径一致、没有独立未完成目录时使用默认卷报告。无法确认实际卷时保留等待并展示配置原因。[qBittorrent 路径容量接口实现](https://github.com/qbittorrent/qBittorrent/blob/master/src/webui/api/appcontroller.cpp) 对应 `/api/v2/app/getFreeSpaceAtPath`。
+容量准入目前要求 qBittorrent 关闭独立未完成下载目录（`temp_path_enabled=false`）；启用该目录时会在检查显式挂载或路径容量接口之前拒绝准入，不能通过配置 `LocalVolumePath` 绕过。容量必须来自实际下载卷。`DownloadCapacity:LocalVolumePath` 可显式填写下载器写入卷在应用内的共享挂载；应由部署管理员确认对应关系，不能填应用根盘代替远端盘。未配置时查询 qBittorrent 的路径容量接口；旧版本仅在默认保存路径与应用提交路径一致、没有独立未完成目录时使用默认卷报告。无法确认实际卷时保留等待并展示配置原因。[qBittorrent 路径容量接口实现](https://github.com/qbittorrent/qBittorrent/blob/master/src/webui/api/appcontroller.cpp) 对应 `/api/v2/app/getFreeSpaceAtPath`。
 
 同卷的 HLS 写入也占用容量预算；转码按单任务磁盘上限预留，持续核对已写量、续租并在结束/取消后释放。不能确定是否同卷时保守合并，显式共享挂载可帮助准确识别。安全水位不会自动删除媒体，也无法阻止不受本应用管理的外部进程写满磁盘；原有磁盘告警仍保留。
 
