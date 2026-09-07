@@ -279,6 +279,7 @@ internal sealed partial class HlsTranscodingService : BackgroundService, IHlsTra
         var cancellationToken = linked.Token;
         var startedAt = DateTimeOffset.UtcNow;
         TranscodeCapacityLease? capacityLease = null;
+        var createdOutput = false;
         try
         {
             job.SetState(TranscodingJobState.Probing);
@@ -304,21 +305,15 @@ internal sealed partial class HlsTranscodingService : BackgroundService, IHlsTra
             }
 
             capacityLease = await WaitForCapacityAsync(job, cancellationToken);
+            if (job.GetState() == TranscodingJobState.Ready) return;
             using var capacityCancellation = CancellationTokenSource.CreateLinkedTokenSource(
                 cancellationToken, capacityLease?.LostToken ?? CancellationToken.None);
             cancellationToken = capacityCancellation.Token;
             // Another replica can complete this cache while our job waits for
             // its reservation. Adopt it while the shared directory is protected.
-            var manifest = await TryLoadManifestAsync(job.CacheDirectory, cancellationToken);
-            if (manifest is not null)
-            {
-                job.SetReady(manifest.Subtitles);
-                _metrics.RecordCacheHit();
-                TouchCache(job, null);
-                UpdateJobGauges();
-                return;
-            }
+            if (await TryReuseCompletedCacheAsync(job, cancellationToken)) return;
             RecreateJobDirectory(job.CacheDirectory);
+            createdOutput = true;
             job.SetState(TranscodingJobState.Transcoding);
             UpdateJobGauges();
             using var subtitleCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -401,26 +396,56 @@ internal sealed partial class HlsTranscodingService : BackgroundService, IHlsTra
         }
         catch (OperationCanceledException) when (job.Cancellation.IsCancellationRequested)
         {
+            await CleanupPartialOutputAsync();
             MarkCanceled(job);
         }
         catch (OperationCanceledException) when (timeout.IsCancellationRequested)
         {
+            await CleanupPartialOutputAsync();
             MarkFailed(job, "The transcoding job exceeded its configured timeout.");
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
+            await CleanupPartialOutputAsync();
             MarkCanceled(job);
             throw;
         }
         catch (Exception exception)
         {
             LogJobFailed(_logger, job.Source.VirtualPath, exception);
+            await CleanupPartialOutputAsync();
             MarkFailed(job, exception.Message);
         }
         finally
         {
             if (capacityLease is not null) await capacityLease.DisposeAsync();
         }
+
+        async Task CleanupPartialOutputAsync()
+        {
+            // Waiting/probing jobs never own this directory. Once published,
+            // a manifest may already serve readers on another replica.
+            if (!createdOutput || File.Exists(Path.Combine(job.CacheDirectory, "complete.json"))) return;
+            if (capacityLease is null)
+                TryDeleteDirectory(job.CacheDirectory);
+            else
+                await capacityLease.CleanupIncompleteAsync(() =>
+                {
+                    if (!File.Exists(Path.Combine(job.CacheDirectory, "complete.json")))
+                        TryDeleteDirectory(job.CacheDirectory);
+                });
+        }
+    }
+
+    private async Task<bool> TryReuseCompletedCacheAsync(TranscodingJob job, CancellationToken cancellationToken)
+    {
+        var manifest = await TryLoadManifestAsync(job.CacheDirectory, cancellationToken);
+        if (manifest is null) return false;
+        job.SetReady(manifest.Subtitles);
+        _metrics.RecordCacheHit();
+        TouchCache(job, null);
+        UpdateJobGauges();
+        return true;
     }
 
     private async Task<TranscodeCapacityLease?> WaitForCapacityAsync(
@@ -429,6 +454,9 @@ internal sealed partial class HlsTranscodingService : BackgroundService, IHlsTra
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            // Completed manifests are atomically published and need no new
+            // write budget; another replica may finish while capacity is full.
+            if (await TryReuseCompletedCacheAsync(job, cancellationToken)) return null;
             await using (var scope = _scopeFactory.CreateAsyncScope())
             {
                 var capacity = scope.ServiceProvider.GetService<TranscodeCapacityService>();
@@ -570,7 +598,8 @@ internal sealed partial class HlsTranscodingService : BackgroundService, IHlsTra
         catch (Exception exception) when (exception is IOException or JsonException)
         {
             LogInvalidCacheManifest(_logger, path, exception);
-            TryDeleteDirectory(directory);
+            // Reads also happen before acquiring directory ownership. Any
+            // recreation must wait for the writer's cross-replica reservation.
             return null;
         }
     }
@@ -710,7 +739,6 @@ internal sealed partial class HlsTranscodingService : BackgroundService, IHlsTra
     {
         job.SetCanceled();
         _jobs.TryRemove(new KeyValuePair<string, TranscodingJob>(job.CacheKey, job));
-        TryDeleteDirectory(job.CacheDirectory);
         _metrics.RecordCanceled();
         UpdateCacheBytes();
         UpdateJobGauges();
@@ -720,7 +748,6 @@ internal sealed partial class HlsTranscodingService : BackgroundService, IHlsTra
     {
         job.SetFailed(error);
         _jobs.TryRemove(new KeyValuePair<string, TranscodingJob>(job.CacheKey, job));
-        TryDeleteDirectory(job.CacheDirectory);
         _metrics.RecordFailed();
         UpdateCacheBytes();
         UpdateJobGauges();
