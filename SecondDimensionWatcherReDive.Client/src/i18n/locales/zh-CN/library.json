@@ -85,6 +85,7 @@
     "total": "已选 {{count}} 集 · 已知体积 {{size}} · {{unknown}} 项体积未知",
     "submit": "批量提交所选剧集",
     "retry": "重试此集",
+    "refreshError": "提交结果已保留，但计划刷新失败。请稍后重新打开计划以获取最新状态。",
     "error": "无法加载或提交补全计划，请刷新后重试。",
     "summary": "未播 {{unaired}} 集 · 播出信息未知 {{unknown}} 集",
     "states": {
