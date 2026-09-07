@@ -6,6 +6,8 @@
 
 系统通过 AI 推断自动识别动画元数据（季度、集数、TMDB ID），按动画分组展示，支持 TMDB 海报图片，并提供对话式 AI 助手让你用自然语言管理订阅、下载和文件。
 
+下一正式版本的范围、实施顺序与升级边界见 **[3.0 发布目标](docs/release-3.0.md)**。
+
 ## 技术栈
 
 - **后端**: .NET 10, ASP.NET Core, Entity Framework Core, PostgreSQL
