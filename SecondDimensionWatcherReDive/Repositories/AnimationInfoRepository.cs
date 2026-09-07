@@ -770,6 +770,8 @@ public class AnimationInfoRepository(
             if (currentStateVersion != info.StateVersion)
                 throw new DbUpdateConcurrencyException(
                     $"AnimationInfo {info.Id} changed from revision {info.StateVersion} to {currentStateVersion}.");
+            if (await LibraryCompletionRepository.HasActiveClaimAsync(writeContext, info.Id, cancellationToken))
+                throw new DbUpdateConcurrencyException($"AnimationInfo {info.Id} has an active episode acquisition.");
             var previousEpisodeIdentity = GetEpisodeIdentity(writeContext, entity);
             var wasActiveRelease = entity.IsActiveRelease;
             var previousMappings = await writeContext.FileMappings
@@ -850,6 +852,25 @@ public class AnimationInfoRepository(
             startedAt,
             queuedDisposition,
             cancellationToken);
+        return result.IsSuccess && result.SubmissionLeaseUntil is { } leaseUntil
+            ? new DownloadSubmissionLease(submissionLeaseId, leaseUntil)
+            : null;
+    }
+
+    public async Task<DownloadSubmissionLease?> TryStartClaimedEpisodeDownloadAsync(
+        AnimationInfo expected,
+        Guid claimId,
+        Guid downloadAttemptId,
+        Guid submissionLeaseId,
+        TimeSpan submissionLeaseDuration,
+        DateTimeOffset startedAt,
+        CancellationToken cancellationToken)
+    {
+        if (submissionLeaseDuration <= TimeSpan.Zero || submissionLeaseDuration > TimeSpan.FromMinutes(30))
+            throw new ArgumentOutOfRangeException(nameof(submissionLeaseDuration));
+        var result = await TryStartDownloadCoreAsync(expected.Id, null, downloadAttemptId,
+            submissionLeaseId, submissionLeaseDuration, startedAt,
+            SubscriptionAutomationDisposition.AutoDownloadQueued, cancellationToken, expected, claimId);
         return result.IsSuccess && result.SubmissionLeaseUntil is { } leaseUntil
             ? new DownloadSubmissionLease(submissionLeaseId, leaseUntil)
             : null;
@@ -966,7 +987,9 @@ public class AnimationInfoRepository(
         TimeSpan? submissionLeaseDuration,
         DateTimeOffset startedAt,
         SubscriptionAutomationDisposition? queuedDisposition,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        AnimationInfo? expectedEpisode = null,
+        Guid? episodeClaimId = null)
     {
         var strategy = context.Database.CreateExecutionStrategy();
         return await strategy.ExecuteAsync(async () =>
@@ -981,6 +1004,37 @@ public class AnimationInfoRepository(
                 cancellationToken);
             if (entity is null)
                 return new DownloadStartResult(false, null);
+
+            if (expectedEpisode is not null)
+            {
+                // Metadata changes take the same namespace and row locks. Bind
+                // the confirmed identity and revision to the tracked transition.
+                var sameAttempt = entity.IsDownloadTracked && entity.DownloadAttemptId == downloadAttemptId;
+                var revisionMatches = sameAttempt
+                    ? entity.StateVersion > 0 && entity.StateVersion - 1 == expectedEpisode.StateVersion
+                    : entity.StateVersion == expectedEpisode.StateVersion;
+                var tmdbId = expectedEpisode.Animation?.TmdbId;
+                await writeContext.Entry(entity).Reference(info => info.Animation).LoadAsync(cancellationToken);
+                var acquisition = await writeContext.Set<Models.EpisodeAcquisition>().SingleOrDefaultAsync(claim =>
+                    claim.TmdbId == tmdbId && claim.Season == entity.Season && claim.Episode == entity.Episode
+                    && claim.ReleaseId == id && claim.ClaimId == episodeClaimId, cancellationToken);
+                var claimNow = DateTimeOffset.UtcNow;
+                if (!revisionMatches || tmdbId is null || entity.Animation?.TmdbId != tmdbId
+                    || entity.Season != expectedEpisode.Season || entity.Episode != expectedEpisode.Episode
+                    || entity.Season is not > 0 || entity.Episode is not > 0
+                    || entity.IsDownloadFinished || entity.IsRetiredRelease || entity.MediaLibraryMissingSince is not null
+                    || entity.MetadataStatus is not (MetadataReviewStatus.Identified or MetadataReviewStatus.Reviewed)
+                    || acquisition is null || acquisition.ExpiresAt <= claimNow
+                    || await writeContext.AnimationInfo.AnyAsync(other => other.Id != id
+                        && other.Animation != null && other.Animation.TmdbId == tmdbId
+                        && other.Season == entity.Season && other.Episode == entity.Episode
+                        && other.MediaLibraryMissingSince == null && !other.IsRetiredRelease
+                        && (other.IsDownloadTracked || other.IsDownloadFinished), cancellationToken))
+                    return new DownloadStartResult(false, null);
+                // Lock contention before tracking must not consume the metadata
+                // protection needed during the bounded remote submission.
+                acquisition.ExpiresAt = claimNow.AddMinutes(5);
+            }
 
             var databaseNow = await writeContext.Database
                 .SqlQueryRaw<DateTimeOffset>("SELECT clock_timestamp() AS \"Value\"")
@@ -1592,6 +1646,8 @@ public class AnimationInfoRepository(
                 info.Id,
                 cancellationToken);
             if (entity is null || entity.StateVersion != expectedStateVersion)
+                return false;
+            if (await LibraryCompletionRepository.HasActiveClaimAsync(writeContext, info.Id, cancellationToken))
                 return false;
             if (info.RevalidateRecognitionRules || info.RecognitionRule is not null)
             {

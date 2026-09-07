@@ -115,6 +115,15 @@ public interface IAnimationInfoRepository
         SubscriptionAutomationDisposition? queuedDisposition,
         CancellationToken cancellationToken);
 
+    Task<DownloadSubmissionLease?> TryStartClaimedEpisodeDownloadAsync(
+        AnimationInfo expected,
+        Guid claimId,
+        Guid downloadAttemptId,
+        Guid submissionLeaseId,
+        TimeSpan submissionLeaseDuration,
+        DateTimeOffset startedAt,
+        CancellationToken cancellationToken);
+
     Task<bool> TryMarkDownloadSubmittedAsync(
         Guid id,
         Guid downloadAttemptId,
