@@ -447,6 +447,64 @@ namespace SecondDimensionWatcherReDive.Migrations
                     b.ToTable("BangumiSubgroups");
                 });
 
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.ChatActionAudit", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<Guid>("ActionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ConversationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Detail")
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)");
+
+                    b.Property<string>("Event")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("ParameterHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("ParameterSummary")
+                        .IsRequired()
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)");
+
+                    b.Property<string>("RiskLevel")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("ToolName")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ActionId");
+
+                    b.HasIndex("UserId", "ConversationId", "CreatedAt");
+
+                    b.ToTable("ChatActionAudits");
+                });
+
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.ChatConversation", b =>
                 {
                     b.Property<Guid>("Id")
@@ -503,6 +561,111 @@ namespace SecondDimensionWatcherReDive.Migrations
                     b.HasIndex("ConversationId");
 
                     b.ToTable("ChatMessages");
+                });
+
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.ChatPendingAction", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ApprovalTokenHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("ConversationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("DecidedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ErrorSummary")
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)");
+
+                    b.Property<DateTimeOffset?>("ExecutionStartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ImpactSummary")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<bool>("IsReversible")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("ParameterHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("ParameterSummary")
+                        .IsRequired()
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)");
+
+                    b.Property<string>("ProtectedApprovalToken")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("ProtectedParameters")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("ResultSummary")
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)");
+
+                    b.Property<string>("ToolResultJson")
+                        .HasColumnType("text");
+
+                    b.Property<string>("RiskLevel")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("ToolCallId")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("ToolName")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ConversationId", "ToolCallId");
+
+                    b.HasIndex("State", "ExpiresAt");
+
+                    b.HasIndex("UserId", "ConversationId", "State");
+
+                    b.HasIndex("UserId", "ConversationId", "ToolCallId");
+
+                    b.ToTable("ChatPendingActions", t =>
+                        {
+                            t.HasCheckConstraint("CK_ChatPendingActions_Expiry", "\"ExpiresAt\" > \"CreatedAt\"");
+                        });
                 });
 
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.Feed", b =>
@@ -1550,6 +1713,17 @@ namespace SecondDimensionWatcherReDive.Migrations
                     b.Navigation("SeasonBangumi");
                 });
 
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.ChatActionAudit", b =>
+                {
+                    b.HasOne("SecondDimensionWatcherReDive.Models.ChatPendingAction", "Action")
+                        .WithMany("AuditEntries")
+                        .HasForeignKey("ActionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Action");
+                });
+
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.ChatMessage", b =>
                 {
                     b.HasOne("SecondDimensionWatcherReDive.Models.ChatConversation", "Conversation")
@@ -1666,6 +1840,11 @@ namespace SecondDimensionWatcherReDive.Migrations
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.ChatConversation", b =>
                 {
                     b.Navigation("Messages");
+                });
+
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.ChatPendingAction", b =>
+                {
+                    b.Navigation("AuditEntries");
                 });
 
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.MetadataReviewOperation", b =>

@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useReducer, useRef } from "react";
 
+import { ChatAction } from "./types";
+
 interface StreamingToolCall {
   id: string;
   name: string;
   arguments: string;
   result?: string;
+  approval?: ChatAction;
 }
 
 type StreamingContentBlock =
@@ -34,6 +37,7 @@ type StreamingAction =
   | { type: "tool_call_begin"; id: string; name: string }
   | { type: "tool_call_delta"; id: string; argumentsDelta: string }
   | { type: "tool_result"; toolCallId: string; name: string; result: string }
+  | { type: "approval_required"; toolCallId: string; action: ChatAction }
   | { type: "finished" }
   | { type: "error"; code: ChatStreamErrorCode }
   | { type: "reset" };
@@ -96,6 +100,19 @@ function reducer(
             ? {
                 ...block,
                 toolCall: { ...block.toolCall, result: action.result },
+              }
+            : block,
+        ),
+      };
+
+    case "approval_required":
+      return {
+        ...state,
+        contentBlocks: state.contentBlocks.map((block) =>
+          block.type === "tool_call" && block.toolCall.id === action.toolCallId
+            ? {
+                ...block,
+                toolCall: { ...block.toolCall, approval: action.action },
               }
             : block,
         ),
@@ -235,6 +252,13 @@ export function useStreamingChat() {
                       toolCallId: data.tool_call_id,
                       name: data.name,
                       result: data.result,
+                    });
+                    break;
+                  case "approval_required":
+                    dispatch({
+                      type: "approval_required",
+                      toolCallId: data.tool_call_id,
+                      action: data.action,
                     });
                     break;
                   case "finished":

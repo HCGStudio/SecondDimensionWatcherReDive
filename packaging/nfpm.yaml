@@ -11,6 +11,7 @@ license: "Apache-2.0"
 
 depends:
   - aspnetcore-runtime-10.0
+  - ffmpeg
 
 recommends:
   - valkey
@@ -19,6 +20,7 @@ overrides:
   archlinux:
     depends:
       - aspnet-runtime-10.0
+      - ffmpeg
     recommends:
       - valkey
 
@@ -74,6 +76,13 @@ contents:
     type: dir
     file_info:
       mode: 0700
+      owner: sdw-redive
+      group: sdw-redive
+
+  - dst: /var/lib/sdw-redive/transcode-cache
+    type: dir
+    file_info:
+      mode: 0750
       owner: sdw-redive
       group: sdw-redive
 
