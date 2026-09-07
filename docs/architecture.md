@@ -26,7 +26,7 @@ This is an anime/animation download management system (二次元观测器 Re:Div
 The system uses **System.Threading.Channels** for async inter-service communication:
 
 1. User triggers download via `AnimationInfoController`
-2. `RemoteTorrentDownloadClient` submits torrent to qBittorrent API with savepath `{FileStore:Local}/{torrentHash}` so concurrent downloads never collide on disk, then writes to `RemoteTorrentTrackRequest` channel
+2. `RemoteTorrentDownloadClient` queues downloads for durable capacity admission before submitting to qBittorrent with savepath `{FileStore:Local}/{torrentHash}`, then writes to `RemoteTorrentTrackRequest`. Recovery reconciles existing reservations against remote status and requeues missing torrents for fresh admission. Disabling `DownloadCapacity:Enabled` drains existing unpaused work without capacity checks; remote tasks and completed rows leave the queue, while queued pause/resume/cancel controls remain available.
 3. `FetchRemoteTorrentBackgroundService` polls qBittorrent status, writes to `FileDownloadStatus` channel
 4. `UpdateDownloadStatusBackgroundService` updates an in-memory cache with progress (finished items expire after 5 min)
 5. On completion, `DownloadCompleteRequest` channel triggers `CompleteDownloadBackgroundService` to update the DB (`IsDownloadFinished`, `FileStore`, `StorePath`)
@@ -255,6 +255,8 @@ Features: 25 anime entries with TMDB poster paths and mixed download states, gro
 - `DisableCors` — Enable permissive CORS policy
 - `Valkey:ConnectionString` — Valkey/Redis connection string (optional; uses in-memory cache if empty)
 - `Valkey:InstanceName` — Cache key prefix (default: "sdw-redive:")
+
+`DownloadCapacity:Enabled` defaults to true. Disabled mode bypasses admission for new downloads and drains the existing durable queue. HLS cache reservations remain independent; after acquiring one, a worker rechecks the shared completed manifest and reuses it before considering cache recreation.
 
 EF Core migrations run automatically on application startup.
 
