@@ -157,17 +157,19 @@ const FileRow: React.FC<FileRowProps> = ({
 }) => {
   const { t } = useTranslation("files");
   const [busy, setBusy] = React.useState(false);
+  const { addToast } = useToast();
 
   const onClick = React.useCallback(async () => {
     setBusy(true);
     try {
       await downloadVfsFile(fullPath, entry.name);
+      addToast({ title: t("vfs.download.handedOff") });
     } catch {
       onDownloadError();
     } finally {
       setBusy(false);
     }
-  }, [entry.name, fullPath, onDownloadError]);
+  }, [entry.name, fullPath, onDownloadError, addToast, t]);
 
   const sizeText =
     typeof entry.size === "number" ? formatFileSize(entry.size) : null;
@@ -195,7 +197,7 @@ const FileRow: React.FC<FileRowProps> = ({
       <Button
         variant="icon"
         size="sm"
-        aria-label={t("vfs.actions.download")}
+        aria-label={t(busy ? "vfs.download.starting" : "vfs.actions.download")}
         title={t("vfs.actions.download")}
         onClick={onClick}
         disabled={busy}

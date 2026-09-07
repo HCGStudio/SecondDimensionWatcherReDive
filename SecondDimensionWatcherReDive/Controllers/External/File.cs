@@ -24,6 +24,8 @@ internal sealed record PlaybackResourceTicket(
     string SessionId,
     DateTimeOffset ExpiresAt,
     Guid? IdentitySessionId = null,
-    Guid? ProfileId = null);
+    Guid? ProfileId = null,
+    string? MappingFingerprint = null,
+    string? Purpose = null);
 
 internal sealed record FileStoreListResult(string FileName, bool IsDirectory, string? Relative);
