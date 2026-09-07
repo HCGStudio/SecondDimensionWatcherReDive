@@ -116,6 +116,8 @@ public partial class FetchRemoteTorrentBackgroundService(
                         }
                         tracked[request.Hash] = request;
                     }
+                    // A tracked attempt can return to the capacity queue. Only
+                    // reconcile removals after a complete successful DB refresh.
                     foreach (var hash in tracked.Keys.Where(hash => !recovered.Contains(hash)))
                     {
                         tracked.TryRemove(hash, out _);

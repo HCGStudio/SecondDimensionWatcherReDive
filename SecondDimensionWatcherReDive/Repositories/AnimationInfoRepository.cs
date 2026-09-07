@@ -851,7 +851,8 @@ public class AnimationInfoRepository(
             submissionLeaseDuration,
             startedAt,
             queuedDisposition,
-            cancellationToken);
+            cancellationToken,
+            requireStandaloneFeed: queuedDisposition == SubscriptionAutomationDisposition.AutoDownloadQueued);
         return result.IsSuccess && result.SubmissionLeaseUntil is { } leaseUntil
             ? new DownloadSubmissionLease(submissionLeaseId, leaseUntil)
             : null;
@@ -991,7 +992,8 @@ public class AnimationInfoRepository(
         CancellationToken cancellationToken,
         AnimationInfo? expectedEpisode = null,
         Guid? episodeClaimId = null,
-        MultiSourceSubscription? automaticSubscription = null)
+        MultiSourceSubscription? automaticSubscription = null,
+        bool requireStandaloneFeed = false)
     {
         var strategy = context.Database.CreateExecutionStrategy();
         return await strategy.ExecuteAsync(async () =>
@@ -1007,6 +1009,25 @@ public class AnimationInfoRepository(
             if (entity is null)
                 return new DownloadStartResult(false, null);
 
+            // Ordinary automatic ingestion yields to source orchestration if
+            // the feed was linked after SyncFeed took its policy snapshot.
+            // Manual starts and claimed episode submissions do not use this gate.
+            if (requireStandaloneFeed && entity.SourceFeedId is { } feedId
+                && await writeContext.Set<Models.MultiSourceFeed>()
+                    .AnyAsync(source => source.FeedId == feedId, cancellationToken))
+                return new DownloadStartResult(false, null);
+
+            await writeContext.Entry(entity).Reference(info => info.Animation).LoadAsync(cancellationToken);
+            if (expectedEpisode is null && entity.Animation is not null
+                && entity.Season is > 0 && entity.Episode is > 0)
+            {
+                var claimNow = DateTimeOffset.UtcNow;
+                if (await writeContext.Set<Models.EpisodeAcquisition>().AnyAsync(claim =>
+                    claim.TmdbId == entity.Animation.TmdbId && claim.Season == entity.Season
+                    && claim.Episode == entity.Episode && claim.ExpiresAt > claimNow, cancellationToken))
+                    return new DownloadStartResult(false, null);
+            }
+
             if (expectedEpisode is not null)
             {
                 // Metadata changes take the same namespace and row locks. Bind
@@ -1016,7 +1037,6 @@ public class AnimationInfoRepository(
                     ? entity.StateVersion > 0 && entity.StateVersion - 1 == expectedEpisode.StateVersion
                     : entity.StateVersion == expectedEpisode.StateVersion;
                 var tmdbId = expectedEpisode.Animation?.TmdbId;
-                await writeContext.Entry(entity).Reference(info => info.Animation).LoadAsync(cancellationToken);
                 var acquisition = await writeContext.Set<Models.EpisodeAcquisition>().SingleOrDefaultAsync(claim =>
                     claim.TmdbId == tmdbId && claim.Season == entity.Season && claim.Episode == entity.Episode
                     && claim.ReleaseId == id && claim.ClaimId == episodeClaimId, cancellationToken);
