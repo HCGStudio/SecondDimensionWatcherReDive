@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using SecondDimensionWatcherReDive.Models;
@@ -11,9 +12,11 @@ using SecondDimensionWatcherReDive.Models;
 namespace SecondDimensionWatcherReDive.Migrations
 {
     [DbContext(typeof(ApplicationContext))]
-    partial class ApplicationContextModelSnapshot : ModelSnapshot
+    [Migration("20260907154921_AddTranscodeCacheReaders")]
+    partial class AddTranscodeCacheReaders
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -2056,51 +2059,6 @@ namespace SecondDimensionWatcherReDive.Migrations
                     b.ToTable("Profiles");
                 });
 
-            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.WatchlistItem", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<int?>("MikanId")
-                        .HasColumnType("integer");
-
-                    b.Property<Guid>("ProfileId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(16)
-                        .HasColumnType("character varying(16)");
-
-                    b.Property<string>("SubjectKey")
-                        .IsRequired()
-                        .HasMaxLength(96)
-                        .HasColumnType("character varying(96)");
-
-                    b.Property<string>("Title")
-                        .IsRequired()
-                        .HasMaxLength(512)
-                        .HasColumnType("character varying(512)");
-
-                    b.Property<string>("TmdbId")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<DateTimeOffset>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ProfileId", "MikanId")
-                        .IsUnique();
-
-                    b.HasIndex("ProfileId", "SubjectKey")
-                        .IsUnique();
-
-                    b.ToTable("WatchlistItems", (string)null);
-                });
-
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.WebDavToken", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2452,15 +2410,6 @@ namespace SecondDimensionWatcherReDive.Migrations
                         .IsRequired();
 
                     b.Navigation("User");
-                });
-
-            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.WatchlistItem", b =>
-                {
-                    b.HasOne("SecondDimensionWatcherReDive.Models.UserProfile", null)
-                        .WithMany()
-                        .HasForeignKey("ProfileId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
                 });
 
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.WebDavToken", b =>

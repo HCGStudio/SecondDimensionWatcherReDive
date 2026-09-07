@@ -13,8 +13,11 @@ public sealed class EpisodeDownloadService(IAnimationInfoRepository releases, IF
         var tmdbId = info.Animation!.TmdbId;
         var season = info.Season!.Value;
         var claim = Guid.NewGuid();
-        if (!await completion.TryClaimEpisodeAsync(tmdbId, season, episode, info.Id, claim, cancellationToken))
-            return new(episode, info.Id, "already_present_or_busy", true);
+        var claimOutcome = await completion.TryClaimEpisodeAsync(tmdbId, season, episode, info.Id, claim, cancellationToken);
+        if (claimOutcome != EpisodeClaimOutcome.Acquired)
+            return claimOutcome == EpisodeClaimOutcome.AlreadyPresentOrBusy
+                ? new(episode, info.Id, "already_present_or_busy", true)
+                : new(episode, info.Id, "candidate_unavailable", false);
         var attempt = Guid.NewGuid();
         var lease = Guid.NewGuid();
         IFileDownloadClient? client = null;
@@ -22,8 +25,8 @@ public sealed class EpisodeDownloadService(IAnimationInfoRepository releases, IF
         try
         {
             client = clients.GetRequiredClient(info.DownloadType);
-            var started = await releases.TryStartDownloadAsync(info.Id, attempt, lease, TimeSpan.FromMinutes(3),
-                DateTimeOffset.UtcNow, SubscriptionAutomationDisposition.AutoDownloadQueued, cancellationToken);
+            var started = await releases.TryStartClaimedEpisodeDownloadAsync(info, claim, attempt, lease,
+                TimeSpan.FromMinutes(3), DateTimeOffset.UtcNow, cancellationToken);
             if (started == null) return new(episode, info.Id, "state_changed", false);
             using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             budget.CancelAfter(TimeSpan.FromSeconds(90));

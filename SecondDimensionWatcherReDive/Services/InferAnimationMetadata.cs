@@ -88,10 +88,10 @@ public partial class InferAnimationMetadata(
             var result = deterministic
                 ? MetadataRecognitionRuleService.Apply(rule!, item, null)
                 : rule is not null
-                    ? await inferenceEngine.InferForTmdbAsync(item.Title, item.Description, rule.TmdbId, cancellationToken)
+                    ? await inferenceEngine.InferForTmdbAsync(item.Title, item.Description, rule.TmdbId, rule.FixedSeason, cancellationToken)
                     : await inferenceEngine.InferAsync(item.Title, item.Description, cancellationToken);
             if (rule is not null && !deterministic && result is not null)
-                result = MetadataRecognitionRuleService.Apply(rule, item, result);
+                result = MetadataRecognitionRuleService.Apply(rule, item, result, preserveNormalizedCoordinates: true);
 
             if (result is null)
                 throw new InvalidOperationException("Inference returned no usable metadata result.");
@@ -99,8 +99,8 @@ public partial class InferAnimationMetadata(
             // Do not commit an answer based on a rule that was disabled or edited while AI ran.
             if (ruleRepository is not null)
             {
-                var currentRule = MetadataRecognitionRuleService.Select(
-                    await ruleRepository.ListAsync(cancellationToken), originalItem);
+                rules = await ruleRepository.ListAsync(cancellationToken);
+                var currentRule = MetadataRecognitionRuleService.Select(rules, originalItem);
                 if (currentRule?.Id != rule?.Id || currentRule?.Revision != rule?.Revision)
                 {
                     LogStaleInferenceDiscarded(logger, item.Id);
@@ -136,6 +136,10 @@ public partial class InferAnimationMetadata(
                 var animation = await animationRepository
                     .FindByTmdbIdAsync(result.TmdbId, cancellationToken);
 
+                if (rule is not null && (animation is null || string.IsNullOrWhiteSpace(animation.Name) || animation.Name == result.TmdbId)
+                    && string.IsNullOrWhiteSpace(details?.Name))
+                    throw new MetadataRecognitionAmbiguousException(
+                        $"Rule '{rule.Name}' targets a TMDB series that could not be resolved. Review its target before applying it.");
                 if (animation == null)
                 {
                     animation = new Animation(
@@ -175,7 +179,8 @@ public partial class InferAnimationMetadata(
                     : MetadataReviewStatus.Identified,
                 MetadataLastError = null,
                 MetadataReviewedAt = null,
-                RecognitionRule = rule
+                RecognitionRule = rule,
+                RevalidateRecognitionRules = ruleRepository is not null
             };
             if (!await animationInfoRepository.TryUpdateAsync(
                     item,
@@ -249,10 +254,17 @@ public partial class InferAnimationMetadata(
                 MetadataLastError = exception.Message.Length > MaxErrorLength
                     ? exception.Message[..MaxErrorLength] : exception.Message,
                 MetadataConfidence = null,
-                IsAiProcessed = false
+                IsAiProcessed = false,
+                RecognitionRule = null,
+                RevalidateRecognitionRules = false,
+                RecognitionRulesAtFailure = ruleRepository is null ? null : rules.Where(rule => rule.Enabled).ToArray()
             };
-            if (await animationInfoRepository.TryUpdateAsync(item, expectedStateVersion, cancellationToken)
-                && notificationPublisher is not null)
+            if (!await animationInfoRepository.TryUpdateAsync(item, expectedStateVersion, cancellationToken))
+            {
+                LogStaleInferenceDiscarded(logger, item.Id);
+                return;
+            }
+            if (notificationPublisher is not null)
                 await notificationPublisher.PublishAsync(new NotificationEvent(
                     NotificationEventType.MetadataNeedsReview,
                     $"metadata-rule-conflict:{item.Id}:{expectedStateVersion + 1}",
@@ -279,7 +291,10 @@ public partial class InferAnimationMetadata(
                     : MetadataReviewStatus.Pending,
                 MetadataConfidence = null,
                 MetadataLastError = error,
-                MetadataReviewedAt = null
+                MetadataReviewedAt = null,
+                RecognitionRule = null,
+                RevalidateRecognitionRules = false,
+                RecognitionRulesAtFailure = ruleRepository is null ? null : rules.Where(rule => rule.Enabled).ToArray()
             };
             if (!await animationInfoRepository.TryUpdateAsync(
                     item,
