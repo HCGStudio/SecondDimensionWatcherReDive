@@ -181,6 +181,10 @@ Each submitted episode re-reads current state and claims the TMDB/season/episode
 - Subgroups per anime (on-demand scrape, cached 24h)
 - One-click subscribe (creates `Feed` record with mikanani RSS URL)
 
+### Personal Watchlist
+
+`/watchlist` combines profile-owned tracking status, the Mikan weekday calendar, and unwatched library episodes through `IWatchlistRepository` and `/api/watchlist`. Saved TMDB IDs use canonical invariant decimal strings so links match library identities. Omitted link fields retain their current values, while explicit `null` clears a link; each entry must retain at least one TMDB or Mikan ID. Linking duplicate identities merges entries within the current profile. Playable mappings use the shared `MediaFileTypes` video extensions, and the notifications shortcut is visible only to administrators. `mock-watchlist-playback.mjs` mirrors the link update semantics for local development.
+
 ### SPA Proxy
 
 In development, the main project proxies non-`/api` requests to the Parcel dev server (`http://localhost:1234`) via `AspSpaService`. In production, static files are served from `wwwroot` with fallback to `index.html`.

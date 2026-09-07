@@ -9,12 +9,18 @@ internal sealed class WatchlistRepository(Models.ApplicationContext context) : I
     public async Task<Guid> UpsertAsync(Guid profileId, WatchlistUpdate update, CancellationToken cancellationToken)
     {
         var items = context.Set<Models.WatchlistItem>();
-        var key = update.TmdbId is { } tmdb ? $"tmdb:{tmdb}" : $"mikan:{update.MikanId}";
-        var matches = await items.Where(x => x.ProfileId == profileId && (x.SubjectKey == key
-            || (update.MikanId != null && x.MikanId == update.MikanId) || (update.Id != null && x.Id == update.Id)))
-            .ToListAsync(cancellationToken);
-        var item = matches.FirstOrDefault(x => x.Id == update.Id) ?? matches.FirstOrDefault();
+        var item = update.Id.HasValue
+            ? await items.SingleOrDefaultAsync(x => x.ProfileId == profileId && x.Id == update.Id, cancellationToken)
+            : null;
         if (update.Id.HasValue && item is null) throw new KeyNotFoundException();
+        var tmdbId = update.TmdbIdSpecified ? update.TmdbId : item?.TmdbId;
+        var mikanId = update.MikanIdSpecified ? update.MikanId : item?.MikanId;
+        if (tmdbId is null && mikanId is null)
+            throw new ArgumentException("A watchlist entry must retain a TMDB or Mikan link.");
+        var matches = await items.Where(x => x.ProfileId == profileId
+            && ((tmdbId != null && x.TmdbId == tmdbId) || (mikanId != null && x.MikanId == mikanId)))
+            .ToListAsync(cancellationToken);
+        item ??= matches.FirstOrDefault();
         if (item is null)
         {
             item = new Models.WatchlistItem { Id = Guid.NewGuid(), ProfileId = profileId };
@@ -22,9 +28,9 @@ internal sealed class WatchlistRepository(Models.ApplicationContext context) : I
         }
         // Linking a discovery-only entry to TMDB merges its duplicate in this profile.
         items.RemoveRange(matches.Where(x => x.Id != item.Id));
-        item.TmdbId = update.TmdbId ?? item.TmdbId;
-        item.MikanId = update.MikanId ?? item.MikanId;
-        item.SubjectKey = item.TmdbId is { } linked ? $"tmdb:{linked}" : key;
+        if (update.TmdbIdSpecified) item.TmdbId = update.TmdbId;
+        if (update.MikanIdSpecified) item.MikanId = update.MikanId;
+        item.SubjectKey = item.TmdbId is { } linked ? $"tmdb:{linked}" : $"mikan:{item.MikanId}";
         item.Title = update.Title.Trim();
         item.Status = update.Status;
         item.UpdatedAt = DateTimeOffset.UtcNow;
@@ -55,7 +61,7 @@ internal sealed class WatchlistRepository(Models.ApplicationContext context) : I
             var own = releases.Where(x => x.Animation!.TmdbId == item.TmdbId).ToList();
             var candidates = own.SelectMany(release =>
             {
-                var videos = mappings.Where(x => x.AnimationInfoId == release.Id && VideoExtensions.Contains(Path.GetExtension(x.VirtualPath)))
+                var videos = mappings.Where(x => x.AnimationInfoId == release.Id && MediaFileTypes.IsVideo(x.VirtualPath))
                     .OrderBy(x => x.VirtualPath).ToArray();
                 var root = PlaybackPathResolver.ResolveVirtualPath(release.ToRecord(), null).TrimEnd('/') + "/";
                 if (!release.IsDownloadFinished || videos.Length == 0)
@@ -91,7 +97,4 @@ internal sealed class WatchlistRepository(Models.ApplicationContext context) : I
         @"(?i)(?:^|[ ._\-])S(?<season>\d{1,3})E(?<episode>\d{1,4})(?:$|[^0-9])",
         System.Text.RegularExpressions.RegexOptions.CultureInvariant,
         TimeSpan.FromMilliseconds(100));
-
-    private static readonly HashSet<string> VideoExtensions = new(StringComparer.OrdinalIgnoreCase)
-        { ".mkv", ".mp4", ".webm", ".avi", ".mov", ".m4v", ".ts", ".m2ts" };
 }
