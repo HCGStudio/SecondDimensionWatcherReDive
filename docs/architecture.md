@@ -110,7 +110,7 @@ Registered scheduled tasks:
 - **ScrapeSeasonBangumi** — Scrapes mikanani.me for current season anime list every 7 days
 
 Channel-driven event processors (always running, end with BackgroundService suffix):
-- **FetchRemoteTorrentBackgroundService** — Polls qBittorrent in bounded hash batches with adaptive active/idle/paused intervals and failure backoff. `Torrent:Polling:StatusTimeoutSeconds` configures the complete status-request deadline, including authentication and waiting for the shared request lock (default 30 seconds, clamped to 1–600 seconds). Increase it for a busy or distant downloader; request failures never imply a torrent is missing.
+- **FetchRemoteTorrentBackgroundService** — Polls qBittorrent in bounded hash batches with adaptive active/idle/paused intervals and failure backoff. It drains tracking/control messages between individual status batches and immediately continues the oldest overdue work; the idle delay applies only when no batch is due. `Torrent:Polling:StatusTimeoutSeconds` configures the complete status-request deadline, including authentication and waiting for the shared request lock (default 30 seconds, clamped to 1–600 seconds). Increase it for a busy or distant downloader; request failures never imply a torrent is missing.
 - **UpdateDownloadStatusBackgroundService** — Caches download progress in memory
 - **CompleteDownloadBackgroundService** — Finalizes downloads, invokes `IFileMapper` to build virtual-FS mappings, then fires the `OnFileDownloadCompleted` plugin event
 
