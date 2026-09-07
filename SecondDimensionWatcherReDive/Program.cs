@@ -807,6 +807,7 @@ builder.Services.AddScoped<IDurableJobRepository, DurableJobRepository>();
 builder.Services.AddScoped<IScheduledTaskLeaseRepository, ScheduledTaskLeaseRepository>();
 builder.Services.AddScoped<IReadinessRepository, ReadinessRepository>();
 builder.Services.AddScoped<ILibrarySearchRepository, LibrarySearchRepository>();
+SecondDimensionWatcherReDive.Utils.LibraryCompletion.LibraryCompletionExtensions.AddLibraryCompletion(builder.Services);
 builder.Services.AddScoped<IReleaseUpgradeRepository, ReleaseUpgradeRepository>();
 builder.Services.AddScoped<INotificationOutboxRepository, NotificationOutboxRepository>();
 builder.Services.AddScoped<IWebPushSubscriptionRepository, WebPushSubscriptionRepository>();

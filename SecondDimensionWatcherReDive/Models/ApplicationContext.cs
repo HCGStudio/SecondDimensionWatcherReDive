@@ -58,6 +58,7 @@ public class ApplicationContext : DbContext
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.ApplyConfigurationsFromAssembly(typeof(AnimationInfo).Assembly);
         modelBuilder.Entity<UserAccount>()
             .HasIndex(user => user.Username)
             .IsUnique();

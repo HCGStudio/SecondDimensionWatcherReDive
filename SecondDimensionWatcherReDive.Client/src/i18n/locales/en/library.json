@@ -50,7 +50,7 @@
     "description": "Missing, duplicate, and unidentified episodes plus higher-scoring releases.",
     "refresh": "Refresh",
     "season": "Season {{season}} · {{count}} expected",
-    "missing": "Missing",
+    "missing": "Aired missing",
     "duplicates": "Duplicates",
     "unidentified": "Unidentified"
   },
@@ -66,6 +66,59 @@
       "download_queued": "Candidate download queued",
       "applied": "Upgrade applied",
       "already_applied": "Upgrade was already applied"
+    }
+  },
+  "completion": {
+    "open": "Completion plan",
+    "title": "Episode completion plan",
+    "description": "Choose from collected, reliably identified single-episode releases. The highest-scoring version matching current subscription rules is selected by default. State is checked again before submission. Specials and batches require manual handling.",
+    "calendar": "Air dates: {{source}} · checked {{date}} (compared in UTC; separate from release publication)",
+    "unidentified": "{{count}} releases have uncertain episode metadata or batch coverage and are excluded from automatic matching.",
+    "empty": "No episode numbers are available.",
+    "episode": "Episode {{episode}}",
+    "airDate": "Air date: {{date}}",
+    "unknown": "Unknown",
+    "candidate": "Candidate version",
+    "skip": "Skip this episode",
+    "unknownSize": "Unknown size",
+    "published": "Release publication: {{date}}",
+    "total": "{{count}} selected · known size {{size}} · {{unknown}} unknown sizes",
+    "submit": "Submit selected episodes",
+    "retry": "Retry episode",
+    "refreshError": "Submission results are preserved, but refreshing the plan failed. Reopen it shortly to get the latest status.",
+    "error": "Could not load or submit the plan. Refresh and retry.",
+    "summary": "{{unaired}} unaired · {{unknown}} unknown air dates",
+    "states": {
+      "downloaded": "Downloaded",
+      "downloading": "Downloading",
+      "unaired": "Unaired",
+      "failed": "Download failed",
+      "candidate": "Available, not downloaded",
+      "air_date_unknown": "Air date unknown",
+      "aired_no_resource": "Aired, no release",
+      "mapping_pending": "Awaiting file mapping"
+    },
+    "reasons": {
+      "highest_eligible_score": "Highest-scoring eligible candidate selected; you can change the version.",
+      "no_eligible_candidate": "No collected candidate matches subscription rules.",
+      "unidentified_or_batch": "Uncertain episode or batch",
+      "unsupported_source": "Unsupported download source",
+      "policy_mismatch": "Does not match subscription rules",
+      "downloaded": "This episode is already present.",
+      "downloading": "Download or cleanup is in progress.",
+      "unaired": "Not yet aired; excluded from actionable missing episodes.",
+      "failed": "An earlier download failed; choose a candidate to retry.",
+      "air_date_unknown": "No air date is available; broadcast status is not inferred.",
+      "aired_no_resource": "Already aired; no reliable single-episode release is collected.",
+      "candidate": "Undownloaded candidates are available.",
+      "mapping_pending": "The release completed but its live file mappings are not ready; another download is held."
+    },
+    "outcomes": {
+      "submitted": "Added to the download queue",
+      "already_present_or_busy": "Already present or in progress; skipped",
+      "state_changed": "State changed; refresh and retry",
+      "submission_failed": "Submission failed; retry this episode",
+      "candidate_unavailable": "Candidate unavailable; select another"
     }
   }
 }

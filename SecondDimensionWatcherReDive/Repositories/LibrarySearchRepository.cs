@@ -4,12 +4,14 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Framework.FileDownload;
+using SecondDimensionWatcherReDive.Utils.LibraryCompletion;
 
 namespace SecondDimensionWatcherReDive.Repositories;
 
 public sealed class LibrarySearchRepository(
     Models.ApplicationContext context,
-    IReleaseUpgradeRepository upgradeRepository)
+    IReleaseUpgradeRepository upgradeRepository,
+    EpisodeAirCalendarService airCalendar)
     : ILibrarySearchRepository
 {
     private const int MaximumReturnedPathsPerRelease = 20;
@@ -422,35 +424,44 @@ public sealed class LibrarySearchRepository(
         var candidates = (await upgradeRepository.GetIntegrityCandidatesAsync(tmdbId, season, cancellationToken))
             .ToLookup(candidate => candidate.CurrentReleaseId);
 
-        return releases
-            .Where(info => info.Season is > 0)
-            .GroupBy(info => new
-            {
-                info.TmdbId,
-                info.AnimationName,
-                Season = info.Season!.Value
-            })
-            .Select(group => BuildIntegrity(group, mappedIds, candidates))
-            .OrderBy(item => item.AnimationName)
-            .ThenBy(item => item.Season)
+        var groups = releases.Where(info => info.Season is > 0)
+            .GroupBy(info => new { info.TmdbId, info.AnimationName, Season = info.Season!.Value })
             .ToList();
+        var summaries = new LibraryIntegritySummary[groups.Count];
+        await Parallel.ForEachAsync(Enumerable.Range(0, groups.Count), new ParallelOptions
+        {
+            MaxDegreeOfParallelism = 4,
+            CancellationToken = cancellationToken
+        }, async (index, token) =>
+        {
+            var group = groups[index];
+            var calendar = await airCalendar.GetAsync(group.Key.TmdbId, group.Key.Season, token);
+            summaries[index] = BuildIntegrity(group, mappedIds, candidates, calendar);
+        });
+        return summaries.OrderBy(item => item.AnimationName).ThenBy(item => item.Season).ToList();
     }
 
     private static LibraryIntegritySummary BuildIntegrity(
         IEnumerable<IntegrityRelease> source,
         IReadOnlySet<Guid> mappedIds,
-        ILookup<Guid, ReleaseUpgradeCandidate> candidates)
+        ILookup<Guid, ReleaseUpgradeCandidate> candidates,
+        EpisodeAirCalendar calendar)
     {
         var releases = source.ToList();
         var first = releases[0];
         var downloaded = releases
             .Where(info => info.IsDownloadFinished && mappedIds.Contains(info.Id) && info.Episode is > 0)
             .ToList();
-        var expected = releases.Max(info => info.ExpectedEpisodeCount);
+        var expected = releases.Select(info => info.ExpectedEpisodeCount)
+            .Concat(calendar.Episodes.Select(item => (int?)item.Episode)).Max();
         var present = downloaded.Select(info => info.Episode!.Value).ToHashSet();
-        var missing = expected is { } count
-            ? Enumerable.Range(1, count).Where(episode => !present.Contains(episode)).ToList()
-            : [];
+        var notPresent = (expected is { } count ? Enumerable.Range(1, Math.Clamp(count, 0, 10000)) : releases.Where(x => x.Episode is > 0).Select(x => x.Episode!.Value))
+            .Where(episode => !present.Contains(episode)).Distinct().ToList();
+        var airDates = calendar.Episodes.ToDictionary(x => x.Episode, x => x.AirDate);
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var unaired = notPresent.Where(x => DateOnly.TryParse(airDates.GetValueOrDefault(x), out var date) && date > today).ToList();
+        var unknown = notPresent.Where(x => !DateOnly.TryParse(airDates.GetValueOrDefault(x), out _)).ToList();
+        var missing = notPresent.Except(unaired).Except(unknown).ToList();
         var duplicates = downloaded
             .GroupBy(info => info.Episode!.Value)
             .Where(group => group.Count() > 1)
@@ -467,7 +478,7 @@ public sealed class LibrarySearchRepository(
             missing,
             duplicates,
             releases.Count(info => info.Episode is null),
-            releases.SelectMany(release => candidates[release.Id]).OrderBy(item => item.Episode).ToList());
+            releases.SelectMany(release => candidates[release.Id]).OrderBy(item => item.Episode).ToList(), unaired, unknown);
     }
 
     private static string ContainsPattern(string value) =>

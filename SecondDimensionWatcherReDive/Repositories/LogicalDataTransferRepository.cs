@@ -421,6 +421,18 @@ internal sealed class LogicalDataTransferWorker(
             }
 
             var info = matches[0];
+            if (await LibraryCompletionRepository.HasActiveClaimAsync(context, info.Id, cancellationToken))
+            {
+                var identifier = $"metadata release has an active episode acquisition:{imported.ReleaseTitle}";
+                if (strategy == LogicalImportConflictStrategy.Skip)
+                {
+                    statistics.Conflict(identifier);
+                    continue;
+                }
+                // Overwrite may replace stored metadata, but cannot invalidate a download
+                // identity while its owner is submitting the release to the remote client.
+                throw new LogicalDataImportConflictException($"Import conflict at {identifier}. Retry after submission finishes.");
+            }
             if (info.CurrentMetadataReviewOperationId is not null &&
                 !HandleConflict(strategy, $"metadata:{imported.ReleaseTitle}", statistics))
                 continue;

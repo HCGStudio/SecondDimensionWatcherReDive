@@ -55,6 +55,8 @@ export interface LibraryIntegritySummary {
   season: number;
   expectedEpisodeCount: number | null;
   missingEpisodes: number[];
+  unairedEpisodes: number[];
+  unknownAirDateEpisodes: number[];
   duplicateEpisodes: Array<{ episode: number; releaseIds: string[] }>;
   unidentifiedReleaseCount: number;
   upgradeCandidates: ReleaseUpgradeCandidate[];

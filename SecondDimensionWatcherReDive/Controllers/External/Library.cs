@@ -55,7 +55,9 @@ internal sealed record LibraryIntegritySummaryResponse(
     IReadOnlyList<int> MissingEpisodes,
     IReadOnlyList<EpisodeDuplicateResponse> DuplicateEpisodes,
     int UnidentifiedReleaseCount,
-    IReadOnlyList<ReleaseUpgradeCandidateResponse> UpgradeCandidates);
+    IReadOnlyList<ReleaseUpgradeCandidateResponse> UpgradeCandidates,
+    IReadOnlyList<int> UnairedEpisodes,
+    IReadOnlyList<int> UnknownAirDateEpisodes);
 
 internal sealed record ReleaseUpgradeOperationResponse(
     Guid Id,

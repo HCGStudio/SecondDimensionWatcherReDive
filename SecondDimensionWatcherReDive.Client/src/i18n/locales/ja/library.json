@@ -50,7 +50,7 @@
     "description": "欠番、重複、未識別の話数と高スコア候補を確認します。",
     "refresh": "更新",
     "season": "シーズン {{season}} · 全 {{count}} 話予定",
-    "missing": "欠番",
+    "missing": "放送済みの欠落",
     "duplicates": "重複",
     "unidentified": "未識別"
   },
@@ -66,6 +66,59 @@
       "download_queued": "候補をダウンロード待ちに追加しました",
       "applied": "更新を適用しました",
       "already_applied": "更新は適用済みです"
+    }
+  },
+  "completion": {
+    "open": "補完プラン",
+    "title": "エピソード補完プラン",
+    "description": "収集済みで季・話数が確実な単話リリースから選択します。現在の購読ルールを満たす最高評価の版を既定で選び、送信直前に状態を確認します。特別編や一括版は手動で扱ってください。",
+    "calendar": "放送日：{{source}} · 確認 {{date}}（UTC で判定。リリース公開時刻とは別です）",
+    "unidentified": "話数が不確実または一括版の {{count}} 件は自動照合の対象外です。",
+    "empty": "確定できる話数がありません。",
+    "episode": "第 {{episode}} 話",
+    "airDate": "放送日：{{date}}",
+    "unknown": "不明",
+    "candidate": "候補バージョン",
+    "skip": "今回はスキップ",
+    "unknownSize": "サイズ不明",
+    "published": "字幕グループの公開時刻：{{date}}",
+    "total": "{{count}} 話を選択 · 既知サイズ {{size}} · サイズ不明 {{unknown}} 件",
+    "submit": "選択した話を一括送信",
+    "retry": "この話を再試行",
+    "refreshError": "送信結果は保持されていますが、計画の更新に失敗しました。しばらくしてから開き直し、最新の状態を確認してください。",
+    "error": "プランの読み込みまたは送信に失敗しました。更新して再試行してください。",
+    "summary": "未放送 {{unaired}} 話 · 放送日不明 {{unknown}} 話",
+    "states": {
+      "downloaded": "取得済み",
+      "downloading": "取得中",
+      "unaired": "未放送",
+      "failed": "ダウンロード失敗",
+      "candidate": "候補あり・未取得",
+      "air_date_unknown": "放送情報不明",
+      "aired_no_resource": "放送済み・リリースなし",
+      "mapping_pending": "ファイル対応待ち"
+    },
+    "reasons": {
+      "highest_eligible_score": "条件を満たす最高評価の候補です。別の版にも変更できます。",
+      "no_eligible_candidate": "購読ルールを満たす候補がありません。",
+      "unidentified_or_batch": "話数未確定または一括版",
+      "unsupported_source": "未対応のダウンロード元",
+      "policy_mismatch": "購読ルール不一致",
+      "downloaded": "この話は取得済みです。",
+      "downloading": "ダウンロードまたは後処理の実行中です。",
+      "unaired": "未放送のため、対応が必要な欠落話に含みません。",
+      "failed": "前回の取得に失敗しました。候補を選んで再試行できます。",
+      "air_date_unknown": "放送日が不明のため、放送済みかどうか推測しません。",
+      "aired_no_resource": "放送済みですが、確実な単話リリースが未収集です。",
+      "candidate": "未取得の候補があります。",
+      "mapping_pending": "取得済みですが有効なファイル対応が未準備のため、再取得を保留します。"
+    },
+    "outcomes": {
+      "submitted": "ダウンロードキューに追加しました",
+      "already_present_or_busy": "取得済みまたは処理中のためスキップ",
+      "state_changed": "状態が変更されました。更新して再試行してください",
+      "submission_failed": "送信に失敗しました。この話を再試行できます",
+      "candidate_unavailable": "候補が利用できません。選び直してください"
     }
   }
 }
