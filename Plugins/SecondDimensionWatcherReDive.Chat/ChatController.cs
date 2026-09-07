@@ -86,7 +86,10 @@ internal sealed partial class ChatController(
         if (!User.TryGetProfileId(out var profileId) || !TryGetUserId(out var userId)) return Unauthorized();
         var detail = await chatRepository.GetConversationWithMessagesAsync(id, profileId, cancellationToken);
         if (detail is not null)
+        {
             await chatActionService.GetForConversationAsync(id, userId, cancellationToken);
+            detail = await chatRepository.GetConversationWithMessagesAsync(id, profileId, cancellationToken);
+        }
         if (detail is null)
         {
             LogConversationNotFound(id);
@@ -279,7 +282,10 @@ internal sealed partial class ChatController(
 
         var conversation = await chatRepository.GetConversationWithMessagesAsync(id, profileId, cancellationToken);
         if (conversation is not null)
+        {
             await chatActionService.GetForConversationAsync(id, userId, cancellationToken);
+            conversation = await chatRepository.GetConversationWithMessagesAsync(id, profileId, cancellationToken);
+        }
         if (conversation is null)
         {
             LogConversationNotFound(id);

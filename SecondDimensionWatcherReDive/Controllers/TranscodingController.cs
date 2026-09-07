@@ -260,7 +260,7 @@ internal sealed class TranscodingController(
         {
             parts = _accessProtector.Unprotect(token).Split('.', 5);
         }
-        catch (CryptographicException)
+        catch (Exception exception) when (exception is CryptographicException or FormatException or ArgumentException)
         {
             return null;
         }
