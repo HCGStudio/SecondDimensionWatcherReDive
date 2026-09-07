@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using SecondDimensionWatcherReDive.Models;
@@ -11,9 +12,11 @@ using SecondDimensionWatcherReDive.Models;
 namespace SecondDimensionWatcherReDive.Migrations
 {
     [DbContext(typeof(ApplicationContext))]
-    partial class ApplicationContextModelSnapshot : ModelSnapshot
+    [Migration("20260907154921_AddTranscodeCacheReaders")]
+    partial class AddTranscodeCacheReaders
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1443,132 +1446,6 @@ namespace SecondDimensionWatcherReDive.Migrations
                         });
                 });
 
-            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.MultiSourceEpisodeDecision", b =>
-                {
-                    b.Property<Guid>("SubscriptionId")
-                        .HasColumnType("uuid");
-
-                    b.Property<int>("Episode")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("Outcome")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("Reason")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<Guid?>("SelectedReleaseId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTimeOffset>("WaitStartedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTimeOffset>("WaitUntil")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("SubscriptionId", "Episode");
-
-                    b.ToTable("MultiSourceEpisodeDecisions", (string)null);
-                });
-
-            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.MultiSourceFeed", b =>
-                {
-                    b.Property<Guid>("FeedId")
-                        .HasColumnType("uuid");
-
-                    b.Property<int>("Priority")
-                        .HasColumnType("integer");
-
-                    b.Property<Guid>("SubscriptionId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("FeedId");
-
-                    b.HasIndex("SubscriptionId", "Priority");
-
-                    b.ToTable("MultiSourceFeeds", (string)null);
-                });
-
-            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.MultiSourceSubscription", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.PrimitiveCollection<string[]>("Codecs")
-                        .IsRequired()
-                        .HasColumnType("text[]");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<bool>("EnableVersionUpgrade")
-                        .HasColumnType("boolean");
-
-                    b.PrimitiveCollection<string[]>("ExcludedKeywords")
-                        .IsRequired()
-                        .HasColumnType("text[]");
-
-                    b.PrimitiveCollection<string[]>("Languages")
-                        .IsRequired()
-                        .HasColumnType("text[]");
-
-                    b.Property<long?>("MaxSizeBytes")
-                        .HasColumnType("bigint");
-
-                    b.Property<long?>("MinSizeBytes")
-                        .HasColumnType("bigint");
-
-                    b.Property<int>("MinimumUpgradeScore")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("Mode")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.PrimitiveCollection<string[]>("Resolutions")
-                        .IsRequired()
-                        .HasColumnType("text[]");
-
-                    b.Property<int>("Season")
-                        .HasColumnType("integer");
-
-                    b.PrimitiveCollection<string[]>("SubtitleGroups")
-                        .IsRequired()
-                        .HasColumnType("text[]");
-
-                    b.Property<string>("TmdbId")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
-
-                    b.Property<DateTimeOffset>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<int>("UpgradeRollbackHours")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("WaitMinutes")
-                        .HasColumnType("integer");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("TmdbId", "Season")
-                        .IsUnique();
-
-                    b.ToTable("MultiSourceSubscriptions", (string)null);
-                });
-
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.NotificationOutboxMessage", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2182,51 +2059,6 @@ namespace SecondDimensionWatcherReDive.Migrations
                     b.ToTable("Profiles");
                 });
 
-            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.WatchlistItem", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<int?>("MikanId")
-                        .HasColumnType("integer");
-
-                    b.Property<Guid>("ProfileId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(16)
-                        .HasColumnType("character varying(16)");
-
-                    b.Property<string>("SubjectKey")
-                        .IsRequired()
-                        .HasMaxLength(96)
-                        .HasColumnType("character varying(96)");
-
-                    b.Property<string>("Title")
-                        .IsRequired()
-                        .HasMaxLength(512)
-                        .HasColumnType("character varying(512)");
-
-                    b.Property<string>("TmdbId")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<DateTimeOffset>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ProfileId", "MikanId")
-                        .IsUnique();
-
-                    b.HasIndex("ProfileId", "SubjectKey")
-                        .IsUnique();
-
-                    b.ToTable("WatchlistItems", (string)null);
-                });
-
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.WebDavToken", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2489,30 +2321,6 @@ namespace SecondDimensionWatcherReDive.Migrations
                     b.Navigation("AnimationInfo");
                 });
 
-            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.MultiSourceEpisodeDecision", b =>
-                {
-                    b.HasOne("SecondDimensionWatcherReDive.Models.MultiSourceSubscription", null)
-                        .WithMany()
-                        .HasForeignKey("SubscriptionId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-                });
-
-            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.MultiSourceFeed", b =>
-                {
-                    b.HasOne("SecondDimensionWatcherReDive.Models.Feed", null)
-                        .WithMany()
-                        .HasForeignKey("FeedId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("SecondDimensionWatcherReDive.Models.MultiSourceSubscription", null)
-                        .WithMany("Sources")
-                        .HasForeignKey("SubscriptionId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-                });
-
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.PlaybackPreference", b =>
                 {
                     b.HasOne("SecondDimensionWatcherReDive.Models.UserProfile", "Profile")
@@ -2604,15 +2412,6 @@ namespace SecondDimensionWatcherReDive.Migrations
                     b.Navigation("User");
                 });
 
-            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.WatchlistItem", b =>
-                {
-                    b.HasOne("SecondDimensionWatcherReDive.Models.UserProfile", null)
-                        .WithMany()
-                        .HasForeignKey("ProfileId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-                });
-
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.WebDavToken", b =>
                 {
                     b.HasOne("SecondDimensionWatcherReDive.Models.UserAccount", "User")
@@ -2637,11 +2436,6 @@ namespace SecondDimensionWatcherReDive.Migrations
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.MetadataReviewOperation", b =>
                 {
                     b.Navigation("MappingSnapshots");
-                });
-
-            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.MultiSourceSubscription", b =>
-                {
-                    b.Navigation("Sources");
                 });
 
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.ReleaseUpgradeOperation", b =>
