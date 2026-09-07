@@ -30,7 +30,7 @@ public sealed class LibraryCompletionRepository(Models.ApplicationContext contex
             x.Season == season && x.Episode == episode && x.MediaLibraryMissingSince == null && !x.IsRetiredRelease);
         if (!await siblings.AnyAsync(x => x.Id == releaseId &&
             (x.MetadataStatus == MetadataReviewStatus.Identified || x.MetadataStatus == MetadataReviewStatus.Reviewed), cancellationToken) ||
-            await siblings.AnyAsync(x => x.IsDownloadTracked || x.IsDownloadFinished || x.DownloadCancellationId != null, cancellationToken))
+            await siblings.AnyAsync(x => x.IsDownloadTracked || x.IsDownloadFinished, cancellationToken))
             return false;
         var claim = await write.Set<Models.EpisodeAcquisition>().FindAsync([tmdbId, season, episode], cancellationToken);
         if (claim != null && claim.ExpiresAt > DateTimeOffset.UtcNow) return false;
