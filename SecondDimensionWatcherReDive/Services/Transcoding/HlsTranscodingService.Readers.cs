@@ -36,7 +36,7 @@ internal sealed partial class HlsTranscodingService
         var id = _readerLeases.TryGetValue(key, out var previous) ? previous.Id : Guid.NewGuid();
         var validUntil = Stopwatch.GetTimestamp() + TranscodeCapacityService.LeaseSeconds * Stopwatch.Frequency;
         await scope.ServiceProvider.GetRequiredService<ITranscodeCapacityRepository>()
-            .RegisterReaderAsync(id, CapacityVolume.CanonicalPath(directory), TranscodeCapacityService.LeaseSeconds, cancellationToken);
+            .RegisterReaderAsync(id, CapacityVolume.DirectoryIdentity(directory), TranscodeCapacityService.LeaseSeconds, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         lock (_readerStateGate) _readerLeases[key] = new CacheReadLease(id, validUntil);
         return manifest;
