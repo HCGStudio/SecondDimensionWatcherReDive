@@ -1,0 +1,52 @@
+{
+  "eyebrow": "Attention queue",
+  "title": "To-do center",
+  "subtitle": "Review matched releases, confirmations, incidents, metadata, and disk alerts in risk order.",
+  "unread_one": "{{count}} unread item",
+  "unread_other": "{{count}} unread items",
+  "listLabel": "Current to-do items",
+  "filters": {
+    "includeRead": "Show read",
+    "includeSnoozed": "Show snoozed"
+  },
+  "actions": {
+    "selectAll": "Select all",
+    "selectItem": "Select {{title}}",
+    "readSelected": "Mark selected read",
+    "snoozeSelected": "Snooze selected 1 hour",
+    "markRead": "Mark read",
+    "markUnread": "Mark unread",
+    "snooze": "Snooze 1 hour",
+    "unsnooze": "Remind me now",
+    "download": "Download / retry",
+    "open": "Open details"
+  },
+  "types": {
+    "ReleaseMatched": "Matched release",
+    "DownloadPendingConfirmation": "Confirmation required",
+    "DownloadFailed": "Download failed",
+    "Incident": "Incident",
+    "MetadataReview": "Metadata review",
+    "DiskSpaceLow": "Low disk space"
+  },
+  "details": {
+    "ReleaseMatched": "A notify-only subscription matched this release.",
+    "DownloadPendingConfirmation": "A matched release is waiting for download confirmation.",
+    "DownloadFailed": "Automatic download could not be started. Review and retry it."
+  },
+  "priorities": {
+    "Normal": "Normal",
+    "High": "High priority",
+    "Critical": "Critical"
+  },
+  "empty": {
+    "title": "You're all caught up",
+    "body": "There are no visible items requiring attention."
+  },
+  "errors": { "loadFailed": "The to-do queue could not be loaded." },
+  "toast": {
+    "updateFailed": "Could not update the selected items",
+    "downloadStarted": "Download started and the item was marked read",
+    "downloadFailed": "The download could not be started"
+  }
+}

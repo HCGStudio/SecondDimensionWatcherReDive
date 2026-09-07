@@ -6,6 +6,7 @@ public interface IMetadataReviewRepository
         MetadataReviewStatus status,
         int skip,
         int take,
+        Guid? focusId,
         CancellationToken cancellationToken);
 
     Task SavePreviewAsync(

@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Text;
 using SecondDimensionWatcherReDive.NFS.Xdr;
 
 namespace SecondDimensionWatcherReDive.NFS.Protocol;
@@ -121,7 +122,8 @@ internal static class NfsAttributes
                 writer.WriteOpaque(source.Handle.ToBytes());
                 break;
             case NfsConstants.FattrFileId:
-                writer.WriteUInt64(StableHash(source.Handle.VirtualPath));
+                writer.WriteUInt64(
+                    source.CanonicalFileId ?? StableHash(source.Handle.ToBytes()));
                 break;
             case NfsConstants.FattrMaxFileSize:
                 writer.WriteUInt64((ulong)NfsConstants.MaxFileSize);
@@ -167,14 +169,29 @@ internal static class NfsAttributes
         writer.WriteUInt32(nanos);
     }
 
-    private static ulong StableHash(string s)
+    internal static ulong ComputeCanonicalFileId(
+        NfsHandleKind kind,
+        string canonicalVirtualPath)
+    {
+        if (kind == NfsHandleKind.Root)
+            return StableHash([(byte)0xFE, (byte)NfsHandleKind.Root]);
+
+        var pathBytes = Encoding.UTF8.GetBytes(canonicalVirtualPath);
+        var legacyIdentity = new byte[pathBytes.Length + 2];
+        legacyIdentity[0] = 0xFE;
+        legacyIdentity[1] = (byte)kind;
+        pathBytes.CopyTo(legacyIdentity, 2);
+        return StableHash(legacyIdentity);
+    }
+
+    private static ulong StableHash(ReadOnlySpan<byte> value)
     {
         const ulong fnvOffset = 14695981039346656037UL;
         const ulong fnvPrime = 1099511628211UL;
         var h = fnvOffset;
-        foreach (var c in s)
+        foreach (var item in value)
         {
-            h ^= c;
+            h ^= item;
             h *= fnvPrime;
         }
         return h;

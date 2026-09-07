@@ -61,6 +61,7 @@
     },
     "preview": "仮想パスをプレビュー",
     "previewing": "プレビューを生成中",
+    "previewReady": "メタデータとパスのプレビューが完了しました",
     "refreshPreview": "プレビューを再生成",
     "apply": "原子的な再マッピングを確定",
     "applying": "適用中"

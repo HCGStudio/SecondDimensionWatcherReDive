@@ -65,7 +65,7 @@ internal sealed partial class NfsCompoundDispatcher(
         SaveFhOp _ => Task.FromResult(HandleSaveFh(ctx, writer)),
         RestoreFhOp _ => Task.FromResult(HandleRestoreFh(ctx, writer)),
         LookupOp l => HandleLookupAsync(l, ctx, writer),
-        LookupPOp _ => Task.FromResult(HandleLookupP(ctx, writer)),
+        LookupPOp _ => HandleLookupPAsync(ctx, writer),
         GetAttrOp g => HandleGetAttrAsync(g, ctx, writer),
         AccessOp a => HandleAccessAsync(a, ctx, writer),
         ReadDirOp r => HandleReadDirAsync(r, ctx, writer),
@@ -139,7 +139,10 @@ internal sealed partial class NfsCompoundDispatcher(
     {
         if (ctx.CurrentFh is null)
             return WriteStatus(writer, NfsConstants.ErrNoFileHandle);
-        if (ctx.CurrentFh.Kind == NfsHandleKind.File)
+        var parent = await vfs.ResolveAsync(ctx.CurrentFh, ctx.CancellationToken);
+        if (parent is null)
+            return WriteStatus(writer, NfsConstants.ErrStale);
+        if (parent.Kind == NfsHandleKind.File)
             return WriteStatus(writer, NfsConstants.ErrNotDir);
         if (string.IsNullOrEmpty(op.Name))
             return WriteStatus(writer, NfsConstants.ErrInval);
@@ -148,32 +151,27 @@ internal sealed partial class NfsCompoundDispatcher(
         if (op.Name.Contains('/') || op.Name == "." || op.Name == "..")
             return WriteStatus(writer, NfsConstants.ErrBadName);
 
-        var resolved = await vfs.LookupAsync(ctx.CurrentFh.VirtualPath, op.Name, ctx.CancellationToken);
+        var resolved = await vfs.LookupAsync(ctx.CurrentFh, op.Name, ctx.CancellationToken);
         if (resolved is null)
             return WriteStatus(writer, NfsConstants.ErrNoEnt);
 
-        ctx.CurrentFh = new NfsFileHandle(resolved.Kind, resolved.VirtualPath);
+        ctx.CurrentFh = NfsFileHandle.ForStableEntry(resolved.Kind, resolved.EntryId);
         return WriteOk(writer);
     }
 
-    private static uint HandleLookupP(NfsRequestContext ctx, XdrWriter writer)
+    private async Task<uint> HandleLookupPAsync(NfsRequestContext ctx, XdrWriter writer)
     {
         if (ctx.CurrentFh is null)
             return WriteStatus(writer, NfsConstants.ErrNoFileHandle);
         if (ctx.CurrentFh.Kind == NfsHandleKind.Root)
             return WriteStatus(writer, NfsConstants.ErrNoEnt);
 
-        var path = ctx.CurrentFh.VirtualPath;
-        var lastSlash = path.LastIndexOf('/');
-        if (lastSlash <= 0)
-        {
-            ctx.CurrentFh = NfsFileHandle.Root;
-        }
-        else
-        {
-            var parentPath = path[..lastSlash];
-            ctx.CurrentFh = new NfsFileHandle(NfsHandleKind.Directory, parentPath);
-        }
+        var parent = await vfs.LookupParentAsync(ctx.CurrentFh, ctx.CancellationToken);
+        if (parent is null)
+            return WriteStatus(writer, NfsConstants.ErrStale);
+        ctx.CurrentFh = parent.Kind == NfsHandleKind.Root
+            ? NfsFileHandle.Root
+            : NfsFileHandle.ForStableEntry(parent.Kind, parent.EntryId);
         return WriteOk(writer);
     }
 
@@ -219,42 +217,76 @@ internal sealed partial class NfsCompoundDispatcher(
         if (ctx.CurrentFh.Kind == NfsHandleKind.File)
             return WriteStatus(writer, NfsConstants.ErrNotDir);
 
-        var children = await vfs.ListAsync(ctx.CurrentFh.VirtualPath, ctx.CancellationToken);
-
-        if (op.Cookie > (ulong)children.Count)
+        if (op.Cookie > long.MaxValue)
             return WriteStatus(writer, NfsConstants.ErrBadCookie);
-        var startIndex = (int)op.Cookie;
+        var maxBytes = (long)Math.Min(op.MaxCount, MaxReadDirBytes);
+        const int statusBytes = 4;
+        const int verifierBytes = 8;
+        const int trailerBytes = 4 + 4;
+        if (maxBytes < statusBytes + verifierBytes + trailerBytes)
+            return WriteStatus(writer, NfsConstants.ErrTooSmall);
 
-        var maxBytes = (int)Math.Min(op.MaxCount, MaxReadDirBytes);
+        var page = await vfs.ListPageAsync(
+            ctx.CurrentFh,
+            op.Cookie == 0 ? null : (long)op.Cookie,
+            512,
+            ctx.CancellationToken);
+        if (page is null)
+            return WriteStatus(writer, NfsConstants.ErrStale);
+        if (!page.CursorIsValid)
+            return WriteStatus(writer, NfsConstants.ErrBadCookie);
+        if (page.Generation <= 0)
+            return WriteStatus(writer, NfsConstants.ErrServerFault);
+        if (op.Cookie != 0 && op.Verifier != (ulong)page.Generation)
+            return WriteStatus(writer, NfsConstants.ErrBadCookie);
 
         var body = new ArrayBufferWriter<byte>();
         var bodyWriter = new XdrWriter(body);
-        bodyWriter.WriteFixedOpaque(s_zeroVerifier);
+        bodyWriter.WriteUInt64((ulong)page.Generation);
 
         var emitted = 0;
-        for (var i = startIndex; i < children.Count; i++)
+        var directoryBytes = 0L;
+        foreach (var child in page.Items)
         {
-            var child = children[i];
-            var childHandle = new NfsFileHandle(child.Kind, child.VirtualPath);
-            var attrs = BuildAttrSource(ctx, childHandle, child.Size, child.MTime);
+            var childHandle = NfsFileHandle.ForStableEntry(child.Kind, child.EntryId);
+            var attrs = BuildAttrSource(
+                ctx,
+                childHandle,
+                child.VirtualPath,
+                child.Size,
+                child.MTime);
+
+            var directoryInfoBuffer = new ArrayBufferWriter<byte>();
+            var directoryInfoWriter = new XdrWriter(directoryInfoBuffer);
+            directoryInfoWriter.WriteUInt32(1);
+            directoryInfoWriter.WriteUInt64((ulong)child.Cookie);
+            directoryInfoWriter.WriteString(child.Name);
 
             var entryBuffer = new ArrayBufferWriter<byte>();
             var entryWriter = new XdrWriter(entryBuffer);
-            entryWriter.WriteUInt32(1);
-            entryWriter.WriteUInt64((ulong)(i + 1));
-            entryWriter.WriteString(child.Name);
+            entryWriter.WriteRaw(directoryInfoBuffer.WrittenSpan);
             NfsAttributes.EncodeGetAttrResponse(entryWriter, op.AttrRequest, attrs);
 
-            const int trailerBytes = 4 + 4;
-            if (emitted > 0 && body.WrittenCount + entryBuffer.WrittenCount + trailerBytes > maxBytes)
+            var nextDirectoryBytes = directoryBytes
+                                     + directoryInfoBuffer.WrittenCount
+                                     + sizeof(uint);
+            var nextTotalBytes = statusBytes
+                                 + body.WrittenCount
+                                 + entryBuffer.WrittenCount
+                                 + trailerBytes;
+            if (nextDirectoryBytes > op.DirCount || nextTotalBytes > maxBytes)
                 break;
 
             bodyWriter.WriteRaw(entryBuffer.WrittenSpan);
+            directoryBytes += directoryInfoBuffer.WrittenCount;
             emitted++;
         }
 
+        if (emitted == 0 && page.Items.Count > 0)
+            return WriteStatus(writer, NfsConstants.ErrTooSmall);
+
         bodyWriter.WriteUInt32(0);
-        var eof = startIndex + emitted >= children.Count;
+        var eof = emitted == page.Items.Count && !page.HasMore;
         bodyWriter.WriteBool(eof);
 
         writer.WriteUInt32(NfsConstants.Ok);
@@ -274,6 +306,8 @@ internal sealed partial class NfsCompoundDispatcher(
         var resolved = await vfs.ResolveAsync(ctx.CurrentFh, ctx.CancellationToken);
         if (resolved is null)
             return WriteStatus(writer, NfsConstants.ErrStale);
+        if (op.Offset > long.MaxValue)
+            return WriteStatus(writer, NfsConstants.ErrFBig);
 
         var count = (int)Math.Min(op.Count, NfsConstants.MaxRead);
         var buffer = ArrayPool<byte>.Shared.Rent(count);
@@ -286,19 +320,36 @@ internal sealed partial class NfsCompoundDispatcher(
                 await SkipAsync(stream, (long)op.Offset, ctx.CancellationToken);
 
             var totalRead = 0;
+            var reachedEnd = false;
             while (totalRead < count)
             {
                 var read = await stream.ReadAsync(
                     buffer.AsMemory(totalRead, count - totalRead), ctx.CancellationToken);
-                if (read == 0) break;
+                if (read == 0)
+                {
+                    reachedEnd = true;
+                    break;
+                }
                 totalRead += read;
             }
 
-            var eof = (long)op.Offset + totalRead >= resolved.Size;
+            var eof = reachedEnd;
+            if (!eof && stream.CanSeek)
+            {
+                eof = stream.Position >= stream.Length;
+            }
+            else if (!eof && resolved.Size > 0)
+            {
+                eof = (long)op.Offset + totalRead >= resolved.Size;
+            }
             writer.WriteUInt32(NfsConstants.Ok);
             writer.WriteBool(eof);
             writer.WriteOpaque(buffer.AsSpan(0, totalRead));
             return NfsConstants.Ok;
+        }
+        catch (IOException) when (!ctx.CancellationToken.IsCancellationRequested)
+        {
+            return WriteStatus(writer, NfsConstants.ErrIo);
         }
         finally
         {
@@ -319,13 +370,18 @@ internal sealed partial class NfsCompoundDispatcher(
         if (ctx.CurrentFh.Kind == NfsHandleKind.File)
             return WriteStatus(writer, NfsConstants.ErrNotDir);
 
-        var resolved = await vfs.LookupAsync(ctx.CurrentFh.VirtualPath, op.FileName, ctx.CancellationToken);
+        var parent = await vfs.ResolveAsync(ctx.CurrentFh, ctx.CancellationToken);
+        if (parent is null)
+            return WriteStatus(writer, NfsConstants.ErrStale);
+        if (parent.Kind == NfsHandleKind.File)
+            return WriteStatus(writer, NfsConstants.ErrNotDir);
+        var resolved = await vfs.LookupAsync(ctx.CurrentFh, op.FileName, ctx.CancellationToken);
         if (resolved is null)
             return WriteStatus(writer, NfsConstants.ErrNoEnt);
         if (resolved.Kind != NfsHandleKind.File)
             return WriteStatus(writer, NfsConstants.ErrIsDir);
 
-        ctx.CurrentFh = new NfsFileHandle(NfsHandleKind.File, resolved.VirtualPath);
+        ctx.CurrentFh = NfsFileHandle.ForStableEntry(NfsHandleKind.File, resolved.EntryId);
         var stateId = opens.Allocate(op.ClientId, ctx.CurrentFh.ToBytes());
 
         writer.WriteUInt32(NfsConstants.Ok);
@@ -397,24 +453,39 @@ internal sealed partial class NfsCompoundDispatcher(
     }
 
     private AttrSource BuildAttrSource(NfsRequestContext ctx, NfsFileHandle handle, NfsResolvedNode resolved)
-        => new(
-            resolved.Kind == NfsHandleKind.Directory || resolved.Kind == NfsHandleKind.Root,
-            resolved.Size,
-            resolved.MTime,
-            handle,
-            $"{ctx.Credential.Uid}@sdw",
-            $"{ctx.Credential.Gid}@sdw",
-            options.Value.LeaseSeconds);
+        => new AttrSource(
+                resolved.Kind == NfsHandleKind.Directory || resolved.Kind == NfsHandleKind.Root,
+                resolved.Size,
+                resolved.MTime,
+                handle,
+                $"{ctx.Credential.Uid}@sdw",
+                $"{ctx.Credential.Gid}@sdw",
+                options.Value.LeaseSeconds)
+            {
+                CanonicalFileId = NfsAttributes.ComputeCanonicalFileId(
+                    resolved.Kind,
+                    resolved.VirtualPath)
+            };
 
-    private AttrSource BuildAttrSource(NfsRequestContext ctx, NfsFileHandle handle, long size, DateTimeOffset mtime)
-        => new(
-            handle.Kind == NfsHandleKind.Directory || handle.Kind == NfsHandleKind.Root,
-            size,
-            mtime,
-            handle,
-            $"{ctx.Credential.Uid}@sdw",
-            $"{ctx.Credential.Gid}@sdw",
-            options.Value.LeaseSeconds);
+    private AttrSource BuildAttrSource(
+        NfsRequestContext ctx,
+        NfsFileHandle handle,
+        string canonicalVirtualPath,
+        long size,
+        DateTimeOffset mtime)
+        => new AttrSource(
+                handle.Kind == NfsHandleKind.Directory || handle.Kind == NfsHandleKind.Root,
+                size,
+                mtime,
+                handle,
+                $"{ctx.Credential.Uid}@sdw",
+                $"{ctx.Credential.Gid}@sdw",
+                options.Value.LeaseSeconds)
+            {
+                CanonicalFileId = NfsAttributes.ComputeCanonicalFileId(
+                    handle.Kind,
+                    canonicalVirtualPath)
+            };
 
     private static async Task SkipAsync(Stream stream, long count, CancellationToken cancellationToken)
     {

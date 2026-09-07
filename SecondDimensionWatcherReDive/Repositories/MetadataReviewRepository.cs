@@ -15,6 +15,7 @@ public class MetadataReviewRepository(
         MetadataReviewStatus status,
         int skip,
         int take,
+        Guid? focusId,
         CancellationToken cancellationToken)
     {
         var queueQuery = context.AnimationInfo
@@ -29,6 +30,18 @@ public class MetadataReviewRepository(
             .Skip(skip)
             .Take(take)
             .ToListAsync(cancellationToken);
+        if (focusId.HasValue && entities.All(info => info.Id != focusId.Value))
+        {
+            var focused = await context.AnimationInfo
+                .AsNoTracking()
+                .Include(info => info.Animation)
+                .Include(info => info.Group)
+                .SingleOrDefaultAsync(
+                    info => info.Id == focusId.Value && info.MetadataStatus == status,
+                    cancellationToken);
+            if (focused is not null)
+                entities.Insert(0, focused);
+        }
         var animationInfoIds = entities.Select(info => info.Id).ToArray();
 
         var mappingCounts = animationInfoIds.Length == 0
@@ -272,11 +285,11 @@ public class MetadataReviewRepository(
                     .ToList();
                 var proposedPaths = proposedSnapshots.Select(snapshot => snapshot.VirtualPath).ToArray();
                 if (proposedPaths.Distinct(StringComparer.Ordinal).Count() != proposedPaths.Length
-                    || proposedPaths.Length > 0
-                    && await applyContext.FileMappings.AnyAsync(
-                        mapping => mapping.AnimationInfoId != animationInfo.Id
-                                   && proposedPaths.Contains(mapping.VirtualPath),
-                        cancellationToken))
+                    || (await VirtualPathNamespaceGuard.FindConflictsAsync(
+                        applyContext,
+                        animationInfo.Id,
+                        proposedPaths,
+                        cancellationToken)).Count > 0)
                     return Failure(
                         MetadataReviewMutationOutcome.Conflict,
                         operationId,
@@ -332,6 +345,9 @@ public class MetadataReviewRepository(
                     operation.ProposedGroupName,
                     cancellationToken);
 
+                await applyContext.TodoItemStates
+                    .Where(state => state.Key == "metadata:" + animationInfo.Id)
+                    .ExecuteDeleteAsync(cancellationToken);
                 animationInfo.Description = operation.ProposedDescription;
                 animationInfo.Animation = animation;
                 animationInfo.Group = group;
@@ -346,7 +362,7 @@ public class MetadataReviewRepository(
                 animationInfo.CurrentMetadataReviewOperationId = operation.Id;
                 animationInfo.StateVersion = checked(animationInfo.StateVersion + 1);
 
-                var replacementMappings = proposedSnapshots
+                var desiredMappings = proposedSnapshots
                     .Select(snapshot => new Models.FileMapping
                     {
                         Id = Guid.NewGuid(),
@@ -360,13 +376,14 @@ public class MetadataReviewRepository(
                     applyContext,
                     animationInfo.Id,
                     existingMappings,
-                    replacementMappings,
+                    desiredMappings,
                     cancellationToken);
-                await applyContext.FileMappings
-                    .Where(mapping => mapping.AnimationInfoId == animationInfo.Id)
-                    .ExecuteDeleteAsync(cancellationToken);
-                if (replacementMappings.Count > 0)
-                    await applyContext.FileMappings.AddRangeAsync(replacementMappings, cancellationToken);
+                var reconciliation = await FileMappingSetReconciler.ReconcileAsync(
+                    applyContext,
+                    animationInfo.Id,
+                    desiredMappings,
+                    cancellationToken);
+                var replacementMappings = reconciliation.Mappings;
 
                 operation.State = MetadataReviewOperationState.Applied;
                 operation.AppliedAt = appliedAt;
@@ -374,6 +391,9 @@ public class MetadataReviewRepository(
                 operation.AppliedVersion = animationInfo.StateVersion;
 
                 await applyContext.SaveChangesAsync(cancellationToken);
+                await reconciliation.RestoreEntryIdentitiesAsync(
+                    applyContext,
+                    cancellationToken);
                 await transaction.CommitAsync(cancellationToken);
                 return new MetadataReviewMutationResult(
                     MetadataReviewMutationOutcome.Success,
@@ -491,11 +511,11 @@ public class MetadataReviewRepository(
                     .OrderBy(snapshot => snapshot.VirtualPath)
                     .ToList();
                 var previousPaths = previousSnapshots.Select(snapshot => snapshot.VirtualPath).ToArray();
-                if (previousPaths.Length > 0
-                    && await undoContext.FileMappings.AnyAsync(
-                        mapping => mapping.AnimationInfoId != animationInfo.Id
-                                   && previousPaths.Contains(mapping.VirtualPath),
-                        cancellationToken))
+                if ((await VirtualPathNamespaceGuard.FindConflictsAsync(
+                        undoContext,
+                        animationInfo.Id,
+                        previousPaths,
+                        cancellationToken)).Count > 0)
                     return Failure(
                         MetadataReviewMutationOutcome.Conflict,
                         operationId,
@@ -547,6 +567,9 @@ public class MetadataReviewRepository(
                             animationInfo.Id);
                 }
 
+                await undoContext.TodoItemStates
+                    .Where(state => state.Key == "metadata:" + animationInfo.Id)
+                    .ExecuteDeleteAsync(cancellationToken);
                 animationInfo.Description = operation.PreviousDescription;
                 animationInfo.Animation = previousAnimation;
                 animationInfo.Group = previousGroup;
@@ -561,7 +584,7 @@ public class MetadataReviewRepository(
                 animationInfo.CurrentMetadataReviewOperationId = operation.PreviousCurrentOperationId;
                 animationInfo.StateVersion = checked(animationInfo.StateVersion + 1);
 
-                var restoredMappings = previousSnapshots
+                var desiredMappings = previousSnapshots
                     .Select(snapshot => new Models.FileMapping
                     {
                         Id = Guid.NewGuid(),
@@ -575,13 +598,14 @@ public class MetadataReviewRepository(
                     undoContext,
                     animationInfo.Id,
                     currentMappings,
-                    restoredMappings,
+                    desiredMappings,
                     cancellationToken);
-                await undoContext.FileMappings
-                    .Where(mapping => mapping.AnimationInfoId == animationInfo.Id)
-                    .ExecuteDeleteAsync(cancellationToken);
-                if (restoredMappings.Count > 0)
-                    await undoContext.FileMappings.AddRangeAsync(restoredMappings, cancellationToken);
+                var reconciliation = await FileMappingSetReconciler.ReconcileAsync(
+                    undoContext,
+                    animationInfo.Id,
+                    desiredMappings,
+                    cancellationToken);
+                var restoredMappings = reconciliation.Mappings;
 
                 var undoneAt = DateTimeOffset.UtcNow;
                 operation.State = MetadataReviewOperationState.Undone;
@@ -594,6 +618,9 @@ public class MetadataReviewRepository(
                     previousOperation.AppliedVersion = animationInfo.StateVersion;
 
                 await undoContext.SaveChangesAsync(cancellationToken);
+                await reconciliation.RestoreEntryIdentitiesAsync(
+                    undoContext,
+                    cancellationToken);
                 await transaction.CommitAsync(cancellationToken);
                 return new MetadataReviewMutationResult(
                     MetadataReviewMutationOutcome.Success,

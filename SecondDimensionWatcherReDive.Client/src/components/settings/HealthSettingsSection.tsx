@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 
 import { Activity, Gauge, Timer } from "lucide-react";
 
+import { apiErrorStatus } from "../../errors/apiError";
 import { IncidentSettings, SystemSettings } from "../../settings/systemTypes";
 import { isValidTimeSpan } from "../../settings/timeSpan";
 import { useToast } from "../ToastProvider";
@@ -70,7 +71,7 @@ export const HealthSettingsSection: React.FC<HealthSettingsSectionProps> = ({
     } catch (error) {
       addToast({
         title:
-          error instanceof Error && error.message === "409"
+          apiErrorStatus(error) === 409
             ? t("system.save.conflict")
             : t("system.save.failed"),
         color: "danger",

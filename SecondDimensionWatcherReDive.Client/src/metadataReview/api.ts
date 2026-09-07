@@ -1,6 +1,7 @@
 import useSWR from "swr";
 
 import fetcher from "../auth/httpClient";
+import { apiErrorStatus } from "../errors/apiError";
 import {
   EditableMetadata,
   MetadataRemapResult,
@@ -11,13 +12,18 @@ import {
 
 export const METADATA_REVIEW_PAGE_SIZE = 20;
 
-export function useMetadataReview(status: MetadataReviewStatus, page: number) {
+export function useMetadataReview(
+  status: MetadataReviewStatus,
+  page: number,
+  focus?: string | null,
+) {
   const skip = (page - 1) * METADATA_REVIEW_PAGE_SIZE;
   const query = new URLSearchParams({
     status,
     skip: String(skip),
     take: String(METADATA_REVIEW_PAGE_SIZE),
   });
+  if (focus) query.set("focus", focus);
 
   return useSWR<MetadataReviewResponse>(
     `/api/metadata-review?${query.toString()}`,
@@ -63,7 +69,5 @@ export function undoMetadataRemap(
 }
 
 export function metadataReviewErrorStatus(error: unknown): number | null {
-  if (!(error instanceof Error)) return null;
-  const match = error.message.match(/\b(\d{3})\b/);
-  return match ? Number(match[1]) : null;
+  return apiErrorStatus(error);
 }
