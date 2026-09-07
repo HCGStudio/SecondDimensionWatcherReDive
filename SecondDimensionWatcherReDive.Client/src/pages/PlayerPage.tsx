@@ -291,7 +291,10 @@ export const PlayerPage: React.FC = () => {
   const contextRef = React.useRef(playbackContext);
   const preferencesRef = React.useRef(playbackContext?.preferences);
   const lastSyncedTimeRef = React.useRef(-1);
-  const skippedEndingRef = React.useRef(false);
+  const skippedEndingRef = React.useRef<{
+    targetSeconds: number;
+    seeked: boolean;
+  } | null>(null);
   const endingProgressGuardRef = React.useRef<EndingProgressGuard | null>(null);
   const initialSeekAppliedRef = React.useRef(false);
   const subtitleSelectionInitializedRef = React.useRef(false);
@@ -367,7 +370,7 @@ export const PlayerPage: React.FC = () => {
     setLinkError(null);
     lastSyncedTimeRef.current = -1;
     initialSeekAppliedRef.current = false;
-    skippedEndingRef.current = false;
+    skippedEndingRef.current = null;
     subtitleSelectionInitializedRef.current = false;
     audioSelectionInitializedRef.current = false;
   }, [animationId, file]);
@@ -719,13 +722,23 @@ export const PlayerPage: React.FC = () => {
       }
       lastSyncedTimeRef.current = positionSeconds;
 
+      const endingSkip = skippedEndingRef.current;
+      if (
+        endingSkip &&
+        Math.abs(positionSeconds - endingSkip.targetSeconds) > 0.25 &&
+        (endingSkip.seeked || positionSeconds > endingSkip.targetSeconds)
+      ) {
+        // Playback advancing beyond the jump, or a later rewind, resumes normal
+        // watched detection. Writes at the seek target (including ended) stay suppressed.
+        skippedEndingRef.current = null;
+      }
       const request = {
         animationInfoId: context.media.animationInfoId,
         path: context.media.path,
         positionSeconds,
         durationSeconds,
         suppressWatched:
-          skippedEndingRef.current ||
+          skippedEndingRef.current !== null ||
           Boolean(
             endingProgressGuardRef.current?.(
               context.media.animationInfoId,
@@ -924,6 +937,7 @@ export const PlayerPage: React.FC = () => {
     const onSeeked = () => {
       if (captionsRenderer) captionsRenderer.currentTime = art.currentTime;
       persistCurrentProgressRef.current(true);
+      if (skippedEndingRef.current) skippedEndingRef.current.seeked = true;
     };
     const onEnded = () => {
       persistCurrentProgressRef.current(true);
@@ -1290,8 +1304,8 @@ export const PlayerPage: React.FC = () => {
             onAutoSkipChange={(enabled) =>
               void updatePreferences({ autoSkip: enabled })
             }
-            onSkipEnding={() => {
-              skippedEndingRef.current = true;
+            onSkipEnding={(targetSeconds) => {
+              skippedEndingRef.current = { targetSeconds, seeked: false };
             }}
           />
 
