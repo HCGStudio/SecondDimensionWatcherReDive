@@ -43,7 +43,7 @@ jobs:
           dotnet-version: "10.0.x"
 
       - name: Install PostgreSQL client
-        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client-${{ matrix.postgres }}
 
       - name: Configure distinct database roles and measured capacity
         shell: bash

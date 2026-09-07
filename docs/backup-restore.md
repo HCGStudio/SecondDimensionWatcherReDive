@@ -51,6 +51,8 @@ export SDW_BACKUP_FAILURE_WEBHOOK=https://monitor.example/hooks/opaque-token
 
 ## systemd 定时执行
 
+备份主机上的 `pg_dump` 主版本必须不低于 PostgreSQL 服务端版本；例如服务端为 17 时应安装 `postgresql-client-17`，并让 PATH 选择该版本。
+
 系统包依赖 PostgreSQL client 与 `curl`，并安装 `/etc/sdw-redive/backup.env`、`sdw-backup.service` 和 `sdw-backup.timer`，但不会在口令仍为占位符时自动启用。编辑并保护环境文件后启用：
 
 ```bash
