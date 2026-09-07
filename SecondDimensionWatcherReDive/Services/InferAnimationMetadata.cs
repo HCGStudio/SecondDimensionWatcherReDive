@@ -80,7 +80,8 @@ public partial class InferAnimationMetadata(
             {
                 Season = result.Season,
                 Episode = result.Episode,
-                MetadataConfidence = result.Confidence
+                MetadataConfidence = result.Confidence,
+                ExpectedEpisodeCount = null
             };
 
             // Fetch localized name/description from TMDB
@@ -97,8 +98,7 @@ public partial class InferAnimationMetadata(
                         tmdbIdInt,
                         inferredSeason,
                         cancellationToken);
-                    if (expectedEpisodeCount is not null)
-                        item = item with { ExpectedEpisodeCount = expectedEpisodeCount };
+                    item = item with { ExpectedEpisodeCount = expectedEpisodeCount };
                 }
 
                 var animation = await animationRepository

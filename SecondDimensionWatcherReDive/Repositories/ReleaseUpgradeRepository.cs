@@ -2,25 +2,28 @@ using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
+using SecondDimensionWatcherReDive.Framework.Feed;
 using SecondDimensionWatcherReDive.Utils.FileStore;
 
 namespace SecondDimensionWatcherReDive.Repositories;
 
 public sealed partial class ReleaseUpgradeRepository(
     Models.ApplicationContext context,
-    DbContextOptions<Models.ApplicationContext> contextOptions) : IReleaseUpgradeRepository
+    DbContextOptions<Models.ApplicationContext> contextOptions,
+    IReleaseScoringService releaseScoringService) : IReleaseUpgradeRepository
 {
     private sealed record CandidateRow(
         Guid CurrentReleaseId,
         Guid CandidateReleaseId,
         string AnimationName,
-        int? Season,
-        int? Episode,
-        int CurrentScore,
-        int CandidateScore,
-        DateTimeOffset CandidatePublishTime,
-        string? ReleaseScoreReasonsJson,
-        bool Automatic);
+        int Season,
+        int Episode,
+        SubscriptionReleaseMetadata CurrentMetadata,
+        SubscriptionReleaseMetadata CandidateMetadata,
+        bool CurrentScored,
+        bool CandidateScored,
+        Guid? CandidateFeedId,
+        DateTimeOffset CandidatePublishTime);
 
     public async Task<IReadOnlyList<ReleaseUpgradeCandidate>> GetCandidatesAsync(
         bool automaticOnly,
@@ -30,81 +33,56 @@ public sealed partial class ReleaseUpgradeRepository(
         if (take is < 1 or > 200)
             throw new ArgumentOutOfRangeException(nameof(take));
 
-        var now = DateTimeOffset.UtcNow;
-        var eligibleCandidates = BuildEligibleCandidates(automaticOnly);
-        var candidatePairs =
-            from current in context.AnimationInfo.AsNoTracking()
-            from candidate in eligibleCandidates
-            let automatic = current.ReleaseScoreReasonsJson != null &&
-                            candidate.SourceFeedId != null &&
-                            context.SubscriptionAutomationPolicies.Any(policy =>
-                                policy.FeedId == candidate.SourceFeedId &&
-                                policy.EnableVersionUpgrade &&
-                                candidate.ReleaseScore - current.ReleaseScore >=
-                                policy.MinimumUpgradeScore)
-            where current.IsActiveRelease &&
-                  current.IsDownloadFinished &&
-                  current.DownloadCancellationId == null &&
-                  current.MediaLibraryMissingSince == null &&
-                  current.Animation != null &&
-                  current.Season != null &&
-                  current.Episode != null &&
-                  context.FileMappings.Any(mapping => mapping.AnimationInfoId == current.Id) &&
-                  !context.ReleaseUpgradeOperations.Any(operation =>
-                      operation.CandidateReleaseId == current.Id &&
-                      operation.Status == ReleaseUpgradeStatus.Applied &&
-                      (operation.RollbackUntil == null || operation.RollbackUntil > now)) &&
-                  EF.Property<Guid?>(candidate, "AnimationId") ==
-                  EF.Property<Guid?>(current, "AnimationId") &&
-                  candidate.Season == current.Season &&
-                  candidate.Episode == current.Episode &&
-                  candidate.ReleaseScore > current.ReleaseScore &&
-                  (!automaticOnly || automatic)
-            select new
+        var policies = await ReadPoliciesAsync(cancellationToken);
+        var best = new List<ReleaseUpgradeCandidate>(take + 1);
+        ReleaseUpgradeCandidate? currentBest = null;
+        Guid? currentId = null;
+        DateTimeOffset bestPublishedAt = default;
+        await foreach (var row in BuildCandidatePairs(automaticOnly, DateTimeOffset.UtcNow)
+                           .AsAsyncEnumerable().WithCancellation(cancellationToken))
+        {
+            if (currentId != row.CurrentReleaseId)
             {
-                CurrentReleaseId = current.Id,
-                CandidateReleaseId = candidate.Id,
-                AnimationName = current.Animation!.Name,
-                current.Season,
-                current.Episode,
-                CurrentScore = current.ReleaseScore,
-                CandidateScore = candidate.ReleaseScore,
-                CandidatePublishTime = candidate.PublishTime,
-                candidate.ReleaseScoreReasonsJson,
-                Automatic = automatic
-            };
+                KeepBest(currentBest);
+                currentBest = null;
+                currentId = row.CurrentReleaseId;
+            }
 
-        // Rank only candidates that are actually eligible for this scan. In
-        // particular, an ineligible higher-scored release must not hide a lower
-        // release whose source policy permits automatic upgrades.
-        var bestCandidateIds = candidatePairs
-            .GroupBy(pair => pair.CurrentReleaseId)
-            .Select(group => group
-                .OrderByDescending(pair => pair.CandidateScore)
-                .ThenByDescending(pair => pair.CandidatePublishTime)
-                .ThenBy(pair => pair.CandidateReleaseId)
-                .Select(pair => pair.CandidateReleaseId)
-                .First());
-        var rows = await candidatePairs
-            .Where(pair => bestCandidateIds.Contains(pair.CandidateReleaseId))
-            .OrderByDescending(pair => pair.CandidateScore - pair.CurrentScore)
-            .ThenBy(pair => pair.AnimationName)
-            .ThenBy(pair => pair.Season)
-            .ThenBy(pair => pair.Episode)
-            .ThenBy(pair => pair.CandidateReleaseId)
-            .Take(take)
-            .ToListAsync(cancellationToken);
-        return rows.Select(row => new ReleaseUpgradeCandidate(
-                row.CurrentReleaseId,
-                row.CandidateReleaseId,
-                row.AnimationName,
-                row.Season.GetValueOrDefault(),
-                row.Episode.GetValueOrDefault(),
-                row.CurrentScore,
-                row.CandidateScore,
-                ParseReasons(row.ReleaseScoreReasonsJson),
-                row.Automatic))
-            .ToList();
+            var candidate = EvaluateCandidate(row, policies);
+            if (candidate is null || (automaticOnly && !candidate.Automatic))
+                continue;
+            if (currentBest is null ||
+                candidate.CandidateScore - candidate.CurrentScore >
+                currentBest.CandidateScore - currentBest.CurrentScore ||
+                (candidate.CandidateScore - candidate.CurrentScore ==
+                 currentBest.CandidateScore - currentBest.CurrentScore &&
+                 (row.CandidatePublishTime > bestPublishedAt ||
+                  (row.CandidatePublishTime == bestPublishedAt &&
+                   candidate.CandidateReleaseId.CompareTo(currentBest.CandidateReleaseId) < 0))))
+            {
+                currentBest = candidate;
+                bestPublishedAt = row.CandidatePublishTime;
+            }
+        }
+        KeepBest(currentBest);
+        return best;
+
+        void KeepBest(ReleaseUpgradeCandidate? candidate)
+        {
+            if (candidate is null) return;
+            best.Add(candidate);
+            best.Sort((left, right) =>
+            {
+                var comparison = (right.CandidateScore - right.CurrentScore)
+                    .CompareTo(left.CandidateScore - left.CurrentScore);
+                if (comparison == 0) comparison = string.CompareOrdinal(left.AnimationName, right.AnimationName);
+                if (comparison == 0) comparison = left.Season.CompareTo(right.Season);
+                if (comparison == 0) comparison = left.Episode.CompareTo(right.Episode);
+                if (comparison == 0) comparison = left.CandidateReleaseId.CompareTo(right.CandidateReleaseId);
+                return comparison;
+            });
+            if (best.Count > take) best.RemoveAt(take);
+        }
     }
 
     public async Task<ReleaseUpgradeCandidate?> FindCandidateAsync(
@@ -112,13 +90,38 @@ public sealed partial class ReleaseUpgradeRepository(
         Guid candidateReleaseId,
         CancellationToken cancellationToken)
     {
+        var policies = await ReadPoliciesAsync(cancellationToken);
         var row = await BuildCandidatePairs(
                 automaticOnly: false,
                 DateTimeOffset.UtcNow,
                 currentReleaseId,
                 candidateReleaseId)
             .SingleOrDefaultAsync(cancellationToken);
-        return row is null ? null : ToCandidate(row);
+        return row is null ? null : EvaluateCandidate(row, policies);
+    }
+
+    private async Task<Dictionary<Guid, SubscriptionAutomationPolicy>> ReadPoliciesAsync(
+        CancellationToken cancellationToken) =>
+        (await context.SubscriptionAutomationPolicies.AsNoTracking().ToListAsync(cancellationToken))
+        .ToDictionary(policy => policy.FeedId, policy => policy.ToRecord());
+
+    private ReleaseUpgradeCandidate? EvaluateCandidate(
+        CandidateRow row,
+        IReadOnlyDictionary<Guid, SubscriptionAutomationPolicy> policies)
+    {
+        var policy = row.CandidateFeedId is { } feedId ? policies.GetValueOrDefault(feedId) : null;
+        // Ingestion scores may come from different policy versions or feeds.
+        // Compare both releases against the candidate feed's current preferences.
+        var currentScore = releaseScoringService.Score(row.CurrentMetadata, policy);
+        var candidateScore = releaseScoringService.Score(row.CandidateMetadata, policy);
+        if (candidateScore.Value <= currentScore.Value) return null;
+        var automatic = row.CurrentScored && row.CandidateScored &&
+                        policy is { EnableVersionUpgrade: true } &&
+                        candidateScore.Value - currentScore.Value >= policy.MinimumUpgradeScore;
+        return new ReleaseUpgradeCandidate(
+            row.CurrentReleaseId, row.CandidateReleaseId, row.AnimationName,
+            row.Season, row.Episode, currentScore.Value, candidateScore.Value,
+            candidateScore.Reasons, automatic);
     }
 
     private IQueryable<CandidateRow> BuildCandidatePairs(
@@ -130,21 +133,20 @@ public sealed partial class ReleaseUpgradeRepository(
         var currentReleases = context.AnimationInfo.AsNoTracking();
         if (currentReleaseId is { } currentId)
             currentReleases = currentReleases.Where(release => release.Id == currentId);
-
         var eligibleCandidates = BuildEligibleCandidates(automaticOnly);
         if (candidateReleaseId is { } candidateId)
             eligibleCandidates = eligibleCandidates.Where(release => release.Id == candidateId);
+        if (automaticOnly)
+            eligibleCandidates = eligibleCandidates.Where(candidate =>
+                candidate.ReleaseScoreReasonsJson != null &&
+                context.SubscriptionAutomationPolicies.Any(policy =>
+                    policy.FeedId == candidate.SourceFeedId && policy.EnableVersionUpgrade));
 
-        var candidatePairs =
+        // Project only scoring metadata, and stream one incumbent at a time so
+        // large libraries do not load torrent payloads or retain every pair.
+        return
             from current in currentReleases
             from candidate in eligibleCandidates
-            let automatic = current.ReleaseScoreReasonsJson != null &&
-                            candidate.SourceFeedId != null &&
-                            context.SubscriptionAutomationPolicies.Any(policy =>
-                                policy.FeedId == candidate.SourceFeedId &&
-                                policy.EnableVersionUpgrade &&
-                                candidate.ReleaseScore - current.ReleaseScore >=
-                                policy.MinimumUpgradeScore)
             where current.IsActiveRelease &&
                   current.IsDownloadFinished &&
                   current.DownloadCancellationId == null &&
@@ -152,6 +154,7 @@ public sealed partial class ReleaseUpgradeRepository(
                   current.Animation != null &&
                   current.Season != null &&
                   current.Episode != null &&
+                  (!automaticOnly || current.ReleaseScoreReasonsJson != null) &&
                   context.FileMappings.Any(mapping => mapping.AnimationInfoId == current.Id) &&
                   !context.ReleaseUpgradeOperations.Any(operation =>
                       operation.CandidateReleaseId == current.Id &&
@@ -160,21 +163,17 @@ public sealed partial class ReleaseUpgradeRepository(
                   EF.Property<Guid?>(candidate, "AnimationId") ==
                   EF.Property<Guid?>(current, "AnimationId") &&
                   candidate.Season == current.Season &&
-                  candidate.Episode == current.Episode &&
-                  candidate.ReleaseScore > current.ReleaseScore &&
-                  (!automaticOnly || automatic)
+                  candidate.Episode == current.Episode
+            orderby current.Id
             select new CandidateRow(
-                current.Id,
-                candidate.Id,
-                current.Animation!.Name,
-                current.Season,
-                current.Episode,
-                current.ReleaseScore,
-                candidate.ReleaseScore,
-                candidate.PublishTime,
-                candidate.ReleaseScoreReasonsJson,
-                automatic);
-        return candidatePairs;
+                current.Id, candidate.Id, current.Animation!.Name,
+                current.Season.GetValueOrDefault(), current.Episode.GetValueOrDefault(),
+                new SubscriptionReleaseMetadata(current.ReleaseSubtitleGroup, current.ReleaseResolution,
+                    current.ReleaseCodec, current.ReleaseLanguages, current.ReleaseSizeBytes),
+                new SubscriptionReleaseMetadata(candidate.ReleaseSubtitleGroup, candidate.ReleaseResolution,
+                    candidate.ReleaseCodec, candidate.ReleaseLanguages, candidate.ReleaseSizeBytes),
+                current.ReleaseScoreReasonsJson != null, candidate.ReleaseScoreReasonsJson != null,
+                candidate.SourceFeedId, candidate.PublishTime);
     }
 
     private IQueryable<Models.AnimationInfo> BuildEligibleCandidates(bool automaticOnly)
@@ -193,17 +192,6 @@ public sealed partial class ReleaseUpgradeRepository(
                 operation.CandidateReleaseId == candidate.Id &&
                 operation.Status != ReleaseUpgradeStatus.Failed));
     }
-
-    private static ReleaseUpgradeCandidate ToCandidate(CandidateRow row) => new(
-        row.CurrentReleaseId,
-        row.CandidateReleaseId,
-        row.AnimationName,
-        row.Season.GetValueOrDefault(),
-        row.Episode.GetValueOrDefault(),
-        row.CurrentScore,
-        row.CandidateScore,
-        ParseReasons(row.ReleaseScoreReasonsJson),
-        row.Automatic);
 
     public async Task<ReleaseUpgradeOperation?> TryBeginAsync(
         ReleaseUpgradeCandidate candidate,
@@ -232,7 +220,6 @@ public sealed partial class ReleaseUpgradeRepository(
                 current.Animation.Id != next.Animation.Id ||
                 current.Season != next.Season ||
                 current.Episode != next.Episode ||
-                next.ReleaseScore <= current.ReleaseScore ||
                 !current.IsActiveRelease ||
                 next.IsActiveRelease ||
                 current.DownloadCancellationId is not null ||
@@ -246,18 +233,24 @@ public sealed partial class ReleaseUpgradeRepository(
                     cancellationToken))
                 return null;
 
-            // Rows created before release scoring was introduced have no score
-            // provenance. Keep them available for an explicit manual replacement,
-            // but never let an automatic worker compare a newly scored candidate
-            // against their placeholder zero.
-            if (candidate.Automatic &&
-                (current.ReleaseScoreReasonsJson is null ||
-                 next.SourceFeedId is not { } sourceFeedId ||
-                 !await writeContext.SubscriptionAutomationPolicies.AnyAsync(
-                     policy => policy.FeedId == sourceFeedId &&
-                               policy.EnableVersionUpgrade &&
-                               next.ReleaseScore - current.ReleaseScore >= policy.MinimumUpgradeScore,
-                     cancellationToken)))
+            // Re-evaluate after claiming the release rows. A policy or release
+            // may have changed since the candidate list was read.
+            var policyEntity = next.SourceFeedId is { } feedId
+                ? await writeContext.SubscriptionAutomationPolicies.AsNoTracking()
+                    .SingleOrDefaultAsync(policy => policy.FeedId == feedId, cancellationToken)
+                : null;
+            var policy = policyEntity?.ToRecord();
+            var currentScore = releaseScoringService.Score(new SubscriptionReleaseMetadata(
+                current.ReleaseSubtitleGroup, current.ReleaseResolution, current.ReleaseCodec,
+                current.ReleaseLanguages, current.ReleaseSizeBytes), policy);
+            var candidateScore = releaseScoringService.Score(new SubscriptionReleaseMetadata(
+                next.ReleaseSubtitleGroup, next.ReleaseResolution, next.ReleaseCodec,
+                next.ReleaseLanguages, next.ReleaseSizeBytes), policy);
+            if (candidateScore.Value <= currentScore.Value ||
+                (candidate.Automatic &&
+                 (current.ReleaseScoreReasonsJson is null || next.ReleaseScoreReasonsJson is null ||
+                  policy is not { EnableVersionUpgrade: true } ||
+                  candidateScore.Value - currentScore.Value < policy.MinimumUpgradeScore)))
                 return null;
 
             await writeContext.ReleaseUpgradeOperations
@@ -292,8 +285,8 @@ public sealed partial class ReleaseUpgradeRepository(
                 Status = next.IsDownloadFinished
                     ? ReleaseUpgradeStatus.Verifying
                     : ReleaseUpgradeStatus.Downloading,
-                CurrentScore = current.ReleaseScore,
-                CandidateScore = next.ReleaseScore,
+                CurrentScore = currentScore.Value,
+                CandidateScore = candidateScore.Value,
                 CreatedAt = createdAt
             };
             writeContext.ReleaseUpgradeOperations.Add(entity);
@@ -1307,18 +1300,7 @@ public sealed partial class ReleaseUpgradeRepository(
         IReadOnlyDictionary<string, string> CandidatePathReplacements,
         IReadOnlyDictionary<string, string> PreviousPathReplacements);
 
-    private static IReadOnlyList<string> ParseReasons(string? json)
-    {
-        if (string.IsNullOrWhiteSpace(json)) return [];
-        try
-        {
-            return System.Text.Json.JsonSerializer.Deserialize<string[]>(json) ?? [];
-        }
-        catch (System.Text.Json.JsonException)
-        {
-            return [];
-        }
-    }
+
 }
 
 internal static class ReleaseUpgradeRepositoryConverters
