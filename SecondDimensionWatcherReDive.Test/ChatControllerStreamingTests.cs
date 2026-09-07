@@ -79,8 +79,8 @@ public sealed class ChatControllerStreamingTests
         new(
             repository,
             Mock.Of<IChatActionRepository>(),
-            Mock.Of<IChatActionService>(),
-            Mock.Of<IChatRawToolExecutorFactory>(),
+            null!,
+            null!,
             Mock.Of<IServiceScopeFactory>(),
             Mock.Of<IServiceProvider>(),
             NullLogger<ChatController>.Instance);
