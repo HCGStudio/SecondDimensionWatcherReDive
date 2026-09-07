@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -24,6 +25,7 @@ internal sealed partial class HlsTranscodingService : BackgroundService, IHlsTra
     private readonly Channel<TranscodingJob> _queue;
     private readonly ConcurrentDictionary<string, TranscodingJob> _jobs = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<Guid, TranscodingSession> _sessions = new();
+    private readonly ConcurrentDictionary<TranscodingJob, long> _deferredJobs = new();
     private readonly SemaphoreSlim _creationGate = new(1, 1);
     private long _queueOrdinal;
 
@@ -92,6 +94,12 @@ internal sealed partial class HlsTranscodingService : BackgroundService, IHlsTra
                 }
                 else
                 {
+                    // Deferred capacity waiters remain part of the bounded
+                    // outstanding work even while they occupy no worker slot.
+                    if (_jobs.Values.Count(candidate => candidate.GetState() is TranscodingJobState.Queued
+                            or TranscodingJobState.Probing or TranscodingJobState.Transcoding)
+                        >= _options.QueueCapacity + _options.MaxConcurrentJobs)
+                        throw new TranscodingQueueFullException();
                     job = new TranscodingJob(
                         cacheKey,
                         cacheDirectory,
@@ -252,7 +260,21 @@ internal sealed partial class HlsTranscodingService : BackgroundService, IHlsTra
             .Select(_ => RunWorkerAsync(stoppingToken))
             .ToArray();
         var cleanup = RunCleanupLoopAsync(stoppingToken);
-        await Task.WhenAll(workers.Append(cleanup).Append(RunReaderLeaseLoopAsync(stoppingToken)));
+        try
+        {
+            await Task.WhenAll(workers.Append(cleanup).Append(RunReaderLeaseLoopAsync(stoppingToken))
+                .Append(RunDeferredJobsAsync(stoppingToken)));
+        }
+        finally
+        {
+            // All worker tasks have stopped before pending/deferred jobs are
+            // released. No detached retry tasks survive the hosted service.
+            _deferredJobs.Clear();
+            while (_queue.Reader.TryRead(out _)) { }
+            foreach (var job in _jobs.Values)
+                if (job.GetState() is TranscodingJobState.Queued or TranscodingJobState.Probing or TranscodingJobState.Transcoding)
+                    MarkCanceled(job);
+        }
     }
 
     private async Task RunWorkerAsync(CancellationToken stoppingToken)
@@ -278,28 +300,37 @@ internal sealed partial class HlsTranscodingService : BackgroundService, IHlsTra
             return;
         }
 
-        using var timeout = new CancellationTokenSource(_options.JobTimeout);
+        var remainingTime = job.GetRemainingTimeout(_options.JobTimeout);
+        if (remainingTime <= TimeSpan.Zero)
+        {
+            MarkFailed(job, "The transcoding job exceeded its configured timeout.");
+            return;
+        }
+        using var timeout = new CancellationTokenSource(remainingTime);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(
             stoppingToken,
             job.Cancellation.Token,
             timeout.Token);
         var cancellationToken = linked.Token;
-        var startedAt = DateTimeOffset.UtcNow;
+        var startedAt = DateTimeOffset.UtcNow - (_options.JobTimeout - remainingTime);
         TranscodeCapacityLease? capacityLease = null;
         var createdOutput = false;
         try
         {
-            job.SetState(TranscodingJobState.Probing);
-            UpdateJobGauges();
-            MediaProbe probe;
-            await using (var source = await OpenSourceStreamAsync(job.Source, cancellationToken))
-                probe = await _processRunner.ProbeAsync(source, cancellationToken);
-            var plan = TranscodingPlanner.CreatePlan(
-                job.Source,
-                probe,
-                job.Selection,
-                _options.BurnBitmapSubtitles);
-            job.SetPlan(plan);
+            var prepared = job.GetPreparation();
+            if (prepared is null)
+            {
+                job.SetState(TranscodingJobState.Probing);
+                UpdateJobGauges();
+                MediaProbe initialProbe;
+                await using (var source = await OpenSourceStreamAsync(job.Source, cancellationToken))
+                    initialProbe = await _processRunner.ProbeAsync(source, cancellationToken);
+                var initialPlan = TranscodingPlanner.CreatePlan(
+                    job.Source, initialProbe, job.Selection, _options.BurnBitmapSubtitles);
+                job.SetPreparation(initialProbe, initialPlan);
+                prepared = (initialProbe, initialPlan);
+            }
+            var (probe, plan) = prepared.Value;
 
             if (plan.Strategy == TranscodingStrategy.Direct)
             {
@@ -311,7 +342,15 @@ internal sealed partial class HlsTranscodingService : BackgroundService, IHlsTra
                 return;
             }
 
-            capacityLease = await WaitForCapacityAsync(job, cancellationToken);
+            var capacity = await TryAcquireCapacityAsync(job, cancellationToken);
+            capacityLease = capacity.Lease;
+            if (!capacity.Acquired)
+            {
+                job.SetWaitingForCapacity(_options.MaxDiskBytesPerJob);
+                _deferredJobs[job] = Stopwatch.GetTimestamp() + 10 * Stopwatch.Frequency;
+                UpdateJobGauges();
+                return;
+            }
             if (job.GetState() == TranscodingJobState.Ready) return;
             using var capacityCancellation = CancellationTokenSource.CreateLinkedTokenSource(
                 cancellationToken, capacityLease?.LostToken ?? CancellationToken.None);
@@ -467,26 +506,46 @@ internal sealed partial class HlsTranscodingService : BackgroundService, IHlsTra
         finally { _creationGate.Release(); }
     }
 
-    private async Task<TranscodeCapacityLease?> WaitForCapacityAsync(
+    private async Task<(bool Acquired, TranscodeCapacityLease? Lease)> TryAcquireCapacityAsync(
         TranscodingJob job, CancellationToken cancellationToken)
     {
-        while (true)
+        cancellationToken.ThrowIfCancellationRequested();
+        // Completed manifests need no new write budget. Otherwise make one
+        // admission attempt and let the deferred scheduler release this worker.
+        if (await TryReuseCompletedCacheAsync(job, cancellationToken)) return (true, null);
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var capacity = scope.ServiceProvider.GetService<TranscodeCapacityService>();
+        if (capacity is null) return (true, null);
+        var reservation = await capacity.TryAcquireAsync(job.CacheDirectory, cancellationToken);
+        return reservation is { } id
+            ? (true, new TranscodeCapacityLease(_scopeFactory, id, job.CacheDirectory, _logger))
+            : (false, null);
+    }
+
+    private async Task RunDeferredJobsAsync(CancellationToken stoppingToken)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+        while (await timer.WaitForNextTickAsync(stoppingToken))
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            // Completed manifests are atomically published and need no new
-            // write budget; another replica may finish while capacity is full.
-            if (await TryReuseCompletedCacheAsync(job, cancellationToken)) return null;
-            await using (var scope = _scopeFactory.CreateAsyncScope())
+            foreach (var pair in _deferredJobs.OrderBy(pair => pair.Value))
             {
-                var capacity = scope.ServiceProvider.GetService<TranscodeCapacityService>();
-                if (capacity is null) return null;
-                var reservation = await capacity.TryAcquireAsync(job.CacheDirectory, cancellationToken);
-                if (reservation is { } id)
-                    return new TranscodeCapacityLease(_scopeFactory, id, job.CacheDirectory, _logger);
+                var job = pair.Key;
+                if (job.Cancellation.IsCancellationRequested)
+                {
+                    if (_deferredJobs.TryRemove(pair)) MarkCanceled(job);
+                }
+                else if (job.GetRemainingTimeout(_options.JobTimeout) <= TimeSpan.Zero)
+                {
+                    if (_deferredJobs.TryRemove(pair))
+                        MarkFailed(job, "The transcoding job exceeded its configured timeout.");
+                }
+                else if (pair.Value <= Stopwatch.GetTimestamp() && _queue.Writer.TryWrite(job))
+                {
+                    // A fast worker may already defer the job again. Remove
+                    // only the due generation that was actually enqueued.
+                    _deferredJobs.TryRemove(pair);
+                }
             }
-            job.SetWaitingForCapacity(_options.MaxDiskBytesPerJob);
-            UpdateJobGauges();
-            await Task.Delay(TimeSpan.FromSeconds(10), cancellationToken);
         }
     }
 
@@ -961,6 +1020,8 @@ internal sealed partial class HlsTranscodingService : BackgroundService, IHlsTra
         private readonly HashSet<Guid> _sessions = [];
         private TranscodingJobState _state = TranscodingJobState.Queued;
         private TranscodingPlan? _plan;
+        private MediaProbe? _probe;
+        private long _startedTimestamp;
         private bool _isPlayable;
         private double? _progress;
         private double? _speed;
@@ -1059,7 +1120,20 @@ internal sealed partial class HlsTranscodingService : BackgroundService, IHlsTra
                 _error = $"Waiting for {requiredBytes} bytes of transcoding capacity after the safety reserve and active download/transcoding reservations. Playback resumes automatically when space is available.";
             }
         }
-        public void SetPlan(TranscodingPlan plan) { lock (_gate) _plan = plan; }
+        public (MediaProbe Probe, TranscodingPlan Plan)? GetPreparation()
+        {
+            lock (_gate) return _probe is not null && _plan is not null ? (_probe, _plan) : null;
+        }
+        public void SetPreparation(MediaProbe probe, TranscodingPlan plan)
+        {
+            lock (_gate) { _probe = probe; _plan = plan; }
+        }
+        public TimeSpan GetRemainingTimeout(TimeSpan maximum)
+        {
+            var now = Stopwatch.GetTimestamp();
+            var started = Interlocked.CompareExchange(ref _startedTimestamp, now, 0);
+            return maximum - Stopwatch.GetElapsedTime(started == 0 ? now : started);
+        }
         public void MarkPlayable() { lock (_gate) _isPlayable = true; }
         public void SetProgress(double? progress, double? speed)
         {
