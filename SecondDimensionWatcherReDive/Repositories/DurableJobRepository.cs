@@ -53,12 +53,15 @@ public sealed class DurableJobRepository(Models.ApplicationContext context)
         if (claimedIds.Count == 0)
             return [];
 
+        // Lease writes and worker validation use application UTC. Capture a fresh
+        // value outside the query so EF does not translate it to database time.
+        var readAt = DateTimeOffset.UtcNow;
         return (await context.DurableJobs
-                .FromSqlRaw("SELECT * FROM \"DurableJobs\" WHERE \"LeaseExpiresAt\" > clock_timestamp()")
                 .AsNoTracking()
                 .Where(job => claimedIds.Contains(job.Id)
                               && job.LeaseOwner == workerId
-                              && job.Status == DurableJobStatus.Processing)
+                              && job.Status == DurableJobStatus.Processing
+                              && job.LeaseExpiresAt > readAt)
                 .OrderBy(job => job.CreatedAt)
                 .ToListAsync(cancellationToken))
             .Select(ToRecord)
@@ -119,13 +122,18 @@ public sealed class DurableJobRepository(Models.ApplicationContext context)
         DateTimeOffset now,
         DateTimeOffset nextAttemptAt,
         CancellationToken cancellationToken) =>
-        await context.Database.ExecuteSqlInterpolatedAsync($"""
-            UPDATE "DurableJobs"
-            SET "Status" = 'Pending', "UpdatedAt" = {now}, "NextAttemptAt" = {nextAttemptAt},
-                "LeaseOwner" = NULL, "LeaseExpiresAt" = NULL
-            WHERE "Id" = {id} AND "LeaseOwner" = {workerId} AND "Status" = 'Processing'
-                AND "Stage" = {expectedStage.ToString()} AND "LeaseExpiresAt" > clock_timestamp()
-            """, cancellationToken) == 1;
+        await context.DurableJobs
+            .Where(job => job.Id == id
+                          && job.LeaseOwner == workerId
+                          && job.Status == DurableJobStatus.Processing
+                          && job.Stage == expectedStage
+                          && job.LeaseExpiresAt > now)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(job => job.Status, DurableJobStatus.Pending)
+                .SetProperty(job => job.UpdatedAt, now)
+                .SetProperty(job => job.NextAttemptAt, nextAttemptAt)
+                .SetProperty(job => job.LeaseOwner, (string?)null)
+                .SetProperty(job => job.LeaseExpiresAt, (DateTimeOffset?)null), cancellationToken) == 1;
 
     public Task MarkFailedAsync(
         Guid id,
