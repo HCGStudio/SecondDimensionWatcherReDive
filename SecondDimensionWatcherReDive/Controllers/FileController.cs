@@ -9,6 +9,7 @@ using SecondDimensionWatcherReDive.Configuration;
 using SecondDimensionWatcherReDive.Auth;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Framework.FileStore;
+using SecondDimensionWatcherReDive.Utils.FileStore;
 
 namespace SecondDimensionWatcherReDive.Controllers;
 
@@ -37,7 +38,7 @@ internal partial class FileController(
             return NotFound();
         }
 
-        var virtualPath = ResolveVirtualPath(info, payload.Path);
+        var virtualPath = PlaybackPathResolver.ResolveVirtualPath(info, payload.Path);
         LogResolvedTargetPath(logger, virtualPath, "virtual path");
 
         var userId = User.FindFirst("Id")?.Value;
@@ -107,7 +108,7 @@ internal partial class FileController(
             return NotFound();
         }
 
-        var virtualPath = ResolveVirtualPath(info, relativeDir);
+        var virtualPath = PlaybackPathResolver.ResolveVirtualPath(info, relativeDir);
         LogListPathInfo(logger, virtualPath, true);
 
         var tokens = await fileExplorer.EnumerateDirectoryAsync(
@@ -121,29 +122,6 @@ internal partial class FileController(
             _ => throw new InvalidOperationException()
         });
         return Ok(results);
-    }
-
-    private static string ResolveVirtualPath(AnimationInfo info, string? relative)
-    {
-        var root = GetAnimationVirtualRoot(info);
-        if (string.IsNullOrWhiteSpace(relative)) return root;
-        var trimmed = relative.Trim('/');
-        return string.IsNullOrEmpty(trimmed) ? root : $"{root}/{trimmed}";
-    }
-
-    private static string GetAnimationVirtualRoot(AnimationInfo info)
-    {
-        if (info.Animation is null || info.Season is null) return "/unknown";
-        var animationName = SanitizePathSegment(info.Animation.Name);
-        var subGroup = SanitizePathSegment(info.Group?.Name ?? "Unknown");
-        return $"/{animationName}/{subGroup}";
-    }
-
-    private static string SanitizePathSegment(string name)
-    {
-        var invalid = Path.GetInvalidFileNameChars();
-        var sanitized = string.Concat(name.Select(c => invalid.Contains(c) || c == '/' ? '_' : c)).Trim();
-        return string.IsNullOrEmpty(sanitized) ? "Unknown" : sanitized;
     }
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "GenerateLink request for animation {Id}, relative path: {Path}")]
