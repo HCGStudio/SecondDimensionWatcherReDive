@@ -40,7 +40,8 @@ public sealed partial class LibraryCompletionService(ILibraryCompletionRepositor
             }).OrderByDescending(x => x.Eligible).ThenByDescending(x => x.Score).ThenByDescending(x => x.PublishedAt).ThenBy(x => x.ReleaseId).ToList();
             var downloaded = episodeReleases.Any(x => x.IsDownloadFinished && mapped.Contains(x.Id));
             var mappingPending = episodeReleases.Any(x => x.IsDownloadFinished && !mapped.Contains(x.Id));
-            var downloading = episodeReleases.Any(x => x.IsDownloadTracked || x.DownloadCancellationId != null);
+            // Completed cancellation retains its ID as an idempotency tombstone, not active work.
+            var downloading = episodeReleases.Any(x => x.IsDownloadTracked);
             var failed = episodeReleases.Any(x => x.AutomationDisposition == SubscriptionAutomationDisposition.AutoDownloadFailed);
             var selected = unaired || downloaded || downloading ? null : candidates.FirstOrDefault(x => x.Eligible)?.ReleaseId;
             var state = downloaded ? "downloaded" : mappingPending ? "mapping_pending" : downloading ? "downloading" : unaired ? "unaired" : failed ? "failed" :
@@ -60,7 +61,7 @@ public sealed partial class LibraryCompletionService(ILibraryCompletionRepositor
         var score = scoring.Score(new(info.ReleaseSubtitleGroup ?? info.Group?.Name, info.ReleaseResolution,
             info.ReleaseCodec, info.ReleaseLanguages ?? [], info.ReleaseSizeBytes), policy);
         var reason = !IsReliable(info) ? "unidentified_or_batch" : info.DownloadType != FileDownloadTypes.TorrentDownload ? "unsupported_source" :
-            info.IsDownloadFinished ? "downloaded" : info.IsDownloadTracked || info.DownloadCancellationId != null ? "downloading" :
+            info.IsDownloadFinished ? "downloaded" : info.IsDownloadTracked ? "downloading" :
             evaluation is { Matched: false } ? "policy_mismatch" : null;
         return new(info.Id, info.Title, info.PublishTime, info.ReleaseSizeBytes, score.Value,
             score.Reasons.Concat(evaluation?.Explanations.Where(x => !x.Passed).Select(x => x.Message) ?? []).ToList(), reason == null, reason);
