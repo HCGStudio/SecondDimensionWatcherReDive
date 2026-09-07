@@ -452,7 +452,8 @@ public sealed class LibrarySearchRepository(
         var downloaded = releases
             .Where(info => info.IsDownloadFinished && mappedIds.Contains(info.Id) && info.Episode is > 0)
             .ToList();
-        var expected = releases.Max(info => info.ExpectedEpisodeCount) ?? (calendar.Episodes.Count > 0 ? calendar.Episodes.Max(x => x.Episode) : (int?)null);
+        var expected = releases.Select(info => info.ExpectedEpisodeCount)
+            .Concat(calendar.Episodes.Select(item => (int?)item.Episode)).Max();
         var present = downloaded.Select(info => info.Episode!.Value).ToHashSet();
         var notPresent = (expected is { } count ? Enumerable.Range(1, Math.Clamp(count, 0, 10000)) : releases.Where(x => x.Episode is > 0).Select(x => x.Episode!.Value))
             .Where(episode => !present.Contains(episode)).Distinct().ToList();

@@ -58,7 +58,7 @@ public sealed class MetadataRecognitionRuleRepository(Models.ApplicationContext 
             .Select(hit => new MetadataRecognitionHit(hit.Id, hit.RuleId, hit.RuleName, hit.RuleRevision,
                 hit.AnimationInfoId, hit.Title, hit.ItemRevision, hit.AppliedAt)).ToListAsync(cancellationToken);
 
-    private static MetadataRecognitionRule ToRecord(Models.MetadataRecognitionRule rule) => new(
+    internal static MetadataRecognitionRule ToRecord(Models.MetadataRecognitionRule rule) => new(
         rule.Id, rule.Name, rule.Enabled, rule.Revision, rule.SourceFeedId, rule.TitlePattern,
         rule.SubtitleGroup, rule.TmdbId, rule.FixedSeason, rule.EpisodeOffset, rule.CanonicalGroupName,
         rule.CreatedFromItemId, rule.CreatedAt, rule.EffectiveFrom);
