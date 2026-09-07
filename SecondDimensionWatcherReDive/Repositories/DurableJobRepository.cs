@@ -7,6 +7,11 @@ namespace SecondDimensionWatcherReDive.Repositories;
 public sealed class DurableJobRepository(Models.ApplicationContext context)
     : IDurableJobRepository
 {
+    public Task<DateTimeOffset?> GetNextPendingAttemptAtAsync(CancellationToken cancellationToken) =>
+        context.DurableJobs
+            .Where(job => job.Status == DurableJobStatus.Pending)
+            .MinAsync(job => (DateTimeOffset?)job.NextAttemptAt, cancellationToken);
+
     public async Task<IReadOnlyList<DurableJob>> ClaimDueAsync(
         string workerId,
         DateTimeOffset now,

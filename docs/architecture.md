@@ -112,7 +112,7 @@ Registered scheduled tasks:
 Channel-driven event processors (always running, end with BackgroundService suffix):
 - **FetchRemoteTorrentBackgroundService** — Polls qBittorrent every 500ms for download status
 - **UpdateDownloadStatusBackgroundService** — Caches download progress in memory
-- **CompleteDownloadBackgroundService** — Finalizes downloads, invokes `IFileMapper` to build virtual-FS mappings, then fires the `OnFileDownloadCompleted` plugin event
+- **CompleteDownloadBackgroundService** — Runs bounded workers with independent leases for durable mapping, notification and plugin stages. Plugin contention defers the persisted job by three seconds and publishes a wake hint; idle workers wait until the next pending database attempt or the normal ten-second recovery poll, whichever comes first.
 
 ### Data Migration Tasks
 

@@ -171,6 +171,10 @@ public partial class CompleteDownloadBackgroundService(
                         activity?.SetTag("job.deferred", true);
                         activity?.SetStatus(ActivityStatusCode.Ok);
                         telemetry?.RecordJobDeferred(job.Type, stage);
+                        // Wake idle workers so they recompute their wait against
+                        // the newly persisted retry time.
+                        downloadCompleteRequest.Writer.TryWrite(new DownloadCompleteRequest(
+                            payload.ItemId, payload.StorePath, payload.FileStore, payload.DownloadAttemptId));
                     }
                     else
                     {
@@ -315,10 +319,28 @@ public partial class CompleteDownloadBackgroundService(
 
     private async Task WaitForWakeOrPollAsync(CancellationToken cancellationToken)
     {
+        var delay = PollInterval;
+        try
+        {
+            await using var scope = scopeFactory.CreateAsyncScope();
+            var repository = scope.ServiceProvider.GetRequiredService<IDurableJobRepository>();
+            if (await repository.GetNextPendingAttemptAtAsync(cancellationToken) is { } nextAttemptAt)
+            {
+                var untilDue = nextAttemptAt - DateTimeOffset.UtcNow;
+                delay = untilDue <= TimeSpan.Zero ? TimeSpan.Zero :
+                    untilDue < PollInterval ? untilDue : PollInterval;
+            }
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        {
+            // A scheduling lookup failure retains the normal polling fallback.
+            LogPollFailed(logger, exception);
+        }
+
         var reader = downloadCompleteRequest.Reader;
         using var waitCancellation = CancellationTokenSource.CreateLinkedTokenSource(
             cancellationToken);
-        waitCancellation.CancelAfter(PollInterval);
+        waitCancellation.CancelAfter(delay);
         try
         {
             await reader.WaitToReadAsync(waitCancellation.Token);
