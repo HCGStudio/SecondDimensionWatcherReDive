@@ -8,6 +8,13 @@ import fetcher from "../auth/httpClient";
 import { useToast } from "../components/ToastProvider";
 import { Button } from "../components/ui/Button";
 
+export type EndingProgressGuard = (
+  animationInfoId: string,
+  path: string,
+  position: number,
+  duration: number,
+) => boolean;
+
 interface Point {
   kind: "opening" | "ending" | "chapter";
   name: string;
@@ -39,6 +46,7 @@ export const TimelineControls: React.FC<{
   autoSkip: boolean;
   onAutoSkipChange: (enabled: boolean) => void;
   onSkipEnding: () => void;
+  endingProgressGuardRef: React.RefObject<EndingProgressGuard | null>;
 }> = ({
   animationInfoId,
   path,
@@ -46,6 +54,7 @@ export const TimelineControls: React.FC<{
   autoSkip,
   onAutoSkipChange,
   onSkipEnding,
+  endingProgressGuardRef,
 }) => {
   const { t } = useTranslation("player");
   const { canContentWrite, canPlaybackWrite } = useAccess();
@@ -69,6 +78,27 @@ export const TimelineControls: React.FC<{
   autoSkipRef.current = autoSkip;
   const skipEndingRef = React.useRef(onSkipEnding);
   skipEndingRef.current = onSkipEnding;
+  React.useLayoutEffect(() => {
+    const guard: EndingProgressGuard = (id, mediaPath, position, duration) =>
+      id === animationInfoId &&
+      mediaPath === path &&
+      autoSkipRef.current &&
+      Boolean(
+        effectiveRef.current?.points.some(
+          (point) =>
+            point.enabled &&
+            point.kind === "ending" &&
+            point.startSeconds <= position &&
+            position < point.endSeconds &&
+            point.endSeconds <= duration,
+        ),
+      );
+    endingProgressGuardRef.current = guard;
+    return () => {
+      if (endingProgressGuardRef.current === guard)
+        endingProgressGuardRef.current = null;
+    };
+  }, [animationInfoId, path, endingProgressGuardRef]);
   const skip = React.useCallback(
     (point: Point) => {
       const art = playerRef.current;

@@ -172,57 +172,57 @@ public partial class FetchRemoteTorrentBackgroundService(
                     }
                 }
             }
-            await Task.Delay(500, cancellationToken);
-
-            //Check if there is no need to update
-            if (tracked.Count == 0)
-                continue;
-
-            var due = tracked.Keys.Where(hash => !schedules.TryGetValue(hash, out var schedule)
+            // Process one oldest-due batch per turn so submission, resume and
+            // cancellation messages are drained between slow status requests.
+            var batch = tracked.Keys.Where(hash => !schedules.TryGetValue(hash, out var schedule)
                 || schedule.NextDue <= DateTimeOffset.UtcNow)
                 .OrderBy(hash => schedules.TryGetValue(hash, out var schedule) ? schedule.NextDue : DateTimeOffset.MinValue)
-                .Take(batchSize * 4).ToArray();
-            foreach (var batch in due.Chunk(batchSize))
+                .Take(batchSize).ToArray();
+            if (batch.Length == 0)
             {
-                RemoteTorrentInfo[] info;
-                var queried = new ConcurrentDictionary<string, RemoteTorrentTrackRequest>(StringComparer.OrdinalIgnoreCase);
+                await Task.Delay(500, cancellationToken);
+                continue;
+            }
+
+            RemoteTorrentInfo[] info;
+            var queried = new ConcurrentDictionary<string, RemoteTorrentTrackRequest>(StringComparer.OrdinalIgnoreCase);
+            foreach (var hash in batch)
+            {
+                if (tracked.TryGetValue(hash, out var request)) queried[hash] = request;
+                schedules.TryAdd(hash, new PollSchedule());
+            }
+            try
+            {
+                using var httpClient = httpClientFactory.CreateClient(nameof(RemoteTorrentDownloadClient));
+                using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                // Include authentication and the shared request lock in the
+                // configurable deadline without HttpClient imposing a shorter limit.
+                httpClient.Timeout = Timeout.InfiniteTimeSpan;
+                deadline.CancelAfter(statusTimeout);
+                info = await httpClient.GetFromJsonAsync(
+                    $"/api/v2/torrents/info?hashes={Uri.EscapeDataString(string.Join('|', batch))}",
+                    QBittorrentJsonSerializerContext.Default.RemoteTorrentInfoArray,
+                    deadline.Token) ?? throw new IOException("The downloader returned an empty status response.");
                 foreach (var hash in batch)
                 {
-                    if (tracked.TryGetValue(hash, out var request)) queried[hash] = request;
-                    schedules.TryAdd(hash, new PollSchedule());
+                    schedules[hash].Failures = 0;
+                    schedules[hash].NextDue = DateTimeOffset.UtcNow + activeInterval;
                 }
-                try
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+            {
+                LogFetchTorrentStatusFailed(logger, ex);
+                foreach (var hash in batch)
                 {
-                    using var httpClient = httpClientFactory.CreateClient(nameof(RemoteTorrentDownloadClient));
-                    using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                    // Include authentication and the shared request lock in the
-                    // configurable deadline without HttpClient imposing a shorter limit.
-                    httpClient.Timeout = Timeout.InfiniteTimeSpan;
-                    deadline.CancelAfter(statusTimeout);
-                    info = await httpClient.GetFromJsonAsync(
-                        $"/api/v2/torrents/info?hashes={Uri.EscapeDataString(string.Join('|', batch))}",
-                        QBittorrentJsonSerializerContext.Default.RemoteTorrentInfoArray,
-                        deadline.Token) ?? throw new IOException("The downloader returned an empty status response.");
-                    foreach (var hash in batch)
-                    {
-                        schedules[hash].Failures = 0;
-                        schedules[hash].NextDue = DateTimeOffset.UtcNow + activeInterval;
-                    }
+                    var schedule = schedules[hash];
+                    schedule.Failures = Math.Min(20, schedule.Failures + 1);
+                    var seconds = Math.Min(maxBackoff, Math.Pow(2, schedule.Failures));
+                    schedule.NextDue = DateTimeOffset.UtcNow.AddSeconds(seconds * (0.8 + Random.Shared.NextDouble() * 0.2));
                 }
-                catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
-                {
-                    LogFetchTorrentStatusFailed(logger, ex);
-                    foreach (var hash in batch)
-                    {
-                        var schedule = schedules[hash];
-                        schedule.Failures = Math.Min(20, schedule.Failures + 1);
-                        var seconds = Math.Min(maxBackoff, Math.Pow(2, schedule.Failures));
-                        schedule.NextDue = DateTimeOffset.UtcNow.AddSeconds(seconds * (0.8 + Random.Shared.NextDouble() * 0.2));
-                    }
-                    // Transport failure says nothing about whether any hash exists.
-                    // Other batches still run and retain their own failure history.
-                    continue;
-                }
+                // Transport failure says nothing about whether any hash exists.
+                // Other batches still run and retain their own failure history.
+                continue;
+            }
 
             var returnedHashes = new HashSet<string>(
                 info.Select(torrent => torrent.Hash),
@@ -297,7 +297,6 @@ public partial class FetchRemoteTorrentBackgroundService(
                 observations,
                 returnedHashes,
                 cancellationToken);
-            }
         }
     }
 
