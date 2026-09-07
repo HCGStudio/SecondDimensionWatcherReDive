@@ -3,9 +3,9 @@ using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using SecondDimensionWatcherReDive.Auth;
 using SecondDimensionWatcherReDive.Framework.Authorization;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
+using SecondDimensionWatcherReDive.Auth;
 
 namespace SecondDimensionWatcherReDive.Controllers;
 
@@ -15,7 +15,8 @@ namespace SecondDimensionWatcherReDive.Controllers;
 internal partial class WebDavTokenController(
     IWebDavTokenRepository repository,
     IIdentityRepository identityRepository,
-    IFileMappingRepository fileMappingRepository) : ControllerBase
+    IFileMappingRepository fileMappingRepository,
+    IDeviceTokenHasher tokenHasher) : ControllerBase
 {
     private const string UsernameAlphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
     private const int GeneratedUsernameLength = 8;
@@ -68,7 +69,7 @@ internal partial class WebDavTokenController(
             return BadRequest(new { error = "ExpiresAt must be in the future and no more than five years away." });
 
         var plaintext = GenerateToken();
-        var hash = BCrypt.Net.BCrypt.HashPassword(plaintext);
+        var hash = tokenHasher.Hash(plaintext);
         var description = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim();
         if (description?.Length > 256) return BadRequest();
         var record = new WebDavToken(

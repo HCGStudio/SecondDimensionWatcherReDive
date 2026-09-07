@@ -13,7 +13,7 @@
 - **下载**: qBittorrent Web API
 - **AI**: OpenAI / Anthropic，或本地 Codex app-server（流式 SSE + 工具调用）+ TMDB API
 - **包管理**: Yarn Berry (PnP)
-- **测试**: MSTest + Moq（单元）/ `Microsoft.AspNetCore.Mvc.Testing`（集成，覆盖 WebDAV 与 Basic Auth）
+- **测试**: MSTest + Moq、Testcontainers PostgreSQL、Playwright，以及 FUSE/交付制品 smoke tests
 
 ## 功能
 
@@ -37,7 +37,7 @@
 - [x] 按动画分组的主页展示（卡片 + 剧集列表）
 - [x] 当季番组发现（mikanani.me 爬取）+ 一键订阅
 - [x] 后台任务仪表盘（查看状态、手动触发）
-- [x] 一次性数据迁移框架（`MigrationMarkers` 表幂等记录）
+- [x] 可串行、可恢复的数据迁移（PostgreSQL advisory lock、版本状态、批次 checkpoint）
 - [x] 插件事件系统（下载前 / 下载完成后钩子）
 - [x] 多语言界面（简体中文 / English / 日本語）
 - [x] Podman / Docker Compose 一键部署
@@ -70,6 +70,8 @@ yarn dev    # Mock 服务器 + 开发服务器
 yarn start  # 仅前端开发服务器（代理到 localhost:5097）
 ```
 
+完整测试矩阵与本地命令见 **[生产边界测试指南](docs/testing.md)**。
+
 ### 一键部署
 
 ```bash
@@ -81,7 +83,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/HCGStudio/SecondDimensionWat
 - **容器部署** — Podman / Docker，含 qBittorrent 和 PostgreSQL
 - **通用 tar.gz** — 适用于任意 Linux 发行版
 
-详见 **[服务器部署指南](docs/server-deployment.md)** | **[容器部署指南](docs/container-deployment.md)**
+详见 **[服务器部署指南](docs/server-deployment.md)** | **[容器部署指南](docs/container-deployment.md)** | **[发布流程](docs/release-process.md)**
 
 ### 配置
 
@@ -90,8 +92,9 @@ bash <(curl -fsSL https://raw.githubusercontent.com/HCGStudio/SecondDimensionWat
 | 配置项 | 说明 |
 |--------|------|
 | `ConnectionStrings:sdw` | PostgreSQL 连接字符串 |
+| `Migration:BackupExecutable` / `BackupArguments` / `BackupTimeout` / `RequireBackup` | schema/data migration 前的可选备份钩子与强制策略；详见[迁移运维手册](docs/migrations.md) |
 | `JwtSecret` | JWT 签名密钥 |
-| `Password:Value` | 旧版单站点密码的 BCrypt 哈希；存在时禁止公开注册，仅允许 `admin` 首次登录并迁移到数据库账户 |
+| `Password:Value` | 旧部署兼容用 BCrypt 哈希；升级启动时会原子导入 PostgreSQL，之后数据库为唯一权威来源；为空且数据库未注册时才允许首次注册 |
 | `DataProtection:KeyRingPath` | 网页保存的 API key/密码所用加密密钥环；必须位于持久化目录 |
 | `Torrent:Remote:Url` | qBittorrent API 地址 |
 | `FileStore:Local` | 下载文件存储根目录 |
@@ -105,15 +108,24 @@ bash <(curl -fsSL https://raw.githubusercontent.com/HCGStudio/SecondDimensionWat
 | `AI:Anthropic:ApiKey` / `BaseUrl` / `Model` / `MaxTokens` / `ApiVersion` | Anthropic 端点 |
 | `AI:CodexAppServer:Endpoint` / `BearerToken` / `Model` / `PermissionProfile` / `TimeoutSeconds` | Codex app-server WebSocket 端点；空模型使用服务端默认模型；权限配置默认 `:read-only`，也可填写管理员定义的 profile id |
 | `Inference:RateLimitDelayMs` | 推断 API 调用最小间隔（毫秒，默认 1000） |
-| `Valkey:ConnectionString` | Valkey / Redis 连接（可选；为空则使用内存缓存） |
+| `Notifications:Webhook:Enabled` / `Url` | 通用 Webhook 通知渠道；完整 URL 按敏感配置处理，建议从网页设置中保存；远端地址必须使用 HTTPS |
+| `Notifications:WebPush:Enabled` / `Subject` / `VapidPublicKey` / `VapidPrivateKey` | 浏览器 Web Push；首次在网页启用时可由服务端生成 VAPID 密钥对，私钥加密保存；浏览器订阅需要 HTTPS 或 localhost 安全来源 |
+| `Notifications:Events` / `QuietHours` | 允许投递的领域事件与可选免打扰时段；启用且选中的事件会在核心操作完成后尽力写入持久化 Outbox，再异步重试投递 |
+| `OutboundHttp:AllowedPrivateHosts` / `AllowedPrivateNetworks` | RSS、Webhook 与 Web Push 端点默认拒绝 loopback/私网目的地；确有需要时仅精确放行目标主机或 CIDR |
+| `Valkey:ConnectionString` | Valkey / Redis 连接（单副本可选；多副本必须共享同一实例） |
+| `ReverseProxy:KnownProxies` / `KnownNetworks` | 非 loopback 反向代理的受信地址/CIDR；仅填写代理，不填写客户端网段 |
 
 > 使用现有媒体库导入前，必须至少配置一个 `MediaLibrary:AllowedRoots`。导入源必须位于白名单内，且不能与 `FileStore:Local` 管理的下载目录相同、互为父目录或以其他方式重叠。导入与后续对账只会修改数据库中的媒体记录和虚拟路径映射；系统绝不会移动、重命名或删除原文件。短暂缺失的条目会先撤下映射并保留观看/审核记录，超过 `MissingGracePeriod`（默认 24 小时）后才清理数据库记录。
 
 > 从 v2.2 之前升级：旧的 `Inference:ApiKey/Provider/Model` 已迁移到 `AI:` 前缀。运行 `deployments/migrate-config.sh` 自动迁移；包管理器安装时 `postinstall.sh` 会自动执行。
 
+升级前的备份、失败诊断、checkpoint 恢复和多副本发布流程见 **[数据库迁移运维手册](docs/migrations.md)**。
+
 ### 网页运行时设置
 
-登录后打开「设置」，可修改 AI 执行模式与 Provider、AI/TMDB 密钥、qBittorrent、媒体库扫描、异常检测和 NFS。保存值存入 PostgreSQL，并覆盖部署文件或环境变量中的默认值；密钥和密码使用持久化 Data Protection 密钥环加密，API 不会回显明文。可对单个敏感项选择保留、替换、清除或恢复部署默认值。
+登录后打开「设置」，可修改 AI 执行模式与 Provider、AI/TMDB 密钥、qBittorrent、媒体库扫描、异常检测、通知和 NFS。保存值存入 PostgreSQL，并覆盖部署文件或环境变量中的默认值；密钥、密码、Webhook URL、VAPID 私钥及浏览器 PushSubscription 能力凭据使用持久化 Data Protection 密钥环加密，API 不会回显明文。可对单个敏感项选择保留、替换、清除或恢复部署默认值。
+
+启用且订阅的通知会在核心操作完成后，以唯一去重键尽力写入 PostgreSQL Outbox，再由后台服务按至少一次语义投递。Webhook 和每个 Web Push 浏览器订阅拥有独立投递行、租约与重试状态，一个渠道失败不会重复投递另一个渠道；Webhook 请求带有稳定的 `X-SDW-Event-Id`，Web Push 也使用同一事件 ID 作为通知标签，接收端仍应按事件 ID 幂等。5xx、408、429 和网络错误会指数退避重试，失效的浏览器订阅会在 404/410 后撤销，永久失败可在「设置 → 通知」查看，且任何投递或入队失败都不会回滚订阅、下载、推断或异常处理。顶栏「待办中心」会按风险汇总待确认下载、异常、低置信度/失败元数据和磁盘预警，并支持已读、稍后提醒及无副作用批量操作。
 
 数据库连接、JWT、下载存储根目录、登录密码文件、CORS 和 Valkey 仍属于启动/基础设施配置，不允许从网页修改。NFS 监听地址、端口和启用状态会保存，但需要重启应用才能切换；其余上述设置对后续请求和新任务热生效。后台定时任务的间隔变更不会中断已经开始的等待，最迟会在当前等待周期结束后采用新值。
 

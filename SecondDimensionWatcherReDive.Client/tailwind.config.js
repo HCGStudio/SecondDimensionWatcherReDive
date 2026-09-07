@@ -6,19 +6,19 @@ module.exports = {
       colors: {
         canvas: "#f5f4ed",
         surface: "#faf9f5",
-        brand: "#c96442",
-        accent: "#d97757",
+        brand: "#a94b2f",
+        accent: "#a4492d",
         foreground: "#141413",
         muted: "#5e5d59",
-        subtle: "#87867f",
+        subtle: "#706f6a",
         border: "#e8e6dc",
         "border-light": "#f0eee6",
         "dark-surface": "#30302e",
         "dark-deep": "#141413",
-        focus: "#3898ec",
+        focus: "#2678bd",
         error: "#b53333",
-        success: "#198754",
-        warning: "#e6a23c",
+        success: "#146c43",
+        warning: "#8a5900",
         "warm-silver": "#b0aea5",
         "charcoal-warm": "#4d4c48",
         "dark-warm": "#3d3d3a",
@@ -68,10 +68,10 @@ module.exports = {
       },
       boxShadow: {
         ring: "0px 0px 0px 1px #d1cfc5",
-        "ring-brand": "0px 0px 0px 1px #c96442",
+        "ring-brand": "0px 0px 0px 1px #a94b2f",
         "ring-error": "0px 0px 0px 1px #b53333",
-        "ring-warning": "0px 0px 0px 1px #e6a23c",
-        "ring-success": "0px 0px 0px 1px #198754",
+        "ring-warning": "0px 0px 0px 1px #8a5900",
+        "ring-success": "0px 0px 0px 1px #146c43",
         whisper: "rgba(0,0,0,0.05) 0px 4px 24px",
         inset: "inset 0px 0px 0px 1px rgba(0,0,0,0.15)",
       },
@@ -83,6 +83,14 @@ module.exports = {
         "slide-out-right": {
           from: { transform: "translateX(0)" },
           to: { transform: "translateX(100%)" },
+        },
+        "slide-in-left": {
+          from: { transform: "translateX(-100%)" },
+          to: { transform: "translateX(0)" },
+        },
+        "slide-out-left": {
+          from: { transform: "translateX(0)" },
+          to: { transform: "translateX(-100%)" },
         },
         "toast-in": {
           from: { transform: "translateX(100%)", opacity: "0" },
@@ -96,13 +104,15 @@ module.exports = {
       animation: {
         "slide-in-right": "slide-in-right 200ms ease-out",
         "slide-out-right": "slide-out-right 200ms ease-in",
+        "slide-in-left": "slide-in-left 200ms ease-out",
+        "slide-out-left": "slide-out-left 200ms ease-in",
         "toast-in": "toast-in 200ms ease-out",
         "toast-out": "toast-out 200ms ease-in",
       },
       typography: {
         DEFAULT: {
           css: {
-            "--tw-prose-links": "#c96442",
+            "--tw-prose-links": "#a94b2f",
             "--tw-prose-code": "#141413",
             "code::before": { content: '""' },
             "code::after": { content: '""' },

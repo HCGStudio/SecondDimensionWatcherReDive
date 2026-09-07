@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
+using System.Data;
 
 namespace SecondDimensionWatcherReDive.Repositories;
 
@@ -10,6 +11,28 @@ public class FileMappingRepository(
     public async Task AddRangeAsync(IReadOnlyList<FileMapping> mappings, CancellationToken cancellationToken)
     {
         if (mappings.Count == 0) return;
+
+        var allProposedPaths = mappings.Select(mapping => mapping.VirtualPath).ToArray();
+        for (var index = 0; index < allProposedPaths.Length; index++)
+        {
+            if (!VirtualPathNamespaceGuard.IsCanonical(allProposedPaths[index]))
+                throw new ArgumentException("Every virtual path must be absolute and canonical.", nameof(mappings));
+            for (var otherIndex = index + 1; otherIndex < allProposedPaths.Length; otherIndex++)
+            {
+                if (string.Equals(
+                        allProposedPaths[index],
+                        allProposedPaths[otherIndex],
+                        StringComparison.Ordinal)
+                    || VirtualPathNamespaceGuard.IsAncestor(
+                        allProposedPaths[index],
+                        allProposedPaths[otherIndex])
+                    || VirtualPathNamespaceGuard.IsAncestor(
+                        allProposedPaths[otherIndex],
+                        allProposedPaths[index]))
+                    throw new InvalidOperationException(
+                        "The proposed mapping batch contains conflicting virtual paths.");
+            }
+        }
 
         var animationInfoIds = mappings
             .Select(mapping => mapping.AnimationInfoId)
@@ -29,6 +52,21 @@ public class FileMappingRepository(
                 cancellationToken);
             if (animationInfos.Count != animationInfoIds.Length)
                 throw new InvalidOperationException("Cannot add mappings for a missing AnimationInfo.");
+
+            foreach (var animationInfoId in animationInfoIds)
+            {
+                var conflicts = await VirtualPathNamespaceGuard.FindConflictsAsync(
+                    writeContext,
+                    animationInfoId,
+                    mappings
+                        .Where(mapping => mapping.AnimationInfoId == animationInfoId)
+                        .Select(mapping => mapping.VirtualPath)
+                        .ToArray(),
+                    cancellationToken);
+                if (conflicts.Count > 0)
+                    throw new DbUpdateException(
+                        $"The proposed mappings conflict with the virtual-path namespace at '{conflicts[0].OccupiedPath}'.");
+            }
 
             await writeContext.FileMappings.AddRangeAsync(
                 mappings.Select(mapping => mapping.ToEntity()),
@@ -79,36 +117,36 @@ public class FileMappingRepository(
                 || current.StorePath != expectedStorePath)
                 return false;
 
-            if (proposedPaths.Length > 0
-                && await replaceContext.FileMappings.AnyAsync(
-                    mapping => mapping.AnimationInfoId != animationInfoId
-                               && proposedPaths.Contains(mapping.VirtualPath),
-                    cancellationToken))
+            if ((await VirtualPathNamespaceGuard.FindConflictsAsync(
+                    replaceContext,
+                    animationInfoId,
+                    proposedPaths,
+                    cancellationToken)).Count > 0)
                 return false;
 
             var existingMappings = await replaceContext.FileMappings
                 .AsNoTracking()
                 .Where(mapping => mapping.AnimationInfoId == animationInfoId)
                 .ToListAsync(cancellationToken);
-            var replacementMappings = mappings
+            var desiredMappings = mappings
                 .Select(mapping => mapping.ToEntity())
                 .ToList();
             await PlaybackProgressMappingMigrator.MigrateAsync(
                 replaceContext,
                 animationInfoId,
                 existingMappings,
-                replacementMappings,
+                desiredMappings,
                 cancellationToken);
-
-            await replaceContext.FileMappings
-                .Where(mapping => mapping.AnimationInfoId == animationInfoId)
-                .ExecuteDeleteAsync(cancellationToken);
-            if (replacementMappings.Count > 0)
-                await replaceContext.FileMappings.AddRangeAsync(
-                    replacementMappings,
-                    cancellationToken);
+            var reconciliation = await FileMappingSetReconciler.ReconcileAsync(
+                replaceContext,
+                animationInfoId,
+                desiredMappings,
+                cancellationToken);
             current.StateVersion = checked(current.StateVersion + 1);
             await replaceContext.SaveChangesAsync(cancellationToken);
+            await reconciliation.RestoreEntryIdentitiesAsync(
+                replaceContext,
+                cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             return true;
         });
@@ -150,6 +188,140 @@ public class FileMappingRepository(
         return entity?.ToRecord();
     }
 
+    public async Task<FileSystemEntry?> FindFileSystemEntryAsync(
+        string virtualPath,
+        CancellationToken cancellationToken)
+    {
+        return await ProjectFileSystemEntries(context.FileSystemEntries
+                .AsNoTracking()
+                .Where(entry => entry.Path == virtualPath))
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    public async Task<FileSystemEntry?> FindFileSystemEntryByIdAsync(
+        Guid entryId,
+        CancellationToken cancellationToken)
+    {
+        return await ProjectFileSystemEntries(context.FileSystemEntries
+                .AsNoTracking()
+                .Where(entry => entry.EntryId == entryId))
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    public async Task<FileSystemDirectoryPage?> GetImmediateChildrenPageAsync(
+        string parentPath,
+        long? afterCookie,
+        int take,
+        CancellationToken cancellationToken)
+    {
+        if (take is < 1 or > 512)
+            throw new ArgumentOutOfRangeException(nameof(take), "Page size must be between 1 and 512.");
+        if (afterCookie is < 0)
+            throw new ArgumentOutOfRangeException(nameof(afterCookie));
+
+        var strategy = context.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(async () =>
+        {
+            await using var readContext = new Models.ApplicationContext(contextOptions);
+            await using var transaction = await readContext.Database.BeginTransactionAsync(
+                IsolationLevel.RepeatableRead,
+                cancellationToken);
+
+            var generation = await readContext.FileSystemDirectoryStates
+                .AsNoTracking()
+                .Where(state => state.Path == parentPath)
+                .Select(state => (long?)state.Generation)
+                .SingleOrDefaultAsync(cancellationToken);
+            if (!generation.HasValue)
+            {
+                await transaction.CommitAsync(cancellationToken);
+                return null;
+            }
+
+            var cursorIsValid = !afterCookie.HasValue
+                                || await readContext.FileSystemEntries
+                                    .AsNoTracking()
+                                    .AnyAsync(
+                                        entry => entry.ParentPath == parentPath
+                                                 && entry.Cookie == afterCookie.Value,
+                                        cancellationToken);
+            if (!cursorIsValid)
+            {
+                await transaction.CommitAsync(cancellationToken);
+                return new FileSystemDirectoryPage([], generation.Value, null, false);
+            }
+
+            var page = await ProjectFileSystemEntries(readContext.FileSystemEntries
+                    .AsNoTracking()
+                    .Where(entry => entry.ParentPath == parentPath
+                                    && (!afterCookie.HasValue || entry.Cookie > afterCookie.Value))
+                    .OrderBy(entry => entry.Cookie)
+                    .Take(take + 1))
+                .ToListAsync(cancellationToken);
+            var hasMore = page.Count > take;
+            if (hasMore) page.RemoveAt(page.Count - 1);
+            await transaction.CommitAsync(cancellationToken);
+            return new FileSystemDirectoryPage(
+                page,
+                generation.Value,
+                hasMore ? page[^1].Cookie : null,
+                true);
+        });
+    }
+
+    public async Task<IReadOnlyList<FileSystemEntry>> GetImmediateChildrenAsync(
+        string parentPath,
+        CancellationToken cancellationToken)
+    {
+        const int pageSize = 256;
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            var entries = new List<FileSystemEntry>();
+            long? cookie = null;
+            long? generation = null;
+            var restart = false;
+            do
+            {
+                var page = await GetImmediateChildrenPageAsync(
+                    parentPath,
+                    cookie,
+                    pageSize,
+                    cancellationToken);
+                if (page is null) return [];
+                if (!page.CursorIsValid
+                    || (generation.HasValue && generation.Value != page.Generation))
+                {
+                    restart = true;
+                    break;
+                }
+
+                generation ??= page.Generation;
+                entries.AddRange(page.Items);
+                cookie = page.NextCookie;
+            } while (cookie.HasValue);
+
+            if (!restart)
+            {
+                return entries
+                    .OrderByDescending(entry => entry.IsDirectory)
+                    .ThenBy(entry => entry.Name, StringComparer.Ordinal)
+                    .ToList();
+            }
+        }
+
+        throw new InvalidOperationException("The directory changed continuously while it was being enumerated.");
+    }
+
+    public Task<IReadOnlyList<VirtualPathNamespaceConflict>> FindNamespaceConflictsAsync(
+        Guid animationInfoId,
+        IReadOnlyCollection<string> proposedPaths,
+        CancellationToken cancellationToken) =>
+        VirtualPathNamespaceGuard.FindConflictsAsync(
+            context,
+            animationInfoId,
+            proposedPaths,
+            cancellationToken);
+
     public async Task<IReadOnlyList<FileMapping>> GetByVirtualPathPrefixAsync(string virtualPathPrefix, CancellationToken cancellationToken)
     {
         var pattern = EscapeLikePattern(virtualPathPrefix) + "%";
@@ -162,25 +334,11 @@ public class FileMappingRepository(
 
     public async Task<IReadOnlyList<RootEntry>> GetRootEntriesAsync(CancellationToken cancellationToken)
     {
-        // Raw SQL: the chained .Select(...).Select(...).Distinct() over IndexOf/Substring
-        // does not dedupe under Npgsql 10 — three mappings under the same root produced
-        // three duplicate rows at the WebDAV root. split_part is unambiguous and runs
-        // server-side so we don't load every mapping.
-        var rows = await context.Database
-            .SqlQueryRaw<RootEntryRow>(
-                """
-                SELECT DISTINCT
-                    split_part("VirtualPath", '/', 2) AS "Name",
-                    position('/' IN substring("VirtualPath" FROM 2)) > 0 AS "IsDirectory"
-                FROM "FileMappings"
-                WHERE length("VirtualPath") > 1 AND "VirtualPath" LIKE '/%'
-                """)
-            .ToListAsync(cancellationToken);
-
-        return rows.Select(r => new RootEntry(r.Name, r.IsDirectory)).ToList();
+        var entries = await GetImmediateChildrenAsync("/", cancellationToken);
+        return entries
+            .Select(entry => new RootEntry(entry.Name, entry.IsDirectory))
+            .ToList();
     }
-
-    private sealed record RootEntryRow(string Name, bool IsDirectory);
 
     private static string EscapeLikePattern(string value)
     {
@@ -192,10 +350,30 @@ public class FileMappingRepository(
 
     public async Task<bool> VirtualPathExistsAsync(string virtualPath, CancellationToken cancellationToken)
     {
-        return await context.FileMappings
+        return await context.FileSystemEntries
             .AsNoTracking()
-            .AnyAsync(m => m.VirtualPath == virtualPath, cancellationToken);
+            .AnyAsync(entry => entry.Path == virtualPath, cancellationToken);
     }
+
+    private static IQueryable<FileSystemEntry> ProjectFileSystemEntries(
+        IQueryable<Models.FileSystemEntry> query) =>
+        query
+            .Select(entry => new FileSystemEntry(
+                entry.EntryId,
+                entry.Path,
+                entry.ParentPath,
+                entry.Name,
+                entry.IsDirectory,
+                entry.DescendantFileCount,
+                entry.Cookie,
+                entry.FileMapping == null
+                    ? null
+                    : new FileMapping(
+                        entry.FileMapping.Id,
+                        entry.FileMapping.AnimationInfoId,
+                        entry.FileMapping.VirtualPath,
+                        entry.FileMapping.PhysicalPath,
+                        entry.FileMapping.FileStore)));
 
     public async Task<bool> ExistsForAnimationInfoAsync(Guid animationInfoId, CancellationToken cancellationToken)
     {

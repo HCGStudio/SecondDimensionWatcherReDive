@@ -1,7 +1,14 @@
+import { useEffect, useRef } from "react";
 import useSWR from "swr";
+import useSWRInfinite from "swr/infinite";
 
 import fetcher from "../auth/httpClient";
-import { IAnimationGroupedResponse } from "./IAnimationGrouped";
+import {
+  IAnimationCatalogResponse,
+  IAnimationCatalogRevisionResponse,
+  IAnimationEpisodeResponse,
+  IAnimationInfoSummaryResponse,
+} from "./IAnimationCatalog";
 import { IAnimationInfo } from "./IAnimationInfo";
 import { IFileDownloadStatus } from "./IFileDownloadStatus";
 import { IResponseArrayData } from "./IResponseArrayData";
@@ -13,9 +20,82 @@ export const useAnimationInfo = (skip: number, take: number) =>
     { refreshInterval: 5000 },
   );
 
-export const useGroupedAnimations = () =>
-  useSWR<IAnimationGroupedResponse>("/api/animationinfo/grouped", fetcher, {
-    refreshInterval: 5000,
+const cursorUrl = (path: string, cursor: string | null, take: number) =>
+  `${path}?take=${take}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
+
+interface ICursorPage {
+  nextCursor: string | null;
+}
+
+const useCatalogRevision = () =>
+  useSWR<IAnimationCatalogRevisionResponse>(
+    "/api/animationinfo/catalog-revision",
+    fetcher,
+    { refreshInterval: 5000 },
+  );
+
+const useRevisionBoundPages = <T extends ICursorPage>(
+  getUrl: (previousPage?: T) => string | null,
+) => {
+  const revision = useCatalogRevision();
+  const currentRevision = revision.data?.revision;
+  const pages = useSWRInfinite<T>((_pageIndex, previousPage) => {
+    const url = getUrl(previousPage);
+    if (url === null) return null;
+
+    // Do not make the catalog itself depend on the lightweight revision probe.
+    // A rolling deployment, transient proxy miss, or temporarily unavailable
+    // probe must not leave every catalog page permanently paused. Once the
+    // revision is available it becomes part of the SWR key and refreshes the
+    // page against the current catalog generation.
+    return currentRevision === undefined
+      ? url
+      : `${url}&catalogRevision=${currentRevision}`;
+  }, fetcher);
+  const previousRevision = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    if (currentRevision === undefined) return;
+    if (
+      previousRevision.current !== undefined &&
+      previousRevision.current !== currentRevision
+    ) {
+      void pages.setSize(1);
+    }
+    previousRevision.current = currentRevision;
+  }, [currentRevision, pages.setSize]);
+  return pages;
+};
+
+export const useAnimationCatalog = () =>
+  useRevisionBoundPages<IAnimationCatalogResponse>((previousPage) =>
+    previousPage && !previousPage.nextCursor
+      ? null
+      : cursorUrl(
+          "/api/animationinfo/grouped",
+          previousPage?.nextCursor ?? null,
+          24,
+        ),
+  );
+
+export const useUncategorizedAnimations = () =>
+  useRevisionBoundPages<IAnimationInfoSummaryResponse>((previousPage) =>
+    previousPage && !previousPage.nextCursor
+      ? null
+      : cursorUrl(
+          "/api/animationinfo/uncategorized",
+          previousPage?.nextCursor ?? null,
+          24,
+        ),
+  );
+
+export const useAnimationEpisodes = (tmdbId?: string) =>
+  useRevisionBoundPages<IAnimationEpisodeResponse>((previousPage) => {
+    if (!tmdbId || (previousPage && !previousPage.nextCursor)) return null;
+    return cursorUrl(
+      `/api/animationinfo/grouped/${encodeURIComponent(tmdbId)}/episodes`,
+      previousPage?.nextCursor ?? null,
+      50,
+    );
   });
 
 export const useDownloadingAnimations = (skip: number, take: number) =>

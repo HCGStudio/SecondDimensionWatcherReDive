@@ -1,11 +1,11 @@
 using System.ComponentModel.DataAnnotations;
-using System.Security.Cryptography;
+using System.IdentityModel.Tokens.Jwt;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.StaticFiles;
-using System.Text.Json;
-using Microsoft.Extensions.Caching.Distributed;
+using Microsoft.Extensions.Options;
+using SecondDimensionWatcherReDive.Configuration;
 using SecondDimensionWatcherReDive.Auth;
 using SecondDimensionWatcherReDive.Framework.Authorization;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
@@ -19,26 +19,17 @@ namespace SecondDimensionWatcherReDive.Controllers;
 internal partial class FileController(
     IAnimationInfoRepository animationInfoRepository,
     IFileExplorer fileExplorer,
+    PlaybackTicketService playbackTickets,
     IIdentityRepository identityRepository,
-    IDistributedCache distributedCache,
     IContentTypeProvider contentTypeProvider,
+    IOptions<TokenSecurityOptions> tokenSecurityOptions,
     ILogger<FileController> logger) : ControllerBase
 {
-    private static string GenerateToken(int length)
-    {
-        var arr = length > 128 ? new byte[length] : stackalloc byte[length];
-        RandomNumberGenerator.Fill(arr);
-        return Convert.ToBase64String(arr);
-    }
-
     [HttpPost("generateLink")]
     public async Task<IActionResult> GetFileLink([FromBody] External.FileLinkResultRequest payload,
         CancellationToken cancellationToken)
     {
-        if (!User.TryGetUserId(out var userId)
-            || !User.TryGetProfileId(out var profileId)
-            || !User.TryGetSessionId(out var sessionId))
-            return Unauthorized();
+        Response.Headers.CacheControl = "private,no-store";
         LogGenerateLinkRequest(logger, payload.Id, payload.Path);
 
         var info = await animationInfoRepository.FindByIdWithAnimationAsync(payload.Id, cancellationToken);
@@ -48,64 +39,79 @@ internal partial class FileController(
             return NotFound();
         }
 
-        if (!TryResolveVirtualPath(info, payload.Path, out var virtualPath))
-            return BadRequest();
-        var virtualRoot = DevicePathScope.GetVirtualRoot(User);
-        if (!DevicePathScope.TryMapInternalToPublic(
-                virtualPath, virtualRoot, out _))
-            return Forbid();
+        var virtualPath = ResolveVirtualPath(info, payload.Path);
         LogResolvedTargetPath(logger, virtualPath, "virtual path");
 
-        var token = GenerateToken(64);
-        await distributedCache.SetStringAsync(token,
-            JsonSerializer.Serialize(new External.FileStoreToken(
-                    virtualPath, string.Empty, sessionId, userId, profileId, virtualRoot),
-                External.AppJsonSerializerContext.Default.FileStoreToken),
-            new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = TimeSpan.FromDays(1) },
-            cancellationToken);
-        var url = Url.ActionLink(nameof(GetFile), values: new { token })!;
-        LogLinkGenerated(logger, payload.Id, url);
+        if (!User.TryGetUserId(out var identityUserId) ||
+            !User.TryGetProfileId(out var profileId) ||
+            !User.TryGetSessionId(out var sessionId))
+            return Unauthorized();
+        var virtualRoot = DevicePathScope.GetVirtualRoot(User);
+        if (!DevicePathScope.TryMapInternalToPublic(virtualPath, virtualRoot, out _))
+            return NotFound();
+        var userId = identityUserId.ToString();
+        var accessTokenId = User.FindFirst(JwtRegisteredClaimNames.Jti)?.Value;
+        if (string.IsNullOrWhiteSpace(userId) || string.IsNullOrWhiteSpace(accessTokenId))
+            return Unauthorized();
+
+        var lifetime = TimeSpan.FromMinutes(tokenSecurityOptions.Value.PlaybackLinkMinutes);
+        var tickets = playbackTickets.Issue(userId, accessTokenId, virtualPath, lifetime, sessionId, profileId);
+        var cookieName = Request.IsHttps
+            ? PlaybackTicketService.SecureCookieName
+            : PlaybackTicketService.DevelopmentCookieName;
+        Response.Cookies.Append(cookieName, tickets.CookieCredential, new CookieOptions
+        {
+            HttpOnly = true,
+            Secure = Request.IsHttps,
+            SameSite = SameSiteMode.Strict,
+            Path = Request.IsHttps ? "/" : "/api/file/play",
+            MaxAge = lifetime,
+            IsEssential = true
+        });
+        var url = Url.ActionLink(nameof(GetFile), values: new { resourceId = tickets.ResourceId })!;
+        LogLinkGenerated(logger, payload.Id, lifetime.TotalMinutes);
         return Ok(new External.FileLinkResultResponse(url));
     }
 
     [AllowAnonymous]
-    [HttpGet("play")]
-    public async Task<IActionResult> GetFile([FromQuery] [Required] string token,
+    [HttpGet("play/{resourceId}")]
+    public async Task<IActionResult> GetFile([FromRoute, Required] string resourceId,
         CancellationToken cancellationToken)
     {
-        var json = await distributedCache.GetStringAsync(token, cancellationToken);
-        var fileStoreToken = json is null ? null : JsonSerializer.Deserialize(json, External.AppJsonSerializerContext.Default.FileStoreToken);
-        if (fileStoreToken is null)
+        Response.Headers.CacheControl = "private,no-store";
+        Response.Headers.Pragma = "no-cache";
+        Response.Headers["Referrer-Policy"] = "no-referrer";
+
+        var playbackSession = Request.Cookies[PlaybackTicketService.SecureCookieName]
+                              ?? Request.Cookies[PlaybackTicketService.DevelopmentCookieName];
+        var grant = playbackTickets.Validate(resourceId, playbackSession);
+        if (grant is null)
         {
             LogPlayTokenInvalid(logger);
             return NotFound();
         }
 
+        if (grant.IdentitySessionId is not { } sessionId || grant.ProfileId is not { } profileId)
+            return NotFound();
         var authenticated = await identityRepository.GetAuthenticatedSessionAsync(
-            fileStoreToken.SessionId, DateTimeOffset.UtcNow, cancellationToken);
-        if (authenticated is null
-            || authenticated.User.Id != fileStoreToken.UserId
-            || authenticated.Profile.Id != fileStoreToken.ProfileId
-            || !DevicePathScope.TryMapInternalToPublic(
-                fileStoreToken.Path, fileStoreToken.VirtualRoot, out _))
-        {
-            LogPlayTokenInvalid(logger);
+            sessionId, DateTimeOffset.UtcNow, cancellationToken);
+        if (authenticated is null || authenticated.User.Id.ToString() != grant.UserId ||
+            authenticated.Profile.Id != profileId)
             return NotFound();
-        }
 
-        var fileName = Path.GetFileName(fileStoreToken.Path);
+        var fileName = Path.GetFileName(grant.Path);
         var contentType = contentTypeProvider.TryGetContentType(fileName, out var type)
             ? type
             : "application/octet-stream";
 
-        LogStreamingFile(logger, fileStoreToken.Path, contentType);
+        LogStreamingFile(logger, grant.Path, contentType);
         var stream = await fileExplorer.OpenReadStreamAsync(
-            new FileToken(fileStoreToken.Path, fileName), cancellationToken);
+            new FileToken(grant.Path, fileName), cancellationToken);
         return File(stream, contentType, fileName, enableRangeProcessing: true);
     }
 
     [HttpGet("list")]
-    public async Task<IActionResult> GetSubDir([FromQuery] [Required] Guid id,
+    public async Task<IActionResult> GetSubDir([FromQuery, Required] Guid id,
         [FromQuery] string? relativeDir,
         CancellationToken cancellationToken)
     {
@@ -118,11 +124,7 @@ internal partial class FileController(
             return NotFound();
         }
 
-        if (!TryResolveVirtualPath(info, relativeDir, out var virtualPath))
-            return BadRequest();
-        if (!DevicePathScope.TryMapInternalToPublic(
-                virtualPath, DevicePathScope.GetVirtualRoot(User), out _))
-            return Forbid();
+        var virtualPath = ResolveVirtualPath(info, relativeDir);
         LogListPathInfo(logger, virtualPath, true);
 
         var tokens = await fileExplorer.EnumerateDirectoryAsync(
@@ -138,30 +140,12 @@ internal partial class FileController(
         return Ok(results);
     }
 
-    private static bool TryResolveVirtualPath(
-        AnimationInfo info,
-        string? relative,
-        out string virtualPath)
+    private static string ResolveVirtualPath(AnimationInfo info, string? relative)
     {
         var root = GetAnimationVirtualRoot(info);
-        if (string.IsNullOrWhiteSpace(relative))
-        {
-            virtualPath = root;
-            return true;
-        }
-
+        if (string.IsNullOrWhiteSpace(relative)) return root;
         var trimmed = relative.Trim('/');
-        if (trimmed.Length > 2048
-            || trimmed.Contains('\\')
-            || trimmed.Any(char.IsControl)
-            || trimmed.Split('/').Any(segment => segment.Length == 0 || segment is "." or ".."))
-        {
-            virtualPath = string.Empty;
-            return false;
-        }
-
-        virtualPath = string.IsNullOrEmpty(trimmed) ? root : $"{root}/{trimmed}";
-        return true;
+        return string.IsNullOrEmpty(trimmed) ? root : $"{root}/{trimmed}";
     }
 
     private static string GetAnimationVirtualRoot(AnimationInfo info)
@@ -188,8 +172,9 @@ internal partial class FileController(
     [LoggerMessage(Level = LogLevel.Debug, Message = "Resolved target path: {TargetPath} ({Reason})")]
     private static partial void LogResolvedTargetPath(ILogger logger, string targetPath, string reason);
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "Generated play link for animation {Id}: {Url}")]
-    private static partial void LogLinkGenerated(ILogger logger, Guid id, string url);
+    [LoggerMessage(Level = LogLevel.Information,
+        Message = "Generated scoped play link for animation {Id}, valid for {LifetimeMinutes} minutes")]
+    private static partial void LogLinkGenerated(ILogger logger, Guid id, double lifetimeMinutes);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Play request with invalid or expired token")]
     private static partial void LogPlayTokenInvalid(ILogger logger);

@@ -289,3 +289,11 @@ test("external-tab storage profile change aborts streams and forbids 401 replay"
   unsubscribe();
   stream.dispose();
 });
+
+test("a failed non-authenticated request exposes its HTTP status", async () => {
+  const http = await import("./httpClient");
+  http.clearAuthForSession();
+  globalThis.fetch = async () => new Response(null, { status: 503 });
+
+  await assert.rejects(http.default("/api/unavailable"), /503/);
+});

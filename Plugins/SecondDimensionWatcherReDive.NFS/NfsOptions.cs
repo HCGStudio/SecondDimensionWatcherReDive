@@ -12,11 +12,18 @@ public sealed class NfsOptions
     public int Port { get; set; } = 2049;
 
     [Required]
-    public string BindAddress { get; set; } = "0.0.0.0";
+    public string BindAddress { get; set; } = "127.0.0.1";
 
     [Range(1, int.MaxValue)]
     public int LeaseSeconds { get; set; } = 90;
 
     [Range(1, int.MaxValue)]
     public int MaxConnections { get; set; } = 32;
+
+    [Range(1, 3600)]
+    public int IdleTimeoutSeconds { get; set; } = 120;
+
+    public bool AllowAnonymous { get; set; }
+
+    public string[] AllowedNetworks { get; set; } = ["127.0.0.0/8", "::1/128"];
 }

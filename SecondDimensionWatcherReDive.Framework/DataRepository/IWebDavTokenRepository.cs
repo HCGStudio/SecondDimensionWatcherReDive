@@ -14,4 +14,11 @@ public interface IWebDavTokenRepository
         Guid id,
         DateTimeOffset revokedAt,
         CancellationToken cancellationToken);
+    Task<bool> UpdateHashAsync(
+        Guid id,
+        string expectedHash,
+        string newHash,
+        CancellationToken cancellationToken);
+
+    Task<bool> RemoveByIdAsync(Guid id, CancellationToken cancellationToken);
 }

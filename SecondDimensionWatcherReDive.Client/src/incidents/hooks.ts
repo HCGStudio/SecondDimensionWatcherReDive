@@ -9,6 +9,7 @@ export interface IncidentQuery {
   take?: number;
   includeResolved?: boolean;
   enabled?: boolean;
+  focus?: string | null;
 }
 
 export const incidentListKey = ({
@@ -16,6 +17,7 @@ export const incidentListKey = ({
   skip = 0,
   take = 50,
   includeResolved = false,
+  focus,
 }: IncidentQuery = {}): string => {
   const params = new URLSearchParams({
     skip: String(skip),
@@ -23,6 +25,7 @@ export const incidentListKey = ({
     includeResolved: String(includeResolved),
   });
   if (type) params.set("type", type);
+  if (focus) params.set("focus", focus);
   return `/api/incidents?${params.toString()}`;
 };
 

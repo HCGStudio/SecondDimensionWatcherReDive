@@ -4,6 +4,7 @@ using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.IdentityModel.Tokens;
 using SecondDimensionWatcherReDive.Auth;
 using SecondDimensionWatcherReDive.Framework.Authorization;
@@ -13,23 +14,26 @@ namespace SecondDimensionWatcherReDive.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
+[EnableRateLimiting("auth")]
 internal partial class AuthController(
     IConfiguration configuration,
     TokenValidationParameters tokenValidationParams,
     IIdentityRepository identityRepository,
     SessionTokenIssuer tokenIssuer,
-    ILogger<AuthController> logger) : ControllerBase
+    ILogger<AuthController> logger,
+    IAuthenticationStateRepository? authenticationStateRepository = null) : ControllerBase
 {
     [GeneratedRegex("^[a-z0-9._-]{3,64}$")]
     private static partial Regex UsernamePattern();
 
     [HttpPost("register")]
+    [RequestSizeLimit(4096)]
     public async Task<IActionResult> Register(
         [FromBody] External.LoginData data,
         CancellationToken cancellationToken)
     {
         if (await identityRepository.AnyUsersAsync(cancellationToken)
-            || HasLegacyPassword())
+            || await HasLegacyPasswordAsync(cancellationToken))
             return Conflict();
         if (!TryNormalizeUsername(data.Username, out var username)
             || string.IsNullOrEmpty(data.Password))
@@ -66,6 +70,7 @@ internal partial class AuthController(
     }
 
     [HttpPost("login")]
+    [RequestSizeLimit(4096)]
     public async Task<IActionResult> Login(
         [FromBody] External.LoginData data,
         CancellationToken cancellationToken)
@@ -76,7 +81,7 @@ internal partial class AuthController(
         var user = await identityRepository.FindUserByUsernameAsync(username, cancellationToken);
         if (user is null
             && string.Equals(username, IdentityDefaults.Username, StringComparison.Ordinal)
-            && VerifyLegacyPassword(data.Password))
+            && await VerifyLegacyPasswordAsync(data.Password, cancellationToken))
             user = await CreateLegacyAdminAsync(data.Password, cancellationToken);
         if (user is null || user.IsDisabled || !await VerifyPasswordAsync(
                 user, data.Password, cancellationToken))
@@ -92,6 +97,7 @@ internal partial class AuthController(
     }
 
     [HttpPost("refresh")]
+    [RequestSizeLimit(4096)]
     public async Task<IActionResult> Refresh(
         [FromBody] External.AuthRequest request,
         CancellationToken cancellationToken)
@@ -120,6 +126,7 @@ internal partial class AuthController(
 
     [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
     [HttpPost("reauthenticate")]
+    [RequestSizeLimit(4096)]
     public async Task<IActionResult> Reauthenticate(
         [FromBody] External.ReauthenticateRequest request,
         CancellationToken cancellationToken)
@@ -140,6 +147,7 @@ internal partial class AuthController(
 
     [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
     [HttpPost("logout")]
+    [RequestSizeLimit(4096)]
     public async Task<IActionResult> Logout(CancellationToken cancellationToken)
     {
         if (!User.TryGetSessionId(out var sessionId)) return Unauthorized();
@@ -148,6 +156,14 @@ internal partial class AuthController(
             requiredUserId: null,
             DateTimeOffset.UtcNow,
             cancellationToken);
+        Response.Cookies.Delete(PlaybackTicketService.SecureCookieName, new CookieOptions
+        {
+            HttpOnly = true, Secure = true, SameSite = SameSiteMode.Strict, Path = "/"
+        });
+        Response.Cookies.Delete(PlaybackTicketService.DevelopmentCookieName, new CookieOptions
+        {
+            HttpOnly = true, SameSite = SameSiteMode.Strict, Path = "/api/file/play"
+        });
         return NoContent();
     }
 
@@ -172,7 +188,7 @@ internal partial class AuthController(
     public async Task<IActionResult> CanRegister(CancellationToken cancellationToken) =>
         Ok(new
         {
-            Allow = !HasLegacyPassword()
+            Allow = !await HasLegacyPasswordAsync(cancellationToken)
                     && !await identityRepository.AnyUsersAsync(cancellationToken)
         });
 
@@ -250,7 +266,7 @@ internal partial class AuthController(
     {
         if (user.PasswordHash is not null)
             return VerifyHash(password, user.PasswordHash);
-        if (user.Id != IdentityDefaults.UserId || !VerifyLegacyPassword(password))
+        if (user.Id != IdentityDefaults.UserId || !await VerifyLegacyPasswordAsync(password, cancellationToken))
             return false;
 
         return await identityRepository.SetPasswordHashAsync(
@@ -260,14 +276,21 @@ internal partial class AuthController(
             cancellationToken);
     }
 
-    private bool VerifyLegacyPassword(string password)
+    private async Task<bool> VerifyLegacyPasswordAsync(string password, CancellationToken cancellationToken)
     {
-        var value = configuration["Password:Value"];
+        var value = await GetLegacyPasswordHashAsync(cancellationToken);
         return !string.IsNullOrWhiteSpace(value) && VerifyHash(password, value);
     }
 
-    private bool HasLegacyPassword() =>
-        !string.IsNullOrWhiteSpace(configuration["Password:Value"]);
+    private async Task<bool> HasLegacyPasswordAsync(CancellationToken cancellationToken) =>
+        !string.IsNullOrWhiteSpace(await GetLegacyPasswordHashAsync(cancellationToken));
+
+    private async Task<string?> GetLegacyPasswordHashAsync(CancellationToken cancellationToken)
+    {
+        var hash = authenticationStateRepository is null ? null :
+            await authenticationStateRepository.GetPasswordHashAsync(cancellationToken);
+        return string.IsNullOrWhiteSpace(hash) ? configuration["Password:Value"] : hash;
+    }
 
     private static bool VerifyHash(string password, string hash)
     {

@@ -5,6 +5,7 @@
   "automationAttention": "ポリシー通知 {{count}} 件",
   "episodeSummary": "{{episodeCount}} 話・{{releaseCount}} バージョン",
   "back": "戻る",
+  "loadMore": "さらに読み込む",
   "episodeList": {
     "controlsLabel": "エピソードの絞り込みと並べ替え",
     "episodeFilter": "話数",

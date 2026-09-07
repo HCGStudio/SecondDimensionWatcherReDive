@@ -1,3 +1,4 @@
+import { apiErrorFromResponse } from "../errors/apiError";
 import { IAuthResult } from "./IAuthResult";
 import { refreshJwtToken } from "./sessionApi";
 
@@ -410,27 +411,31 @@ async function parseJsonSafe<T>(res: Response): Promise<T> {
   return text ? (JSON.parse(text) as T) : (undefined as T);
 }
 
-export default async function fetcher<JSON = any>(
+async function requestWithIdentity<JSON>(
   input: RequestInfo,
-  init?: RequestInit,
+  init: RequestInit | undefined,
+  consume: (response: Response) => Promise<JSON>,
 ): Promise<JSON> {
   const currentAuth = getAuthResult();
   if (currentAuth) {
-    const method = (init?.method ?? "GET").toUpperCase();
+    const method = (
+      init?.method ?? (input instanceof Request ? input.method : "GET")
+    ).toUpperCase();
     const bound = beginAuthBoundRequest(
       mutationMethods.has(method),
       init?.signal,
     );
     authResult = currentAuth;
-    const send = (auth: IAuthResult) =>
-      fetch(input, {
-        ...init,
-        signal: bound.signal,
-        headers: {
-          ...init?.headers,
-          Authorization: `Bearer ${auth.token}`,
-        },
-      });
+    const send = (auth: IAuthResult) => {
+      const headers = new Headers(
+        input instanceof Request ? input.headers : undefined,
+      );
+      new Headers(init?.headers).forEach((value, name) =>
+        headers.set(name, value),
+      );
+      headers.set("Authorization", `Bearer ${auth.token}`);
+      return fetch(input, { ...init, signal: bound.signal, headers });
+    };
 
     try {
       let authForRequest = bound.auth;
@@ -472,8 +477,8 @@ export default async function fetcher<JSON = any>(
         }
       }
 
-      if (!res.ok) throw new Error(`${res.status}`);
-      const result = await parseJsonSafe<JSON>(res);
+      if (!res.ok) throw await apiErrorFromResponse(res);
+      const result = await consume(res);
       if (!bound.isCurrent()) throw new AuthIdentityChangedError();
       return result;
     } catch (error) {
@@ -492,7 +497,20 @@ export default async function fetcher<JSON = any>(
   // No auth available
   const res = await fetch(input, init);
   if (!res.ok) {
-    throw new Error(`${res.status}`);
+    throw await apiErrorFromResponse(res);
   }
-  return parseJsonSafe<JSON>(res);
+  return consume(res);
+}
+
+export const authenticatedFetch = (
+  input: RequestInfo,
+  init?: RequestInit,
+): Promise<Response> =>
+  requestWithIdentity(input, init, async (response) => response);
+
+export default function fetcher<JSON = any>(
+  input: RequestInfo,
+  init?: RequestInit,
+): Promise<JSON> {
+  return requestWithIdentity(input, init, parseJsonSafe<JSON>);
 }

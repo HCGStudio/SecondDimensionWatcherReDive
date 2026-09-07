@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using System.Xml.Serialization;
 using SecondDimensionWatcherReDive.Framework.Feed;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
@@ -51,12 +53,13 @@ public class MikananiFeedService(
         Guid? feedId,
         CancellationToken cancellationToken)
     {
+        var sourceId = CreateFeedIncidentSourceId(url);
         try
         {
             var releases = await feedReader.ReadAsync(url, feedId, cancellationToken);
 
             if (incidentReporter is not null)
-                await incidentReporter.ResolveAsync(IncidentType.FeedFailure, url, cancellationToken);
+                await incidentReporter.ResolveAsync(IncidentType.FeedFailure, sourceId, cancellationToken);
 
             return releases;
         }
@@ -72,14 +75,25 @@ public class MikananiFeedService(
                         IncidentType.FeedFailure,
                         IncidentSeverity.Error,
                         "Feed cannot be synchronized",
-                        ex.Message,
-                        url),
+                        $"Feed synchronization failed for {GetSafeHost(url)} ({ex.GetType().Name}).",
+                        sourceId),
                     cancellationToken);
             }
 
             return [];
         }
     }
+
+    private static string CreateFeedIncidentSourceId(string url)
+    {
+        var digest = SHA256.HashData(Encoding.UTF8.GetBytes(url));
+        return $"feed-url:{Convert.ToHexString(digest).ToLowerInvariant()}";
+    }
+
+    private static string GetSafeHost(string url) =>
+        Uri.TryCreate(url, UriKind.Absolute, out var uri) && !string.IsNullOrWhiteSpace(uri.IdnHost)
+            ? uri.IdnHost
+            : "an unknown host";
 #nullable disable
     [XmlRoot(ElementName = "guid")]
     public class SourceGuid

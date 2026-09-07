@@ -3,6 +3,7 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.IdentityModel.Tokens;
+using SecondDimensionWatcherReDive.Configuration;
 using SecondDimensionWatcherReDive.Framework.Authorization;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 
@@ -38,7 +39,7 @@ internal sealed class SessionTokenIssuer(
             now,
             now,
             now,
-            now + RefreshTokenLifetime,
+            now.AddDays((configuration.GetSection(TokenSecurityOptions.SectionName).Get<TokenSecurityOptions>() ?? new TokenSecurityOptions()).RefreshTokenDays),
             null);
         await identityRepository.AddSessionAsync(session, cancellationToken);
         return new IssuedSessionTokens(
@@ -65,7 +66,7 @@ internal sealed class SessionTokenIssuer(
                 profile.Id,
                 authenticatedAt,
                 now,
-                now + RefreshTokenLifetime,
+                now.AddDays((configuration.GetSection(TokenSecurityOptions.SectionName).Get<TokenSecurityOptions>() ?? new TokenSecurityOptions()).RefreshTokenDays),
                 cancellationToken))
             return null;
 
@@ -75,7 +76,7 @@ internal sealed class SessionTokenIssuer(
             RefreshTokenHash = HashRefreshToken(refreshToken),
             AuthenticatedAt = authenticatedAt ?? authenticatedSession.Session.AuthenticatedAt,
             LastSeenAt = now,
-            ExpiresAt = now + RefreshTokenLifetime
+            ExpiresAt = now.AddDays((configuration.GetSection(TokenSecurityOptions.SectionName).Get<TokenSecurityOptions>() ?? new TokenSecurityOptions()).RefreshTokenDays)
         };
         return new IssuedSessionTokens(
             GenerateAccessToken(authenticatedSession.User, profile, session),
@@ -92,7 +93,8 @@ internal sealed class SessionTokenIssuer(
         UserProfile profile,
         UserSession session)
     {
-        var key = Encoding.ASCII.GetBytes(configuration["JwtSecret"]!);
+        var key = Encoding.UTF8.GetBytes(configuration["JwtSecret"]!);
+        var options = configuration.GetSection(TokenSecurityOptions.SectionName).Get<TokenSecurityOptions>() ?? new TokenSecurityOptions();
         var descriptor = new SecurityTokenDescriptor
         {
             Subject = new ClaimsIdentity(
@@ -109,7 +111,11 @@ internal sealed class SessionTokenIssuer(
                 new Claim("Id", profile.Id.ToString()),
                 new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
             ]),
-            Expires = DateTime.UtcNow.Add(AccessTokenLifetime),
+            Issuer = options.Issuer,
+            Audience = options.Audience,
+            IssuedAt = DateTime.UtcNow,
+            NotBefore = DateTime.UtcNow,
+            Expires = DateTime.UtcNow.AddMinutes(options.AccessTokenMinutes),
             SigningCredentials = new SigningCredentials(
                 new SymmetricSecurityKey(key),
                 SecurityAlgorithms.HmacSha256Signature)

@@ -10,6 +10,7 @@ import { AiSettingsSection } from "../components/settings/AiSettingsSection";
 import { DownloadSettingsSection } from "../components/settings/DownloadSettingsSection";
 import { HealthSettingsSection } from "../components/settings/HealthSettingsSection";
 import { MediaSettingsSection } from "../components/settings/MediaSettingsSection";
+import { NotificationSettingsSection } from "../components/settings/NotificationSettingsSection";
 import {
   SettingsNavigation,
   SettingsSectionId,
@@ -18,6 +19,7 @@ import {
 import { Button } from "../components/ui/Button";
 import { EmptyPrompt } from "../components/ui/EmptyPrompt";
 import { Spinner } from "../components/ui/Spinner";
+import { ApiError, apiErrorStatus } from "../errors/apiError";
 import { useSystemSettings } from "../settings/hooks";
 import { updateSystemSettings } from "../settings/systemApi";
 import { SystemSettings, SystemSettingsPatch } from "../settings/systemTypes";
@@ -45,14 +47,17 @@ export const SettingsPage: React.FC = () => {
       const next = new URLSearchParams(searchParams);
       next.set("section", section);
       setSearchParams(next, { replace: true });
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      const reduceMotion = window.matchMedia(
+        "(prefers-reduced-motion: reduce)",
+      ).matches;
+      window.scrollTo({ top: 0, behavior: reduceMotion ? "auto" : "smooth" });
     },
     [searchParams, setSearchParams],
   );
 
   const save = React.useCallback(
     async (patch: SettingsPatchWithoutRevision): Promise<SystemSettings> => {
-      if (!data) throw new Error("Settings are not loaded");
+      if (!data) throw new ApiError("settings_not_loaded", 0);
       try {
         const updated = await retryAfterReauthentication(
           () =>
@@ -65,7 +70,7 @@ export const SettingsPage: React.FC = () => {
         await mutate(updated, { revalidate: false });
         return updated;
       } catch (saveError) {
-        if (saveError instanceof Error && saveError.message === "409") {
+        if (apiErrorStatus(saveError) === 409) {
           // Preserve the conflict signal even if the follow-up reload also
           // fails, so the section can explain why the save was rejected.
           await mutate().catch(() => undefined);
@@ -108,6 +113,7 @@ export const SettingsPage: React.FC = () => {
         <div className="min-w-0">
           {error ? (
             <EmptyPrompt
+              role="alert"
               icon={<AlertTriangle size={48} />}
               title={<h2>{t("errors:loadFailed")}</h2>}
               body={<p>{t("settings:system.loadFailed")}</p>}
@@ -165,6 +171,13 @@ const ActiveSection: React.FC<ActiveSectionProps> = ({
       );
     case "access":
       return <AccessSettingsSection value={settings.nfs} onSave={onSave} />;
+    case "notifications":
+      return (
+        <NotificationSettingsSection
+          value={settings.notifications}
+          onSave={onSave}
+        />
+      );
     case "ai":
     default:
       return <AiSettingsSection value={settings.ai} onSave={onSave} />;

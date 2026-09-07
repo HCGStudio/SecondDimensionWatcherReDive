@@ -20,6 +20,11 @@ internal sealed record AuthRequest([Required] string Token, [Required] string Re
 internal sealed record ReauthenticateRequest(
     [Required] string Password,
     [Required] string RefreshToken);
+internal sealed record RevokeTokenRequest(
+    [Required]
+    [StringLength(64, MinimumLength = 32)]
+    [RegularExpression("^[A-Za-z0-9_-]+$")]
+    string RefreshToken);
 
 internal sealed record PasswordConfig(PasswordHash Password);
 

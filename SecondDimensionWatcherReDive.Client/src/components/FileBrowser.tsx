@@ -17,6 +17,7 @@ import { IFileStoreListResult } from "../file/IFileStoreListResult";
 import { useFileList } from "../file/hooks";
 import { setPlaybackWatched } from "../playback/api";
 import { usePlaybackStates } from "../playback/hooks";
+import { preloadPlayerPage } from "../routes/pageLoaders";
 import { useToast } from "./ToastProvider";
 import { Button } from "./ui/Button";
 import { Spinner } from "./ui/Spinner";
@@ -132,6 +133,7 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({ animationId }) => {
           )}
         </div>
       ),
+      mobile: "primary",
     },
     {
       name: t("browser.actions"),
@@ -174,6 +176,8 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({ animationId }) => {
                       variant="icon"
                       size="sm"
                       aria-label={t("browser.play")}
+                      onMouseEnter={preloadPlayerPage}
+                      onFocus={preloadPlayerPage}
                       onClick={() => onPlay(path)}
                     >
                       <Play size={16} />
@@ -195,7 +199,12 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({ animationId }) => {
           {t("browser.goUp")}
         </Button>
       ) : null}
-      <Table items={files} columns={columns} />
+      <Table
+        items={files}
+        columns={columns}
+        label={t("browser.filename")}
+        rowKey={(item) => `${item.isDirectory}:${item.fileName}`}
+      />
     </>
   );
 };

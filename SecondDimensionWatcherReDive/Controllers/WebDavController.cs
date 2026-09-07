@@ -69,34 +69,17 @@ internal partial class WebDavController(
 
         if (depth == DepthValue.One && resource.IsDirectory)
         {
-            var children = await fileExplorer.EnumerateDirectoryAsync(
-                new DirectoryToken(
-                    EnsureTrailingSlash(resource.InternalPath),
-                    Path.GetFileName(resource.InternalPath.TrimEnd('/'))),
+            var children = await fileExplorer.GetDirectoryEntriesAsync(
+                new DirectoryToken(EnsureTrailingSlash(resource.InternalPath), Path.GetFileName(resource.InternalPath.TrimEnd('/'))),
                 cancellationToken);
 
             foreach (var child in children)
             {
-                var childInternalPath = child switch
-                {
-                    FileToken file => file.Path,
-                    DirectoryToken directory => directory.Path,
-                    _ => null
-                };
-                if (childInternalPath is null) continue;
                 if (!DevicePathScope.TryMapInternalToPublic(
-                        childInternalPath,
-                        DevicePathScope.GetVirtualRoot(User),
-                        out var childPublicPath))
+                        child.Path, DevicePathScope.GetVirtualRoot(User), out var childPublicPath))
                     continue;
-                var childResource = child switch
-                {
-                    FileToken f => new ResolvedResource(childPublicPath, f.Path, IsDirectory: false,
-                        await fileMappingRepository.FindByVirtualPathAsync(f.Path, cancellationToken)),
-                    DirectoryToken d => new ResolvedResource(childPublicPath, d.Path, IsDirectory: true, null),
-                    _ => null
-                };
-                if (childResource is null) continue;
+                var childResource = new ResolvedResource(
+                    childPublicPath, child.Path, child.IsDirectory, child.Mapping, child.FileInfo);
                 multiStatus.Responses.Add(await BuildResponseAsync(childResource, filter, cancellationToken));
             }
         }
@@ -177,8 +160,12 @@ internal partial class WebDavController(
 
             try
             {
-                var store = fileStoreProvider.GetRequiredClient(mapping.FileStore);
-                var info = await store.FileInfoAsync(mapping.PhysicalPath, cancellationToken);
+                var info = resource.FileInfo;
+                if (info is null)
+                {
+                    var store = fileStoreProvider.GetRequiredClient(mapping.FileStore);
+                    info = await store.FileInfoAsync(mapping.PhysicalPath, cancellationToken);
+                }
                 if (info.Length is { } length)
                     prop.GetContentLength = length.ToString(CultureInfo.InvariantCulture);
                 if (info.LastModifiedUtc is { } modified)
@@ -236,15 +223,10 @@ internal partial class WebDavController(
         if (trimmed.Length == 0)
             return new ResolvedResource(publicPath, "/", IsDirectory: true, null);
 
-        var mapping = await fileMappingRepository.FindByVirtualPathAsync(trimmed, cancellationToken);
-        if (mapping is not null)
-            return new ResolvedResource(publicPath, trimmed, IsDirectory: false, mapping);
-
-        var prefix = trimmed + "/";
-        var children = await fileMappingRepository.GetByVirtualPathPrefixAsync(prefix, cancellationToken);
-        return children.Count > 0
-            ? new ResolvedResource(publicPath, trimmed, IsDirectory: true, null)
-            : null;
+        var entry = await fileMappingRepository.FindFileSystemEntryAsync(trimmed, cancellationToken);
+        return entry is null
+            ? null
+            : new ResolvedResource(publicPath, trimmed, entry.IsDirectory, entry.Mapping);
     }
 
     private async Task<PropFindRequest?> TryReadPropFindRequestAsync(CancellationToken cancellationToken)
@@ -443,7 +425,8 @@ internal partial class WebDavController(
         string PublicPath,
         string InternalPath,
         bool IsDirectory,
-        FileMapping? Mapping);
+        FileMapping? Mapping,
+        FileStoreInfo? FileInfo = null);
 
     private static readonly object QuotaLock = new();
     private static (string? Root, long Total, long Available, DateTime FetchedAt) _quotaCache;

@@ -55,4 +55,13 @@ internal sealed class FakeWebDavTokenRepository : IWebDavTokenRepository
         _seeded = _seeded with { RevokedAt = revokedAt };
         return Task.FromResult(true);
     }
+    public Task<bool> UpdateHashAsync(
+        Guid id,
+        string expectedHash,
+        string newHash,
+        CancellationToken cancellationToken)
+        => Task.FromResult(id == _seeded.Id && expectedHash == _seeded.TokenHash);
+
+    public Task<bool> RemoveByIdAsync(Guid id, CancellationToken cancellationToken)
+        => throw new NotSupportedException();
 }

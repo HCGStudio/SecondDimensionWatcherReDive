@@ -1,5 +1,7 @@
 import { Input, MATROSKA, UrlSource } from "mediabunny";
 
+export { isAbortError, isMkvPath } from "./runtime";
+
 export interface MkvPlaybackProbe {
   videoCodec: string;
   audioCodec: string | null;
@@ -9,12 +11,6 @@ export interface MkvPlaybackProbe {
 
 const abortError = (): DOMException =>
   new DOMException("The operation was aborted", "AbortError");
-
-export const isAbortError = (error: unknown): boolean =>
-  error instanceof DOMException && error.name === "AbortError";
-
-export const isMkvPath = (path: string): boolean =>
-  /\.mkv(?:$|[?#])/i.test(path);
 
 /**
  * Only AVC is copied into the fallback MP4. Other WebCodecs-decodable codecs

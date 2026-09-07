@@ -2,6 +2,10 @@
   "pageError": "页面出错了",
   "unknown": "未知错误",
   "backToHome": "返回主页",
+  "retry": "重试",
+  "routeLoading": "正在加载页面…",
+  "routeLoadFailed": "无法加载此页面",
+  "routeLoadFailedDetail": "请检查网络连接后重试，应用将重新下载此页面。",
   "loadFailed": "加载失败",
   "fetchFailed": "无法获取数据，请稍后重试"
 }

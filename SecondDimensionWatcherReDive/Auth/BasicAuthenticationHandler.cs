@@ -3,6 +3,7 @@ using System.Security.Claims;
 using System.Text;
 using System.Text.Encodings.Web;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
 using SecondDimensionWatcherReDive.Framework.Authorization;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
@@ -13,12 +14,21 @@ internal sealed class BasicAuthenticationHandler : AuthenticationHandler<Authent
 {
     public const string SchemeName = "Basic";
     private const string Realm = "SecondDimensionWatcher WebDAV";
+    private readonly IDeviceTokenHasher _tokenHasher;
+    private readonly IMemoryCache _verificationCache;
+    private readonly BasicAuthenticationAttemptLimiter _attemptLimiter;
 
     public BasicAuthenticationHandler(
         IOptionsMonitor<AuthenticationSchemeOptions> options,
         ILoggerFactory logger,
-        UrlEncoder encoder) : base(options, logger, encoder)
+        UrlEncoder encoder,
+        IDeviceTokenHasher tokenHasher,
+        IMemoryCache verificationCache,
+        BasicAuthenticationAttemptLimiter attemptLimiter) : base(options, logger, encoder)
     {
+        _tokenHasher = tokenHasher;
+        _verificationCache = verificationCache;
+        _attemptLimiter = attemptLimiter;
     }
 
     protected override async Task<AuthenticateResult> HandleAuthenticateAsync()
@@ -38,12 +48,12 @@ internal sealed class BasicAuthenticationHandler : AuthenticationHandler<Authent
         }
         catch (FormatException)
         {
-            return AuthenticateResult.Fail("Malformed Basic credentials.");
+            return await RejectAuthenticationAttemptAsync("Malformed Basic credentials.");
         }
 
         var separator = decoded.IndexOf(':');
         if (separator < 0)
-            return AuthenticateResult.Fail("Malformed Basic credentials.");
+            return await RejectAuthenticationAttemptAsync("Malformed Basic credentials.");
 
         var username = decoded[..separator];
         var password = decoded[(separator + 1)..];
@@ -56,25 +66,53 @@ internal sealed class BasicAuthenticationHandler : AuthenticationHandler<Authent
             || record.ExpiresAt is { } expiresAt && expiresAt <= now
             || !string.Equals(record.Scope, "read", StringComparison.Ordinal)
             || !DevicePathScope.TryNormalizeAbsolutePath(record.VirtualRoot, out var virtualRoot))
-            return AuthenticateResult.Fail("Invalid credentials.");
+            return await RejectAuthenticationAttemptAsync("Invalid credentials.");
 
         var identityRepository = Context.RequestServices.GetRequiredService<IIdentityRepository>();
         var user = await identityRepository.FindUserByIdAsync(record.UserId, Context.RequestAborted);
         if (user is null || user.IsDisabled)
-            return AuthenticateResult.Fail("Invalid credentials.");
+            return await RejectAuthenticationAttemptAsync("Invalid credentials.");
 
         bool verified;
-        try
+        var attemptAlreadyCounted = false;
+        if (_tokenHasher.IsModernHash(record.TokenHash))
         {
-            verified = BCrypt.Net.BCrypt.Verify(password, record.TokenHash);
+            verified = _tokenHasher.Verify(password, record.TokenHash);
         }
-        catch (BCrypt.Net.SaltParseException)
+        else
         {
-            return AuthenticateResult.Fail("Stored token hash is invalid.");
+            var cacheKey = _tokenHasher.VerificationCacheKey(record.Id, password);
+            if (!_verificationCache.TryGetValue(cacheKey, out verified))
+            {
+                if (!await TryConsumeAuthenticationAttemptAsync())
+                    return AuthenticateResult.Fail("Too many Basic authentication attempts.");
+                attemptAlreadyCounted = true;
+
+                try
+                {
+                    verified = BCrypt.Net.BCrypt.Verify(password, record.TokenHash);
+                }
+                catch (BCrypt.Net.SaltParseException)
+                {
+                    return AuthenticateResult.Fail("Stored token hash is invalid.");
+                }
+
+                if (verified)
+                {
+                    await repository.UpdateHashAsync(
+                        record.Id,
+                        record.TokenHash,
+                        _tokenHasher.Hash(password),
+                        Context.RequestAborted);
+                    _verificationCache.Set(cacheKey, true, TimeSpan.FromMinutes(2));
+                }
+            }
         }
 
         if (!verified)
-            return AuthenticateResult.Fail("Invalid credentials.");
+            return attemptAlreadyCounted
+                ? AuthenticateResult.Fail("Invalid credentials.")
+                : await RejectAuthenticationAttemptAsync("Invalid credentials.");
 
         var identity = new ClaimsIdentity(
         [
@@ -91,8 +129,47 @@ internal sealed class BasicAuthenticationHandler : AuthenticationHandler<Authent
 
     protected override Task HandleChallengeAsync(AuthenticationProperties properties)
     {
+        if (Context.Items.ContainsKey(BasicAuthenticationAttemptLimiter.RateLimitedItemKey))
+        {
+            Response.StatusCode = StatusCodes.Status429TooManyRequests;
+            return Task.CompletedTask;
+        }
+
         Response.StatusCode = StatusCodes.Status401Unauthorized;
         Response.Headers.WWWAuthenticate = $"Basic realm=\"{Realm}\", charset=\"UTF-8\"";
         return Task.CompletedTask;
+    }
+
+    private async Task<AuthenticateResult> RejectAuthenticationAttemptAsync(string message)
+        => await TryConsumeAuthenticationAttemptAsync()
+            ? AuthenticateResult.Fail(message)
+            : AuthenticateResult.Fail("Too many Basic authentication attempts.");
+
+    private async Task<bool> TryConsumeAuthenticationAttemptAsync()
+    {
+        var result = await _attemptLimiter.AttemptAcquireAsync(
+            Context.Connection.RemoteIpAddress,
+            Context.RequestAborted);
+        if (result.IsAcquired)
+            return true;
+
+        Context.Items[BasicAuthenticationAttemptLimiter.RateLimitedItemKey] = true;
+        // VFS accepts either Basic or Bearer. A later Bearer challenge may set 401
+        // after this handler runs, so enforce the terminal status at response start.
+        Response.OnStarting(static state =>
+        {
+            var context = (HttpContext)state;
+            if (context.Items.ContainsKey(BasicAuthenticationAttemptLimiter.RateLimitedItemKey))
+                context.Response.StatusCode = StatusCodes.Status429TooManyRequests;
+            return Task.CompletedTask;
+        }, Context);
+        if (result.RetryAfter is { } retryAfter)
+        {
+            Response.Headers.RetryAfter = Math.Max(
+                1,
+                (int)Math.Ceiling(retryAfter.TotalSeconds)).ToString(
+                System.Globalization.CultureInfo.InvariantCulture);
+        }
+        return false;
     }
 }

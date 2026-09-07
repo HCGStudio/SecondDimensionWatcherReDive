@@ -35,7 +35,6 @@ import { retryAfterReauthentication } from "../auth/utils";
 import { setPlaybackWatched } from "../playback/api";
 import { usePlaybackStates } from "../playback/hooks";
 import { formatBytes, formatFileSize } from "../utils/formatBytes";
-import { FileBrowser } from "./FileBrowser";
 import { useToast } from "./ToastProvider";
 import { Button } from "./ui/Button";
 import {
@@ -46,13 +45,9 @@ import {
   DropdownMenuTrigger,
 } from "./ui/DropdownMenu";
 import { Progress } from "./ui/Progress";
-import {
-  Sheet,
-  SheetBody,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from "./ui/Sheet";
+import { Spinner } from "./ui/Spinner";
+
+const AnimationFileSheet = React.lazy(() => import("./AnimationFileSheet"));
 
 export interface IAnimationInfoProps {
   value: IAnimationInfo;
@@ -478,16 +473,15 @@ const ActionButtons: React.FC<{ value: IAnimationInfo }> = ({ value }) => {
         ) : null}
       </div>
 
-      <Sheet open={isSheetOpen} onOpenChange={setIsSheetOpen}>
-        <SheetContent>
-          <SheetHeader>
-            <SheetTitle>{value.title}</SheetTitle>
-          </SheetHeader>
-          <SheetBody>
-            <FileBrowser animationId={value.id} />
-          </SheetBody>
-        </SheetContent>
-      </Sheet>
+      {isSheetOpen ? (
+        <React.Suspense fallback={<Spinner />}>
+          <AnimationFileSheet
+            title={value.title}
+            animationId={value.id}
+            onOpenChange={setIsSheetOpen}
+          />
+        </React.Suspense>
+      ) : null}
     </>
   );
 };

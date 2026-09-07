@@ -83,7 +83,12 @@ export const StreamingMessage: React.FC<StreamingMessageProps> = ({
     lastTextIdx >= 0 && contentBlocks[lastTextIdx].type === "text"
       ? contentBlocks[lastTextIdx].text
       : "";
-  const displayedText = useTypewriter(lastTextContent, isStreaming);
+  const displayedText = useTypewriter(
+    lastTextContent,
+    isStreaming,
+    1,
+    lastTextIdx,
+  );
 
   return (
     <div className="flex w-full justify-start">

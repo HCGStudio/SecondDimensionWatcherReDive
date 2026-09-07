@@ -20,8 +20,19 @@ type StreamingContentBlock =
 interface StreamingState {
   isStreaming: boolean;
   contentBlocks: StreamingContentBlock[];
-  error: string | null;
+  error: ChatStreamErrorCode | null;
 }
+
+type ChatStreamErrorCode =
+  | "notAuthenticated"
+  | "invalidAuthentication"
+  | "unauthorized"
+  | "rateLimited"
+  | "serviceUnavailable"
+  | "requestFailed"
+  | "emptyResponse"
+  | "streamFailed"
+  | "connectionFailed";
 
 type StreamingAction =
   | { type: "start" }
@@ -30,7 +41,7 @@ type StreamingAction =
   | { type: "tool_call_delta"; id: string; argumentsDelta: string }
   | { type: "tool_result"; toolCallId: string; name: string; result: string }
   | { type: "finished" }
-  | { type: "error"; message: string }
+  | { type: "error"; code: ChatStreamErrorCode }
   | { type: "reset" };
 
 function reducer(
@@ -100,7 +111,7 @@ function reducer(
       return { ...state, isStreaming: false };
 
     case "error":
-      return { ...state, isStreaming: false, error: action.message };
+      return { ...state, isStreaming: false, error: action.code };
 
     case "reset":
       return { isStreaming: false, contentBlocks: [], error: null };
@@ -148,11 +159,17 @@ export function useStreamingChat() {
         if (!request.isCurrent()) throw new AuthIdentityChangedError();
 
         if (!response.ok) {
-          const text = await response.text();
           if (requestGenerationRef.current === generation) {
             dispatch({
               type: "error",
-              message: text || `HTTP ${response.status}`,
+              code:
+                response.status === 401
+                  ? "unauthorized"
+                  : response.status === 429
+                    ? "rateLimited"
+                    : response.status >= 500
+                      ? "serviceUnavailable"
+                      : "requestFailed",
             });
           }
           return;
@@ -160,7 +177,7 @@ export function useStreamingChat() {
 
         const reader = response.body?.getReader();
         if (!reader) {
-          dispatch({ type: "error", message: "No response body" });
+          dispatch({ type: "error", code: "emptyResponse" });
           return;
         }
 
@@ -226,7 +243,7 @@ export function useStreamingChat() {
                     break;
                   case "error":
                     if (requestGenerationRef.current === generation) {
-                      dispatch({ type: "error", message: data.message });
+                      dispatch({ type: "error", code: "streamFailed" });
                     }
                     break;
                 }
@@ -251,7 +268,7 @@ export function useStreamingChat() {
         } else {
           dispatch({
             type: "error",
-            message: err instanceof Error ? err.message : "Unknown error",
+            code: "connectionFailed",
           });
         }
       } finally {
@@ -285,4 +302,4 @@ export function useStreamingChat() {
   return { ...state, sendMessage, reset };
 }
 
-export type { StreamingToolCall, StreamingContentBlock };
+export type { ChatStreamErrorCode, StreamingToolCall, StreamingContentBlock };

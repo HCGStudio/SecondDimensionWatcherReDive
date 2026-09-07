@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Encodings.Web;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -18,6 +19,7 @@ public class BasicAuthenticationHandlerTests
     private const string ValidUser = "alice";
     private const string ValidPassword = "correct-horse";
     private static readonly Guid UserId = Guid.Parse("10000000-0000-0000-0000-000000000001");
+    private const string Pepper = "test-pepper-with-at-least-32-characters";
     private string _hash = null!;
 
     [TestInitialize]
@@ -51,9 +53,13 @@ public class BasicAuthenticationHandlerTests
         var handler = new BasicAuthenticationHandler(
             optionsMonitor.Object,
             NullLoggerFactory.Instance,
-            UrlEncoder.Default);
+            UrlEncoder.Default,
+            new DeviceTokenHasher(Pepper),
+            new MemoryCache(new MemoryCacheOptions()),
+            new BasicAuthenticationAttemptLimiter(100, TimeSpan.FromMinutes(1)));
 
         var httpContext = new DefaultHttpContext { RequestServices = provider };
+        httpContext.Connection.RemoteIpAddress = System.Net.IPAddress.Loopback;
         if (authorization is not null) httpContext.Request.Headers["Authorization"] = authorization;
 
         var scheme = new AuthenticationScheme(BasicAuthenticationHandler.SchemeName, null, typeof(BasicAuthenticationHandler));

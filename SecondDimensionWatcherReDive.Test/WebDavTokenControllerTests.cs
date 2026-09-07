@@ -6,6 +6,7 @@ using SecondDimensionWatcherReDive.Controllers;
 using SecondDimensionWatcherReDive.Controllers.External;
 using SecondDimensionWatcherReDive.Framework.Authorization;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
+using SecondDimensionWatcherReDive.Auth;
 
 namespace SecondDimensionWatcherReDive.Test;
 
@@ -17,11 +18,13 @@ public class WebDavTokenControllerTests
     private Mock<IFileMappingRepository> _mappingRepo = null!;
     private WebDavTokenController _controller = null!;
     private readonly Guid _userId = Guid.Parse("10000000-0000-0000-0000-000000000001");
+    private IDeviceTokenHasher _tokenHasher = null!;
 
     [TestInitialize]
     public void Setup()
     {
         _repo = new Mock<IWebDavTokenRepository>();
+        _tokenHasher = new DeviceTokenHasher("test-pepper-with-at-least-32-characters");
         _repo.Setup(r => r.ExistsByUsernameAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(false);
         _identityRepo = new Mock<IIdentityRepository>();
@@ -31,7 +34,7 @@ public class WebDavTokenControllerTests
                 DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
         _mappingRepo = new Mock<IFileMappingRepository>();
         _controller = new WebDavTokenController(
-            _repo.Object, _identityRepo.Object, _mappingRepo.Object)
+            _repo.Object, _identityRepo.Object, _mappingRepo.Object, _tokenHasher)
         {
             ControllerContext = new ControllerContext
             {
@@ -87,7 +90,7 @@ public class WebDavTokenControllerTests
         Assert.IsNotNull(captured);
         Assert.AreEqual(payload.Username, captured!.Username);
         Assert.AreNotEqual(payload.Token, captured.TokenHash, "TokenHash must not be plaintext.");
-        Assert.IsTrue(BCrypt.Net.BCrypt.Verify(payload.Token, captured.TokenHash));
+        Assert.IsTrue(_tokenHasher.Verify(payload.Token, captured.TokenHash));
         Assert.IsNull(captured.Description);
         Assert.AreEqual(_userId, captured.UserId);
         Assert.AreEqual("read", captured.Scope);
