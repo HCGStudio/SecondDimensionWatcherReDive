@@ -169,7 +169,6 @@ All controllers are `internal` (discovered via `InternalControllerFeatureProvide
 - `MultiSourceSubscriptionsController` (`/api/multi-source-subscriptions`) — ordered source links, shared rules, persisted episode decisions, manual evaluation and `/episodes/{episode}/confirm`; mutations require `ContentWrite`.
 - `WatchlistController` (`/api/watchlist`) — profile-owned lists and weekly release/unwatched summaries; mutations require `PlaybackWrite`.
 - `MediaTimelineController` (`/api/playback/timeline`) — shared media-version-bound OP/ED ranges, named chapters and opt-in season defaults; mutations require `ContentWrite`.
-- `NativeDownloadController` — JWT-authenticated `/api/vfs/download-link` issues a short-lived ticket; `/api/file/play/download/{resourceId}` validates the ticket cookie, live session and file fingerprint on GET/HEAD/Range.
 
 ### Feed Management
 
@@ -216,9 +215,7 @@ PostgreSQL stores household users, BCrypt password hashes, profiles and revocabl
 
 `/webdav` explicitly uses the Basic scheme; `/api/vfs` accepts Basic or Bearer. Per-device credentials are read-only, belong to a household user and can have a virtual-root restriction and expiry; both protocols validate revocation and rewrite the visible namespace. Password verification uses the current peppered device-token scheme, with legacy BCrypt compatibility. JWTs do not authorize WebDAV. See [security boundaries](security-boundaries.md).
 
-Browser playback/native downloads use short-lived opaque resource tickets and an HttpOnly cookie bound to user/session/profile. Every new native download GET/HEAD/Range checks the live session and the same mapping/file fingerprint; existing streams may finish after revocation. Long-lived Bearer credentials are never placed in a download URL.
-
-Browser native downloads use a short-lived opaque resource ticket and an HttpOnly cookie bound to user/session/profile. Every new GET/HEAD/Range checks the live session and mapping/file fingerprint. The lifetime uses `Authentication:PlaybackLinkMinutes`; expiry, logout, revocation or a changed fingerprint requires a fresh link. Existing streams may finish after revocation. Resumable ranges and strong ETags require a seekable stream plus physical length and modification time; providers without version metadata serve full downloads. Long-lived Bearer credentials never appear in the URL.
+Browser playback and native downloads use a short-lived opaque resource ticket and an HttpOnly cookie bound to user/session/profile. Every new native download GET/HEAD/Range checks the live session and mapping/file fingerprint. The lifetime uses `Authentication:PlaybackLinkMinutes`; expiry, logout, revocation or a changed fingerprint requires a fresh link. Existing streams may finish after revocation. Resumable ranges and strong ETags require a seekable stream plus physical length and modification time; providers without version metadata serve full downloads. Long-lived Bearer credentials never appear in the URL.
 
 ### Frontend
 
