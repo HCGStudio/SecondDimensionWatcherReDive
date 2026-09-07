@@ -12,7 +12,8 @@ namespace SecondDimensionWatcherReDive.Utils.FileDownload;
 public class RemoteTorrentDownloadClient(
     IHttpClientFactory httpClientFactory,
     IConfiguration configuration,
-    Channel<RemoteTorrentTrackRequest> remoteTorrentTrackRequest)
+    Channel<RemoteTorrentTrackRequest> remoteTorrentTrackRequest,
+    DownloadCapacityService? capacity = null)
     : TorrentDownloadClient
 {
     public override string Name => FileDownloads.RemoteTorrentDownload;
@@ -24,6 +25,17 @@ public class RemoteTorrentDownloadClient(
         byte[] cachedDownloadData,
         string additionalDownloadInfo,
         CancellationToken cancellationToken)
+    {
+        if (capacity is { Enabled: true })
+        {
+            await capacity.EnqueueAsync(itemId, cancellationToken);
+            return true;
+        }
+        return await SubmitAdmittedAsync(itemId, cachedDownloadData, additionalDownloadInfo, cancellationToken);
+    }
+
+    internal async Task<bool> SubmitAdmittedAsync(
+        Guid itemId, byte[] cachedDownloadData, string additionalDownloadInfo, CancellationToken cancellationToken)
     {
         using var client = httpClientFactory.CreateClient(nameof(RemoteTorrentDownloadClient));
         var submission = await SubmitRemoteAsync(
@@ -50,6 +62,11 @@ public class RemoteTorrentDownloadClient(
         string additionalDownloadInfo,
         CancellationToken cancellationToken)
     {
+        if (capacity is { Enabled: true })
+        {
+            await capacity.EnqueueAsync(itemId, cancellationToken);
+            return DownloadTaskReconciliationOutcome.Confirmed;
+        }
         try
         {
             using var client = httpClientFactory.CreateClient(nameof(RemoteTorrentDownloadClient));
@@ -113,6 +130,7 @@ public class RemoteTorrentDownloadClient(
         var basePath = Path.GetFullPath(configuration["FileStore:Local"] ?? "./download");
         var savePath = Path.Combine(basePath, additionalDownloadInfo);
         content.Add(new StringContent(savePath), "savepath");
+        content.Add(new StringContent("false"), "autoTMM");
         using var response = await client.PostAsync(
             "/api/v2/torrents/add",
             content,
@@ -173,11 +191,19 @@ public class RemoteTorrentDownloadClient(
         string additionalDownloadInfo,
         CancellationToken cancellationToken)
     {
+        if (capacity is { Enabled: true })
+            return await capacity.ControlAsync(itemId, "pause",
+                token => SetRemotePausedAsync(additionalDownloadInfo, true, token), cancellationToken);
+        return await SetRemotePausedAsync(additionalDownloadInfo, true, cancellationToken);
+    }
+
+    private async Task<bool> SetRemotePausedAsync(string hash, bool paused, CancellationToken cancellationToken)
+    {
         using var content =
-            new FormUrlEncodedContent([new("hashes", additionalDownloadInfo)]);
+            new FormUrlEncodedContent([new("hashes", hash)]);
         using var client = httpClientFactory.CreateClient(nameof(RemoteTorrentDownloadClient));
         using var response = await client.PostAsync(
-            "/api/v2/torrents/stop",
+            paused ? "/api/v2/torrents/stop" : "/api/v2/torrents/start",
             content,
             cancellationToken);
         return response.IsSuccessStatusCode;
@@ -190,14 +216,12 @@ public class RemoteTorrentDownloadClient(
         string additionalDownloadInfo,
         CancellationToken cancellationToken)
     {
-        using var content =
-            new FormUrlEncodedContent([new("hashes", additionalDownloadInfo)]);
-        using var client = httpClientFactory.CreateClient(nameof(RemoteTorrentDownloadClient));
-        using var response = await client.PostAsync(
-            "/api/v2/torrents/start",
-            content,
-            cancellationToken);
-        return response.IsSuccessStatusCode;
+        var result = capacity is { Enabled: true }
+            ? await capacity.ControlAsync(itemId, "resume",
+                token => SetRemotePausedAsync(additionalDownloadInfo, false, token), cancellationToken)
+            : await SetRemotePausedAsync(additionalDownloadInfo, false, cancellationToken);
+        if (result) Track(itemId, additionalDownloadInfo);
+        return result;
     }
 
     public override async Task<CancelDownloadResult> CancelDownloadTaskAsync(
@@ -208,9 +232,21 @@ public class RemoteTorrentDownloadClient(
         bool removeFile,
         CancellationToken cancellationToken)
     {
+        var result = capacity is { Enabled: true }
+            ? await capacity.ControlAsync(itemId, "cancel",
+                token => DeleteRemoteAsync(additionalDownloadInfo, removeFile, token), cancellationToken)
+            : await DeleteRemoteAsync(additionalDownloadInfo, removeFile, cancellationToken);
+        if (result)
+            await remoteTorrentTrackRequest.Writer.WriteAsync(
+                new RemoteTorrentTrackRequest(itemId, additionalDownloadInfo, Remove: true), cancellationToken);
+        return new(result, false);
+    }
+
+    private async Task<bool> DeleteRemoteAsync(string hash, bool removeFile, CancellationToken cancellationToken)
+    {
         var deleteFiles = removeFile ? "true" : "false";
         using var content = new FormUrlEncodedContent([
-            new("hashes", additionalDownloadInfo),
+            new("hashes", hash),
             new("deleteFiles", deleteFiles)
         ]);
         using var client = httpClientFactory.CreateClient(nameof(RemoteTorrentDownloadClient));
@@ -219,11 +255,6 @@ public class RemoteTorrentDownloadClient(
             content,
             cancellationToken);
 
-        if (response.IsSuccessStatusCode)
-            await remoteTorrentTrackRequest.Writer.WriteAsync(
-                new RemoteTorrentTrackRequest(itemId, additionalDownloadInfo, Remove: true),
-                cancellationToken);
-
-        return new(response.IsSuccessStatusCode, false);
+        return response.IsSuccessStatusCode;
     }
 }

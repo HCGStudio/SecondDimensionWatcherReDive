@@ -94,5 +94,22 @@
     "watched": "Watched",
     "progress": "{{watched}}/{{total}} watched",
     "summary": "{{watched}} of {{total}} videos watched"
+  },
+  "capacity": {
+    "title": "Capacity queue",
+    "description": "Known-size downloads reserve space in arrival order. Unknown-size releases need metadata first. Downloads resume when space recovers; cancellation keeps existing media.",
+    "loadFailed": "Unable to load the capacity queue.",
+    "actionFailed": "The action failed. Please retry.",
+    "paused": "Paused",
+    "unknownSize": "Unknown size",
+    "size": "Estimated {{size}} GiB",
+    "pause": "Pause",
+    "resume": "Resume",
+    "cancel": "Cancel download",
+    "states": {
+      "Waiting": "Waiting for capacity",
+      "Reserved": "Capacity reserved",
+      "Failed": "Submission failed"
+    }
   }
 }

@@ -731,6 +731,7 @@ builder.Services.AddSingleton<INotificationPublisher, NotificationPublisher>();
 builder.Services.AddHostedService<CompleteDownloadBackgroundService>();
 builder.Services.AddHostedService<DurableJobMetricsBackgroundService>();
 builder.Services.AddHostedService<FetchRemoteTorrentBackgroundService>();
+builder.Services.AddHostedService<DownloadCapacityBackgroundService>();
 builder.Services.AddHostedService<UpdateDownloadStatusBackgroundService>();
 builder.Services.AddHostedService<IncidentReconciliationBackgroundService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<HlsTranscodingService>());
@@ -763,7 +764,20 @@ builder.Services.AddSingleton<MigrationTaskRunner>();
 builder.Services.AddScoped<MigrationAdministrationService>();
 
 //Add download and store
-builder.Services.AddScoped<IFileDownloadClient, RemoteTorrentDownloadClient>();
+builder.Services.AddScoped<RemoteTorrentDownloadClient>();
+builder.Services.AddScoped<IFileDownloadClient>(sp => sp.GetRequiredService<RemoteTorrentDownloadClient>());
+builder.Services.AddScoped<IDownloadCapacityRepository, DownloadCapacityRepository>();
+// Budget transactions span explicit admission steps and remote reconciliation.
+// Retry at the supervised saga boundary; EF must not replay individual queries
+// inside a user-owned transaction or repeat an external effect implicitly.
+builder.Services.AddKeyedScoped<ApplicationContext>("capacity", (sp, _) =>
+    new ApplicationContext(new DbContextOptionsBuilder<ApplicationContext>()
+        .UseNpgsql(sp.GetRequiredService<IConfiguration>().GetConnectionString("sdw"))
+        .Options));
+builder.Services.AddScoped<DownloadCapacityService>();
+builder.Services.AddScoped<ITranscodeCapacityRepository, TranscodeCapacityRepository>();
+builder.Services.AddScoped<TranscodeCapacityService>();
+builder.Services.AddScoped<ITranscodeCapacityBudget>(sp => sp.GetRequiredService<TranscodeCapacityService>());
 builder.Services.AddScoped<IFileStore, LocalFileStore>();
 
 builder.Services.AddScoped<IFileDownloadClientProvider, FileDownloadClientProvider>();

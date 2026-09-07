@@ -91,5 +91,22 @@
     "watched": "已看",
     "progress": "已看 {{watched}}/{{total}}",
     "summary": "共 {{total}} 个视频，已看 {{watched}} 个"
+  },
+  "capacity": {
+    "title": "容量等待队列",
+    "description": "已知大小的任务按加入顺序获取容量；未知大小需先补充资源资料。恢复空间后自动继续，取消不会删除已下载媒体。",
+    "loadFailed": "无法加载容量队列",
+    "actionFailed": "操作失败，请重试。",
+    "paused": "已暂停",
+    "unknownSize": "大小未知",
+    "size": "预计 {{size}} GiB",
+    "pause": "暂停等待",
+    "resume": "继续等待",
+    "cancel": "取消任务",
+    "states": {
+      "Waiting": "等待容量",
+      "Reserved": "已预留容量",
+      "Failed": "提交失败"
+    }
   }
 }

@@ -91,5 +91,22 @@
     "watched": "視聴済み",
     "progress": "{{watched}}/{{total}} 視聴済み",
     "summary": "{{total}} 本中 {{watched}} 本を視聴済み"
+  },
+  "capacity": {
+    "title": "容量待ちキュー",
+    "description": "容量が判明した項目は登録順に空きを予約します。不明な項目は情報の補完が必要です。空き容量の回復後に再開し、キャンセルしても既存のメディアは削除しません。",
+    "loadFailed": "容量キューを読み込めません。",
+    "actionFailed": "操作に失敗しました。再試行してください。",
+    "paused": "一時停止",
+    "unknownSize": "容量不明",
+    "size": "推定 {{size}} GiB",
+    "pause": "一時停止",
+    "resume": "再開",
+    "cancel": "キャンセル",
+    "states": {
+      "Waiting": "容量待ち",
+      "Reserved": "容量予約済み",
+      "Failed": "送信失敗"
+    }
   }
 }

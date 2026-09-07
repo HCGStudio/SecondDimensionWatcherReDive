@@ -35,11 +35,18 @@ public partial class FetchRemoteTorrentBackgroundService(
         await using var scope = scopeFactory.CreateAsyncScope();
         var animationInfoRepository = scope.ServiceProvider.GetRequiredService<IAnimationInfoRepository>();
 
+        var capacity = scope.ServiceProvider.GetService<IDownloadCapacityRepository>();
+        var waiting = capacity is null ? new HashSet<Guid>() :
+            (await capacity.ListAsync(cancellationToken)).Where(entry => entry.State != "Submitted")
+            .Select(entry => entry.ItemId).ToHashSet();
         await foreach (var info in animationInfoRepository.GetUnfinishedTorrentDownloadsAsync(cancellationToken))
+        {
+            if (waiting.Contains(info.Id)) continue;
             yield return new RemoteTorrentTrackRequest(
                 info.Id,
                 info.AdditionalDownloadInfo,
                 DownloadAttemptId: info.DownloadAttemptId);
+        }
     }
 
     private async Task<RemoteTorrentTrackRequest?> BindCurrentAttemptAsync(
@@ -57,6 +64,11 @@ public partial class FetchRemoteTorrentBackgroundService(
                 StringComparison.OrdinalIgnoreCase))
             return null;
 
+        if (scope.ServiceProvider.GetService<IDownloadCapacityRepository>() is { } capacity)
+        {
+            var queued = (await capacity.ListAsync(cancellationToken)).FirstOrDefault(entry => entry.ItemId == info.Id);
+            if (queued is not null && queued.State != "Submitted") return null;
+        }
         return request with { DownloadAttemptId = info.DownloadAttemptId };
     }
 
