@@ -13,6 +13,7 @@ internal sealed partial class HlsTranscodingService
     }
 
     private readonly ConcurrentDictionary<string, CacheReadLease> _readerLeases = new(StringComparer.Ordinal);
+    private readonly object _readerStateGate = new();
 
     // The caller holds _creationGate. Reading the manifest and registering its
     // readers share the eviction lock, so a stale local Ready job cannot revive
@@ -37,7 +38,7 @@ internal sealed partial class HlsTranscodingService
         await scope.ServiceProvider.GetRequiredService<ITranscodeCapacityRepository>()
             .RegisterReaderAsync(id, CapacityVolume.CanonicalPath(directory), TranscodeCapacityService.LeaseSeconds, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
-        _readerLeases[key] = new CacheReadLease(id, validUntil);
+        lock (_readerStateGate) _readerLeases[key] = new CacheReadLease(id, validUntil);
         return manifest;
     }
 
@@ -58,11 +59,10 @@ internal sealed partial class HlsTranscodingService
                 catch (Exception exception)
                 {
                     _logger.LogWarning(exception, "Could not renew shared transcoding cache readers");
-                    // Once coordination is uncertain, stop serving affected
-                    // caches. A fresh playback request revalidates the manifest.
-                    foreach (var key in _readerLeases.Keys)
-                        if (_jobs.TryGetValue(key, out var job))
-                            MarkFailed(job, "The shared cache read lease could not be renewed. Retry playback.");
+                    // A transient timeout does not invalidate a lease that is
+                    // still within its last confirmed local lifetime.
+                    foreach (var pair in _readerLeases)
+                        if (!pair.Value.IsValid) InvalidateReaderLease(pair);
                 }
             }
         }
@@ -80,42 +80,73 @@ internal sealed partial class HlsTranscodingService
 
     private async Task RefreshReaderLeasesAsync(bool releaseAll, CancellationToken cancellationToken)
     {
-        await _creationGate.WaitAsync(cancellationToken);
-        try
+        CleanupExpiredSessions();
+        if (!releaseAll)
         {
-            CleanupExpiredSessions();
-            if (_readerLeases.IsEmpty) return;
+            // Neither the global budget lock nor _creationGate may delay
+            // liveness: both can be held while a downloader request is slow.
             await using var scope = _scopeFactory.CreateAsyncScope();
-            var capacity = scope.ServiceProvider.GetService<IDownloadCapacityRepository>();
-            await using var transaction = capacity is null ? null : await capacity.BeginAsync(cancellationToken);
             var repository = scope.ServiceProvider.GetService<ITranscodeCapacityRepository>();
             foreach (var pair in _readerLeases)
             {
                 var lease = pair.Value;
+                if (lease.Id == Guid.Empty || !_jobs.TryGetValue(pair.Key, out var job)
+                    || job.GetState() != TranscodingJobState.Ready || job.SessionCount == 0)
+                    continue;
+                if (!lease.IsValid)
+                {
+                    InvalidateReaderLease(pair);
+                    continue;
+                }
+                var validUntil = Stopwatch.GetTimestamp() + TranscodeCapacityService.LeaseSeconds * Stopwatch.Frequency;
+                // The conditional UPDATE cannot revive a pruned/expired lease.
+                // A renewal before eviction extends protection; one after
+                // expiry/deletion fails and the reader stops serving content.
+                if (!await repository!.RenewReaderAsync(lease.Id, TranscodeCapacityService.LeaseSeconds, cancellationToken))
+                    InvalidateReaderLease(pair);
+                else
+                    _readerLeases.TryUpdate(pair.Key, lease with { ValidUntil = validUntil }, lease);
+            }
+        }
+
+        // Registration and removal remain serialized. Skip an occupied local
+        // gate during normal sweeps so it cannot block the next heartbeat.
+        if (releaseAll)
+            await _creationGate.WaitAsync(cancellationToken);
+        else if (!await _creationGate.WaitAsync(0, cancellationToken))
+            return;
+        try
+        {
+            if (_readerLeases.IsEmpty) return;
+            using var cleanupDeadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            cleanupDeadline.CancelAfter(TimeSpan.FromSeconds(2));
+            await using var scope = _scopeFactory.CreateAsyncScope();
+            var capacity = scope.ServiceProvider.GetService<IDownloadCapacityRepository>();
+            await using var transaction = capacity is null ? null : await capacity.BeginAsync(cleanupDeadline.Token);
+            var repository = scope.ServiceProvider.GetService<ITranscodeCapacityRepository>();
+            foreach (var pair in _readerLeases)
+            {
                 var inUse = !releaseAll && _jobs.TryGetValue(pair.Key, out var job)
                     && job.GetState() == TranscodingJobState.Ready && job.SessionCount > 0;
-                if (!inUse)
-                {
-                    if (lease.Id != Guid.Empty)
-                        await repository!.RemoveReaderAsync(lease.Id, cancellationToken);
-                    _readerLeases.TryRemove(pair.Key, out _);
-                    continue;
-                }
-                if (lease.Id == Guid.Empty) continue;
-                var validUntil = Stopwatch.GetTimestamp() + TranscodeCapacityService.LeaseSeconds * Stopwatch.Frequency;
-                if (!lease.IsValid || !await repository!.RenewReaderAsync(
-                        lease.Id, TranscodeCapacityService.LeaseSeconds, cancellationToken))
-                {
-                    if (_jobs.TryGetValue(pair.Key, out var expired))
-                        MarkFailed(expired, "The shared cache read lease expired. Retry playback.");
-                    await repository!.RemoveReaderAsync(lease.Id, cancellationToken);
-                    _readerLeases.TryRemove(pair.Key, out _);
-                    continue;
-                }
-                _readerLeases[pair.Key] = lease with { ValidUntil = validUntil };
+                if (inUse) continue;
+                if (pair.Value.Id != Guid.Empty)
+                    await repository!.RemoveReaderAsync(pair.Value.Id, cleanupDeadline.Token);
+                _readerLeases.TryRemove(pair);
             }
-            if (transaction is not null) await transaction.CommitAsync(cancellationToken);
+            if (transaction is not null) await transaction.CommitAsync(cleanupDeadline.Token);
         }
         finally { _creationGate.Release(); }
+    }
+
+    private void InvalidateReaderLease(KeyValuePair<string, CacheReadLease> expected)
+    {
+        // Registration may have just installed a newer lease for this key.
+        // Only invalidate the exact generation whose renewal failed.
+        lock (_readerStateGate)
+        {
+            if (_readerLeases.TryGetValue(expected.Key, out var current) && ReferenceEquals(current, expected.Value)
+                && _jobs.TryGetValue(expected.Key, out var job))
+                MarkFailed(job, "The shared cache read lease expired. Retry playback.");
+        }
     }
 }
