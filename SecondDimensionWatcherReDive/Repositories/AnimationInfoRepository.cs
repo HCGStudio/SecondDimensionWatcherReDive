@@ -4,6 +4,7 @@ using System.Data;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
+using SecondDimensionWatcherReDive.Framework.Feed;
 using SecondDimensionWatcherReDive.Framework.FileDownload;
 using SecondDimensionWatcherReDive.Utils.MetadataReview;
 
@@ -11,7 +12,8 @@ namespace SecondDimensionWatcherReDive.Repositories;
 
 public class AnimationInfoRepository(
     Models.ApplicationContext context,
-    DbContextOptions<Models.ApplicationContext> contextOptions) : IAnimationInfoRepository
+    DbContextOptions<Models.ApplicationContext> contextOptions,
+    ISubscriptionAutomationMatcher automationMatcher) : IAnimationInfoRepository
 {
     public async Task<PagedResult<AnimationInfo>> GetPagedAsync(int skip, int take, CancellationToken cancellationToken)
     {
@@ -1009,13 +1011,26 @@ public class AnimationInfoRepository(
             if (entity is null)
                 return new DownloadStartResult(false, null);
 
-            // Ordinary automatic ingestion yields to source orchestration if
-            // the feed was linked after SyncFeed took its policy snapshot.
+            // Ordinary automatic ingestion must still have an unlinked source
+            // and a matching current policy when its tracked attempt is committed.
             // Manual starts and claimed episode submissions do not use this gate.
-            if (requireStandaloneFeed && entity.SourceFeedId is { } feedId
-                && await writeContext.Set<Models.MultiSourceFeed>()
-                    .AnyAsync(source => source.FeedId == feedId, cancellationToken))
-                return new DownloadStartResult(false, null);
+            if (requireStandaloneFeed)
+            {
+                if (entity.SourceFeedId is not { } feedId
+                    || await writeContext.Set<Models.MultiSourceFeed>()
+                        .AnyAsync(source => source.FeedId == feedId, cancellationToken))
+                    return new DownloadStartResult(false, null);
+                // Policy updates do not take the mapping lock. This row lock
+                // orders changes/removal against the automatic start transaction.
+                var policy = await writeContext.SubscriptionAutomationPolicies
+                    .FromSqlInterpolated($"SELECT * FROM \"SubscriptionAutomationPolicies\" WHERE \"FeedId\" = {feedId} FOR SHARE")
+                    .AsNoTracking().SingleOrDefaultAsync(cancellationToken);
+                if (policy?.Mode != SubscriptionAutomationMode.AutoDownload
+                    || !automationMatcher.Evaluate(policy.ToRecord(), new AnimationAddRequest(
+                        entity.PublishTime, entity.Title, entity.Description, entity.DownloadUrl, entity.DownloadType,
+                        entity.AdditionalDownloadInfo, entity.SourceFeedId, entity.ReleaseSizeBytes)).Matched)
+                    return new DownloadStartResult(false, null);
+            }
 
             await writeContext.Entry(entity).Reference(info => info.Animation).LoadAsync(cancellationToken);
             if (expectedEpisode is null && entity.Animation is not null

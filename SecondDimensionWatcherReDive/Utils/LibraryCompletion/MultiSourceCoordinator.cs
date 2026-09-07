@@ -105,7 +105,7 @@ public sealed class MultiSourceCoordinator(IMultiSourceSubscriptionRepository su
                 }
             }
             var persisted = await subscriptions.SaveDecisionAsync(new(subscription.Id, group.Key, started, until, selectedId,
-                outcome, reason, now), cancellationToken);
+                outcome, reason, now), subscription, cancellationToken);
             if (persisted is null) continue;
             if (outcome is "notified" or "pending_confirmation" && (old?.Outcome != outcome || old.SelectedReleaseId != selectedId))
                 await notifications.PublishAsync(new NotificationEvent(

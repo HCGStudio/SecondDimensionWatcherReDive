@@ -30,13 +30,19 @@ public sealed class MultiSourceSubscriptionRepository(Models.ApplicationContext 
                 await write.Set<Models.MultiSourceSubscription>().AnyAsync(x => x.TmdbId == input.TmdbId && x.Season == input.Season && x.Id != input.Id, cancellationToken))
                 throw new ArgumentException("The season or feed is already linked to a subscription.");
             var entity = await write.Set<Models.MultiSourceSubscription>().Include(x => x.Sources).FirstOrDefaultAsync(x => x.Id == input.Id, cancellationToken);
+            var savedAt = DateTimeOffset.UtcNow;
             if (entity == null)
             {
-                entity = new Models.MultiSourceSubscription { Id = input.Id, CreatedAt = DateTimeOffset.UtcNow };
+                entity = new Models.MultiSourceSubscription { Id = input.Id, CreatedAt = savedAt };
                 write.Add(entity);
             }
             else if (entity.TmdbId != input.TmdbId || entity.Season != input.Season)
+            {
                 await write.Set<Models.MultiSourceEpisodeDecision>().Where(x => x.SubscriptionId == input.Id).ExecuteDeleteAsync(cancellationToken);
+                // CreatedAt is the wait epoch for this target. Previously
+                // collected fallback releases must wait again after retargeting.
+                entity.CreatedAt = savedAt;
+            }
             else if (!entity.Sources.OrderBy(source => source.Priority).Select(source => source.FeedId).SequenceEqual(feedIds))
                 await ClearPendingDecisionsAsync(write, input.Id, cancellationToken);
             entity.Name = input.Name; entity.TmdbId = input.TmdbId; entity.Season = input.Season;
@@ -46,7 +52,7 @@ public sealed class MultiSourceSubscriptionRepository(Models.ApplicationContext 
             entity.MinSizeBytes = input.MinSizeBytes; entity.MaxSizeBytes = input.MaxSizeBytes;
             entity.ExcludedKeywords = input.ExcludedKeywords.ToArray(); entity.EnableVersionUpgrade = input.EnableVersionUpgrade;
             entity.MinimumUpgradeScore = input.MinimumUpgradeScore; entity.UpgradeRollbackHours = input.UpgradeRollbackHours;
-            entity.UpdatedAt = DateTimeOffset.UtcNow;
+            entity.UpdatedAt = savedAt;
             foreach (var old in entity.Sources.Where(x => !feedIds.Contains(x.FeedId)).ToList())
             {
                 entity.Sources.Remove(old); write.Remove(old);
@@ -76,7 +82,11 @@ public sealed class MultiSourceSubscriptionRepository(Models.ApplicationContext 
 
     internal static bool MatchesAutomaticSnapshot(Models.MultiSourceSubscription current,
         MultiSourceSubscription expected) =>
-        current.Mode == "AutoDownload" && expected.Mode == "AutoDownload"
+        current.Mode == "AutoDownload" && MatchesSnapshot(current, expected);
+
+    private static bool MatchesSnapshot(Models.MultiSourceSubscription current,
+        MultiSourceSubscription expected) =>
+        current.Id == expected.Id && current.Name == expected.Name && current.Mode == expected.Mode
         && current.TmdbId == expected.TmdbId && current.Season == expected.Season
         && current.CreatedAt == expected.CreatedAt && current.UpdatedAt == expected.UpdatedAt
         && current.WaitMinutes == expected.WaitMinutes
@@ -119,7 +129,8 @@ public sealed class MultiSourceSubscriptionRepository(Models.ApplicationContext 
         }).ToList();
     }
 
-    public async Task<MultiSourceEpisodeDecision?> SaveDecisionAsync(MultiSourceEpisodeDecision decision, CancellationToken cancellationToken) =>
+    public async Task<MultiSourceEpisodeDecision?> SaveDecisionAsync(MultiSourceEpisodeDecision decision,
+        MultiSourceSubscription expectedSubscription, CancellationToken cancellationToken) =>
         await context.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
         {
             await using var write = new Models.ApplicationContext(options);
@@ -127,7 +138,8 @@ public sealed class MultiSourceSubscriptionRepository(Models.ApplicationContext 
             await MappingTransactionLock.AcquireAsync(write, cancellationToken);
             var subscription = await write.Set<Models.MultiSourceSubscription>().AsNoTracking()
                 .Include(value => value.Sources).SingleOrDefaultAsync(value => value.Id == decision.SubscriptionId, cancellationToken);
-            if (subscription is null || subscription.Sources.Count == 0) return null;
+            if (subscription is null || subscription.Sources.Count == 0
+                || !MatchesSnapshot(subscription, expectedSubscription)) return null;
             if (decision.SelectedReleaseId is { } selectedId)
             {
                 var selected = await write.AnimationInfo.AsNoTracking().Include(value => value.Animation)
@@ -138,8 +150,8 @@ public sealed class MultiSourceSubscriptionRepository(Models.ApplicationContext 
                     || !active && !subscription.Sources.Any(source => source.FeedId == selected.SourceFeedId))
                     return null;
             }
-            // Source changes and decision writes share the same transaction lock, so stale
-            // evaluations cannot restore pending actions for a feed that has been removed.
+            // All policy/target changes and decision writes share this lock.
+            // Only a decision based on the current snapshot can authorize a notification.
             await write.Database.ExecuteSqlInterpolatedAsync($"""
                 INSERT INTO "MultiSourceEpisodeDecisions" ("SubscriptionId", "Episode", "WaitStartedAt", "WaitUntil", "SelectedReleaseId", "Outcome", "Reason", "UpdatedAt")
                 VALUES ({decision.SubscriptionId}, {decision.Episode}, {decision.WaitStartedAt}, {decision.WaitUntil}, {decision.SelectedReleaseId}, {decision.Outcome}, {decision.Reason}, {decision.UpdatedAt})
