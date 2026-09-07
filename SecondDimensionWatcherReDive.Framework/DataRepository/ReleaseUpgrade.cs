@@ -83,6 +83,11 @@ public interface IReleaseUpgradeRepository
         int take,
         CancellationToken cancellationToken);
 
+    Task<IReadOnlyList<ReleaseUpgradeCandidate>> GetIntegrityCandidatesAsync(
+        string? tmdbId,
+        int? season,
+        CancellationToken cancellationToken);
+
     Task<ReleaseUpgradeCandidate?> FindCandidateAsync(
         Guid currentReleaseId,
         Guid candidateReleaseId,
