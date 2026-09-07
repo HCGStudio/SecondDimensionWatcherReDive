@@ -769,6 +769,9 @@ SQL
     [[ "$(database_schema_version "${restore_candidate_database}")" == "${backup_schema}" ]] ||
         die "candidate database schema does not match the backup"
 
+    # Trusted extensions such as pg_trgm install their functions and types as
+    # the bootstrap superuser. Validate their owning extension instead; ordinary
+    # application objects must still belong to the application database role.
     local wrong_owners invalid_indexes app_access
     wrong_owners=$(psql --no-psqlrc --dbname "${restore_candidate_database}" \
         --tuples-only --no-align --set=ON_ERROR_STOP=1 --set=owner="${database_owner}" <<'SQL'
@@ -783,12 +786,28 @@ SQL
                JOIN pg_namespace AS namespace ON namespace.oid = object.pronamespace
               WHERE namespace.nspname NOT IN ('pg_catalog', 'information_schema')
                 AND namespace.nspname !~ '^pg_toast'
-                AND pg_get_userbyid(object.proowner) <> :'owner')
+                AND pg_get_userbyid(object.proowner) <> :'owner'
+                AND NOT EXISTS (
+                    SELECT 1 FROM pg_depend AS dependency
+                    JOIN pg_extension AS extension ON extension.oid = dependency.refobjid
+                    WHERE dependency.classid = 'pg_proc'::regclass
+                      AND dependency.objid = object.oid
+                      AND dependency.refclassid = 'pg_extension'::regclass
+                      AND dependency.deptype = 'e'
+                      AND pg_get_userbyid(extension.extowner) = :'owner'))
            + (SELECT count(*) FROM pg_type AS object
                JOIN pg_namespace AS namespace ON namespace.oid = object.typnamespace
               WHERE namespace.nspname NOT IN ('pg_catalog', 'information_schema')
                 AND namespace.nspname !~ '^pg_toast'
-                AND pg_get_userbyid(object.typowner) <> :'owner')
+                AND pg_get_userbyid(object.typowner) <> :'owner'
+                AND NOT EXISTS (
+                    SELECT 1 FROM pg_depend AS dependency
+                    JOIN pg_extension AS extension ON extension.oid = dependency.refobjid
+                    WHERE dependency.classid = 'pg_type'::regclass
+                      AND dependency.objid IN (object.oid, object.typelem)
+                      AND dependency.refclassid = 'pg_extension'::regclass
+                      AND dependency.deptype = 'e'
+                      AND pg_get_userbyid(extension.extowner) = :'owner'))
            + (SELECT count(*) FROM pg_namespace AS object
               WHERE object.nspname NOT IN ('public', 'pg_catalog', 'information_schema')
                 AND object.nspname !~ '^pg_toast'
