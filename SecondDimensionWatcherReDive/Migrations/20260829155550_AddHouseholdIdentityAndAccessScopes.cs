@@ -292,6 +292,16 @@ namespace SecondDimensionWatcherReDive.Migrations
                 END $$;
                 """);
 
+            migrationBuilder.Sql(
+                """
+                UPDATE "ChatPendingActions"
+                SET "UserId" = '00000000-0000-0000-0000-000000000000'
+                WHERE "UserId" = '00000000-0000-0000-0000-000000000001';
+                UPDATE "ChatActionAudits"
+                SET "UserId" = '00000000-0000-0000-0000-000000000000'
+                WHERE "UserId" = '00000000-0000-0000-0000-000000000001';
+                """);
+
             migrationBuilder.DropForeignKey(
                 name: "FK_ChatConversations_Profiles_ProfileId",
                 table: "ChatConversations");
