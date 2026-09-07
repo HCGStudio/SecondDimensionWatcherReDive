@@ -20,7 +20,7 @@ public sealed class LibraryCompletionRepository(Models.ApplicationContext contex
             context.FileMappings.Any(mapping => mapping.AnimationInfoId == x.Id))
         .Select(x => x.Id).ToHashSetAsync(cancellationToken);
 
-    public async Task<bool> TryClaimEpisodeAsync(string tmdbId, int season, int episode, Guid releaseId,
+    public async Task<EpisodeClaimOutcome> TryClaimEpisodeAsync(string tmdbId, int season, int episode, Guid releaseId,
         Guid claimId, CancellationToken cancellationToken) => await context.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
     {
         await using var write = new Models.ApplicationContext(options);
@@ -28,12 +28,15 @@ public sealed class LibraryCompletionRepository(Models.ApplicationContext contex
         await MappingTransactionLock.AcquireAsync(write, cancellationToken);
         var siblings = write.AnimationInfo.Where(x => x.Animation != null && x.Animation.TmdbId == tmdbId &&
             x.Season == season && x.Episode == episode && x.MediaLibraryMissingSince == null && !x.IsRetiredRelease);
+        if (await siblings.AnyAsync(x => x.IsDownloadTracked || x.IsDownloadFinished, cancellationToken))
+            return EpisodeClaimOutcome.AlreadyPresentOrBusy;
         if (!await siblings.AnyAsync(x => x.Id == releaseId &&
-            (x.MetadataStatus == MetadataReviewStatus.Identified || x.MetadataStatus == MetadataReviewStatus.Reviewed), cancellationToken) ||
-            await siblings.AnyAsync(x => x.IsDownloadTracked || x.IsDownloadFinished, cancellationToken))
-            return false;
+            (x.MetadataStatus == MetadataReviewStatus.Identified || x.MetadataStatus == MetadataReviewStatus.Reviewed), cancellationToken))
+            return EpisodeClaimOutcome.CandidateUnavailable;
         var claim = await write.Set<Models.EpisodeAcquisition>().FindAsync([tmdbId, season, episode], cancellationToken);
-        if (claim != null && claim.ExpiresAt > DateTimeOffset.UtcNow) return false;
+        if (claim != null && claim.ExpiresAt > DateTimeOffset.UtcNow)
+            return claim.ClaimId == claimId && claim.ReleaseId == releaseId
+                ? EpisodeClaimOutcome.Acquired : EpisodeClaimOutcome.AlreadyPresentOrBusy;
         if (claim == null)
         {
             claim = new Models.EpisodeAcquisition { TmdbId = tmdbId, Season = season, Episode = episode };
@@ -44,10 +47,18 @@ public sealed class LibraryCompletionRepository(Models.ApplicationContext contex
         claim.ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(5);
         await write.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
-        return true;
+        return EpisodeClaimOutcome.Acquired;
     });
     public async Task ReleaseClaimAsync(string tmdbId, int season, int episode, Guid claimId,
         CancellationToken cancellationToken) => await context.Set<Models.EpisodeAcquisition>()
         .Where(x => x.TmdbId == tmdbId && x.Season == season && x.Episode == episode && x.ClaimId == claimId)
         .ExecuteDeleteAsync(cancellationToken);
+
+    internal static Task<bool> HasActiveClaimAsync(Models.ApplicationContext writeContext, Guid releaseId,
+        CancellationToken cancellationToken)
+    {
+        var now = DateTimeOffset.UtcNow;
+        return writeContext.Set<Models.EpisodeAcquisition>()
+            .AnyAsync(claim => claim.ReleaseId == releaseId && claim.ExpiresAt > now, cancellationToken);
+    }
 }

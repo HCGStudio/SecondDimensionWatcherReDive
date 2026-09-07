@@ -88,7 +88,10 @@ public sealed class MultiSourceCoordinator(IMultiSourceSubscriptionRepository su
                 outcome = subscription.Mode switch { "AutoDownload" => "ready", "NotifyOnly" => "notified", _ => "pending_confirmation" };
                 if (subscription.Mode == "AutoDownload")
                 {
-                    var result = await downloads.SubmitAsync(selected.Info, cancellationToken);
+                    var result = await downloads.SubmitAutomaticAsync(selected.Info, subscription, cancellationToken);
+                    // A changed subscription or release invalidates this evaluation;
+                    // let the next pass use current rules instead of recording a failure.
+                    if (result.Outcome == "state_changed") return;
                     outcome = result.IsSuccess ? "downloading" : "failed";
                     if (result.Outcome == "already_present_or_busy")
                     {

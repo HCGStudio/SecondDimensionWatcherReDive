@@ -4,7 +4,7 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { handleCompletion } from "./mock-completion.mjs";
-import { handleMetadataRules } from "./mock-metadata-rules.mjs";
+import { handleMetadataRules, isMetadataRulePreviewCurrent } from "./mock-metadata-rules.mjs";
 import { handleWatchlistPlayback } from "./mock-watchlist-playback.mjs";
 import { handleMultiSourceSubscriptions, removeMultiSourceFeed } from "./mock-multi-source.mjs";
 
@@ -905,8 +905,11 @@ const RELEASE_HISTORY_BY_FEED = new Map([
   ],
 ]);
 
-function simulatePolicy(feedId, policy) {
-  const history = RELEASE_HISTORY_BY_FEED.get(feedId) ?? [];
+function simulatePolicy(
+  feedId,
+  policy,
+  history = RELEASE_HISTORY_BY_FEED.get(feedId) ?? [],
+) {
   const formatBytes = (bytes) => {
     const units = ["B", "KiB", "MiB", "GiB", "TiB"];
     let value = bytes;
@@ -919,6 +922,8 @@ function simulatePolicy(feedId, policy) {
   };
   const normalizeAllowedValue = (field, value) => {
     let normalized = value.trim().toUpperCase();
+    if (field === "subtitleGroup")
+      return normalized.replace(/^[\[【]+|[\]】]+$/g, "").trim();
     if (field === "resolution") {
       normalized = normalized.replace(/\s/g, "");
       const aliases = {
@@ -1023,19 +1028,23 @@ function simulatePolicy(feedId, policy) {
     const max =
       typeof policy.maxSizeBytes === "number" ? policy.maxSizeBytes : null;
     const sizePassed =
-      (min == null || item.sizeBytes >= min) &&
-      (max == null || item.sizeBytes <= max);
+      (min == null && max == null) ||
+      (item.sizeBytes != null &&
+        (min == null || item.sizeBytes >= min) &&
+        (max == null || item.sizeBytes <= max));
     explanations.push({
       field: "size",
       passed: sizePassed,
-      actual: formatBytes(item.sizeBytes),
+      actual: item.sizeBytes == null ? null : formatBytes(item.sizeBytes),
       expected:
         min == null && max == null
           ? null
           : `${min == null ? "0 B" : formatBytes(min)} – ${max == null ? "∞" : formatBytes(max)}`,
       message: sizePassed ? "withinSizeRange" : "outsideSizeRange",
     });
-    const excluded = (policy.excludedKeywords ?? []).filter(Boolean);
+    const excluded = (policy.excludedKeywords ?? [])
+      .map((keyword) => keyword.trim())
+      .filter(Boolean);
     const found = excluded.find((keyword) =>
       item.title.toLowerCase().includes(keyword.toLowerCase()),
     );
@@ -1061,6 +1070,64 @@ function simulatePolicy(feedId, policy) {
     matched: entries.filter((entry) => entry.matched).length,
     entries,
   };
+}
+
+// Reuse the policy simulator for real mock-library releases, preserving unknown metadata
+// so a constrained field cannot accidentally match an invented default value.
+function evaluateMultiSourceRelease(release, policy) {
+  const source = `${release.title} ${release.additionalDownloadInfo ?? ""}`;
+  const resolutionPattern =
+    /(?<!\d)(?:(?:3840|4096)[x×](2160)|2560[x×](1440)|1920[x×](1080)|1280[x×](720)|(2160|1440|1080|720|576|480)p)(?!\d)|\b(4K|UHD)\b/i;
+  const codecPattern =
+    /(?<![A-Za-z0-9])(?:AV1|HEVC|H[.\-]?265|X265|AVC|H[.\-]?264|X264|VP9)(?![A-Za-z0-9])/i;
+  const languagePatterns = [
+    [
+      /(?<![A-Za-z0-9])(?:CHS|SC|GB|ZH[._-]?CN)(?![A-Za-z0-9])|简(?:体|中)|簡中|[简簡]繁/i,
+      "简体中文",
+    ],
+    [
+      /(?<![A-Za-z0-9])(?:CHT|TC|BIG5|ZH[._-]?(?:TW|HK))(?![A-Za-z0-9])|繁(?:體|体|中)|[简簡]繁/i,
+      "繁體中文",
+    ],
+    [
+      /(?<![A-Za-z0-9])(?:JPN|JAP|JA)(?![A-Za-z0-9])|日(?:语|語)|日本語|Japanese/i,
+      "日语",
+    ],
+    [/(?<![A-Za-z0-9])(?:ENG|EN)(?![A-Za-z0-9])|英(?:语|語)|English/i, "英语"],
+  ];
+  const leadingTags =
+    release.title.match(/^(?:\s*[\[【][^\]】]+[\]】])+/)?.[0] ?? "";
+  const group = [...leadingTags.matchAll(/[\[【]([^\]】]+)[\]】]/g)]
+    .map((match) => match[1].trim())
+    .find(
+      (value) =>
+        !resolutionPattern.test(value) &&
+        !codecPattern.test(value) &&
+        !languagePatterns.some(([pattern]) => pattern.test(value)),
+    );
+  const resolution = source.match(resolutionPattern);
+  const codec = source.match(codecPattern)?.[0] ?? null;
+  const extracted = {
+    id: release.id,
+    title: release.title,
+    publishedAt: release.publishTime,
+    sizeBytes: release.releaseSizeBytes ?? null,
+    subtitleGroup: release.releaseSubtitleGroup ?? group ?? null,
+    resolution:
+      release.releaseResolution ??
+      (resolution
+        ? resolution[6]
+          ? "2160p"
+          : `${resolution.slice(1, 6).find(Boolean)}p`
+        : null),
+    codec: release.releaseCodec ?? codec,
+    languages:
+      release.releaseLanguages ??
+      languagePatterns
+        .filter(([pattern]) => pattern.test(source))
+        .map(([, value]) => value),
+  };
+  return simulatePolicy(release.sourceFeedId, policy, [extracted]).entries[0];
 }
 
 // WebDAV access tokens
@@ -2606,7 +2673,8 @@ async function route(method, pathname, searchParams, req, res) {
       }
       if (
         Date.parse(preview.expiresAt) <= Date.now() ||
-        preview.baseRevision !== item.revision
+        preview.baseRevision !== item.revision ||
+        !isMetadataRulePreviewCurrent(preview, item, animations.get(item.id), feeds)
       ) {
         metadataReviewPreviews.delete(preview.previewId);
         return json(res, { error: "Preview is stale." }, 409);
@@ -3265,7 +3333,21 @@ async function route(method, pathname, searchParams, req, res) {
     });
   }
 
-  if (await handleMultiSourceSubscriptions({ req, res, method, pathname, json, readBody, animations, downloadState, feeds })) return;
+  if (
+    await handleMultiSourceSubscriptions({
+      req,
+      res,
+      method,
+      pathname,
+      json,
+      readBody,
+      animations,
+      downloadState,
+      feeds,
+      evaluateRelease: evaluateMultiSourceRelease,
+    })
+  )
+    return;
 
   // --- Feeds ---
 
