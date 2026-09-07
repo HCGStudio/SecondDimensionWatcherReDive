@@ -558,6 +558,9 @@ internal sealed class LogicalDataTransferWorker(
                     })).ToList()
             };
             context.MetadataReviewOperations.Add(operation);
+            if (context.Entry(info).Property<Guid?>("AnimationId").CurrentValue != animation.Id ||
+                info.Season != imported.Season)
+                info.ExpectedEpisodeCount = null;
             info.Animation = animation;
             info.Group = group;
             info.Description = imported.Description;
