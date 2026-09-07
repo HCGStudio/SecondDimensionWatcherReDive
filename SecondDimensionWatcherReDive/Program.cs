@@ -7,6 +7,7 @@ using System.Text;
 using System.Threading.Channels;
 using System.Threading.RateLimiting;
 using AspSpaService;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
@@ -17,6 +18,9 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.Net.Http.Headers;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
 using SecondDimensionWatcherReDive;
 using SecondDimensionWatcherReDive.Auth;
 using SecondDimensionWatcherReDive.Configuration;
@@ -31,6 +35,7 @@ using SecondDimensionWatcherReDive.Framework.Notifications;
 using SecondDimensionWatcherReDive.Inference.AI;
 using SecondDimensionWatcherReDive.Models;
 using SecondDimensionWatcherReDive.NFS;
+using SecondDimensionWatcherReDive.Observability;
 using SecondDimensionWatcherReDive.Repositories;
 using SecondDimensionWatcherReDive.Chat;
 using SecondDimensionWatcherReDive.Plugin;
@@ -224,6 +229,116 @@ builder.Services.AddRateLimiter(options =>
                 });
         });
 });
+
+var healthChecks = builder.Services.AddHealthChecks()
+    .AddCheck<DatabaseReadinessHealthCheck>(
+        "postgresql",
+        tags: [HealthTags.Ready],
+        timeout: TimeSpan.FromSeconds(10));
+if (!string.IsNullOrEmpty(builder.Configuration["Valkey:ConnectionString"])
+    && builder.Configuration.GetValue("Health:ValkeyRequired", true))
+    healthChecks.AddCheck<DistributedCacheReadinessHealthCheck>(
+        "valkey",
+        tags: [HealthTags.Ready],
+        timeout: TimeSpan.FromSeconds(5));
+if (builder.Configuration.GetValue("Health:QbittorrentRequired", true))
+    healthChecks.AddCheck<QbittorrentReadinessHealthCheck>(
+        "qbittorrent",
+        tags: [HealthTags.Ready],
+        timeout: TimeSpan.FromSeconds(5));
+if (builder.Configuration.GetValue("Health:StorageRequired", true))
+    healthChecks.AddCheck<LocalStorageReadinessHealthCheck>(
+        "storage",
+        tags: [HealthTags.Ready],
+        timeout: TimeSpan.FromSeconds(5));
+if (builder.Configuration.GetValue("Health:AIRequired", false))
+    healthChecks.AddCheck<AiReadinessHealthCheck>(
+        "ai",
+        tags: [HealthTags.Ready],
+        timeout: TimeSpan.FromSeconds(10));
+
+builder.Services.AddSingleton<RuntimeTelemetry>();
+var otlpEndpoint = Uri.TryCreate(
+    builder.Configuration["OpenTelemetry:OtlpEndpoint"],
+    UriKind.Absolute,
+    out var configuredOtlpEndpoint)
+    ? configuredOtlpEndpoint
+    : null;
+builder.Services.AddOpenTelemetry()
+    .ConfigureResource(resource => resource.AddService("SecondDimensionWatcherReDive"))
+    .WithTracing(tracing =>
+    {
+        tracing
+            .AddSource(RuntimeTelemetry.ActivitySourceName)
+            .AddAspNetCoreInstrumentation()
+            .AddHttpClientInstrumentation()
+            // Query parameter capture is disabled by default. The processor below
+            // also removes statement/query-text tags before export.
+            .AddEntityFrameworkCoreInstrumentation()
+            .AddProcessor(new SensitiveTagRedactionProcessor());
+        if (otlpEndpoint is not null)
+            tracing.AddOtlpExporter(options => options.Endpoint = otlpEndpoint);
+    })
+    .WithMetrics(metrics =>
+    {
+        metrics
+            .AddMeter(RuntimeTelemetry.MeterName)
+            .AddAspNetCoreInstrumentation()
+            .AddHttpClientInstrumentation()
+            .AddRuntimeInstrumentation()
+            .AddView(
+                "http.server.request.duration",
+                new ExplicitBucketHistogramConfiguration
+                {
+                    TagKeys =
+                    [
+                        "http.request.method",
+                        "http.response.status_code",
+                        "http.route",
+                        "network.protocol.version"
+                    ]
+                })
+            .AddView(
+                "http.client.request.duration",
+                new ExplicitBucketHistogramConfiguration
+                {
+                    TagKeys =
+                    [
+                        "http.request.method",
+                        "http.response.status_code",
+                        "server.address",
+                        "server.port",
+                        "network.protocol.version"
+                    ]
+                })
+            .AddView(
+                "sdw.durable_job.attempts",
+                new MetricStreamConfiguration
+                {
+                    TagKeys = ["job.type", "job.stage", "outcome"]
+                })
+            .AddView(
+                "sdw.durable_job.duration",
+                new ExplicitBucketHistogramConfiguration
+                {
+                    TagKeys = ["job.type", "job.stage", "outcome"]
+                })
+            .AddView(
+                "sdw.durable_jobs",
+                new MetricStreamConfiguration { TagKeys = ["status"] })
+            .AddView(
+                "sdw.scheduled_task.runs",
+                new MetricStreamConfiguration { TagKeys = ["task.id", "outcome"] })
+            .AddView(
+                "sdw.scheduled_task.duration",
+                new ExplicitBucketHistogramConfiguration
+                {
+                    TagKeys = ["task.id", "outcome"]
+                })
+            .AddPrometheusExporter();
+        if (otlpEndpoint is not null)
+            metrics.AddOtlpExporter(options => options.Endpoint = otlpEndpoint);
+    });
 
 //Configure JWT
 var jwtSecret = builder.Configuration["JwtSecret"] ??
@@ -498,10 +613,29 @@ var contentTypeProvider = new FileExtensionContentTypeProvider();
 contentTypeProvider.Mappings.Add(".mkv", "video/x-matroska");
 builder.Services.AddSingleton<IContentTypeProvider>(contentTypeProvider);
 
-//Add channels
-builder.Services.AddSingleton(Channel.CreateUnbounded<RemoteTorrentTrackRequest>());
-builder.Services.AddSingleton(Channel.CreateUnbounded<FileDownloadStatus>());
-builder.Services.AddSingleton(Channel.CreateUnbounded<DownloadCompleteRequest>());
+// In-process channels are bounded. Download completion is persisted before its
+// wake hint is emitted, while high-frequency progress may safely drop old samples.
+builder.Services.AddSingleton(Channel.CreateBounded<RemoteTorrentTrackRequest>(
+    new BoundedChannelOptions(1024)
+    {
+        SingleReader = true,
+        SingleWriter = false,
+        FullMode = BoundedChannelFullMode.Wait
+    }));
+builder.Services.AddSingleton(Channel.CreateBounded<FileDownloadStatus>(
+    new BoundedChannelOptions(1024)
+    {
+        SingleReader = true,
+        SingleWriter = true,
+        FullMode = BoundedChannelFullMode.DropOldest
+    }));
+builder.Services.AddSingleton(Channel.CreateBounded<DownloadCompleteRequest>(
+    new BoundedChannelOptions(128)
+    {
+        SingleReader = true,
+        SingleWriter = true,
+        FullMode = BoundedChannelFullMode.DropOldest
+    }));
 
 // Persistent incident inbox and health probes.
 builder.Services.AddSingleton<IIncidentReporter, IncidentReporter>();
@@ -517,6 +651,7 @@ builder.Services.AddSingleton<INotificationPublisher, NotificationPublisher>();
 
 //Add hosting services
 builder.Services.AddHostedService<CompleteDownloadBackgroundService>();
+builder.Services.AddHostedService<DurableJobMetricsBackgroundService>();
 builder.Services.AddHostedService<FetchRemoteTorrentBackgroundService>();
 builder.Services.AddHostedService<UpdateDownloadStatusBackgroundService>();
 builder.Services.AddHostedService<IncidentReconciliationBackgroundService>();
@@ -526,9 +661,11 @@ builder.Services.AddSingleton<MediaLibraryScanQueue>();
 builder.Services.AddSingleton<IMediaLibraryScanQueue>(sp =>
     sp.GetRequiredService<MediaLibraryScanQueue>());
 builder.Services.AddHostedService<MediaLibraryScanBackgroundService>();
+builder.Services.AddScoped<IDownloadCompletionNotifier, DownloadCompletionNotifier>();
 builder.Services.AddHostedService<ReleaseUpgradeBackgroundService>();
 
 //Add scheduled tasks
+builder.Services.AddSingleton<IScheduledTaskLeaseManager, PostgresScheduledTaskLeaseManager>();
 builder.Services.AddSingleton<SyncFeed>();
 builder.Services.AddSingleton<IScheduledTask>(sp => sp.GetRequiredService<SyncFeed>());
 builder.Services.AddHostedService<ScheduledTaskBackgroundService<SyncFeed>>();
@@ -584,6 +721,9 @@ builder.Services.AddScoped<IWebDavTokenRepository, WebDavTokenRepository>();
 builder.Services.AddScoped<IPlaybackRepository, PlaybackRepository>();
 builder.Services.AddScoped<IIncidentRepository, IncidentRepository>();
 builder.Services.AddScoped<IMediaLibrarySourceRepository, MediaLibrarySourceRepository>();
+builder.Services.AddScoped<IDurableJobRepository, DurableJobRepository>();
+builder.Services.AddScoped<IScheduledTaskLeaseRepository, ScheduledTaskLeaseRepository>();
+builder.Services.AddScoped<IReadinessRepository, ReadinessRepository>();
 builder.Services.AddScoped<ILibrarySearchRepository, LibrarySearchRepository>();
 builder.Services.AddScoped<IReleaseUpgradeRepository, ReleaseUpgradeRepository>();
 builder.Services.AddScoped<INotificationOutboxRepository, NotificationOutboxRepository>();
@@ -649,18 +789,29 @@ app.UseResponseCompression();
 app.UseRouting();
 app.UseRateLimiter();
 
+app.MapHealthChecks("/health/live", new HealthCheckOptions
+{
+    Predicate = _ => false,
+    ResponseWriter = HealthResponseWriter.WriteAsync
+}).AllowAnonymous();
+app.MapHealthChecks("/health/ready", new HealthCheckOptions
+{
+    Predicate = registration => registration.Tags.Contains(HealthTags.Ready),
+    ResponseWriter = HealthResponseWriter.WriteAsync
+}).AllowAnonymous();
+app.MapPrometheusScrapingEndpoint("/metrics").AllowAnonymous();
+
 app.MapControllers();
 // The listener starts only after schema and blocking data migrations complete,
 // so an unavailable endpoint is deliberately "not ready" during migration.
-app.MapGet("/health/ready", () => Results.Text("ready", "text/plain"))
-    .AllowAnonymous();
 
 if (app.Environment.IsDevelopment())
 {
     app.UseWhen(
         context => !context.Request.Path.StartsWithSegments("/api") &&
                    !context.Request.Path.StartsWithSegments("/webdav") &&
-                   !context.Request.Path.StartsWithSegments("/health"),
+                   !context.Request.Path.StartsWithSegments("/health") &&
+                   !context.Request.Path.StartsWithSegments("/metrics"),
         then =>
         {
             then.UseSpa(config =>

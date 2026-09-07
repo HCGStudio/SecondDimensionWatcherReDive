@@ -7,7 +7,9 @@ using SecondDimensionWatcherReDive.Framework.FileDownload;
 
 namespace SecondDimensionWatcherReDive.Repositories;
 
-public sealed class LibrarySearchRepository(Models.ApplicationContext context)
+public sealed class LibrarySearchRepository(
+    Models.ApplicationContext context,
+    IReleaseUpgradeRepository upgradeRepository)
     : ILibrarySearchRepository
 {
     private const int MaximumReturnedPathsPerRelease = 20;
@@ -417,15 +419,8 @@ public sealed class LibrarySearchRepository(Models.ApplicationContext context)
             .Select(mapping => mapping.AnimationInfoId)
             .Distinct()
             .ToHashSetAsync(cancellationToken);
-        var policies = await context.SubscriptionAutomationPolicies.AsNoTracking()
-            .ToDictionaryAsync(policy => policy.FeedId, cancellationToken);
-        var unavailableCandidateIds = await context.ReleaseUpgradeOperations.AsNoTracking()
-            .Where(operation =>
-                releaseIds.Contains(operation.CandidateReleaseId) &&
-                operation.Status != ReleaseUpgradeStatus.Failed)
-            .Select(operation => operation.CandidateReleaseId)
-            .Distinct()
-            .ToHashSetAsync(cancellationToken);
+        var candidates = (await upgradeRepository.GetIntegrityCandidatesAsync(tmdbId, season, cancellationToken))
+            .ToLookup(candidate => candidate.CurrentReleaseId);
 
         return releases
             .Where(info => info.Season is > 0)
@@ -435,7 +430,7 @@ public sealed class LibrarySearchRepository(Models.ApplicationContext context)
                 info.AnimationName,
                 Season = info.Season!.Value
             })
-            .Select(group => BuildIntegrity(group, mappedIds, policies, unavailableCandidateIds))
+            .Select(group => BuildIntegrity(group, mappedIds, candidates))
             .OrderBy(item => item.AnimationName)
             .ThenBy(item => item.Season)
             .ToList();
@@ -444,8 +439,7 @@ public sealed class LibrarySearchRepository(Models.ApplicationContext context)
     private static LibraryIntegritySummary BuildIntegrity(
         IEnumerable<IntegrityRelease> source,
         IReadOnlySet<Guid> mappedIds,
-        IReadOnlyDictionary<Guid, Models.SubscriptionAutomationPolicy> policies,
-        IReadOnlySet<Guid> unavailableCandidateIds)
+        ILookup<Guid, ReleaseUpgradeCandidate> candidates)
     {
         var releases = source.ToList();
         var first = releases[0];
@@ -465,42 +459,6 @@ public sealed class LibrarySearchRepository(Models.ApplicationContext context)
                 group.OrderByDescending(item => item.ReleaseScore).Select(item => item.Id).ToList()))
             .OrderBy(item => item.Episode)
             .ToList();
-        var candidates = new List<ReleaseUpgradeCandidate>();
-        foreach (var episodeGroup in releases.Where(info => info.Episode is > 0).GroupBy(info => info.Episode!.Value))
-        {
-            var current = episodeGroup
-                .Where(info => info.IsActiveRelease && info.IsDownloadFinished && mappedIds.Contains(info.Id))
-                .OrderByDescending(info => info.ReleaseScore)
-                .ThenByDescending(info => info.PublishTime)
-                .FirstOrDefault();
-            if (current is null) continue;
-            var candidate = episodeGroup
-                .Where(info =>
-                    !info.IsActiveRelease &&
-                    info.DownloadCancellationId is null &&
-                    !unavailableCandidateIds.Contains(info.Id) &&
-                    info.ReleaseScore > current.ReleaseScore)
-                .OrderByDescending(info => info.ReleaseScore)
-                .ThenByDescending(info => info.PublishTime)
-                .FirstOrDefault();
-            if (candidate is null) continue;
-            var automatic = current.ReleaseScoreReasonsJson is not null &&
-                            candidate.SourceFeedId is { } feedId &&
-                            policies.TryGetValue(feedId, out var policy) &&
-                            policy.EnableVersionUpgrade &&
-                            candidate.ReleaseScore - current.ReleaseScore >= policy.MinimumUpgradeScore;
-            candidates.Add(new ReleaseUpgradeCandidate(
-                current.Id,
-                candidate.Id,
-                first.AnimationName,
-                first.Season!.Value,
-                episodeGroup.Key,
-                current.ReleaseScore,
-                candidate.ReleaseScore,
-                ParseReasons(candidate.ReleaseScoreReasonsJson),
-                automatic));
-        }
-
         return new LibraryIntegritySummary(
             first.TmdbId,
             first.AnimationName,
@@ -509,7 +467,7 @@ public sealed class LibrarySearchRepository(Models.ApplicationContext context)
             missing,
             duplicates,
             releases.Count(info => info.Episode is null),
-            candidates.OrderBy(item => item.Episode).ToList());
+            releases.SelectMany(release => candidates[release.Id]).OrderBy(item => item.Episode).ToList());
     }
 
     private static string ContainsPattern(string value) =>

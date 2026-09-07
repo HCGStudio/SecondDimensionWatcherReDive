@@ -33,12 +33,28 @@ public sealed partial class ReleaseUpgradeRepository(
         if (take is < 1 or > 200)
             throw new ArgumentOutOfRangeException(nameof(take));
 
+        return await GetCandidatesCoreAsync(automaticOnly, take, null, null, cancellationToken);
+    }
+
+    public Task<IReadOnlyList<ReleaseUpgradeCandidate>> GetIntegrityCandidatesAsync(
+        string? tmdbId,
+        int? season,
+        CancellationToken cancellationToken) =>
+        GetCandidatesCoreAsync(false, null, tmdbId, season, cancellationToken);
+
+    private async Task<IReadOnlyList<ReleaseUpgradeCandidate>> GetCandidatesCoreAsync(
+        bool automaticOnly,
+        int? take,
+        string? tmdbId,
+        int? season,
+        CancellationToken cancellationToken)
+    {
         var policies = await ReadPoliciesAsync(cancellationToken);
-        var best = new List<ReleaseUpgradeCandidate>(take + 1);
+        var best = new List<ReleaseUpgradeCandidate>(take is { } limit ? limit + 1 : 0);
         ReleaseUpgradeCandidate? currentBest = null;
         Guid? currentId = null;
         DateTimeOffset bestPublishedAt = default;
-        await foreach (var row in BuildCandidatePairs(automaticOnly, DateTimeOffset.UtcNow)
+        await foreach (var row in BuildCandidatePairs(automaticOnly, DateTimeOffset.UtcNow, tmdbId: tmdbId, season: season)
                            .AsAsyncEnumerable().WithCancellation(cancellationToken))
         {
             if (currentId != row.CurrentReleaseId)
@@ -65,23 +81,29 @@ public sealed partial class ReleaseUpgradeRepository(
             }
         }
         KeepBest(currentBest);
+        best.Sort(CompareCandidates);
         return best;
 
         void KeepBest(ReleaseUpgradeCandidate? candidate)
         {
             if (candidate is null) return;
             best.Add(candidate);
-            best.Sort((left, right) =>
+            if (take is { } limit)
             {
-                var comparison = (right.CandidateScore - right.CurrentScore)
-                    .CompareTo(left.CandidateScore - left.CurrentScore);
-                if (comparison == 0) comparison = string.CompareOrdinal(left.AnimationName, right.AnimationName);
-                if (comparison == 0) comparison = left.Season.CompareTo(right.Season);
-                if (comparison == 0) comparison = left.Episode.CompareTo(right.Episode);
-                if (comparison == 0) comparison = left.CandidateReleaseId.CompareTo(right.CandidateReleaseId);
-                return comparison;
-            });
-            if (best.Count > take) best.RemoveAt(take);
+                best.Sort(CompareCandidates);
+                if (best.Count > limit) best.RemoveAt(limit);
+            }
+        }
+
+        static int CompareCandidates(ReleaseUpgradeCandidate left, ReleaseUpgradeCandidate right)
+        {
+            var comparison = (right.CandidateScore - right.CurrentScore)
+                .CompareTo(left.CandidateScore - left.CurrentScore);
+            if (comparison == 0) comparison = string.CompareOrdinal(left.AnimationName, right.AnimationName);
+            if (comparison == 0) comparison = left.Season.CompareTo(right.Season);
+            if (comparison == 0) comparison = left.Episode.CompareTo(right.Episode);
+            if (comparison == 0) comparison = left.CandidateReleaseId.CompareTo(right.CandidateReleaseId);
+            return comparison;
         }
     }
 
@@ -128,9 +150,15 @@ public sealed partial class ReleaseUpgradeRepository(
         bool automaticOnly,
         DateTimeOffset now,
         Guid? currentReleaseId = null,
-        Guid? candidateReleaseId = null)
+        Guid? candidateReleaseId = null,
+        string? tmdbId = null,
+        int? season = null)
     {
         var currentReleases = context.AnimationInfo.AsNoTracking();
+        if (!string.IsNullOrWhiteSpace(tmdbId))
+            currentReleases = currentReleases.Where(release => release.Animation != null && release.Animation.TmdbId == tmdbId);
+        if (season is { } selectedSeason)
+            currentReleases = currentReleases.Where(release => release.Season == selectedSeason);
         if (currentReleaseId is { } currentId)
             currentReleases = currentReleases.Where(release => release.Id == currentId);
         var eligibleCandidates = BuildEligibleCandidates(automaticOnly);
@@ -742,9 +770,24 @@ public sealed partial class ReleaseUpgradeRepository(
                 return new ReleaseUpgradeMutationResult(false, "download_cancelling", operation.ToRecord());
             if (!AreSameEpisode(writeContext, current, candidate) ||
                 !current.IsActiveRelease ||
-                candidate.IsActiveRelease ||
-                candidate.ReleaseScore <= current.ReleaseScore)
+                candidate.IsActiveRelease)
                 return new ReleaseUpgradeMutationResult(false, "release_changed", operation.ToRecord());
+
+            var policyEntity = candidate.SourceFeedId is { } feedId
+                ? await writeContext.SubscriptionAutomationPolicies.AsNoTracking()
+                    .SingleOrDefaultAsync(policy => policy.FeedId == feedId, cancellationToken)
+                : null;
+            var policy = policyEntity?.ToRecord();
+            var currentScore = releaseScoringService.Score(new SubscriptionReleaseMetadata(
+                current.ReleaseSubtitleGroup, current.ReleaseResolution, current.ReleaseCodec,
+                current.ReleaseLanguages, current.ReleaseSizeBytes), policy);
+            var candidateScore = releaseScoringService.Score(new SubscriptionReleaseMetadata(
+                candidate.ReleaseSubtitleGroup, candidate.ReleaseResolution, candidate.ReleaseCodec,
+                candidate.ReleaseLanguages, candidate.ReleaseSizeBytes), policy);
+            if (candidateScore.Value <= currentScore.Value)
+                return new ReleaseUpgradeMutationResult(false, "release_changed", operation.ToRecord());
+            operation.CurrentScore = currentScore.Value;
+            operation.CandidateScore = candidateScore.Value;
 
             var previous = await writeContext.FileMappings
                 .Where(mapping => mapping.AnimationInfoId == current.Id)
