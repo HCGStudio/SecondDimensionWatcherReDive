@@ -64,6 +64,13 @@ const empty = (): Subscription => ({
   feedIds: [],
   waitMinutes: 1440,
 });
+const listFields = [
+  "subtitleGroups",
+  "resolutions",
+  "codecs",
+  "languages",
+  "excludedKeywords",
+] as const;
 const selectStyle =
   "w-full rounded-md border border-border bg-surface p-2 text-sm text-foreground";
 
@@ -131,12 +138,20 @@ export const MultiSourceSubscriptions: React.FC<{ feeds: IFeed[] }> = ({
           className="mt-5 space-y-4 rounded-lg border border-border-light bg-canvas p-4"
           onSubmit={(event) => {
             event.preventDefault();
+            const fields = new FormData(event.currentTarget);
+            const submitted = { ...draft };
+            for (const field of listFields) {
+              submitted[field] = String(fields.get(field) ?? "")
+                .split(",")
+                .map((value) => value.trim())
+                .filter(Boolean);
+            }
             void act(
               () =>
                 fetcher(`/api/multi-source-subscriptions/${draft.id}`, {
                   method: "PUT",
                   headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify(draft),
+                  body: JSON.stringify(submitted),
                 }),
               true,
             );
@@ -277,19 +292,12 @@ export const MultiSourceSubscriptions: React.FC<{ feeds: IFeed[] }> = ({
                 }
               />
             </label>
-            {(
-              [
-                "subtitleGroups",
-                "resolutions",
-                "codecs",
-                "languages",
-                "excludedKeywords",
-              ] as const
-            ).map((field) => (
+            {listFields.map((field) => (
               <label className="text-sm" key={field}>
                 {t(`multiSource.fields.${field}`)}
                 <Input
                   key={`${draft.id}-${field}`}
+                  name={field}
                   defaultValue={draft[field].join(", ")}
                   onBlur={(e) =>
                     update({

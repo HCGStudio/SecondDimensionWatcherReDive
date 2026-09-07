@@ -30,6 +30,7 @@ public sealed class ReleaseUpgradeCoordinator(
 
     public async Task<ReleaseUpgradeExecutionResult> ExecuteAsync(
         ReleaseUpgradeCandidate candidate,
+        ReleaseUpgradeInvocation invocation,
         bool dryRun,
         CancellationToken cancellationToken)
     {
@@ -55,6 +56,7 @@ public sealed class ReleaseUpgradeCoordinator(
 
         var operation = await upgradeRepository.TryBeginAsync(
             candidate,
+            invocation,
             DateTimeOffset.UtcNow,
             cancellationToken);
         if (operation is null)
