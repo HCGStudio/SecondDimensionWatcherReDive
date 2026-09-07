@@ -110,9 +110,7 @@ export async function handleWatchlistPlayback(context) {
     }
     const target = body.id != null ? list.get(body.id) : undefined;
     if (body.id != null && !target) return done(404);
-    const tmdbId = Object.hasOwn(body, "tmdbId")
-      ? body.tmdbId
-      : target?.tmdbId;
+    const tmdbId = Object.hasOwn(body, "tmdbId") ? body.tmdbId : target?.tmdbId;
     const mikanId = Object.hasOwn(body, "mikanId")
       ? body.mikanId
       : target?.mikanId;
