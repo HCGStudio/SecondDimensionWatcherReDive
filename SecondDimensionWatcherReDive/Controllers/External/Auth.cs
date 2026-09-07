@@ -8,7 +8,11 @@ internal sealed record LoginResult(string? Token, string? RefreshToken, bool Suc
 
 internal sealed record AuthRequest([Required] string Token, [Required] string RefreshToken);
 
-internal sealed record RefreshToken(string Token, string JwtId);
+internal sealed record RevokeTokenRequest(
+    [Required]
+    [StringLength(64, MinimumLength = 32)]
+    [RegularExpression("^[A-Za-z0-9_-]+$")]
+    string RefreshToken);
 
 internal sealed record PasswordConfig(PasswordHash Password);
 

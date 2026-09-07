@@ -39,6 +39,7 @@ direct dependencies listed here.
 | Npgsql.EntityFrameworkCore.PostgreSQL | PostgreSQL License | https://github.com/npgsql/efcore.pg |
 | Swashbuckle.AspNetCore | MIT | https://github.com/domaindrivendev/Swashbuckle.AspNetCore |
 | TMDbLib | MIT | https://github.com/LordMike/TMDbLib |
+| WebPush | MIT | https://github.com/web-push-libs/web-push-csharp |
 
 The PostgreSQL License (used by Npgsql) is a permissive license functionally
 equivalent to the MIT/BSD family; full text:
@@ -141,7 +142,10 @@ or container images, and they impose no notice obligation on us:
 
 - **The Movie Database (TMDB) API** — used for anime metadata lookups via
   `TMDbLib`. Subject to TMDB's own terms of use; an API key is required and
-  the user supplies their own.
+  the user supplies their own. This product uses the TMDB API but is not
+  endorsed or certified by TMDB. Poster artwork remains the property of its
+  respective rights holders. The application proxy stores only a bounded,
+  short-lived operational cache and does not grant redistribution rights.
 - **qBittorrent Web API** — used for download orchestration. qBittorrent
   runs as a separate process / container and is not redistributed by this
   project.

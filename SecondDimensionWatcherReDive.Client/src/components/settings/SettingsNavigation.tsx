@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 
 import {
   Activity,
+  BellRing,
   Bot,
   Database,
   Download,
@@ -18,6 +19,7 @@ export const settingsSectionIds = [
   "downloads",
   "media",
   "health",
+  "notifications",
   "access",
   "plugins",
 ] as const;
@@ -29,6 +31,7 @@ const sectionIcons: Record<SettingsSectionId, React.ReactNode> = {
   downloads: <Download size={17} />,
   media: <Database size={17} />,
   health: <Activity size={17} />,
+  notifications: <BellRing size={17} />,
   access: <Network size={17} />,
   plugins: <Puzzle size={17} />,
 };
@@ -75,9 +78,10 @@ export const SettingsNavigation: React.FC<SettingsNavigationProps> = ({
           <button
             key={section}
             type="button"
+            aria-current={section === active ? "page" : undefined}
             onClick={() => onChange(section)}
             className={cn(
-              "flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm transition-colors",
+              "flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm transition-colors focus:outline-hidden focus:ring-2 focus:ring-focus",
               section === active
                 ? "bg-surface font-medium text-foreground shadow-ring"
                 : "text-muted hover:bg-surface/60 hover:text-foreground",

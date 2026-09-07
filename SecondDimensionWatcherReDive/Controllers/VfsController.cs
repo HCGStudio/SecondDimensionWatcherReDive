@@ -58,14 +58,14 @@ internal sealed partial class VfsController(
             ? string.Empty
             : Path.GetFileName(resource.VirtualPath.TrimEnd('/'));
 
-        var children = await fileExplorer.EnumerateDirectoryAsync(
+        var children = await fileExplorer.GetDirectoryEntriesAsync(
             new DirectoryToken(directoryPath, directoryName), cancellationToken);
 
-        var results = new External.VfsEntry[children.Count];
-        for (var i = 0; i < children.Count; i++)
-        {
-            results[i] = await BuildChildEntryAsync(children[i], cancellationToken);
-        }
+        var results = children.Select(child => new External.VfsEntry(
+            child.FileName,
+            child.IsDirectory,
+            child.FileInfo?.Length,
+            child.FileInfo?.LastModifiedUtc)).ToArray();
 
         return Ok(results);
     }
@@ -106,23 +106,6 @@ internal sealed partial class VfsController(
         return new External.VfsEntry(name, IsDirectory: false, info?.Length, info?.LastModifiedUtc);
     }
 
-    private async Task<External.VfsEntry> BuildChildEntryAsync(IFileExploreToken token, CancellationToken cancellationToken)
-    {
-        switch (token)
-        {
-            case DirectoryToken d:
-                return new External.VfsEntry(d.FileName, IsDirectory: true, Size: null, LastModifiedUtc: null);
-            case FileToken f:
-                var mapping = await fileMappingRepository.FindByVirtualPathAsync(f.Path, cancellationToken);
-                if (mapping is null)
-                    return new External.VfsEntry(f.FileName, IsDirectory: false, Size: null, LastModifiedUtc: null);
-                var info = await TryStatAsync(mapping, cancellationToken);
-                return new External.VfsEntry(f.FileName, IsDirectory: false, info?.Length, info?.LastModifiedUtc);
-            default:
-                throw new InvalidOperationException($"Unknown token type {token.GetType().FullName}");
-        }
-    }
-
     private async Task<FileStoreInfo?> TryStatAsync(FileMapping mapping, CancellationToken cancellationToken)
     {
         try
@@ -144,12 +127,10 @@ internal sealed partial class VfsController(
         var trimmed = virtualPath.TrimEnd('/');
         if (trimmed.Length == 0) return new ResolvedResource("/", IsDirectory: true, null);
 
-        var mapping = await fileMappingRepository.FindByVirtualPathAsync(trimmed, cancellationToken);
-        if (mapping is not null) return new ResolvedResource(trimmed, IsDirectory: false, mapping);
-
-        var prefix = trimmed + "/";
-        var children = await fileMappingRepository.GetByVirtualPathPrefixAsync(prefix, cancellationToken);
-        return children.Count > 0 ? new ResolvedResource(trimmed, IsDirectory: true, null) : null;
+        var entry = await fileMappingRepository.FindFileSystemEntryAsync(trimmed, cancellationToken);
+        return entry is null
+            ? null
+            : new ResolvedResource(entry.Path, entry.IsDirectory, entry.Mapping);
     }
 
     private static bool TryNormalize(string? raw, out string normalized)

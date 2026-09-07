@@ -7,12 +7,14 @@
   "unknownFile": "Unknown file",
   "unknownAnime": "Unknown anime",
   "back": "Back",
+  "retry": "Reload and retry",
   "useExternalHint": "Progress is synced across your devices. If playback fails, try a local player.",
   "openInExternal": "Open in local player:",
   "continue": {
     "title": "Continue watching",
     "subtitle": "Pick up where you left off on any device",
-    "resume": "Resume"
+    "resume": "Resume",
+    "progress": "Playback progress"
   },
   "progress": {
     "resumed": "Resumed at {{time}}",

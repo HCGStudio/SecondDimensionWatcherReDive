@@ -1,4 +1,8 @@
 import dayjs from "dayjs";
+import React from "react";
+import { useTranslation } from "react-i18next";
+import { useSearchParams } from "react-router";
+
 import {
   AlertTriangle,
   ChevronRight,
@@ -7,9 +11,6 @@ import {
   Folder,
   Home,
 } from "lucide-react";
-import React from "react";
-import { useTranslation } from "react-i18next";
-import { useSearchParams } from "react-router";
 
 import { useToast } from "../components/ToastProvider";
 import { Button } from "../components/ui/Button";
@@ -230,10 +231,7 @@ export const FilesPage: React.FC = () => {
     addToast({ title: t("files:vfs.download.failed"), color: "danger" });
   }, [addToast, t]);
 
-  const sorted = React.useMemo(
-    () => (data ? sortEntries(data) : null),
-    [data],
-  );
+  const sorted = React.useMemo(() => (data ? sortEntries(data) : null), [data]);
 
   return (
     <PageTemplate>

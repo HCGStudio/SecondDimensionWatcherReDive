@@ -1,7 +1,7 @@
 // Mock API server for frontend development/testing.
 // Run with: yarn mock (or: node mock-server.mjs)
 // Then run: yarn start — the Parcel proxy forwards /api/* to this server.
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 
 const PORT = parseInt(process.env.MOCK_PORT ?? "5097", 10);
@@ -27,6 +27,33 @@ function empty(res, status = 200) {
     "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
   });
   res.end();
+}
+
+function mockPoster(res, fileName) {
+  const hue = [...fileName].reduce(
+    (value, character) => (value * 31 + character.codePointAt(0)) % 360,
+    24,
+  );
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 450" role="img" aria-label="Mock poster">
+      <defs>
+        <linearGradient id="paper" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="hsl(${hue} 42% 82%)" />
+          <stop offset="1" stop-color="hsl(${(hue + 38) % 360} 34% 58%)" />
+        </linearGradient>
+      </defs>
+      <rect width="300" height="450" fill="url(#paper)" />
+      <circle cx="150" cy="175" r="72" fill="rgba(255,255,255,.28)" />
+      <path d="M70 385c18-82 52-122 80-122s62 40 80 122" fill="rgba(255,255,255,.3)" />
+      <text x="150" y="420" text-anchor="middle" fill="rgba(35,28,24,.72)" font-family="serif" font-size="24">SDW MOCK</text>
+    </svg>`;
+  res.writeHead(200, {
+    "Content-Type": "image/svg+xml; charset=utf-8",
+    "Cache-Control": "private, max-age=3600",
+    "X-Content-Type-Options": "nosniff",
+    "Access-Control-Allow-Origin": "*",
+  });
+  res.end(svg);
 }
 
 function readBody(req) {
@@ -57,6 +84,17 @@ function hasAuth(req) {
 // ---------------------------------------------------------------------------
 
 let registered = false;
+const activeRefreshTokens = new Set();
+
+function issueAuth() {
+  const refreshToken = fakeToken();
+  activeRefreshTokens.add(refreshToken);
+  return {
+    token: fakeToken(),
+    refreshToken,
+    success: true,
+  };
+}
 
 const ANIME_TITLES = [
   {
@@ -1059,11 +1097,34 @@ let systemSettings = {
   nfs: {
     enabled: false,
     port: 2049,
-    bindAddress: "0.0.0.0",
+    bindAddress: "127.0.0.1",
     leaseSeconds: 90,
     maxConnections: 32,
+    idleTimeoutSeconds: 120,
+    allowAnonymous: false,
+    allowedNetworks: ["127.0.0.0/8", "::1/128"],
     restartRequired: true,
     pendingRestart: false,
+  },
+  notifications: {
+    webhookEnabled: false,
+    webPushEnabled: false,
+    webPushSubject: "",
+    vapidPublicKey: "",
+    vapidPrivateKey: { isConfigured: false, source: "none" },
+    events: [
+      "releaseMatched",
+      "downloadPendingConfirmation",
+      "downloadCompleted",
+      "downloadFailed",
+      "incidentOpened",
+      "metadataNeedsReview",
+      "diskSpaceLow",
+    ],
+    quietHoursStart: null,
+    quietHoursEnd: null,
+    timeZoneId: "UTC",
+    webhookUrl: { isConfigured: false, source: "none" },
   },
 };
 
@@ -1127,7 +1188,13 @@ const deploymentSecrets = {
   codex: { isConfigured: false, source: "none" },
   tmdb: { isConfigured: true, source: "deployment" },
   torrent: { isConfigured: false, source: "none" },
+  webhook: { isConfigured: false, source: "none" },
 };
+
+let notificationDeliveries = [];
+let webPushSubscriptions = [];
+const mockVapidPublicKey =
+  "BGb1EKTo02dge1GKm7kU8hSQowk4T8Qnpl8dOB1nrnSQJnrhc6OdQ3a4gtyGTkera6bMWIp9cKAlEdN_BA6gGQM";
 
 function applySecretMutation(current, mutation, deploymentValue) {
   if (!mutation || mutation.operation === "keep") return current;
@@ -1542,6 +1609,63 @@ function vfsResolve(rawPath) {
   return { entry: match, isDirectory: false };
 }
 
+const mockTodoStates = new Map();
+
+function currentMockTodos() {
+  const anime = [...animations.values()];
+  const base = [
+    anime[0] && {
+      key: `automation:${anime[0].id}`,
+      type: "ReleaseMatched",
+      priority: "Normal",
+      title: anime[0].title,
+      detail: "A notify-only subscription matched this release.",
+      deepLink: `/todo?focus=automation:${anime[0].id}`,
+      resourceId: anime[0].id,
+      occurredAt: anime[0].publishTime,
+    },
+    anime[1] && {
+      key: `automation:${anime[1].id}`,
+      type: "DownloadPendingConfirmation",
+      priority: "High",
+      title: anime[1].title,
+      detail: "A matched release is waiting for download confirmation.",
+      deepLink: `/todo?focus=automation:${anime[1].id}`,
+      resourceId: anime[1].id,
+      occurredAt: anime[1].publishTime,
+    },
+    ...mockIncidents
+      .filter((incident) => !incident.resolvedAt)
+      .map((incident) => ({
+        key: `incident:${incident.id}`,
+        type: incident.type === "diskSpaceLow" ? "DiskSpaceLow" : "Incident",
+        priority: incident.severity === "critical" ? "Critical" : "High",
+        title: incident.title,
+        detail: incident.detail,
+        deepLink:
+          incident.type === "diskSpaceLow"
+            ? "/incidents?type=diskSpaceLow"
+            : `/incidents?focus=${incident.id}`,
+        resourceId: incident.id,
+        occurredAt: incident.detectedAt,
+      })),
+  ].filter(Boolean);
+
+  return base
+    .map((item) => ({
+      ...item,
+      readAt: mockTodoStates.get(item.key)?.readAt ?? null,
+      snoozedUntil: mockTodoStates.get(item.key)?.snoozedUntil ?? null,
+    }))
+    .sort((left, right) => {
+      const rank = { Normal: 0, High: 1, Critical: 2 };
+      return (
+        rank[right.priority] - rank[left.priority] ||
+        new Date(right.occurredAt) - new Date(left.occurredAt)
+      );
+    });
+}
+
 // ---------------------------------------------------------------------------
 // Router
 // ---------------------------------------------------------------------------
@@ -1564,29 +1688,26 @@ async function route(method, pathname, searchParams, req, res) {
 
   if (method === "POST" && pathname === "/api/auth/register") {
     registered = true;
-    return json(res, {
-      token: fakeToken(),
-      refreshToken: fakeToken(),
-      success: true,
-    });
+    return json(res, issueAuth());
   }
 
   if (method === "POST" && pathname === "/api/auth/login") {
     if (!registered)
       return json(res, { token: "", refreshToken: "", success: false });
-    return json(res, {
-      token: fakeToken(),
-      refreshToken: fakeToken(),
-      success: true,
-    });
+    return json(res, issueAuth());
   }
 
   if (method === "POST" && pathname === "/api/auth/refresh") {
-    return json(res, {
-      token: fakeToken(),
-      refreshToken: fakeToken(),
-      success: true,
-    });
+    const body = await readBody(req);
+    if (!activeRefreshTokens.delete(body.refreshToken))
+      return json(res, { token: null, refreshToken: null, success: false }, 400);
+    return json(res, issueAuth());
+  }
+
+  if (method === "POST" && pathname === "/api/auth/logout") {
+    const body = await readBody(req);
+    activeRefreshTokens.delete(body.refreshToken);
+    return empty(res, 204);
   }
 
   if (method === "GET" && pathname === "/api/auth/verify") {
@@ -1597,6 +1718,13 @@ async function route(method, pathname, searchParams, req, res) {
   // --- All remaining endpoints require auth ---
   if (!hasAuth(req) && !pathname.startsWith("/api/auth/")) {
     return empty(res, 401);
+  }
+
+  if (method === "GET") {
+    const posterMatch = pathname.match(
+      /^\/api\/images\/tmdb\/(?:w92|w154|w185|w300|w342|w500|w780|original)\/([a-z0-9][a-z0-9._-]{0,199}\.(?:avif|jpe?g|png|webp))$/i,
+    );
+    if (posterMatch) return mockPoster(res, posterMatch[1]);
   }
 
   // --- Runtime system settings ---
@@ -1718,6 +1846,9 @@ async function route(method, pathname, searchParams, req, res) {
           bindAddress: systemSettings.nfs.bindAddress,
           leaseSeconds: systemSettings.nfs.leaseSeconds,
           maxConnections: systemSettings.nfs.maxConnections,
+          idleTimeoutSeconds: systemSettings.nfs.idleTimeoutSeconds,
+          allowAnonymous: systemSettings.nfs.allowAnonymous,
+          allowedNetworks: [...systemSettings.nfs.allowedNetworks],
         };
         const changed = JSON.stringify(runningNfs) !== JSON.stringify(body.nfs);
         systemSettings.nfs = {
@@ -1726,6 +1857,32 @@ async function route(method, pathname, searchParams, req, res) {
           pendingRestart: systemSettings.nfs.pendingRestart || changed,
         };
         systemSettings.pendingRestart = systemSettings.nfs.pendingRestart;
+      }
+
+      if (body.notifications) {
+        const generateVapidKeys =
+          body.notifications.generateVapidKeys &&
+          !systemSettings.notifications.vapidPrivateKey.isConfigured;
+        systemSettings.notifications = {
+          webhookEnabled: body.notifications.webhookEnabled,
+          webPushEnabled: body.notifications.webPushEnabled,
+          webPushSubject: body.notifications.webPushSubject,
+          vapidPublicKey: generateVapidKeys
+            ? mockVapidPublicKey
+            : systemSettings.notifications.vapidPublicKey,
+          vapidPrivateKey: generateVapidKeys
+            ? { isConfigured: true, source: "runtime" }
+            : systemSettings.notifications.vapidPrivateKey,
+          events: [...body.notifications.events],
+          quietHoursStart: body.notifications.quietHoursStart,
+          quietHoursEnd: body.notifications.quietHoursEnd,
+          timeZoneId: body.notifications.timeZoneId,
+          webhookUrl: applySecretMutation(
+            systemSettings.notifications.webhookUrl,
+            body.notifications.webhookUrl,
+            deploymentSecrets.webhook,
+          ),
+        };
       }
 
       systemSettings.revision += 1;
@@ -1806,6 +1963,171 @@ async function route(method, pathname, searchParams, req, res) {
       );
       return empty(res);
     }
+  }
+
+  if (
+    method === "GET" &&
+    pathname === "/api/notifications/web-push/config"
+  ) {
+    return json(res, {
+      enabled: systemSettings.notifications.webPushEnabled,
+      vapidPublicKey: systemSettings.notifications.vapidPublicKey,
+    });
+  }
+
+  if (
+    method === "GET" &&
+    pathname === "/api/notifications/web-push/subscriptions"
+  ) {
+    return json(
+      res,
+      webPushSubscriptions.map(({ endpoint: _endpoint, ...summary }) => summary),
+    );
+  }
+
+  if (
+    method === "POST" &&
+    pathname === "/api/notifications/web-push/subscriptions"
+  ) {
+    if (!systemSettings.notifications.webPushEnabled)
+      return json(res, { message: "Enable Web Push first" }, 409);
+    const body = await readBody(req);
+    const now = new Date().toISOString();
+    let subscription = webPushSubscriptions.find(
+      (item) => item.endpoint === body.endpoint,
+    );
+    if (subscription) {
+      subscription.updatedAt = now;
+      subscription.lastError = null;
+    } else {
+      subscription = {
+        id: randomUUID(),
+        endpoint: body.endpoint,
+        endpointOrigin: new URL(body.endpoint).origin,
+        endpointHash: createHash("sha256").update(body.endpoint).digest("hex"),
+        createdAt: now,
+        updatedAt: now,
+        lastSuccessAt: null,
+        lastFailureAt: null,
+        lastError: null,
+      };
+      webPushSubscriptions.unshift(subscription);
+    }
+    const { endpoint: _endpoint, ...summary } = subscription;
+    return json(res, summary);
+  }
+
+  if (
+    method === "POST" &&
+    pathname ===
+      "/api/notifications/web-push/subscriptions/remove-current"
+  ) {
+    const body = await readBody(req);
+    webPushSubscriptions = webPushSubscriptions.filter(
+      (item) => item.endpoint !== body.endpoint,
+    );
+    res.writeHead(204);
+    return res.end();
+  }
+
+  const webPushDeleteMatch = pathname.match(
+    /^\/api\/notifications\/web-push\/subscriptions\/([^/]+)$/,
+  );
+  if (method === "DELETE" && webPushDeleteMatch) {
+    const before = webPushSubscriptions.length;
+    webPushSubscriptions = webPushSubscriptions.filter(
+      (item) => item.id !== webPushDeleteMatch[1],
+    );
+    res.writeHead(before === webPushSubscriptions.length ? 404 : 204);
+    return res.end();
+  }
+
+  if (method === "POST" && pathname === "/api/notifications/test") {
+    const webhookReady =
+      systemSettings.notifications.webhookEnabled &&
+      systemSettings.notifications.webhookUrl.isConfigured;
+    const webPushReady =
+      systemSettings.notifications.webPushEnabled &&
+      webPushSubscriptions.length > 0;
+    if (!webhookReady && !webPushReady)
+      return json(res, { message: "Configure a destination first" }, 409);
+    const eventId = randomUUID();
+    const channels = [
+      ...(webhookReady ? ["Webhook"] : []),
+      ...webPushSubscriptions
+        .filter(() => webPushReady)
+        .map(() => "WebPush"),
+    ];
+    notificationDeliveries.unshift(
+      ...channels.map((channel, index) => ({
+        id: index === 0 ? eventId : randomUUID(),
+        eventId,
+        channel,
+        type: "test",
+        status: "Delivered",
+        attemptCount: 1,
+        occurredAt: new Date().toISOString(),
+        lastAttemptAt: new Date().toISOString(),
+        deliveredAt: new Date().toISOString(),
+        lastError: null,
+      })),
+    );
+    return json(res, { eventId }, 202);
+  }
+
+  if (method === "GET" && pathname === "/api/notifications/deliveries") {
+    const take = Math.min(
+      100,
+      Math.max(1, Number(searchParams.get("take")) || 20),
+    );
+    return json(res, notificationDeliveries.slice(0, take));
+  }
+
+  if (method === "GET" && pathname === "/api/todos") {
+    const includeRead = searchParams.get("includeRead") === "true";
+    const includeSnoozed = searchParams.get("includeSnoozed") === "true";
+    const skip = Math.max(0, Number(searchParams.get("skip")) || 0);
+    const take = Math.min(
+      200,
+      Math.max(1, Number(searchParams.get("take")) || 50),
+    );
+    const focus = searchParams.get("focus");
+    const now = Date.now();
+    const all = currentMockTodos();
+    const unreadCount = all.filter(
+      (item) =>
+        !item.readAt &&
+        (!item.snoozedUntil || new Date(item.snoozedUntil) <= now),
+    ).length;
+    const visible = all.filter(
+      (item) =>
+        (includeRead || !item.readAt) &&
+        (includeSnoozed ||
+          !item.snoozedUntil ||
+          new Date(item.snoozedUntil) <= now),
+    );
+    const items = visible.slice(skip, skip + take);
+    const focused = focus && all.find((item) => item.key === focus);
+    if (focused && !items.some((item) => item.key === focused.key))
+      items.unshift(focused);
+    return json(res, { items, totalCount: visible.length, unreadCount });
+  }
+
+  if (method === "PATCH" && pathname === "/api/todos/state") {
+    const body = await readBody(req);
+    const now = new Date().toISOString();
+    for (const key of body.keys ?? []) {
+      const state = mockTodoStates.get(key) ?? {
+        readAt: null,
+        snoozedUntil: null,
+      };
+      if (body.action === "markRead") state.readAt = now;
+      if (body.action === "markUnread") state.readAt = null;
+      if (body.action === "snooze") state.snoozedUntil = body.snoozedUntil;
+      if (body.action === "unsnooze") state.snoozedUntil = null;
+      mockTodoStates.set(key, state);
+    }
+    return empty(res, 204);
   }
 
   // --- Playback continuity ---
@@ -2321,7 +2643,6 @@ async function route(method, pathname, searchParams, req, res) {
   if (method === "GET" && pathname === "/api/animationinfo/grouped") {
     const all = [...animations.values()];
     const grouped = new Map();
-    const uncategorized = [];
     for (const item of all) {
       if (item.animation && item.animation.tmdbId) {
         const key = item.animation.tmdbId;
@@ -2335,30 +2656,102 @@ async function route(method, pathname, searchParams, req, res) {
           });
         }
         grouped.get(key).episodes.push(item);
-      } else {
-        uncategorized.push(item);
       }
     }
-    const animationsList = [...grouped.values()]
+    const items = [...grouped.values()]
       .map((g) => {
         g.episodes.sort(
           (a, b) =>
             new Date(b.publishTime).getTime() -
               new Date(a.publishTime).getTime() || b.id.localeCompare(a.id),
         );
-        g.episodeCount = g.episodes.length;
-        return g;
+        const episodeCount = new Set(
+          g.episodes
+            .filter((episode) => episode.episode != null)
+            .map((episode) => `${episode.season ?? ""}:${episode.episode}`),
+        ).size;
+        return {
+          tmdbId: g.tmdbId,
+          name: g.name,
+          originalName: g.originalName,
+          posterPath: g.posterPath,
+          episodeCount,
+          releaseCount: g.episodes.length,
+          automationAttentionCount: g.episodes.filter((episode) =>
+            ["Notified", "PendingConfirmation", "AutoDownloadFailed"].includes(
+              episode.automationDisposition ?? "",
+            ),
+          ).length,
+          latestPublishTime: g.episodes[0].publishTime,
+        };
       })
-      .sort((a, b) => {
-        const aMax = Math.max(
-          ...a.episodes.map((e) => new Date(e.publishTime).getTime()),
-        );
-        const bMax = Math.max(
-          ...b.episodes.map((e) => new Date(e.publishTime).getTime()),
-        );
-        return bMax - aMax;
-      });
-    return json(res, { animations: animationsList, uncategorized });
+      .sort(
+        (a, b) =>
+          new Date(b.latestPublishTime).getTime() -
+            new Date(a.latestPublishTime).getTime() ||
+          b.tmdbId.localeCompare(a.tmdbId),
+      );
+    const take = parseInt(searchParams.get("take") ?? "24", 10);
+    const offset = parseInt(searchParams.get("cursor") ?? "0", 10);
+    return json(res, {
+      items: items.slice(offset, offset + take),
+      nextCursor: offset + take < items.length ? String(offset + take) : null,
+    });
+  }
+
+  if (method === "GET" && pathname === "/api/animationinfo/uncategorized") {
+    const items = [...animations.values()]
+      .filter((item) => !item.animation?.tmdbId)
+      .sort(
+        (a, b) =>
+          new Date(b.publishTime).getTime() -
+            new Date(a.publishTime).getTime() || b.id.localeCompare(a.id),
+      );
+    const take = parseInt(searchParams.get("take") ?? "24", 10);
+    const offset = parseInt(searchParams.get("cursor") ?? "0", 10);
+    return json(res, {
+      items: items.slice(offset, offset + take),
+      nextCursor: offset + take < items.length ? String(offset + take) : null,
+    });
+  }
+
+  const episodeCatalogMatch = pathname.match(
+    /^\/api\/animationinfo\/grouped\/([^/]+)\/episodes$/,
+  );
+  if (method === "GET" && episodeCatalogMatch) {
+    const tmdbId = decodeURIComponent(episodeCatalogMatch[1]);
+    const episodes = [...animations.values()]
+      .filter((item) => item.animation?.tmdbId === tmdbId)
+      .sort(
+        (a, b) =>
+          new Date(b.publishTime).getTime() -
+            new Date(a.publishTime).getTime() || b.id.localeCompare(a.id),
+      );
+    if (episodes.length === 0) return json(res, {}, 404);
+    const take = parseInt(searchParams.get("take") ?? "50", 10);
+    const offset = parseInt(searchParams.get("cursor") ?? "0", 10);
+    const episodeCount = new Set(
+      episodes
+        .filter((episode) => episode.episode != null)
+        .map((episode) => `${episode.season ?? ""}:${episode.episode}`),
+    ).size;
+    const first = episodes[0];
+    return json(res, {
+      animation: {
+        ...first.animation,
+        episodeCount,
+        releaseCount: episodes.length,
+        automationAttentionCount: episodes.filter((episode) =>
+          ["Notified", "PendingConfirmation", "AutoDownloadFailed"].includes(
+            episode.automationDisposition ?? "",
+          ),
+        ).length,
+        latestPublishTime: first.publishTime,
+      },
+      episodes: episodes.slice(offset, offset + take),
+      nextCursor:
+        offset + take < episodes.length ? String(offset + take) : null,
+    });
   }
 
   if (method === "GET" && pathname === "/api/animationinfo/downloading") {
@@ -2847,12 +3240,16 @@ async function route(method, pathname, searchParams, req, res) {
 
   if (method === "POST" && pathname === "/api/file/generatelink") {
     return readBody(req).then((body) => {
-      const token = randomBytes(32).toString("base64url");
-      return json(res, { url: `/api/file/play?token=${token}` });
+      const resourceId = randomBytes(16).toString("base64url");
+      res.setHeader(
+        "Set-Cookie",
+        `sdw-mock-playback=${randomBytes(32).toString("base64url")}; HttpOnly; SameSite=Strict; Path=/api/file/play`,
+      );
+      return json(res, { url: `/api/file/play/${resourceId}`, externalUrl: null });
     });
   }
 
-  if (method === "GET" && pathname === "/api/file/play") {
+  if (method === "GET" && pathname.startsWith("/api/file/play/")) {
     // Return a small placeholder response for mock playback
     res.writeHead(200, { "Content-Type": "text/plain" });
     return res.end(
@@ -3233,7 +3630,6 @@ const server = createServer((req, res) => {
     });
   }
 });
-
 server.listen(PORT, () => {
   console.log(`Mock API server running on http://localhost:${PORT}`);
   const finishedCount = [...animations.values()].filter(
