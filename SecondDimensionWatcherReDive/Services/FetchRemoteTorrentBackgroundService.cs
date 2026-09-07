@@ -89,6 +89,7 @@ public partial class FetchRemoteTorrentBackgroundService(
         var idleInterval = TimeSpan.FromSeconds(Math.Clamp(configuration.GetValue("Torrent:Polling:IdleSeconds", 10), 2, 60));
         var batchSize = Math.Clamp(configuration.GetValue("Torrent:Polling:BatchSize", 50), 1, 100);
         var maxBackoff = Math.Clamp(configuration.GetValue("Torrent:Polling:MaxBackoffSeconds", 120), 5, 600);
+        var statusTimeout = TimeSpan.FromSeconds(Math.Clamp(configuration.GetValue("Torrent:Polling:StatusTimeoutSeconds", 30), 1, 600));
 
         while (!cancellationToken.IsCancellationRequested)
         {
@@ -194,7 +195,10 @@ public partial class FetchRemoteTorrentBackgroundService(
                 {
                     using var httpClient = httpClientFactory.CreateClient(nameof(RemoteTorrentDownloadClient));
                     using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                    deadline.CancelAfter(TimeSpan.FromSeconds(2));
+                    // Include authentication and the shared request lock in the
+                    // configurable deadline without HttpClient imposing a shorter limit.
+                    httpClient.Timeout = Timeout.InfiniteTimeSpan;
+                    deadline.CancelAfter(statusTimeout);
                     info = await httpClient.GetFromJsonAsync(
                         $"/api/v2/torrents/info?hashes={Uri.EscapeDataString(string.Join('|', batch))}",
                         QBittorrentJsonSerializerContext.Default.RemoteTorrentInfoArray,

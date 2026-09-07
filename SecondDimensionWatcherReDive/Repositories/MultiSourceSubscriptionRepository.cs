@@ -37,6 +37,12 @@ public sealed class MultiSourceSubscriptionRepository(Models.ApplicationContext 
             }
             else if (entity.TmdbId != input.TmdbId || entity.Season != input.Season)
                 await write.Set<Models.MultiSourceEpisodeDecision>().Where(x => x.SubscriptionId == input.Id).ExecuteDeleteAsync(cancellationToken);
+            else if (!entity.Sources.OrderBy(source => source.Priority).Select(source => source.FeedId).SequenceEqual(feedIds))
+                await write.Set<Models.MultiSourceEpisodeDecision>()
+                    .Where(decision => decision.SubscriptionId == input.Id
+                        && decision.Outcome != "downloaded" && decision.Outcome != "downloading"
+                        && decision.Outcome != "mapping_pending" && decision.Outcome != "upgrading")
+                    .ExecuteDeleteAsync(cancellationToken);
             entity.Name = input.Name; entity.TmdbId = input.TmdbId; entity.Season = input.Season;
             entity.WaitMinutes = input.WaitMinutes; entity.Mode = input.Mode;
             entity.SubtitleGroups = input.SubtitleGroups.ToArray(); entity.Resolutions = input.Resolutions.ToArray();

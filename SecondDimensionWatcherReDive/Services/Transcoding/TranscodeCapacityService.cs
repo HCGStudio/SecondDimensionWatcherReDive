@@ -36,10 +36,11 @@ internal sealed class TranscodeCapacityService(
 
         await using var transaction = await downloads.BeginAsync(cancellationToken);
         await reservations.PruneExpiredAsync(cancellationToken);
-        if (sharesDownloads) await downloads.RecoverTrackedAsync(cancellationToken);
+        var capacityEnabled = configuration.GetValue("DownloadCapacity:Enabled", true);
+        if (sharesDownloads && capacityEnabled) await downloads.RecoverTrackedAsync(cancellationToken);
         var active = await reservations.ListActiveAsync(cancellationToken);
         if (active.Any(row => row.DirectoryPath == path)) return null;
-        var downloadRows = sharesDownloads ? await downloads.ListAsync(cancellationToken) : [];
+        var downloadRows = sharesDownloads && capacityEnabled ? await downloads.ListAsync(cancellationToken) : [];
         // Owner-published written bytes can lag, which retains extra reservation safely.
         // Across hosts filesystem device IDs are not comparable, so include all other HLS jobs conservatively.
         var remaining = active.Sum(row => (decimal)Math.Max(0, row.BudgetBytes - row.WrittenBytes))

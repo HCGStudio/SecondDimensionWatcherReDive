@@ -307,6 +307,17 @@ internal sealed partial class HlsTranscodingService : BackgroundService, IHlsTra
             using var capacityCancellation = CancellationTokenSource.CreateLinkedTokenSource(
                 cancellationToken, capacityLease?.LostToken ?? CancellationToken.None);
             cancellationToken = capacityCancellation.Token;
+            // Another replica can complete this cache while our job waits for
+            // its reservation. Adopt it while the shared directory is protected.
+            var manifest = await TryLoadManifestAsync(job.CacheDirectory, cancellationToken);
+            if (manifest is not null)
+            {
+                job.SetReady(manifest.Subtitles);
+                _metrics.RecordCacheHit();
+                TouchCache(job, null);
+                UpdateJobGauges();
+                return;
+            }
             RecreateJobDirectory(job.CacheDirectory);
             job.SetState(TranscodingJobState.Transcoding);
             UpdateJobGauges();
@@ -1014,6 +1025,7 @@ internal sealed partial class HlsTranscodingService : BackgroundService, IHlsTra
                 _progress = 1;
                 _isPlayable = true;
                 _state = TranscodingJobState.Ready;
+                _error = null;
             }
         }
 
