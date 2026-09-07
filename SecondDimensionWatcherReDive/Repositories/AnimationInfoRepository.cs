@@ -1005,6 +1005,17 @@ public class AnimationInfoRepository(
             if (entity is null)
                 return new DownloadStartResult(false, null);
 
+            await writeContext.Entry(entity).Reference(info => info.Animation).LoadAsync(cancellationToken);
+            if (expectedEpisode is null && entity.Animation is not null
+                && entity.Season is > 0 && entity.Episode is > 0)
+            {
+                var claimNow = DateTimeOffset.UtcNow;
+                if (await writeContext.Set<Models.EpisodeAcquisition>().AnyAsync(claim =>
+                    claim.TmdbId == entity.Animation.TmdbId && claim.Season == entity.Season
+                    && claim.Episode == entity.Episode && claim.ExpiresAt > claimNow, cancellationToken))
+                    return new DownloadStartResult(false, null);
+            }
+
             if (expectedEpisode is not null)
             {
                 // Metadata changes take the same namespace and row locks. Bind
@@ -1014,7 +1025,6 @@ public class AnimationInfoRepository(
                     ? entity.StateVersion > 0 && entity.StateVersion - 1 == expectedEpisode.StateVersion
                     : entity.StateVersion == expectedEpisode.StateVersion;
                 var tmdbId = expectedEpisode.Animation?.TmdbId;
-                await writeContext.Entry(entity).Reference(info => info.Animation).LoadAsync(cancellationToken);
                 var acquisition = await writeContext.Set<Models.EpisodeAcquisition>().SingleOrDefaultAsync(claim =>
                     claim.TmdbId == tmdbId && claim.Season == entity.Season && claim.Episode == entity.Episode
                     && claim.ReleaseId == id && claim.ClaimId == episodeClaimId, cancellationToken);

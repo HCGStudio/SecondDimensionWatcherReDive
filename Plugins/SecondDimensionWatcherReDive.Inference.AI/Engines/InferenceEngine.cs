@@ -239,6 +239,9 @@ public sealed partial class InferenceEngine(
             .AddTool<GetTmdbSeasonEpisodesTool>();
         if (tmdbId is null) toolBuilder.AddTool<SearchTmdbTool>();
         var toolExecutor = toolBuilder.Build();
+        if (tmdbId is not null)
+            toolExecutor = new TargetedTmdbToolExecutor(toolExecutor,
+                int.Parse(tmdbId, System.Globalization.CultureInfo.InvariantCulture), targetSeason);
 
         var chatOptions = new ChatOptions
         {

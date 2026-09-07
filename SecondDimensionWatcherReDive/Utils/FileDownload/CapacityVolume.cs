@@ -19,6 +19,14 @@ internal static class CapacityVolume
         return Path.TrimEndingDirectorySeparator(current);
     }
 
+    // Coordination identities are persisted, never passed to filesystem I/O.
+    // Fold on every host because case-insensitive volumes also exist on Unix.
+    // Case-sensitive paths differing only by case share a conservative lock.
+    public static string DirectoryIdentity(string path) => NormalizeDirectoryIdentity(CanonicalPath(path));
+
+    public static string NormalizeDirectoryIdentity(string canonicalPath) =>
+        canonicalPath.Replace('\\', '/').TrimEnd('/').ToUpperInvariant();
+
     public static string? Identity(string path)
     {
         try
