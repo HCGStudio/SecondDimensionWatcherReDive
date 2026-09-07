@@ -835,6 +835,7 @@ builder.Services.AddScoped<IMetadataRecognitionRuleRepository, MetadataRecogniti
 builder.Services.AddScoped<MetadataRecognitionRuleService>();
 builder.Services.AddSingleton<MetadataRecognitionRuleSupport>();
 builder.Services.AddScoped<IWatchlistRepository, WatchlistRepository>();
+builder.Services.AddScoped<IMediaTimelineRepository, MediaTimelineRepository>();
 builder.Services.AddScoped<IIncidentRetryService, IncidentRetryService>();
 builder.Services.AddScoped<IReleaseUpgradeCoordinator, ReleaseUpgradeCoordinator>();
 

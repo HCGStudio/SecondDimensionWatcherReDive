@@ -81,5 +81,38 @@
     "autoPlay": "次のエピソードを自動再生",
     "autoPlayHint": "再生終了後、ダウンロード済みの次話を開いて再生します",
     "autoplayBlocked": "次のエピソードを用意しました。再生ボタンを押してください"
+  },
+  "timeline": {
+    "title": "OP・ED とチャプター",
+    "versionHint": "時刻は現在のメディア版に関連付けられます。ED スキップでは位置を保存しますが視聴完了にはしません。自然な再生終了時は次の話の自動再生設定に従います。",
+    "autoSkip": "OP・ED を自動スキップ（個人設定）",
+    "episodeActive": "エピソードの上書きを使用中",
+    "seasonActive": "確認済みのシーズン既定値を使用中",
+    "editEpisode": "この話の時刻を編集",
+    "editSeason": "シーズン既定値を編集",
+    "acceptSeason": "この動画への適用を確認",
+    "deleteEpisode": "この話の上書きを削除",
+    "confirmHint": "この版の時刻を確認してからシーズン既定値を再利用してください：",
+    "failed": "時刻を更新できませんでした。再試行またはメディア版を再読み込みしてください。",
+    "kinds": {
+      "opening": "OP",
+      "ending": "ED",
+      "chapter": "チャプター"
+    },
+    "skip": {
+      "opening": "OP をスキップ",
+      "ending": "ED をスキップ"
+    },
+    "name": "名前",
+    "start": "開始（秒）",
+    "end": "終了（秒）",
+    "setNow": "現在の時刻を使用",
+    "enabled": "有効",
+    "remove": "削除",
+    "invalid": "時刻は動画の長さ内に設定してください。OP・ED の長さは正の値とし、有効な区間の重複や重なりは避けてください。",
+    "add": "{{kind}} を追加",
+    "save": "時刻を保存",
+    "cancel": "キャンセル",
+    "deleteSeason": "シーズン既定値を削除"
   }
 }

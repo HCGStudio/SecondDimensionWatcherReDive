@@ -15,6 +15,7 @@ export interface PlaybackPreferences {
   audioLanguage: string | null;
   audioTrackLabel: string | null;
   autoPlayNext: boolean;
+  autoSkip?: boolean;
   updatedAt?: string | null;
 }
 
@@ -51,6 +52,7 @@ export interface ContinueWatchingItem {
 }
 
 export interface SavePlaybackProgressRequest {
+  suppressWatched?: boolean;
   animationInfoId: string;
   path: string;
   positionSeconds: number;

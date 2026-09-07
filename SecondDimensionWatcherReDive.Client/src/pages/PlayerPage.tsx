@@ -33,6 +33,7 @@ import { Button } from "../components/ui/Button";
 import { EmptyPrompt } from "../components/ui/EmptyPrompt";
 import { Spinner } from "../components/ui/Spinner";
 import { generatePlaybackLink } from "../file/utils";
+import { TimelineControls } from "../playback/TimelineControls";
 import {
   savePlaybackPreferences,
   savePlaybackProgress,
@@ -287,6 +288,7 @@ export const PlayerPage: React.FC = () => {
   const contextRef = React.useRef(playbackContext);
   const preferencesRef = React.useRef(playbackContext?.preferences);
   const lastSyncedTimeRef = React.useRef(-1);
+  const skippedEndingRef = React.useRef(false);
   const initialSeekAppliedRef = React.useRef(false);
   const subtitleSelectionInitializedRef = React.useRef(false);
   const audioSelectionInitializedRef = React.useRef(false);
@@ -361,6 +363,7 @@ export const PlayerPage: React.FC = () => {
     setLinkError(null);
     lastSyncedTimeRef.current = -1;
     initialSeekAppliedRef.current = false;
+    skippedEndingRef.current = false;
     subtitleSelectionInitializedRef.current = false;
     audioSelectionInitializedRef.current = false;
   }, [animationId, file]);
@@ -717,6 +720,7 @@ export const PlayerPage: React.FC = () => {
         path: context.media.path,
         positionSeconds,
         durationSeconds,
+        suppressWatched: skippedEndingRef.current,
       };
       const mediaKey = `${context.media.animationInfoId}\u0000${context.media.path}`;
       if (keepalive) {
@@ -1262,6 +1266,20 @@ export const PlayerPage: React.FC = () => {
           <div className="overflow-hidden rounded-2xl border border-border bg-dark-deep shadow-whisper">
             <div ref={playerContainerRef} className="aspect-video w-full" />
           </div>
+
+          <TimelineControls
+            key={activeMediaKey}
+            animationInfoId={playbackContext.media.animationInfoId}
+            path={playbackContext.media.path}
+            playerRef={artRef}
+            autoSkip={preferences?.autoSkip ?? false}
+            onAutoSkipChange={(enabled) =>
+              void updatePreferences({ autoSkip: enabled })
+            }
+            onSkipEnding={() => {
+              skippedEndingRef.current = true;
+            }}
+          />
 
           <section className="mt-4 rounded-xl border border-border bg-surface p-4 shadow-ring">
             <div className="flex flex-wrap items-center justify-between gap-3">

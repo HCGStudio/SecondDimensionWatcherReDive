@@ -174,17 +174,18 @@ public sealed partial class PlaybackRepository(
             $"""
              INSERT INTO "PlaybackPreferences" AS current
                  ("UserId", "SubtitleLanguage", "SubtitleTrackLabel", "AudioLanguage",
-                  "AudioTrackLabel", "AutoPlayNext", "UpdatedAt")
+                  "AudioTrackLabel", "AutoPlayNext", "UpdatedAt", "AutoSkip")
              VALUES
                  ({preferences.UserId}, {preferences.SubtitleLanguage}, {preferences.SubtitleTrackLabel},
                   {preferences.AudioLanguage}, {preferences.AudioTrackLabel},
-                  {preferences.AutoPlayNext}, {preferences.UpdatedAt})
+                  {preferences.AutoPlayNext}, {preferences.UpdatedAt}, {preferences.AutoSkip})
              ON CONFLICT ("UserId") DO UPDATE SET
                  "SubtitleLanguage" = EXCLUDED."SubtitleLanguage",
                  "SubtitleTrackLabel" = EXCLUDED."SubtitleTrackLabel",
                  "AudioLanguage" = EXCLUDED."AudioLanguage",
                  "AudioTrackLabel" = EXCLUDED."AudioTrackLabel",
                  "AutoPlayNext" = EXCLUDED."AutoPlayNext",
+                 "AutoSkip" = EXCLUDED."AutoSkip",
                  "UpdatedAt" = EXCLUDED."UpdatedAt"
              WHERE current."UpdatedAt" <= EXCLUDED."UpdatedAt"
              """,

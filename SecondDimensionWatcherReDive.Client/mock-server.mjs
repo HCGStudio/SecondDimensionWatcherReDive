@@ -1346,10 +1346,12 @@ let playbackPreferences = {
   audioLanguage: "ja",
   audioTrackLabel: null,
   autoPlayNext: true,
+  autoSkip: false,
   updatedAt: new Date().toISOString(),
 };
 
 const progressByProfile = new Map([[mockProfiles[0].id, playbackProgress]]);
+const preferencesByProfile = new Map([[mockProfiles[0].id, playbackPreferences]]);
 
 function playbackKey(animationInfoId, path) {
   return `${animationInfoId}:${path}`;
@@ -1700,6 +1702,7 @@ async function route(method, pathname, searchParams, req, res) {
   const profileId = mockSessionFor(req).profileId;
   const playbackProgress = progressByProfile.get(profileId) ?? new Map();
   progressByProfile.set(profileId, playbackProgress);
+  let playbackPreferences = preferencesByProfile.get(profileId) ?? { subtitleLanguage: null, subtitleTrackLabel: null, audioLanguage: null, audioTrackLabel: null, autoPlayNext: true, autoSkip: false };
   console.log(
     `${method} ${pathname}${searchParams.toString() ? "?" + searchParams : ""}`,
   );
@@ -2299,7 +2302,7 @@ async function route(method, pathname, searchParams, req, res) {
     const previous = playbackProgress.get(key);
     const isWatched =
       previous?.isWatched ||
-      (durationSeconds > 0 && positionSeconds / durationSeconds >= 0.9);
+      (!body.suppressWatched && durationSeconds > 0 && positionSeconds / durationSeconds >= 0.9);
     const updatedAt = new Date().toISOString();
     const stored = {
       positionSeconds: Math.min(
@@ -2348,8 +2351,10 @@ async function route(method, pathname, searchParams, req, res) {
       audioLanguage: body.audioLanguage ?? null,
       audioTrackLabel: body.audioTrackLabel ?? null,
       autoPlayNext: body.autoPlayNext !== false,
+      autoSkip: body.autoSkip === true,
       updatedAt: new Date().toISOString(),
     };
+    preferencesByProfile.set(profileId, playbackPreferences);
     return json(res, playbackPreferences);
   }
 
