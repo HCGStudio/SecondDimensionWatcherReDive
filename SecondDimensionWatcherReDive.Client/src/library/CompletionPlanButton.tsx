@@ -139,7 +139,21 @@ export const CompletionPlanButton: React.FC<{
         ...old.filter((x) => !response.some((y) => y.episode === x.episode)),
         ...response,
       ]);
-      await mutate();
+      setSelected((old) =>
+        Object.fromEntries(
+          Object.entries(old).map(([episode, releaseId]) => [
+            episode,
+            response.some(
+              (result) =>
+                result.episode === Number(episode) && result.isSuccess,
+            )
+              ? ""
+              : releaseId,
+          ]),
+        ),
+      );
+      // Submission results remain authoritative if refreshing the plan fails.
+      await mutate().catch(() => undefined);
     } catch {
       setFailure(true);
     } finally {
@@ -165,10 +179,15 @@ export const CompletionPlanButton: React.FC<{
           </p>
           {isLoading ? (
             <Spinner />
-          ) : error ? (
+          ) : error && !data ? (
             <p role="alert">{t("completion.error")}</p>
           ) : data ? (
             <>
+              {error ? (
+                <p role="alert" className="mb-3 text-warning">
+                  {t("completion.refreshError")}
+                </p>
+              ) : null}
               <p className="mb-3 text-xs text-subtle">
                 {t("completion.calendar", {
                   source: data.airDatesSource,
@@ -294,7 +313,7 @@ export const CompletionPlanButton: React.FC<{
                             <Button
                               size="sm"
                               variant="outline"
-                              disabled={busy}
+                              disabled={busy || Boolean(error)}
                               onClick={() => void submit(episode.episode)}
                             >
                               {t("completion.retry")}
@@ -326,7 +345,7 @@ export const CompletionPlanButton: React.FC<{
               })}
             </p>
             <Button
-              disabled={busy || chosen.length === 0}
+              disabled={busy || Boolean(error) || chosen.length === 0}
               onClick={() => void submit()}
             >
               {busy ? <Spinner size={16} /> : null}
