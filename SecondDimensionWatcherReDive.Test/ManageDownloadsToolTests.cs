@@ -59,8 +59,13 @@ public sealed class ManageDownloadsToolTests
                 fixture.Info.Id,
                 fixture.Info.DownloadAttemptId,
                 It.IsAny<Guid>(),
+                It.IsAny<Guid>(),
+                It.IsAny<TimeSpan>(),
+                false,
+                false,
+                It.IsAny<SubscriptionAutomationDisposition?>(),
                 It.IsAny<CancellationToken>()))
-            .ReturnsAsync(true);
+            .ReturnsAsync(new DownloadCancellationLease(Guid.NewGuid(), DateTimeOffset.UtcNow.AddMinutes(1), false));
         fixture.Client
             .Setup(client => client.CancelDownloadTaskAsync(
                 fixture.Info.Id,
@@ -80,6 +85,8 @@ public sealed class ManageDownloadsToolTests
             It.IsAny<Guid>(),
             It.IsAny<Guid?>(),
             It.IsAny<Guid>(),
+            It.IsAny<Guid>(),
+            It.IsAny<SubscriptionAutomationDisposition?>(),
             It.IsAny<CancellationToken>()), Times.Never);
     }
 
