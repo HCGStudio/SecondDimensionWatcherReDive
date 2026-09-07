@@ -28,4 +28,13 @@
         <ProjectReference Include="..\Plugins\SecondDimensionWatcherReDive.NFS\SecondDimensionWatcherReDive.NFS.csproj"/>
     </ItemGroup>
 
+    <ItemGroup>
+        <Content Include="..\examples\plugins\**\*"
+                 Link="Examples\%(RecursiveDir)%(Filename)%(Extension)"
+                 CopyToOutputDirectory="PreserveNewest" />
+        <Content Include="..\deployments\podman-compose.yml"
+                 Link="Deployment\podman-compose.yml"
+                 CopyToOutputDirectory="PreserveNewest" />
+    </ItemGroup>
+
 </Project>

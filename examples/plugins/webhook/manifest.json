@@ -1,0 +1,31 @@
+{
+  "id": "example.webhook",
+  "name": "Webhook notifications",
+  "description": "Sends SDW notifications to one explicitly approved webhook domain.",
+  "version": "1.0.0",
+  "apiVersion": "1.0",
+  "entryPoint": "index.js",
+  "dependencies": [],
+  "capabilities": {
+    "networkDomains": ["hooks.example.com"],
+    "fileRoots": [],
+    "notifications": true,
+    "downloadControl": false,
+    "storageAccess": false,
+    "backgroundTasks": false
+  },
+  "platforms": ["any"],
+  "integrity": {
+    "files": {
+      "index.js": "cb04e27dacbadf8de122b491b2c2d32cb553564fcc9c390a3ab4d922a2cd0e1b"
+    }
+  },
+  "providers": [
+    {
+      "kind": "notification",
+      "name": "webhook",
+      "handlers": { "send": "sendNotification" }
+    }
+  ],
+  "dataVersion": 1
+}

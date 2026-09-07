@@ -10,6 +10,7 @@ import { DownloadSettingsSection } from "../components/settings/DownloadSettings
 import { HealthSettingsSection } from "../components/settings/HealthSettingsSection";
 import { MediaSettingsSection } from "../components/settings/MediaSettingsSection";
 import { NotificationSettingsSection } from "../components/settings/NotificationSettingsSection";
+import { PluginSettingsSection } from "../components/settings/PluginSettingsSection";
 import {
   SettingsNavigation,
   SettingsSectionId,
@@ -166,6 +167,8 @@ const ActiveSection: React.FC<ActiveSectionProps> = ({
       );
     case "access":
       return <AccessSettingsSection value={settings.nfs} onSave={onSave} />;
+    case "plugins":
+      return <PluginSettingsSection />;
     case "notifications":
       return (
         <NotificationSettingsSection

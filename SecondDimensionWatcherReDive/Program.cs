@@ -39,6 +39,7 @@ using SecondDimensionWatcherReDive.Observability;
 using SecondDimensionWatcherReDive.Repositories;
 using SecondDimensionWatcherReDive.Chat;
 using SecondDimensionWatcherReDive.Plugin;
+using SecondDimensionWatcherReDive.PluginPlatform;
 using SecondDimensionWatcherReDive.Services;
 using SecondDimensionWatcherReDive.Services.Transcoding;
 using SecondDimensionWatcherReDive.MigrationTasks;
@@ -52,6 +53,12 @@ using SecondDimensionWatcherReDive.Utils.Notifications;
 using SecondDimensionWatcherReDive.Utils.Http;
 using SecondDimensionWatcherReDive.Utils.Scraper;
 using SecondDimensionWatcherReDive.Utils.Spa;
+
+if (PluginWorkerHost.IsWorkerInvocation(args))
+{
+    Environment.ExitCode = await PluginWorkerHost.RunAsync(CancellationToken.None);
+    return;
+}
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -102,6 +109,9 @@ builder.Services.AddDataProtection()
     .SetApplicationName("SecondDimensionWatcherReDive")
     .PersistKeysToFileSystem(new DirectoryInfo(dataProtectionKeyRingPath));
 builder.Services.AddApplicationRuntimeSettings(runtimeSettingsProvider);
+builder.Services.AddPluginPlatform(
+    builder.Configuration,
+    PluginPlatformOptions.GetDefaultRootPath(passwordFile));
 
 builder.Services.Configure<MediaLibraryOptions>(
     builder.Configuration.GetSection(MediaLibraryOptions.SectionName));
@@ -922,5 +932,7 @@ finally
 {
     Console.CancelKeyPress -= cancelStartup;
 }
+
+await app.Services.GetRequiredService<IPluginManager>().InitializeAsync(startupCancellation.Token);
 
 await app.RunAsync();

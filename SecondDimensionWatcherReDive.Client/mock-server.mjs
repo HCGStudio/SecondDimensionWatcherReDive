@@ -1135,6 +1135,60 @@ let systemSettings = {
   },
 };
 
+const mockPluginManifest = {
+  id: "example.webhook",
+  name: "Webhook notifications",
+  version: "1.0.0",
+  apiVersion: "1.0",
+  entryPoint: "index.js",
+  description: "Mock notification provider for the controlled plugin UI.",
+  dependencies: [],
+  capabilities: {
+    networkDomains: ["hooks.example.com"],
+    fileRoots: [],
+    notifications: true,
+    downloadControl: false,
+    storageAccess: false,
+    backgroundTasks: false,
+  },
+  platforms: ["any"],
+  fileSha256: {
+    "index.js":
+      "cb04e27dacbadf8de122b491b2c2d32cb553564fcc9c390a3ab4d922a2cd0e1b",
+  },
+  signaturePublisher: null,
+  signatureAlgorithm: null,
+  providers: [
+    {
+      kind: "notification",
+      name: "webhook",
+      handlers: { send: "sendNotification" },
+    },
+  ],
+  dataVersion: 1,
+  dataMigration: null,
+};
+
+let mockPlugins = [];
+
+function mockInstalledPlugin(manifest = mockPluginManifest) {
+  return {
+    manifest,
+    isEnabled: false,
+    approvedCapabilities: manifest.capabilities,
+    compatibilityErrors: [],
+    health: {
+      status: "healthy",
+      consecutiveFailures: 0,
+      lastSuccessAt: null,
+      lastFailureAt: null,
+      lastError: null,
+      circuitOpenUntil: null,
+    },
+    hasConfiguration: false,
+  };
+}
+
 const deploymentSecrets = {
   openAi: { isConfigured: true, source: "deployment" },
   anthropic: { isConfigured: false, source: "none" },
@@ -1849,6 +1903,79 @@ async function route(method, pathname, searchParams, req, res) {
       return json(res, systemSettings);
     } catch (error) {
       return json(res, { error: error.message }, 400);
+    }
+  }
+
+  // --- Controlled plugins ---
+
+  if (method === "GET" && pathname === "/api/plugins") {
+    return json(res, mockPlugins);
+  }
+
+  if (method === "POST" && pathname === "/api/plugins/preview") {
+    await readBody(req);
+    return json(res, {
+      token: randomBytes(24).toString("hex"),
+      packageSha256:
+        "7d9fc7ef8ef86ffa9c4965f05b3e715b5f4ef872af326ed8bc4761a0003f71d3",
+      manifest: mockPluginManifest,
+      compatibilityErrors: [],
+      isSignatureTrusted: false,
+      signatureStatus: "Package is unsigned (mock development mode).",
+      expiresAt: new Date(Date.now() + 30 * 60_000).toISOString(),
+    });
+  }
+
+  if (method === "POST" && pathname === "/api/plugins/preview-remote") {
+    return json(
+      res,
+      {
+        code: "remote_install_disabled",
+        message: "Remote JavaScript installation is disabled.",
+      },
+      403,
+    );
+  }
+
+  if (
+    method === "POST" &&
+    (pathname === "/api/plugins/install" ||
+      /^\/api\/plugins\/[^/]+\/upgrade$/.test(pathname))
+  ) {
+    await readBody(req);
+    mockPlugins = [
+      ...mockPlugins.filter(
+        (plugin) => plugin.manifest.id !== mockPluginManifest.id,
+      ),
+      mockInstalledPlugin(),
+    ];
+    return json(res, {
+      id: mockPluginManifest.id,
+      version: mockPluginManifest.version,
+      isUpgrade: pathname.endsWith("/upgrade"),
+      compatibilityErrors: [],
+    });
+  }
+
+  {
+    const match = pathname.match(/^\/api\/plugins\/([^/]+)\/(enable|disable)$/);
+    if (match && method === "POST") {
+      const plugin = mockPlugins.find(
+        (candidate) => candidate.manifest.id === decodeURIComponent(match[1]),
+      );
+      if (!plugin) return json(res, { code: "plugin_not_found" }, 404);
+      plugin.isEnabled = match[2] === "enable";
+      return empty(res);
+    }
+  }
+
+  {
+    const match = pathname.match(/^\/api\/plugins\/([^/]+)$/);
+    if (match && method === "DELETE") {
+      mockPlugins = mockPlugins.filter(
+        (plugin) => plugin.manifest.id !== decodeURIComponent(match[1]),
+      );
+      return empty(res);
     }
   }
 

@@ -41,9 +41,18 @@ jobs:
       - name: Build
         run: dotnet build SecondDimensionWatcherReDive.slnx -c Release --no-restore
 
+      # Plugin tests terminate worker processes that share coverage hit files.
+      - name: Run plugin platform process tests without coverage
+        run: >-
+          dotnet test SecondDimensionWatcherReDive.Test/SecondDimensionWatcherReDive.Test.csproj
+          -c Release --no-build
+          --filter "FullyQualifiedName~SecondDimensionWatcherReDive.Test.PluginPlatformIntegrationTests"
+          --logger "trx;LogFileName=plugin-platform-test-results.trx"
+
       - name: Test
         run: >-
           dotnet test SecondDimensionWatcherReDive.slnx -c Release --no-build
+          --filter "FullyQualifiedName!~SecondDimensionWatcherReDive.Test.PluginPlatformIntegrationTests"
           --logger "trx;LogFileName=test-results.trx"
           --collect "XPlat Code Coverage"
           -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=cobertura

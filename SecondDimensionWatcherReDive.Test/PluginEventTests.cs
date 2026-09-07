@@ -62,4 +62,45 @@ public class PluginEventTests
 
         // If we get here without exception, the test passes
     }
+
+    [TestMethod]
+    public async Task Invoke_WhenHandlerFailsOrTimesOut_ContinuesWithRemainingHandlers()
+    {
+        var errors = new List<Exception>();
+        var pluginEvent = new PluginEvent<FileDownloadCompleteParam>(
+            TimeSpan.FromMilliseconds(40),
+            errors.Add);
+        var calls = new List<int>();
+        pluginEvent.Register((_, _) => throw new InvalidOperationException("broken"));
+        pluginEvent.Register(async (_, _) => await Task.Delay(TimeSpan.FromSeconds(5)));
+        pluginEvent.Register((_, _) =>
+        {
+            calls.Add(3);
+            return Task.CompletedTask;
+        });
+
+        await pluginEvent.InvokeAsync(
+            new FileDownloadCompleteParam(Guid.NewGuid(), "/path", "local"),
+            CancellationToken.None);
+
+        CollectionAssert.AreEqual(new[] { 3 }, calls);
+        Assert.HasCount(2, errors);
+    }
+
+    [TestMethod]
+    public async Task Invoke_WithSingleHandler_PropagatesCallerCancellation()
+    {
+        var errors = new List<Exception>();
+        var pluginEvent = new PluginEvent<FileDownloadCompleteParam>(
+            TimeSpan.FromSeconds(5),
+            errors.Add);
+        pluginEvent.Register(async (_, cancellationToken) =>
+            await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken));
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
+
+        await Assert.ThrowsExactlyAsync<TaskCanceledException>(() => pluginEvent.InvokeAsync(
+            new FileDownloadCompleteParam(Guid.NewGuid(), "/path", "local"), cancellation.Token));
+
+        Assert.IsEmpty(errors);
+    }
 }
