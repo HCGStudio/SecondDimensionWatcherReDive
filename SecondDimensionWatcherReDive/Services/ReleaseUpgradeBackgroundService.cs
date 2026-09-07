@@ -130,7 +130,7 @@ public sealed class ReleaseUpgradeBackgroundService(
         foreach (var candidate in candidates)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            await coordinator.ExecuteAsync(candidate, dryRun: false, cancellationToken);
+            await coordinator.ExecuteAsync(candidate, ReleaseUpgradeInvocation.AutomaticFeed, dryRun: false, cancellationToken);
         }
     }
 }
