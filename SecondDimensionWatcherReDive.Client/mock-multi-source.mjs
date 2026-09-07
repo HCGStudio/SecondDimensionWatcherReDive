@@ -170,6 +170,10 @@ export async function handleMultiSourceSubscriptions({
     return true;
   };
   if (pathname === "/api/multi-source-subscriptions" && method === "GET") {
+    // The development UI's polling also drives deadline expiry. Normal evaluation
+    // preserves terminal failures and already tracked downloads; it never requests a retry.
+    for (const subscription of subscriptions.values())
+      evaluate(subscription, animations, downloadState, evaluateRelease);
     return respond(
       [...subscriptions.values()].map((subscription) => ({
         subscription,

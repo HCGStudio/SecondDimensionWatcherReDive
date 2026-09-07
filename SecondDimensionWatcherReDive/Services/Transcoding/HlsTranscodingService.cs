@@ -691,7 +691,7 @@ internal sealed partial class HlsTranscodingService : BackgroundService, IHlsTra
             var completePath = Path.Combine(directory, "complete.json");
             if (!File.Exists(completePath))
             {
-                if (removeIncomplete && !protectedKeys.Contains(key) && !IsActive(key)) TryDeleteDirectory(directory);
+                if (removeIncomplete && !protectedKeys.Contains(key.ToUpperInvariant()) && !IsActive(key)) TryDeleteDirectory(directory);
                 continue;
             }
             var accessPath = Path.Combine(directory, ".access");
@@ -706,7 +706,7 @@ internal sealed partial class HlsTranscodingService : BackgroundService, IHlsTra
                      .OrderBy(candidate => candidate.LastAccess)
                      .ToArray())
         {
-            if (protectedKeys.Contains(expired.Key) || IsInUse(expired.Key)) continue;
+            if (protectedKeys.Contains(expired.Key.ToUpperInvariant()) || IsInUse(expired.Key)) continue;
             RemoveCacheDirectory(expired);
             candidates.Remove(expired);
         }
@@ -715,7 +715,7 @@ internal sealed partial class HlsTranscodingService : BackgroundService, IHlsTra
         foreach (var candidate in candidates.OrderBy(candidate => candidate.LastAccess))
         {
             if (total <= _options.MaxCacheBytes) break;
-            if (protectedKeys.Contains(candidate.Key) || IsInUse(candidate.Key)) continue;
+            if (protectedKeys.Contains(candidate.Key.ToUpperInvariant()) || IsInUse(candidate.Key)) continue;
             RemoveCacheDirectory(candidate);
             total -= candidate.Size;
         }
