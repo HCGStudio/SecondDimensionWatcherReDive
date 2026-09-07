@@ -257,7 +257,7 @@ Features: 25 anime entries with TMDB poster paths and mixed download states, gro
 - `Valkey:ConnectionString` — Valkey/Redis connection string (optional; uses in-memory cache if empty)
 - `Valkey:InstanceName` — Cache key prefix (default: "sdw-redive:")
 
-`DownloadCapacity:Enabled` defaults to true. Disabled mode bypasses admission for new downloads and drains the existing durable queue. HLS cache reservations remain independent; after acquiring one, a worker rechecks the shared completed manifest and reuses it before considering cache recreation.
+`DownloadCapacity:Enabled` defaults to true. Disabled mode bypasses admission for new downloads and drains the existing durable queue. HLS cache reservations remain independent. Waiting workers reuse atomically published shared manifests without reserving another write budget, and recheck again after acquiring a reservation before recreating a directory. Failure/cancellation cleanup only removes output created by that worker while its reservation still owns the directory; completed manifests and output belonging to another owner are preserved.
 
 EF Core migrations run automatically on application startup.
 
