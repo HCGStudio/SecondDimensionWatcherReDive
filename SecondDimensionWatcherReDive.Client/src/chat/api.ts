@@ -1,6 +1,6 @@
 import fetcher from "../auth/httpClient";
-import { ChatAction, ChatActionDecision } from "./types";
 import { apiErrorFromResponse } from "../errors/apiError";
+import { ChatAction, ChatActionDecision } from "./types";
 
 const API_BASE = "/api/chat";
 

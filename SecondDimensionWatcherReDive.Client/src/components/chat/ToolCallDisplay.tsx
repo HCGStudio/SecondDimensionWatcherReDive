@@ -18,7 +18,6 @@ import { ChatAction, ToolCallInfo } from "../../chat/types";
 import { StreamingToolCall } from "../../chat/useStreamingChat";
 import { Button } from "../ui/Button";
 
-
 interface ToolCallDisplayProps {
   toolCalls: (ToolCallInfo & { result?: string })[] | StreamingToolCall[];
   isStreaming?: boolean;
