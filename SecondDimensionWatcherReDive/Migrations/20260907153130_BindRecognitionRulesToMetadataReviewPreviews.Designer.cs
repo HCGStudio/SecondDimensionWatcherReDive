@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using SecondDimensionWatcherReDive.Models;
@@ -11,9 +12,11 @@ using SecondDimensionWatcherReDive.Models;
 namespace SecondDimensionWatcherReDive.Migrations
 {
     [DbContext(typeof(ApplicationContext))]
-    partial class ApplicationContextModelSnapshot : ModelSnapshot
+    [Migration("20260907153130_BindRecognitionRulesToMetadataReviewPreviews")]
+    partial class BindRecognitionRulesToMetadataReviewPreviews
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -671,55 +674,6 @@ namespace SecondDimensionWatcherReDive.Migrations
                         {
                             t.HasCheckConstraint("CK_ChatPendingActions_Expiry", "\"ExpiresAt\" > \"CreatedAt\"");
                         });
-                });
-
-            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.DownloadCapacityEntry", b =>
-                {
-                    b.Property<Guid>("ItemId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid?>("DownloadAttemptId")
-                        .HasColumnType("uuid");
-
-                    b.Property<long?>("ExpectedBytes")
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("Hash")
-                        .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
-                    b.Property<bool>("Paused")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("Reason")
-                        .IsRequired()
-                        .HasMaxLength(1024)
-                        .HasColumnType("character varying(1024)");
-
-                    b.Property<long>("RemainingBytes")
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("State")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
-
-                    b.Property<string>("Title")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<DateTimeOffset>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("ItemId");
-
-                    b.HasIndex("State", "CreatedAt");
-
-                    b.ToTable("DownloadCapacityEntries", (string)null);
                 });
 
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.DurableJob", b =>
@@ -1925,41 +1879,6 @@ namespace SecondDimensionWatcherReDive.Migrations
                     b.ToTable("TodoItemStates");
                 });
 
-            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.TranscodeCapacityReservation", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .HasColumnType("uuid");
-
-                    b.Property<long>("BudgetBytes")
-                        .HasColumnType("bigint");
-
-                    b.Property<bool>("CountsAgainstDownloads")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("DirectoryPath")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<DateTimeOffset>("LeaseUntil")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("VolumeIdentity")
-                        .HasMaxLength(512)
-                        .HasColumnType("character varying(512)");
-
-                    b.Property<long>("WrittenBytes")
-                        .HasColumnType("bigint");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("DirectoryPath")
-                        .IsUnique();
-
-                    b.HasIndex("LeaseUntil");
-
-                    b.ToTable("TranscodeCapacityReservations", (string)null);
-                });
-
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.UserAccount", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2033,51 +1952,6 @@ namespace SecondDimensionWatcherReDive.Migrations
                         .IsUnique();
 
                     b.ToTable("Profiles");
-                });
-
-            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.WatchlistItem", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<int?>("MikanId")
-                        .HasColumnType("integer");
-
-                    b.Property<Guid>("ProfileId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(16)
-                        .HasColumnType("character varying(16)");
-
-                    b.Property<string>("SubjectKey")
-                        .IsRequired()
-                        .HasMaxLength(96)
-                        .HasColumnType("character varying(96)");
-
-                    b.Property<string>("Title")
-                        .IsRequired()
-                        .HasMaxLength(512)
-                        .HasColumnType("character varying(512)");
-
-                    b.Property<string>("TmdbId")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<DateTimeOffset>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ProfileId", "MikanId")
-                        .IsUnique();
-
-                    b.HasIndex("ProfileId", "SubjectKey")
-                        .IsUnique();
-
-                    b.ToTable("WatchlistItems", (string)null);
                 });
 
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.WebDavToken", b =>
@@ -2258,15 +2132,6 @@ namespace SecondDimensionWatcherReDive.Migrations
                     b.Navigation("Conversation");
                 });
 
-            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.DownloadCapacityEntry", b =>
-                {
-                    b.HasOne("SecondDimensionWatcherReDive.Models.AnimationInfo", null)
-                        .WithOne()
-                        .HasForeignKey("SecondDimensionWatcherReDive.Models.DownloadCapacityEntry", "ItemId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-                });
-
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.FileNameRegexRule", b =>
                 {
                     b.HasOne("SecondDimensionWatcherReDive.Models.Animation", null)
@@ -2431,15 +2296,6 @@ namespace SecondDimensionWatcherReDive.Migrations
                         .IsRequired();
 
                     b.Navigation("User");
-                });
-
-            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.WatchlistItem", b =>
-                {
-                    b.HasOne("SecondDimensionWatcherReDive.Models.UserProfile", null)
-                        .WithMany()
-                        .HasForeignKey("ProfileId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
                 });
 
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.WebDavToken", b =>
