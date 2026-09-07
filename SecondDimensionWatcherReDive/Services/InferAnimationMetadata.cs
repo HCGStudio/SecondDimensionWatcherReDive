@@ -99,8 +99,8 @@ public partial class InferAnimationMetadata(
             // Do not commit an answer based on a rule that was disabled or edited while AI ran.
             if (ruleRepository is not null)
             {
-                var currentRule = MetadataRecognitionRuleService.Select(
-                    await ruleRepository.ListAsync(cancellationToken), originalItem);
+                rules = await ruleRepository.ListAsync(cancellationToken);
+                var currentRule = MetadataRecognitionRuleService.Select(rules, originalItem);
                 if (currentRule?.Id != rule?.Id || currentRule?.Revision != rule?.Revision)
                 {
                     LogStaleInferenceDiscarded(logger, item.Id);
@@ -254,10 +254,17 @@ public partial class InferAnimationMetadata(
                 MetadataLastError = exception.Message.Length > MaxErrorLength
                     ? exception.Message[..MaxErrorLength] : exception.Message,
                 MetadataConfidence = null,
-                IsAiProcessed = false
+                IsAiProcessed = false,
+                RecognitionRule = null,
+                RevalidateRecognitionRules = false,
+                RecognitionRulesAtFailure = ruleRepository is null ? null : rules.Where(rule => rule.Enabled).ToArray()
             };
-            if (await animationInfoRepository.TryUpdateAsync(item, expectedStateVersion, cancellationToken)
-                && notificationPublisher is not null)
+            if (!await animationInfoRepository.TryUpdateAsync(item, expectedStateVersion, cancellationToken))
+            {
+                LogStaleInferenceDiscarded(logger, item.Id);
+                return;
+            }
+            if (notificationPublisher is not null)
                 await notificationPublisher.PublishAsync(new NotificationEvent(
                     NotificationEventType.MetadataNeedsReview,
                     $"metadata-rule-conflict:{item.Id}:{expectedStateVersion + 1}",
@@ -284,7 +291,10 @@ public partial class InferAnimationMetadata(
                     : MetadataReviewStatus.Pending,
                 MetadataConfidence = null,
                 MetadataLastError = error,
-                MetadataReviewedAt = null
+                MetadataReviewedAt = null,
+                RecognitionRule = null,
+                RevalidateRecognitionRules = false,
+                RecognitionRulesAtFailure = ruleRepository is null ? null : rules.Where(rule => rule.Enabled).ToArray()
             };
             if (!await animationInfoRepository.TryUpdateAsync(
                     item,
