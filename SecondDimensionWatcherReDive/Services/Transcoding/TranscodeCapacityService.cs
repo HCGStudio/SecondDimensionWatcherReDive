@@ -94,6 +94,16 @@ internal sealed class TranscodeCapacityService(
         }
     }
 
+    public async Task CleanupIncompleteAsync(Guid id, Action cleanup, CancellationToken cancellationToken)
+    {
+        // Serialize ownership validation and deletion with takeover. No remote
+        // request or outer capacity transaction is held by the caller.
+        await using var transaction = await downloads.BeginAsync(cancellationToken);
+        if (!await reservations.RenewAsync(id, 0, LeaseSeconds, cancellationToken)) return;
+        cleanup();
+        await transaction.CommitAsync(cancellationToken);
+    }
+
     public Task<bool> ExtendLeaseAsync(Guid id, CancellationToken cancellationToken) =>
         reservations.ExtendLeaseAsync(id, LeaseSeconds, cancellationToken);
 
@@ -158,6 +168,30 @@ internal sealed class TranscodeCapacityLease : IAsyncDisposable
             deleteFiles();
         }
         finally { _renewalGate.Release(); }
+    }
+
+    public async Task CleanupIncompleteAsync(Action cleanup)
+    {
+        if (_lost.IsCancellationRequested) return;
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        try
+        {
+            await _renewalGate.WaitAsync(deadline.Token);
+            try
+            {
+                if (_lost.IsCancellationRequested) return;
+                await using var scope = _scopeFactory.CreateAsyncScope();
+                await scope.ServiceProvider.GetRequiredService<TranscodeCapacityService>()
+                    .CleanupIncompleteAsync(_id, cleanup, deadline.Token);
+            }
+            finally { _renewalGate.Release(); }
+        }
+        catch (Exception exception)
+        {
+            // Cleanup can retry after the lease expires; an uncertain owner
+            // must never delete a successor's output.
+            _logger.LogWarning(exception, "Deferred cleanup for transcoding capacity reservation {ReservationId}", _id);
+        }
     }
 
     private async Task RunHeartbeatAsync()
