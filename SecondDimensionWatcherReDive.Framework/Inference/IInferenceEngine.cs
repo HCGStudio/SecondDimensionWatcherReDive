@@ -16,10 +16,10 @@ public interface IInferenceEngine
     Task<InferenceResult?> InferAsync(string title, string description, CancellationToken cancellationToken);
 
     /// <summary>
-    ///     Infers coordinates against a known TMDB series, without searching for a different series.
+    ///     Infers coordinates against a known TMDB series and optional target season, without searching for a different series.
     /// </summary>
     Task<InferenceResult?> InferForTmdbAsync(string title, string description, string tmdbId,
-        CancellationToken cancellationToken);
+        int? targetSeason, CancellationToken cancellationToken);
 
     /// <summary>
     ///     Uses AI to infer season and episode numbers for a batch of files. Regex-library lookup is

@@ -12,10 +12,12 @@ public sealed record EpisodeCompletionPlan(string TmdbId, string AnimationName, 
 public sealed record CompletionSelection(int Episode, Guid ReleaseId);
 public sealed record CompletionSubmissionRequest(string TmdbId, int Season, IReadOnlyList<CompletionSelection> Selections);
 public sealed record CompletionSubmissionResult(int Episode, Guid ReleaseId, string Outcome, bool IsSuccess);
+public enum EpisodeClaimOutcome { CandidateUnavailable, AlreadyPresentOrBusy, Acquired }
+
 public interface ILibraryCompletionRepository
 {
     Task<IReadOnlyList<AnimationInfo>> GetSeasonReleasesAsync(string tmdbId, int season, CancellationToken cancellationToken);
     Task<IReadOnlySet<Guid>> GetMappedReleaseIdsAsync(string tmdbId, int season, CancellationToken cancellationToken);
-    Task<bool> TryClaimEpisodeAsync(string tmdbId, int season, int episode, Guid releaseId, Guid claimId, CancellationToken cancellationToken);
+    Task<EpisodeClaimOutcome> TryClaimEpisodeAsync(string tmdbId, int season, int episode, Guid releaseId, Guid claimId, CancellationToken cancellationToken);
     Task ReleaseClaimAsync(string tmdbId, int season, int episode, Guid claimId, CancellationToken cancellationToken);
 }

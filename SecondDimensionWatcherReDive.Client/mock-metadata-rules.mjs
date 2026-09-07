@@ -58,10 +58,27 @@ function resolve(rule, item) {
       fail("ruleAmbiguous", "A season or episode capture is invalid.");
     return value;
   };
-  const season = rule.fixedSeason ?? capture("season") ?? item.metadata.season;
-  const inputEpisode = capture("episode") ?? item.metadata.episode;
-  const episode =
-    inputEpisode == null ? null : inputEpisode + rule.episodeOffset;
+  const capturedSeason = capture("season");
+  const capturedEpisode = capture("episode");
+  const deterministic =
+    capturedEpisode != null &&
+    (rule.fixedSeason != null || capturedSeason != null);
+  if (
+    !deterministic &&
+    (item.metadata.tmdbId !== rule.tmdbId ||
+      (rule.fixedSeason != null && item.metadata.season !== rule.fixedSeason))
+  )
+    fail(
+      "ruleAmbiguous",
+      "The stored coordinates do not match this rule's target.",
+    );
+  const season = deterministic
+    ? (rule.fixedSeason ?? capturedSeason)
+    : item.metadata.season;
+  const inputEpisode = deterministic ? capturedEpisode : item.metadata.episode;
+  const offset =
+    !deterministic && item.reviewStatus === "reviewed" ? 0 : rule.episodeOffset;
+  const episode = inputEpisode == null ? null : inputEpisode + offset;
   if (
     (inputEpisode == null && rule.episodeOffset !== 0) ||
     (episode != null && (episode < 0 || episode > 2147483647))
@@ -114,7 +131,24 @@ function draftRule(body, id, context) {
     Math.abs(body.episodeOffset) > 10000
   )
     fail("ruleNumbers", "Invalid season or episode offset.");
+  const disablingOnly =
+    current &&
+    !body.enabled &&
+    current.name === name &&
+    current.sourceFeedId === (body.sourceFeedId || null) &&
+    current.titlePattern === titlePattern &&
+    current.subtitleGroup === subtitleGroup &&
+    current.tmdbId === String(Number(body.tmdbId)) &&
+    current.fixedSeason === (body.fixedSeason ?? null) &&
+    current.episodeOffset === body.episodeOffset &&
+    current.canonicalGroupName === canonicalGroupName;
   if (
+    !disablingOnly &&
+    !context.metadataCatalog.has(String(Number(body.tmdbId)))
+  )
+    fail("tmdbNotFound", "The TMDB series is not in the mock catalog.");
+  if (
+    !disablingOnly &&
     body.sourceFeedId &&
     !context.feeds.some((feed) => feed.id === body.sourceFeedId)
   )
@@ -184,6 +218,26 @@ function candidates(context) {
     .sort((a, b) => Date.parse(b.publishTime) - Date.parse(a.publishTime));
 }
 
+export function isMetadataRulePreviewCurrent(preview, item, animation, feeds) {
+  if (!preview.recognitionRuleId) return true;
+  const rule = rules.get(preview.recognitionRuleId);
+  if (!rule?.enabled || rule.revision !== preview.recognitionRuleRevision)
+    return false;
+  const current = {
+    ...item,
+    sourceFeedId: sourceFor(animation, feeds),
+    subtitleGroup:
+      animation?.releaseSubtitleGroup ?? animation?.group?.name ?? null,
+  };
+  return (
+    matches(rule, current) &&
+    ![...rules.values()].some(
+      (other) =>
+        other.enabled && other.id !== rule.id && matches(other, current),
+    )
+  );
+}
+
 export async function handleMetadataRules(context) {
   const { req, res, method, pathname, searchParams, json, readBody } = context;
   if (!pathname.startsWith("/api/metadata-rules")) return false;
@@ -235,7 +289,7 @@ export async function handleMetadataRules(context) {
       const rule = rules.get(historyMatch[1]);
       if (!rule) fail("ruleNotFound", "Rule not found.", 404);
       const body = await readBody(req);
-      if (body.ruleRevision !== rule.revision)
+      if (!rule.enabled || body.ruleRevision !== rule.revision)
         fail("ruleChanged", "Refresh the rule preview.", 409);
       const item = candidates(context).find(
         (candidate) => candidate.id === historyMatch[2],
@@ -267,6 +321,8 @@ export async function handleMetadataRules(context) {
       const resolvedMetadata = { ...identity, ...resolved };
       const preview = {
         previewId: randomUUID(),
+        recognitionRuleId: rule.id,
+        recognitionRuleRevision: rule.revision,
         itemId: item.id,
         baseRevision: item.revision,
         resolvedMetadata,

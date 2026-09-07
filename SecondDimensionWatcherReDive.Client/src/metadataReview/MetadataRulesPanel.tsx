@@ -214,7 +214,8 @@ export const MetadataRulesPanel: React.FC<{
   }
 
   async function previewHistory(sample: RecognitionSample) {
-    if (!editingId || !draft?.expectedRevision) return;
+    if (!editingId || !draft?.expectedRevision || !selectedSavedRule?.enabled)
+      return;
     setBusy(true);
     setError(null);
     try {
@@ -504,7 +505,7 @@ export const MetadataRulesPanel: React.FC<{
                         {t(`rules.warnings.${sample.warning}`)}
                       </p>
                     )}
-                    {draftMatchesSaved && (
+                    {draftMatchesSaved && selectedSavedRule?.enabled && (
                       <Button
                         className="mt-2"
                         size="sm"
