@@ -166,6 +166,14 @@ Feeds can be configured two ways (merged at sync time):
 
 `SyncFeed` background service runs every 10 minutes, fetches all feed URLs, and creates `AnimationInfo` records.
 
+### Broadcast-aware Completion
+
+Search → Integrity opens a per-episode completion plan backed by `GET /api/library/completion?tmdbId=…&season=…`; `POST /api/library/completion` submits selected episode/release pairs and requires `ContentWrite` (Admin/Member). Candidates come only from collected, reliably identified single-episode torrent releases. The current feed rules filter candidates, existing release scoring chooses one default version per episode, and the preview exposes reasons, estimated size and unavailable states.
+
+`EpisodeAirCalendarService` reads TMDB season episode dates, caching successful lookups for six hours and unavailable lookups for ten minutes. The comparison uses the current UTC date, not an inferred precise broadcast time. Group publication time is displayed separately. Future and unknown-date episodes are excluded from actionable missing counts; unknown-date episodes can still be selected manually when a reliable collected candidate exists. A completed release requires live file mappings to count as downloaded; awaiting mappings blocks duplicate downloads.
+
+Each submitted episode re-reads current state and claims the TMDB/season/episode identity in `EpisodeAcquisitions` before using the existing download submission/cancellation saga through `IFileDownloadClientProvider`. Claims expire after five minutes if their owner is lost, while persistent download state prevents already tracked episodes from being submitted again. Results are returned per item, and failures can be retried independently. Specials, batches and uncertain episode identities remain manual; no external torrent search is added. `mock-completion.mjs` supports local development against the mock library with explicitly illustrative dates.
+
 ### Season Anime Discovery
 
 `ScrapeSeasonBangumi` scrapes mikanani.me homepage for current season anime (HTML parsing via HtmlAgilityPack). Scraping logic is abstracted behind `ISeasonScraper` (implemented by `MikananiSeasonScraper`). Data cached in `SeasonBangumi` + `BangumiSubgroup` DB tables. `SeasonController` exposes:

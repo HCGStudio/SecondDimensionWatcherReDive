@@ -50,7 +50,7 @@
     "description": "集中查看缺集、重复集、未识别剧集和评分更高的候选版本。",
     "refresh": "刷新",
     "season": "第 {{season}} 季 · 预计 {{count}} 集",
-    "missing": "缺集",
+    "missing": "已播缺集",
     "duplicates": "重复",
     "unidentified": "未识别"
   },
@@ -66,6 +66,58 @@
       "download_queued": "候选版本已加入下载",
       "applied": "版本升级已应用",
       "already_applied": "版本升级已应用"
+    }
+  },
+  "completion": {
+    "open": "补全计划",
+    "title": "逐集补全计划",
+    "description": "仅从已收录且季集识别可靠的单集资源中选择。默认选择符合当前订阅规则、评分最高的一个版本；提交时重新确认状态。特别篇和合辑请人工处理。",
+    "calendar": "播出日期来源：{{source}} · 查询于 {{date}}（日期按 UTC 判断，不代表字幕组发布时间）",
+    "unidentified": "有 {{count}} 个资源季集不明、置信度不足或属于合辑，未自动匹配。",
+    "empty": "暂无可确定的集数。",
+    "episode": "第 {{episode}} 集",
+    "airDate": "播出日期：{{date}}",
+    "unknown": "未知",
+    "candidate": "候选版本",
+    "skip": "本次跳过",
+    "unknownSize": "体积未知",
+    "published": "字幕组发布时间：{{date}}",
+    "total": "已选 {{count}} 集 · 已知体积 {{size}} · {{unknown}} 项体积未知",
+    "submit": "批量提交所选剧集",
+    "retry": "重试此集",
+    "error": "无法加载或提交补全计划，请刷新后重试。",
+    "summary": "未播 {{unaired}} 集 · 播出信息未知 {{unknown}} 集",
+    "states": {
+      "downloaded": "已下载",
+      "downloading": "下载中",
+      "unaired": "尚未播出",
+      "failed": "下载失败",
+      "candidate": "有候选未下载",
+      "air_date_unknown": "播出信息未知",
+      "aired_no_resource": "已播出，无资源",
+      "mapping_pending": "等待文件映射"
+    },
+    "reasons": {
+      "highest_eligible_score": "默认选择符合策略且评分最高的候选，可手动调整。",
+      "no_eligible_candidate": "现有候选均不符合订阅规则。",
+      "unidentified_or_batch": "季集未确认或合辑",
+      "unsupported_source": "来源不支持提交",
+      "policy_mismatch": "不符合订阅规则",
+      "downloaded": "本集已存在。",
+      "downloading": "本集下载或清理正在进行。",
+      "unaired": "未播出，不计入待处理缺集。",
+      "failed": "此前下载失败，可重新选择候选。",
+      "air_date_unknown": "缺少播出日期，不推测已播出或未播出。",
+      "aired_no_resource": "已播出，尚未收录可靠单集资源。",
+      "candidate": "存在未下载的候选。",
+      "mapping_pending": "资源已完成，但有效文件映射尚未就绪；暂不重复下载。"
+    },
+    "outcomes": {
+      "submitted": "已进入下载队列",
+      "already_present_or_busy": "已存在或正在处理，已跳过",
+      "state_changed": "资源状态已变更，请刷新后重试",
+      "submission_failed": "提交失败，可重试此集",
+      "candidate_unavailable": "候选已不可用，请重新选择"
     }
   }
 }

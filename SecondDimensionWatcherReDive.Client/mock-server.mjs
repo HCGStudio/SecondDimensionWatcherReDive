@@ -3,6 +3,7 @@
 // Then run: yarn start — the Parcel proxy forwards /api/* to this server.
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { createServer } from "node:http";
+import { handleCompletion } from "./mock-completion.mjs";
 
 const PORT = parseInt(process.env.MOCK_PORT ?? "5097", 10);
 
@@ -2703,6 +2704,8 @@ async function route(method, pathname, searchParams, req, res) {
     }
   }
 
+  if (await handleCompletion({ req, res, method, pathname, searchParams, json, readBody, animations, downloadState })) return;
+
   // --- Animation Info ---
 
   if (method === "GET" && pathname === "/api/library/search") {
@@ -2830,8 +2833,10 @@ async function route(method, pathname, searchParams, req, res) {
         tmdbId: current.animation?.tmdbId ?? "209867",
         animationName: current.animation?.name ?? "葬送的芙莉莲",
         season: 1,
-        expectedEpisodeCount: 28,
+        expectedEpisodeCount: 30,
         missingEpisodes: [25],
+        unairedEpisodes: [29],
+        unknownAirDateEpisodes: [30],
         duplicateEpisodes: [
           { episode: 28, releaseIds: [current.id, candidate.id] },
         ],

@@ -98,4 +98,6 @@ public sealed record LibraryIntegritySummary(
     IReadOnlyList<int> MissingEpisodes,
     IReadOnlyList<EpisodeDuplicate> DuplicateEpisodes,
     int UnidentifiedReleaseCount,
-    IReadOnlyList<ReleaseUpgradeCandidate> UpgradeCandidates);
+    IReadOnlyList<ReleaseUpgradeCandidate> UpgradeCandidates,
+    IReadOnlyList<int> UnairedEpisodes,
+    IReadOnlyList<int> UnknownAirDateEpisodes);

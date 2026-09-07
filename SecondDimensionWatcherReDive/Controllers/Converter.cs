@@ -230,7 +230,8 @@ internal static class Converter
                 duplicate.Episode,
                 duplicate.ReleaseIds)).ToList(),
             summary.UnidentifiedReleaseCount,
-            summary.UpgradeCandidates.Select(candidate => candidate.ToExternal()).ToList());
+            summary.UpgradeCandidates.Select(candidate => candidate.ToExternal()).ToList(),
+            summary.UnairedEpisodes, summary.UnknownAirDateEpisodes);
 
     public static External.ReleaseUpgradeOperationResponse ToExternal(
         this ReleaseUpgradeOperation operation) =>

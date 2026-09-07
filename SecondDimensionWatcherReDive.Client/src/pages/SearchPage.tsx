@@ -20,6 +20,7 @@ import { Input } from "../components/ui/Input";
 import { Spinner } from "../components/ui/Spinner";
 import { ApiError } from "../errors/apiError";
 import { cn } from "../lib/cn";
+import { CompletionPlanButton } from "../library/CompletionPlanButton";
 import {
   executeReleaseUpgrade,
   useLibraryIntegrity,
@@ -394,6 +395,8 @@ export const SearchPage: React.FC = () => {
             ?.filter(
               (item) =>
                 item.missingEpisodes.length ||
+                item.unairedEpisodes?.length ||
+                item.unknownAirDateEpisodes?.length ||
                 item.duplicateEpisodes.length ||
                 item.unidentifiedReleaseCount ||
                 item.upgradeCandidates.length,
@@ -441,6 +444,18 @@ export const SearchPage: React.FC = () => {
                     value={String(item.unidentifiedReleaseCount)}
                   />
                 </dl>
+                <div className="mt-4 flex flex-wrap items-center gap-3">
+                  <CompletionPlanButton
+                    tmdbId={item.tmdbId}
+                    season={item.season}
+                  />
+                  <p className="text-xs text-muted">
+                    {t("completion.summary", {
+                      unaired: item.unairedEpisodes?.length ?? 0,
+                      unknown: item.unknownAirDateEpisodes?.length ?? 0,
+                    })}
+                  </p>
+                </div>
                 {item.upgradeCandidates.map((candidate) => (
                   <div
                     key={candidate.candidateReleaseId}
