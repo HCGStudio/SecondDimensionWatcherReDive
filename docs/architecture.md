@@ -113,7 +113,7 @@ Registered scheduled tasks:
 
 Always-running workflow processors:
 - **DownloadCapacityBackgroundService** — Reconciles durable download attempts, reserves the shared capacity budget and submits admitted torrents.
-- **FetchRemoteTorrentBackgroundService** — Recovers persisted tracked downloads, polls bounded hash batches at adaptive active/idle/paused intervals with failure backoff, and persists remote completion. `Torrent:Polling:StatusTimeoutSeconds` bounds the complete status request, including authentication and waiting for the shared request lock (default 30 seconds, clamped to 1–600). Increase it for a busy or distant downloader; request failures never imply a torrent is missing.
+- **FetchRemoteTorrentBackgroundService** — Recovers persisted tracked downloads, polls bounded hash batches at adaptive active/idle/paused intervals with failure backoff, and persists remote completion. It drains tracking/control messages between individual status batches and immediately continues the oldest overdue work; the idle delay applies only when no batch is due. `Torrent:Polling:StatusTimeoutSeconds` bounds the complete status request, including authentication and waiting for the shared request lock (default 30 seconds, clamped to 1–600). Increase it for a busy or distant downloader; request failures never imply a torrent is missing.
 - **UpdateDownloadStatusBackgroundService** — Caches the bounded progress stream.
 - **CompleteDownloadBackgroundService** — Claims durable jobs with independent worker scopes and advances mapping, notification and plugin stages; Channel messages only wake the workers sooner. Plugin contention defers the persisted job by three seconds and publishes a wake hint; idle workers wait until the earliest pending database attempt or the normal ten-second recovery poll, whichever comes first.
 - **MultiSourceBackgroundService** — Evaluates linked-feed episode decisions every minute; persisted waiting deadlines and episode claims survive restarts.
@@ -157,6 +157,7 @@ All controllers are `internal` (discovered via `InternalControllerFeatureProvide
 - `AnimationInfoController` (`/api/animationinfo`) — CRUD for animations, download/pause/resume/cancel, grouped listing by Animation, retry AI inference. Depends on `IAnimationInfoRepository`.
 - `AuthController` (`/api/auth`) — register, login, refresh, verify
 - `FileController` (`/api/file`) — virtual-FS browsing, playback link generation (returns full absolute URL via `Url.ActionLink`), streaming. Each animation's virtual root is derived from `Animation.Name` + `Group.Name` (known) or `/unknown` (otherwise); the controller delegates list/stream to `IFileExplorer`. Depends on `IAnimationInfoRepository`, `IFileExplorer`.
+- `MediaTimelineController` (`/api/playback/timeline`) — Shared media-version-bound OP/ED ranges and chapters, with opt-in season defaults scoped to title/season/group. Resolving a timeline requires physical length and modification time; missing metadata or media yields 404. In-player auto-skip is opt-in per profile; progress sampling checks the active ending range before automatic skipping can enqueue a watched update. Logical playback exports/imports retain the AutoSkip preference; timeline mutations require `ContentWrite`.
 - `NativeDownloadController` — JWT-authenticated `/api/vfs/download-link` issues a short-lived ticket; `/api/file/play/download/{resourceId}` validates the ticket cookie, live session and file fingerprint on GET/HEAD/Range.
 - `FeedController` (`/api/feed`) — CRUD for RSS feed subscriptions. Depends on `IFeedRepository`.
 - `SeasonController` (`/api/season`) — current season anime discovery from mikanani.me, subgroup browsing, one-click subscribe, supports browsing other seasons. Season scraping delegated to `ISeasonScraper`. Depends on `ISeasonBangumiRepository`, `IBangumiSubgroupRepository`, `IFeedRepository`, `ISeasonScraper`.
@@ -168,7 +169,6 @@ All controllers are `internal` (discovered via `InternalControllerFeatureProvide
 - `LibraryController` (`/api/library`) and `LibraryCompletionController` (`/api/library/completion`) — search, integrity, existing upgrade/rollback and per-episode completion preview/submission. Completion submission requires `ContentWrite`.
 - `MultiSourceSubscriptionsController` (`/api/multi-source-subscriptions`) — ordered source links, shared rules, persisted episode decisions, manual evaluation and `/episodes/{episode}/confirm`; mutations require `ContentWrite`.
 - `WatchlistController` (`/api/watchlist`) — profile-owned lists and weekly release/unwatched summaries; mutations require `PlaybackWrite`.
-- `MediaTimelineController` (`/api/playback/timeline`) — shared media-version-bound OP/ED ranges, named chapters and opt-in season defaults; mutations require `ContentWrite`.
 
 ### Feed Management
 
