@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.RegularExpressions;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Framework.Inference;
+using SecondDimensionWatcherReDive.Inference.AI.Tools;
 
 namespace SecondDimensionWatcherReDive.Utils.MetadataReview;
 
@@ -31,7 +32,9 @@ public sealed class MetadataRecognitionRuleService(
     IMetadataRecognitionRuleRepository repository,
     IAnimationInfoRepository animationInfoRepository,
     IFeedRepository feedRepository,
-    IMetadataReviewService reviewService)
+    IMetadataReviewService reviewService,
+    IAnimationRepository animationRepository,
+    TmdbTool tmdbTool)
 {
     public async Task<MetadataRecognitionRule> ValidateAsync(MetadataRecognitionRuleDraft draft,
         Guid? id, CancellationToken cancellationToken)
@@ -60,9 +63,6 @@ public sealed class MetadataRecognitionRuleService(
             throw Invalid("invalidTmdbId", "TMDB ID must be a positive integer.");
         if (draft.FixedSeason < 0 || draft.EpisodeOffset is < -10000 or > 10000)
             throw Invalid("ruleNumbers", "Season cannot be negative; episode offset must be between -10000 and 10000.");
-        if (draft.SourceFeedId is { } sourceId
-            && await feedRepository.FindByIdAsync(sourceId, cancellationToken) is null)
-            throw Invalid("ruleSource", "The subscription source no longer exists.");
         MetadataRecognitionRule? current = null;
         if (id is { } ruleId)
         {
@@ -77,12 +77,40 @@ public sealed class MetadataRecognitionRuleService(
             if (item?.MetadataStatus != MetadataReviewStatus.Reviewed)
                 throw Invalid("ruleCorrection", "Complete the individual correction before creating its rule.");
         }
+        // Only a pure disable may retain a deleted source or an unavailable target.
+        // Creating, enabling or changing any rule field still validates both dependencies.
+        var disablingOnly = current is not null && !draft.Enabled
+            && current.Name == name && current.SourceFeedId == draft.SourceFeedId
+            && current.TitlePattern == titlePattern && current.SubtitleGroup == subtitleGroup
+            && current.TmdbId == tmdbId.ToString(CultureInfo.InvariantCulture)
+            && current.FixedSeason == draft.FixedSeason && current.EpisodeOffset == draft.EpisodeOffset
+            && current.CanonicalGroupName == canonicalGroup;
+        if (!disablingOnly)
+        {
+            if (draft.SourceFeedId is { } sourceId
+                && await feedRepository.FindByIdAsync(sourceId, cancellationToken) is null)
+                throw Invalid("ruleSource", "The subscription source no longer exists.");
+            await ValidateTargetAsync(tmdbId, cancellationToken);
+        }
         var now = DateTimeOffset.UtcNow;
         return new MetadataRecognitionRule(id ?? Guid.NewGuid(), name, draft.Enabled,
             (current?.Revision ?? 0) + 1, draft.SourceFeedId, titlePattern, subtitleGroup,
             tmdbId.ToString(CultureInfo.InvariantCulture), draft.FixedSeason, draft.EpisodeOffset,
             canonicalGroup, current?.CreatedFromItemId ?? draft.CreatedFromItemId,
             current?.CreatedAt ?? now, now);
+    }
+
+    private async Task ValidateTargetAsync(int tmdbId, CancellationToken cancellationToken)
+    {
+        var id = tmdbId.ToString(CultureInfo.InvariantCulture);
+        var existing = await animationRepository.FindByTmdbIdAsync(id, cancellationToken);
+        if (existing is not null && !string.IsNullOrWhiteSpace(existing.Name) && existing.Name != id) return;
+        if (!tmdbTool.IsConfigured)
+            throw new MetadataReviewUnavailableException("tmdbUnavailable",
+                "TMDB lookup is unavailable because no API key is configured.");
+        var details = await tmdbTool.GetLocalizedDetailsAsync(tmdbId, cancellationToken);
+        if (details is null || string.IsNullOrWhiteSpace(details.Name))
+            throw Invalid("tmdbNotFound", "The TMDB television series could not be resolved.");
     }
 
     public async Task<MetadataRecognitionRule> SaveAsync(MetadataRecognitionRuleDraft draft,
@@ -186,7 +214,7 @@ public sealed class MetadataRecognitionRuleService(
     }
 
     public static InferenceResult Apply(MetadataRecognitionRule rule, AnimationInfo item, InferenceResult? fallback,
-        bool applyOffsetToFallback = true)
+        bool applyOffsetToFallback = true, bool preserveNormalizedCoordinates = false)
     {
         int? season = null, episode = null;
         if (rule.TitlePattern is not null)
@@ -196,15 +224,20 @@ public sealed class MetadataRecognitionRuleService(
                 var matches = CreateRegex(rule.TitlePattern).Matches(item.Title);
                 if (matches.Count != 1)
                     throw new MetadataRecognitionAmbiguousException($"Rule '{rule.Name}' does not match a single title segment.");
-                season = ReadNumber(matches[0], "season");
-                episode = ReadNumber(matches[0], "episode");
+                if (!preserveNormalizedCoordinates)
+                {
+                    season = ReadNumber(matches[0], "season");
+                    episode = ReadNumber(matches[0], "episode");
+                }
             }
             catch (RegexMatchTimeoutException)
             {
                 throw new MetadataRecognitionAmbiguousException($"Title matching timed out for rule '{rule.Name}'.");
             }
         }
-        season = rule.FixedSeason ?? season ?? fallback?.Season;
+        // Partial title captures and fixed seasons cannot replace one half of a pair
+        // that AI normalized together against the target series (absolute numbering/cours).
+        season = preserveNormalizedCoordinates ? fallback?.Season : rule.FixedSeason ?? season ?? fallback?.Season;
         var capturedEpisode = episode is not null;
         episode ??= fallback?.Episode;
         if (episode is null && rule.EpisodeOffset != 0)
@@ -238,9 +271,15 @@ public sealed class MetadataRecognitionRuleService(
         CancellationToken cancellationToken)
     {
         var fallback = ExistingMetadata(item);
+        var preserveNormalizedCoordinates = !CanResolveWithoutAi(rule, item);
+        if (preserveNormalizedCoordinates && (fallback.TmdbId != rule.TmdbId
+            || rule.FixedSeason is { } targetSeason && fallback.Season != targetSeason))
+            throw new MetadataRecognitionAmbiguousException(
+                "The stored coordinates are not normalized to this rule's target. Infer or correct the item before applying its history.");
         // Manual corrections (including prior history applications) are finalized coordinates.
         if (item.MetadataStatus == MetadataReviewStatus.Reviewed)
-            return Apply(rule, item, fallback, applyOffsetToFallback: false);
+            return Apply(rule, item, fallback, applyOffsetToFallback: false,
+                preserveNormalizedCoordinates: preserveNormalizedCoordinates);
 
         var hit = (await repository.GetHitsAsync(item.Id, cancellationToken)).FirstOrDefault();
         if (hit is not null)
@@ -248,8 +287,11 @@ public sealed class MetadataRecognitionRuleService(
             var appliedRule = await repository.FindAsync(hit.RuleId, cancellationToken);
             if (hit.RuleId != rule.Id || appliedRule?.Revision != hit.RuleRevision)
             {
-                // Old rule revisions do not retain their offsets. Only explicit title captures
+                // Old rule revisions do not retain their offsets. Only a complete title pair
                 // can safely reconstruct coordinates after the applied rule was edited.
+                if (preserveNormalizedCoordinates)
+                    throw new MetadataRecognitionAmbiguousException(
+                        "The pre-rule coordinates cannot be recovered. Use complete title captures or correct the item manually.");
                 return Apply(rule, item, null);
             }
             if (fallback.Episode is { } episode)
@@ -261,7 +303,7 @@ public sealed class MetadataRecognitionRuleService(
                 fallback = fallback with { Episode = (int)unshifted };
             }
         }
-        return Apply(rule, item, fallback);
+        return Apply(rule, item, fallback, preserveNormalizedCoordinates: preserveNormalizedCoordinates);
     }
 
     private static InferenceResult ExistingMetadata(AnimationInfo item) =>

@@ -41,9 +41,8 @@ internal sealed class MediaTimelineController(IMediaTimelineRepository repositor
         if (media is null) return NotFound();
         if (media.Version != request.MediaVersion) return Conflict();
         if (request.SeasonDefault && media.SeasonKey is null) return BadRequest();
-        await repository.SaveAsync(media.Version, media.MappingId, media.SeasonKey, request.SeasonDefault, request.DurationSeconds,
-            request.Points, cancellationToken);
-        return NoContent();
+        return MutationResult(await repository.SaveAsync(media.Version, media.Mapping, media.SeasonKey,
+            request.SeasonDefault, request.DurationSeconds, request.Points, cancellationToken));
     }
 
     [HttpPost("accept-season")]
@@ -55,10 +54,9 @@ internal sealed class MediaTimelineController(IMediaTimelineRepository repositor
         if (media is null) return NotFound();
         if (media.Version != request.MediaVersion) return Conflict();
         if (media.SeasonKey is null) return BadRequest();
-        try { await repository.AcceptSeasonAsync(media.Version, media.MappingId, media.SeasonKey, request.DurationSeconds, cancellationToken); }
+        try { return MutationResult(await repository.AcceptSeasonAsync(media.Version, media.Mapping, media.SeasonKey, request.DurationSeconds, cancellationToken)); }
         catch (KeyNotFoundException) { return NotFound(); }
         catch (ArgumentException) { return BadRequest(); }
-        return NoContent();
     }
 
     [HttpDelete]
@@ -69,9 +67,17 @@ internal sealed class MediaTimelineController(IMediaTimelineRepository repositor
         var media = await ResolveAsync(animationInfoId, path, cancellationToken);
         if (media is null) return NotFound();
         if (media.Version != mediaVersion) return Conflict();
-        await repository.DeleteAsync(media.Version, media.SeasonKey, seasonDefault, cancellationToken);
-        return NoContent();
+        if (seasonDefault && media.SeasonKey is null) return BadRequest();
+        return MutationResult(await repository.DeleteAsync(media.Version, media.Mapping, media.SeasonKey,
+            seasonDefault, cancellationToken));
     }
+
+    private IActionResult MutationResult(MediaTimelineMutationOutcome outcome) => outcome switch
+    {
+        MediaTimelineMutationOutcome.Success => NoContent(),
+        MediaTimelineMutationOutcome.NotFound => NotFound(),
+        _ => Conflict()
+    };
 
     private async Task<Media?> ResolveAsync(Guid id, string path, CancellationToken cancellationToken)
     {
@@ -91,7 +97,7 @@ internal sealed class MediaTimelineController(IMediaTimelineRepository repositor
             $"{mapping.Id}\0{mapping.AnimationInfoId}\0{mapping.VirtualPath}\0{mapping.FileStore}\0{mapping.PhysicalPath}\0{metadata.Length}\0{metadata.LastModifiedUtc:O}")));
         var seasonKey = info.Animation is not null && info.Group is not null && info.Season.HasValue
             ? $"season:{info.Animation.Id}:{info.Group.Id}:{info.Season}" : null;
-        return new Media(mapping.Id, version, seasonKey);
+        return new Media(mapping, version, seasonKey);
     }
-    private sealed record Media(Guid MappingId, string Version, string? SeasonKey);
+    private sealed record Media(FileMapping Mapping, string Version, string? SeasonKey);
 }

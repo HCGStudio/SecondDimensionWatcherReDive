@@ -14,7 +14,7 @@ internal sealed class LibraryCompletionController(LibraryCompletionService servi
     public async Task<IActionResult> PlanAsync(string tmdbId, int season, CancellationToken cancellationToken)
     {
         if (!int.TryParse(tmdbId, out var id) || id <= 0 || season is < 1 or > 100) return BadRequest();
-        return Ok(await service.GetPlanAsync(id.ToString(System.Globalization.CultureInfo.InvariantCulture), season, cancellationToken));
+        return Ok(await service.GetPlanAsync(tmdbId, season, cancellationToken));
     }
     [HttpPost, Authorize(Policy = AccessPolicies.ContentWrite)]
     public async Task<IActionResult> SubmitAsync(CompletionSubmissionRequest request, CancellationToken cancellationToken)
@@ -22,6 +22,6 @@ internal sealed class LibraryCompletionController(LibraryCompletionService servi
         if (!int.TryParse(request.TmdbId, out var id) || id <= 0 || request.Season is < 1 or > 100 ||
             request.Selections is not { Count: > 0 and <= 100 } || request.Selections.Any(x => x.Episode <= 0 || x.ReleaseId == Guid.Empty) ||
             request.Selections.Select(x => x.Episode).Distinct().Count() != request.Selections.Count) return BadRequest();
-        return Ok(await service.SubmitAsync(request with { TmdbId = id.ToString(System.Globalization.CultureInfo.InvariantCulture) }, cancellationToken));
+        return Ok(await service.SubmitAsync(request, cancellationToken));
     }
 }

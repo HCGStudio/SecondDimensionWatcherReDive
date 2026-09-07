@@ -67,12 +67,18 @@ internal sealed partial class HlsTranscodingService : BackgroundService, IHlsTra
                 && terminalJob.GetState() is TranscodingJobState.Failed or TranscodingJobState.Canceled)
                 _jobs.TryRemove(new KeyValuePair<string, TranscodingJob>(cacheKey, terminalJob));
 
+            if (_jobs.TryGetValue(cacheKey, out var readyJob)
+                && readyJob.GetState() == TranscodingJobState.Ready
+                && readyJob.GetStrategy() != TranscodingStrategy.Direct
+                && await TryLoadProtectedManifestAsync(readyJob.CacheDirectory, cancellationToken) is null)
+                MarkFailed(readyJob, "The shared cache is no longer available. Retry playback.");
+
             var isNewJob = false;
             var cacheHit = false;
             if (!_jobs.TryGetValue(cacheKey, out var job))
             {
                 var cacheDirectory = Path.Combine(_options.CachePath, cacheKey);
-                var manifest = await TryLoadManifestAsync(cacheDirectory, cancellationToken);
+                var manifest = await TryLoadProtectedManifestAsync(cacheDirectory, cancellationToken);
                 if (manifest is not null)
                 {
                     job = TranscodingJob.FromManifest(
@@ -190,7 +196,8 @@ internal sealed partial class HlsTranscodingService : BackgroundService, IHlsTra
     {
         cancellationToken.ThrowIfCancellationRequested();
         var session = FindSession(sessionId, accessToken);
-        if (session is null || !session.Job.HasSubtitle(fileName))
+        if (session is null || session.Job.GetState() is TranscodingJobState.Failed or TranscodingJobState.Canceled
+            || !session.Job.HasSubtitle(fileName))
             return Task.FromResult<TranscodingContent?>(null);
 
         var path = Path.Combine(session.Job.CacheDirectory, fileName);
@@ -245,7 +252,7 @@ internal sealed partial class HlsTranscodingService : BackgroundService, IHlsTra
             .Select(_ => RunWorkerAsync(stoppingToken))
             .ToArray();
         var cleanup = RunCleanupLoopAsync(stoppingToken);
-        await Task.WhenAll(workers.Append(cleanup));
+        await Task.WhenAll(workers.Append(cleanup).Append(RunReaderLeaseLoopAsync(stoppingToken)));
     }
 
     private async Task RunWorkerAsync(CancellationToken stoppingToken)
@@ -372,7 +379,14 @@ internal sealed partial class HlsTranscodingService : BackgroundService, IHlsTra
                 _metrics.RecordCompleted();
                 if (job.GetSpeed() is { } speed) _metrics.RecordSpeed(speed);
                 UpdateCacheBytes();
-                job.SetReady(subtitles);
+                await _creationGate.WaitAsync(cancellationToken);
+                try
+                {
+                    if (await TryLoadProtectedManifestAsync(job.CacheDirectory, cancellationToken) is null)
+                        throw new IOException("The completed transcoding cache is unavailable.");
+                    job.SetReady(subtitles);
+                }
+                finally { _creationGate.Release(); }
                 UpdateJobGauges();
                 await CleanupCacheAsync(removeIncomplete: false, cancellationToken);
             }
@@ -439,13 +453,18 @@ internal sealed partial class HlsTranscodingService : BackgroundService, IHlsTra
 
     private async Task<bool> TryReuseCompletedCacheAsync(TranscodingJob job, CancellationToken cancellationToken)
     {
-        var manifest = await TryLoadManifestAsync(job.CacheDirectory, cancellationToken);
-        if (manifest is null) return false;
-        job.SetReady(manifest.Subtitles);
-        _metrics.RecordCacheHit();
-        TouchCache(job, null);
-        UpdateJobGauges();
-        return true;
+        await _creationGate.WaitAsync(cancellationToken);
+        try
+        {
+            var manifest = await TryLoadProtectedManifestAsync(job.CacheDirectory, cancellationToken);
+            if (manifest is null) return false;
+            job.SetReady(manifest.Subtitles);
+            _metrics.RecordCacheHit();
+            TouchCache(job, null);
+            UpdateJobGauges();
+            return true;
+        }
+        finally { _creationGate.Release(); }
     }
 
     private async Task<TranscodeCapacityLease?> WaitForCapacityAsync(
@@ -565,6 +584,10 @@ internal sealed partial class HlsTranscodingService : BackgroundService, IHlsTra
             if (_sessions.TryRemove(id, out _)) ReleaseSession(session);
             return null;
         }
+        if (session.Job.GetState() == TranscodingJobState.Ready
+            && session.Job.GetStrategy() != TranscodingStrategy.Direct
+            && (!_readerLeases.TryGetValue(session.Job.CacheKey, out var readLease) || !readLease.IsValid))
+            MarkFailed(session.Job, "The shared cache read lease expired. Retry playback.");
         if (touch) session.Touch(_options.SessionTtl);
         return session;
     }
@@ -636,9 +659,12 @@ internal sealed partial class HlsTranscodingService : BackgroundService, IHlsTra
             {
                 // Preserve work owned by another replica, including during startup cleanup.
                 await using var transaction = await capacity.BeginAsync(cancellationToken);
-                var reservations = await scope.ServiceProvider.GetRequiredService<ITranscodeCapacityRepository>()
-                    .ListActiveAsync(cancellationToken);
+                var cacheRepository = scope.ServiceProvider.GetRequiredService<ITranscodeCapacityRepository>();
+                await cacheRepository.PruneExpiredAsync(cancellationToken);
+                var reservations = await cacheRepository.ListActiveAsync(cancellationToken);
+                var readers = await cacheRepository.ListActiveReadersAsync(cancellationToken);
                 var protectedKeys = reservations.Select(row => Path.GetFileName(row.DirectoryPath))
+                    .Concat(readers.Select(row => Path.GetFileName(row.DirectoryPath)))
                     .ToHashSet(StringComparer.Ordinal);
                 CleanupCacheCore(removeIncomplete, protectedKeys, cancellationToken);
                 await transaction.CommitAsync(cancellationToken);
@@ -660,12 +686,12 @@ internal sealed partial class HlsTranscodingService : BackgroundService, IHlsTra
         {
             cancellationToken.ThrowIfCancellationRequested();
             var key = Path.GetFileName(directory);
-            if (!IsCacheKey(key) || protectedKeys.Contains(key)) continue;
+            if (!IsCacheKey(key)) continue;
             if (!File.Exists(Path.Combine(directory, CacheOwnershipMarker))) continue;
             var completePath = Path.Combine(directory, "complete.json");
             if (!File.Exists(completePath))
             {
-                if (removeIncomplete && !IsActive(key)) TryDeleteDirectory(directory);
+                if (removeIncomplete && !protectedKeys.Contains(key) && !IsActive(key)) TryDeleteDirectory(directory);
                 continue;
             }
             var accessPath = Path.Combine(directory, ".access");
@@ -680,7 +706,7 @@ internal sealed partial class HlsTranscodingService : BackgroundService, IHlsTra
                      .OrderBy(candidate => candidate.LastAccess)
                      .ToArray())
         {
-            if (IsInUse(expired.Key)) continue;
+            if (protectedKeys.Contains(expired.Key) || IsInUse(expired.Key)) continue;
             RemoveCacheDirectory(expired);
             candidates.Remove(expired);
         }
@@ -689,7 +715,7 @@ internal sealed partial class HlsTranscodingService : BackgroundService, IHlsTra
         foreach (var candidate in candidates.OrderBy(candidate => candidate.LastAccess))
         {
             if (total <= _options.MaxCacheBytes) break;
-            if (IsInUse(candidate.Key)) continue;
+            if (protectedKeys.Contains(candidate.Key) || IsInUse(candidate.Key)) continue;
             RemoveCacheDirectory(candidate);
             total -= candidate.Size;
         }

@@ -63,7 +63,33 @@ public sealed class MultiSourceSubscriptionRepository(Models.ApplicationContext 
         });
 
     public async Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken) =>
-        await context.Set<Models.MultiSourceSubscription>().Where(x => x.Id == id).ExecuteDeleteAsync(cancellationToken) > 0;
+        await context.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
+        {
+            await using var write = new Models.ApplicationContext(options);
+            await using var transaction = await write.Database.BeginTransactionAsync(cancellationToken);
+            await MappingTransactionLock.AcquireAsync(write, cancellationToken);
+            var removed = await write.Set<Models.MultiSourceSubscription>()
+                .Where(subscription => subscription.Id == id).ExecuteDeleteAsync(cancellationToken) > 0;
+            await transaction.CommitAsync(cancellationToken);
+            return removed;
+        });
+
+    internal static bool MatchesAutomaticSnapshot(Models.MultiSourceSubscription current,
+        MultiSourceSubscription expected) =>
+        current.Mode == "AutoDownload" && expected.Mode == "AutoDownload"
+        && current.TmdbId == expected.TmdbId && current.Season == expected.Season
+        && current.CreatedAt == expected.CreatedAt && current.UpdatedAt == expected.UpdatedAt
+        && current.WaitMinutes == expected.WaitMinutes
+        && current.Sources.OrderBy(source => source.Priority).Select(source => source.FeedId).SequenceEqual(expected.FeedIds)
+        && current.SubtitleGroups.SequenceEqual(expected.SubtitleGroups)
+        && current.Resolutions.SequenceEqual(expected.Resolutions)
+        && current.Codecs.SequenceEqual(expected.Codecs)
+        && current.Languages.SequenceEqual(expected.Languages)
+        && current.MinSizeBytes == expected.MinSizeBytes && current.MaxSizeBytes == expected.MaxSizeBytes
+        && current.ExcludedKeywords.SequenceEqual(expected.ExcludedKeywords)
+        && current.EnableVersionUpgrade == expected.EnableVersionUpgrade
+        && current.MinimumUpgradeScore == expected.MinimumUpgradeScore
+        && current.UpgradeRollbackHours == expected.UpgradeRollbackHours;
 
     public async Task<IReadOnlyList<MultiSourceFeedStatus>> GetSourceStatusAsync(Guid id, CancellationToken cancellationToken)
     {

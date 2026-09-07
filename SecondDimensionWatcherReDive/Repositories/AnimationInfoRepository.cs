@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Framework.FileDownload;
+using SecondDimensionWatcherReDive.Utils.MetadataReview;
 
 namespace SecondDimensionWatcherReDive.Repositories;
 
@@ -769,6 +770,8 @@ public class AnimationInfoRepository(
             if (currentStateVersion != info.StateVersion)
                 throw new DbUpdateConcurrencyException(
                     $"AnimationInfo {info.Id} changed from revision {info.StateVersion} to {currentStateVersion}.");
+            if (await LibraryCompletionRepository.HasActiveClaimAsync(writeContext, info.Id, cancellationToken))
+                throw new DbUpdateConcurrencyException($"AnimationInfo {info.Id} has an active episode acquisition.");
             var previousEpisodeIdentity = GetEpisodeIdentity(writeContext, entity);
             var wasActiveRelease = entity.IsActiveRelease;
             var previousMappings = await writeContext.FileMappings
@@ -849,6 +852,26 @@ public class AnimationInfoRepository(
             startedAt,
             queuedDisposition,
             cancellationToken);
+        return result.IsSuccess && result.SubmissionLeaseUntil is { } leaseUntil
+            ? new DownloadSubmissionLease(submissionLeaseId, leaseUntil)
+            : null;
+    }
+
+    public async Task<DownloadSubmissionLease?> TryStartClaimedEpisodeDownloadAsync(
+        AnimationInfo expected,
+        Guid claimId,
+        Guid downloadAttemptId,
+        Guid submissionLeaseId,
+        TimeSpan submissionLeaseDuration,
+        DateTimeOffset startedAt,
+        MultiSourceSubscription? automaticSubscription,
+        CancellationToken cancellationToken)
+    {
+        if (submissionLeaseDuration <= TimeSpan.Zero || submissionLeaseDuration > TimeSpan.FromMinutes(30))
+            throw new ArgumentOutOfRangeException(nameof(submissionLeaseDuration));
+        var result = await TryStartDownloadCoreAsync(expected.Id, null, downloadAttemptId,
+            submissionLeaseId, submissionLeaseDuration, startedAt,
+            SubscriptionAutomationDisposition.AutoDownloadQueued, cancellationToken, expected, claimId, automaticSubscription);
         return result.IsSuccess && result.SubmissionLeaseUntil is { } leaseUntil
             ? new DownloadSubmissionLease(submissionLeaseId, leaseUntil)
             : null;
@@ -965,7 +988,10 @@ public class AnimationInfoRepository(
         TimeSpan? submissionLeaseDuration,
         DateTimeOffset startedAt,
         SubscriptionAutomationDisposition? queuedDisposition,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        AnimationInfo? expectedEpisode = null,
+        Guid? episodeClaimId = null,
+        MultiSourceSubscription? automaticSubscription = null)
     {
         var strategy = context.Database.CreateExecutionStrategy();
         return await strategy.ExecuteAsync(async () =>
@@ -980,6 +1006,52 @@ public class AnimationInfoRepository(
                 cancellationToken);
             if (entity is null)
                 return new DownloadStartResult(false, null);
+
+            if (expectedEpisode is not null)
+            {
+                // Metadata changes take the same namespace and row locks. Bind
+                // the confirmed identity and revision to the tracked transition.
+                var sameAttempt = entity.IsDownloadTracked && entity.DownloadAttemptId == downloadAttemptId;
+                var revisionMatches = sameAttempt
+                    ? entity.StateVersion > 0 && entity.StateVersion - 1 == expectedEpisode.StateVersion
+                    : entity.StateVersion == expectedEpisode.StateVersion;
+                var tmdbId = expectedEpisode.Animation?.TmdbId;
+                await writeContext.Entry(entity).Reference(info => info.Animation).LoadAsync(cancellationToken);
+                var acquisition = await writeContext.Set<Models.EpisodeAcquisition>().SingleOrDefaultAsync(claim =>
+                    claim.TmdbId == tmdbId && claim.Season == entity.Season && claim.Episode == entity.Episode
+                    && claim.ReleaseId == id && claim.ClaimId == episodeClaimId, cancellationToken);
+                var claimNow = DateTimeOffset.UtcNow;
+                if (!revisionMatches || tmdbId is null || entity.Animation?.TmdbId != tmdbId
+                    || entity.Season != expectedEpisode.Season || entity.Episode != expectedEpisode.Episode
+                    || entity.Season is not > 0 || entity.Episode is not > 0
+                    || entity.IsDownloadFinished || entity.IsRetiredRelease || entity.MediaLibraryMissingSince is not null
+                    || entity.MetadataStatus is not (MetadataReviewStatus.Identified or MetadataReviewStatus.Reviewed)
+                    || acquisition is null || acquisition.ExpiresAt <= claimNow
+                    || await writeContext.AnimationInfo.AnyAsync(other => other.Id != id
+                        && other.Animation != null && other.Animation.TmdbId == tmdbId
+                        && other.Season == entity.Season && other.Episode == entity.Episode
+                        && other.MediaLibraryMissingSince == null && !other.IsRetiredRelease
+                        && (other.IsDownloadTracked || other.IsDownloadFinished), cancellationToken))
+                    return new DownloadStartResult(false, null);
+                // Lock contention before tracking must not consume the metadata
+                // protection needed during the bounded remote submission.
+                acquisition.ExpiresAt = claimNow.AddMinutes(5);
+            }
+
+            if (automaticSubscription is not null)
+            {
+                // Subscription saves/deletes and feed unlinking take the same
+                // transaction lock, making this the automatic-download decision.
+                var currentSubscription = await writeContext.Set<Models.MultiSourceSubscription>()
+                    .AsNoTracking().Include(subscription => subscription.Sources)
+                    .SingleOrDefaultAsync(subscription => subscription.Id == automaticSubscription.Id, cancellationToken);
+                if (currentSubscription is null
+                    || !MultiSourceSubscriptionRepository.MatchesAutomaticSnapshot(currentSubscription, automaticSubscription)
+                    || entity.Animation?.TmdbId != currentSubscription.TmdbId
+                    || entity.Season != currentSubscription.Season
+                    || !currentSubscription.Sources.Any(source => source.FeedId == entity.SourceFeedId))
+                    return new DownloadStartResult(false, null);
+            }
 
             var databaseNow = await writeContext.Database
                 .SqlQueryRaw<DateTimeOffset>("SELECT clock_timestamp() AS \"Value\"")
@@ -1592,21 +1664,41 @@ public class AnimationInfoRepository(
                 cancellationToken);
             if (entity is null || entity.StateVersion != expectedStateVersion)
                 return false;
-            if (info.RecognitionRule is { } recognitionRule)
+            if (await LibraryCompletionRepository.HasActiveClaimAsync(writeContext, info.Id, cancellationToken))
+                return false;
+            if (info.RevalidateRecognitionRules || info.RecognitionRule is not null || info.RecognitionRulesAtFailure is not null)
             {
-                // A shared row lock makes disabling/editing and applying a rule ordered operations.
-                var currentRule = await writeContext.Set<Models.MetadataRecognitionRule>()
-                    .FromSqlInterpolated($"SELECT * FROM \"MetadataRecognitionRules\" WHERE \"Id\" = {recognitionRule.Id} FOR SHARE")
-                    .AsNoTracking().SingleOrDefaultAsync(cancellationToken);
-                if (currentRule is null || !currentRule.Enabled || currentRule.Revision != recognitionRule.Revision
-                    || info.IngestedAt is null || info.IngestedAt < currentRule.EffectiveFrom)
-                    return false;
-                writeContext.Add(new Models.MetadataRecognitionHit
+                // Protect inserts and every rule edit until metadata commits, including the
+                // no-rule result of an inference that started before a matching rule was added.
+                await writeContext.Database.ExecuteSqlRawAsync(
+                    "LOCK TABLE \"MetadataRecognitionRules\" IN SHARE MODE", cancellationToken);
+                var rules = (await writeContext.Set<Models.MetadataRecognitionRule>().AsNoTracking()
+                    .Where(rule => rule.Enabled).ToListAsync(cancellationToken))
+                    .Select(MetadataRecognitionRuleRepository.ToRecord).ToList();
+                if (info.RecognitionRulesAtFailure is { } observedRules)
                 {
-                    Id = Guid.NewGuid(), RuleId = recognitionRule.Id, RuleName = recognitionRule.Name,
-                    RuleRevision = recognitionRule.Revision, AnimationInfoId = info.Id, Title = info.Title,
-                    ItemRevision = checked(expectedStateVersion + 1), AppliedAt = DateTimeOffset.UtcNow
-                });
+                    // A failure may have occurred before a single rule could be selected.
+                    // Preserve it only while the exact observed rule set still applies; otherwise
+                    // leave the item pending so the next attempt can use the administrator's edit.
+                    if (!rules.OrderBy(rule => rule.Id).SequenceEqual(observedRules.OrderBy(rule => rule.Id)))
+                        return false;
+                }
+                else
+                {
+                    await writeContext.Entry(entity).Reference(value => value.Group).LoadAsync(cancellationToken);
+                    MetadataRecognitionRule? currentRule;
+                    try { currentRule = MetadataRecognitionRuleService.Select(rules, entity.ToRecord()); }
+                    catch (MetadataRecognitionAmbiguousException) { return false; }
+                    if (currentRule?.Id != info.RecognitionRule?.Id || currentRule?.Revision != info.RecognitionRule?.Revision)
+                        return false;
+                    if (info.RecognitionRule is { } recognitionRule)
+                        writeContext.Add(new Models.MetadataRecognitionHit
+                        {
+                            Id = Guid.NewGuid(), RuleId = recognitionRule.Id, RuleName = recognitionRule.Name,
+                            RuleRevision = recognitionRule.Revision, AnimationInfoId = info.Id, Title = info.Title,
+                            ItemRevision = checked(expectedStateVersion + 1), AppliedAt = DateTimeOffset.UtcNow
+                        });
+                }
             }
             var previousEpisodeIdentity = GetEpisodeIdentity(writeContext, entity);
             var wasActiveRelease = entity.IsActiveRelease;
