@@ -167,7 +167,8 @@ internal sealed class LogicalDataTransferWorker(
                     item.AudioLanguage,
                     item.AudioTrackLabel,
                     item.AutoPlayNext,
-                    item.UpdatedAt))
+                    item.UpdatedAt,
+                    item.AutoSkip))
                 .FirstOrDefaultAsync(cancellationToken);
         }
 
@@ -744,6 +745,7 @@ internal sealed class LogicalDataTransferWorker(
         target.AudioLanguage = source.AudioLanguage;
         target.AudioTrackLabel = source.AudioTrackLabel;
         target.AutoPlayNext = source.AutoPlayNext;
+        target.AutoSkip = source.AutoSkip;
         target.UpdatedAt = source.UpdatedAt;
     }
 

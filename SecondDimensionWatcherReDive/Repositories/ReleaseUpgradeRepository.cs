@@ -184,11 +184,15 @@ public sealed partial class ReleaseUpgradeRepository(
         if (candidateReleaseId is { } candidateId)
             eligibleCandidates = eligibleCandidates.Where(release => release.Id == candidateId);
         if (automaticOnly)
+        {
+            currentReleases = currentReleases.Where(current =>
+                !context.Set<Models.MultiSourceFeed>().Any(source => source.FeedId == current.SourceFeedId));
             eligibleCandidates = eligibleCandidates.Where(candidate =>
                 candidate.ReleaseScoreReasonsJson != null &&
                 !context.Set<Models.MultiSourceFeed>().Any(source => source.FeedId == candidate.SourceFeedId) &&
                 context.SubscriptionAutomationPolicies.Any(policy =>
                     policy.FeedId == candidate.SourceFeedId && policy.EnableVersionUpgrade));
+        }
 
         // Project only scoring metadata, and stream one incumbent at a time so
         // large libraries do not load torrent payloads or retain every pair.
@@ -283,6 +287,18 @@ public sealed partial class ReleaseUpgradeRepository(
 
             // Re-evaluate after claiming the release rows. A policy or release
             // may have changed since the candidate list was read.
+            if (candidate.Automatic && current.SourceFeedId is { } currentFeedId)
+            {
+                var owner = await writeContext.Set<Models.MultiSourceSubscription>().AsNoTracking()
+                    .Include(subscription => subscription.Sources)
+                    .FirstOrDefaultAsync(subscription => subscription.Sources.Any(source => source.FeedId == currentFeedId), cancellationToken);
+                if (owner is not null && (owner.Mode != "AutoDownload"
+                    || owner.TmdbId != current.Animation.TmdbId || owner.Season != current.Season
+                    || !owner.Sources.Any(source => source.FeedId == next.SourceFeedId)
+                    || owner.Sources.Any(source => source.FeedId == currentFeedId && source.Priority > 0)
+                       && next.SourceFeedId != currentFeedId))
+                    return null;
+            }
             var policy = await ReadEffectivePolicyAsync(writeContext, next.SourceFeedId, cancellationToken);
             var currentScore = releaseScoringService.Score(new SubscriptionReleaseMetadata(
                 current.ReleaseSubtitleGroup, current.ReleaseResolution, current.ReleaseCodec,

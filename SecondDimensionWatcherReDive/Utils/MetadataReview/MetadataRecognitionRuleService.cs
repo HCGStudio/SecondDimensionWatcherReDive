@@ -127,7 +127,7 @@ public sealed class MetadataRecognitionRuleService(
             {
                 if (others.Any(other => Matches(other, item)))
                     warning = "conflict";
-                result = Apply(rule, item, ExistingMetadata(item));
+                result = await ApplyHistoryAsync(rule, item, cancellationToken);
                 if (result.Season is null) warning ??= "needsInference";
             }
             catch (MetadataRecognitionAmbiguousException) { warning = "ambiguous"; }
@@ -151,7 +151,7 @@ public sealed class MetadataRecognitionRuleService(
                    ?? throw new MetadataReviewNotFoundException("itemNotFound", "The item was not found.");
         if (!Matches(rule, item) || rules.Any(other => other.Enabled && other.Id != ruleId && Matches(other, item)))
             throw new MetadataReviewConflictException("ruleConflict", "The rule no longer matches unambiguously.");
-        var result = Apply(rule, item, ExistingMetadata(item));
+        var result = await ApplyHistoryAsync(rule, item, cancellationToken);
         return await reviewService.PreviewAsync(itemId, itemRevision,
             new MetadataReviewCorrection(result.TmdbId, result.Season, result.Episode, result.GroupName),
             cancellationToken);
@@ -181,7 +181,8 @@ public sealed class MetadataRecognitionRuleService(
         }
     }
 
-    public static InferenceResult Apply(MetadataRecognitionRule rule, AnimationInfo item, InferenceResult? fallback)
+    public static InferenceResult Apply(MetadataRecognitionRule rule, AnimationInfo item, InferenceResult? fallback,
+        bool applyOffsetToFallback = true)
     {
         int? season = null, episode = null;
         if (rule.TitlePattern is not null)
@@ -200,10 +201,11 @@ public sealed class MetadataRecognitionRuleService(
             }
         }
         season = rule.FixedSeason ?? season ?? fallback?.Season;
+        var capturedEpisode = episode is not null;
         episode ??= fallback?.Episode;
         if (episode is null && rule.EpisodeOffset != 0)
             throw new MetadataRecognitionAmbiguousException($"Rule '{rule.Name}' requires an unambiguous episode before its offset can be applied.");
-        if (episode is { } number)
+        if (episode is { } number && (capturedEpisode || applyOffsetToFallback))
         {
             var shifted = (long)number + rule.EpisodeOffset;
             if (shifted < 0 || shifted > int.MaxValue)
@@ -226,6 +228,36 @@ public sealed class MetadataRecognitionRuleService(
                    && (rule.FixedSeason is not null || match.Groups["season"].Success);
         }
         catch (RegexMatchTimeoutException) { return false; }
+    }
+
+    private async Task<InferenceResult> ApplyHistoryAsync(MetadataRecognitionRule rule, AnimationInfo item,
+        CancellationToken cancellationToken)
+    {
+        var fallback = ExistingMetadata(item);
+        // Manual corrections (including prior history applications) are finalized coordinates.
+        if (item.MetadataStatus == MetadataReviewStatus.Reviewed)
+            return Apply(rule, item, fallback, applyOffsetToFallback: false);
+
+        var hit = (await repository.GetHitsAsync(item.Id, cancellationToken)).FirstOrDefault();
+        if (hit is not null)
+        {
+            var appliedRule = await repository.FindAsync(hit.RuleId, cancellationToken);
+            if (hit.RuleId != rule.Id || appliedRule?.Revision != hit.RuleRevision)
+            {
+                // Old rule revisions do not retain their offsets. Only explicit title captures
+                // can safely reconstruct coordinates after the applied rule was edited.
+                return Apply(rule, item, null);
+            }
+            if (fallback.Episode is { } episode)
+            {
+                var unshifted = (long)episode - appliedRule.EpisodeOffset;
+                if (unshifted < 0 || unshifted > int.MaxValue)
+                    throw new MetadataRecognitionAmbiguousException(
+                        "The pre-rule episode cannot be recovered. Use an episode title capture or correct it manually.");
+                fallback = fallback with { Episode = (int)unshifted };
+            }
+        }
+        return Apply(rule, item, fallback);
     }
 
     private static InferenceResult ExistingMetadata(AnimationInfo item) =>
