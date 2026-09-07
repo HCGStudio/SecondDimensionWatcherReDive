@@ -91,7 +91,10 @@ internal sealed class LogicalDataTransferWorker(
                     policy.ExcludedKeywords,
                     policy.Mode,
                     policy.CreatedAt,
-                    policy.UpdatedAt))
+                    policy.UpdatedAt,
+                    policy.EnableVersionUpgrade,
+                    policy.MinimumUpgradeScore,
+                    policy.UpgradeRollbackHours))
                 .Take(LogicalDataTransferLimits.MaximumItemsPerCategory + 1)
                 .ToListAsync(cancellationToken)
             : [];
@@ -704,6 +707,9 @@ internal sealed class LogicalDataTransferWorker(
         target.MaxSizeBytes = source.MaxSizeBytes;
         target.ExcludedKeywords = source.ExcludedKeywords.ToArray();
         target.Mode = source.Mode;
+        target.EnableVersionUpgrade = source.EnableVersionUpgrade;
+        target.MinimumUpgradeScore = source.MinimumUpgradeScore;
+        target.UpgradeRollbackHours = source.UpgradeRollbackHours;
         target.CreatedAt = source.CreatedAt;
         target.UpdatedAt = source.UpdatedAt;
     }

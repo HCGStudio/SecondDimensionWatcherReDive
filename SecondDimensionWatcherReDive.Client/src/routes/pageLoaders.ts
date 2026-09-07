@@ -3,6 +3,7 @@ export const loadDownloadingPage = () => import("../pages/DownloadingPage");
 export const loadDownloadedPage = () => import("../pages/DownloadedPage");
 export const loadFilesPage = () => import("../pages/FilesPage");
 export const loadPlayerPage = () => import("../pages/PlayerPage");
+export const loadSearchPage = () => import("../pages/SearchPage");
 export const loadIncidentsPage = () => import("../pages/IncidentsPage");
 export const loadFeedsPage = () => import("../pages/FeedsPage");
 export const loadTasksPage = () => import("../pages/TasksPage");

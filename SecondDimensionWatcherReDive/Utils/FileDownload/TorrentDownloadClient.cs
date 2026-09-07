@@ -18,6 +18,13 @@ public abstract class TorrentDownloadClient : IFileDownloadClient
         string additionalDownloadInfo,
         CancellationToken cancellationToken);
 
+    public abstract Task<DownloadTaskReconciliationOutcome> EnsureDownloadTaskAsync(
+        Guid itemId,
+        string downloadUrl,
+        byte[] cachedDownloadData,
+        string additionalDownloadInfo,
+        CancellationToken cancellationToken);
+
     public abstract Task SubmitQueryDownloadProgressAsync(
         Guid itemId,
         string downloadUrl,

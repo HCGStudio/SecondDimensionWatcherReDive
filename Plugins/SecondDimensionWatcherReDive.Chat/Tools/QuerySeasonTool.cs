@@ -7,7 +7,8 @@ namespace SecondDimensionWatcherReDive.Chat.Tools;
 
 [Tool<QuerySeasonParams>(
     "query_season",
-    "Query seasonal anime info. View current/past season anime lists, or list subgroups for a specific bangumi.")]
+    "Query seasonal anime info. View current/past season anime lists, or list subgroups for a specific bangumi.",
+    ToolRiskLevel.ReadOnly)]
 internal sealed partial class QuerySeasonTool(
     ISeasonBangumiRepository seasonBangumiRepository,
     IBangumiSubgroupRepository bangumiSubgroupRepository,

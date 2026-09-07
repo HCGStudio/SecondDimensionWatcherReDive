@@ -46,7 +46,10 @@ public sealed record LogicalAutomationPolicy(
     IReadOnlyList<string> ExcludedKeywords,
     SubscriptionAutomationMode Mode,
     DateTimeOffset CreatedAt,
-    DateTimeOffset UpdatedAt);
+    DateTimeOffset UpdatedAt,
+    bool EnableVersionUpgrade = false,
+    int MinimumUpgradeScore = 25,
+    int UpgradeRollbackHours = 72);
 
 public sealed record LogicalFileNameRule(
     Guid Id,

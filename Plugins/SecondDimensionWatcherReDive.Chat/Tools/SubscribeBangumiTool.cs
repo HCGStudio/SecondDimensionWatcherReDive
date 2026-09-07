@@ -7,7 +7,8 @@ namespace SecondDimensionWatcherReDive.Chat.Tools;
 
 [Tool<SubscribeBangumiParams>(
     "subscribe_bangumi",
-    "Subscribe to a bangumi on mikanani. Requires mikan_id, optionally accepts subgroup_id.")]
+    "Subscribe to a bangumi on mikanani. Requires mikan_id, optionally accepts subgroup_id.",
+    ToolRiskLevel.Mutating)]
 internal sealed partial class SubscribeBangumiTool(
     ISeasonBangumiRepository seasonBangumiRepository,
     IFeedRepository feedRepository) : ITool

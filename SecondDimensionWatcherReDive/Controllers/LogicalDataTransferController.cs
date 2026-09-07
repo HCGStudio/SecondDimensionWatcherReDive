@@ -186,6 +186,8 @@ internal sealed class LogicalDataTransferController(
                 item.SubtitleGroups is null || item.Resolutions is null || item.Codecs is null ||
                 item.Languages is null || item.ExcludedKeywords is null ||
                 !Enum.IsDefined(item.Mode) || item.MinSizeBytes < 0 || item.MaxSizeBytes < 0 ||
+                item.MinimumUpgradeScore is < 1 or > 1000 ||
+                item.UpgradeRollbackHours is < 1 or > 720 ||
                 (item.MinSizeBytes is not null && item.MaxSizeBytes is not null &&
                  item.MinSizeBytes > item.MaxSizeBytes)) ||
             bundle.FileNameRules.Any(item =>

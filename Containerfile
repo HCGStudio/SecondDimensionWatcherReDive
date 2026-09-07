@@ -39,7 +39,7 @@ RUN apt-get update \
     && printf 'deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt %s-pgdg main\n' "$VERSION_CODENAME" \
         > /etc/apt/sources.list.d/pgdg.list \
     && apt-get update \
-    && apt-get install -y --no-install-recommends postgresql-client-17 \
+    && apt-get install -y --no-install-recommends postgresql-client-17 ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=backend-build /app .
 COPY deployments/sdw-backup /usr/local/bin/sdw-backup

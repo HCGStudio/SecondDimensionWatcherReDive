@@ -36,6 +36,8 @@
 - [x] 按动画分组的主页展示（卡片 + 剧集列表）
 - [x] 当季番组发现（mikanani.me 爬取）+ 一键订阅
 - [x] 后台任务仪表盘（查看状态、手动触发）
+- [x] PostgreSQL 持久任务 / Outbox（崩溃恢复、指数重试、死信处理、多实例租约）
+- [x] 存活与就绪探针、Prometheus 指标及 OpenTelemetry 链路
 - [x] 可串行、可恢复的数据迁移（PostgreSQL advisory lock、版本状态、批次 checkpoint）
 - [x] 插件事件系统（下载前 / 下载完成后钩子）
 - [x] 多语言界面（简体中文 / English / 日本語）
@@ -107,6 +109,8 @@ bash <(curl -fsSL https://raw.githubusercontent.com/HCGStudio/SecondDimensionWat
 | `AI:Anthropic:ApiKey` / `BaseUrl` / `Model` / `MaxTokens` / `ApiVersion` | Anthropic 端点 |
 | `AI:CodexAppServer:Endpoint` / `BearerToken` / `Model` / `PermissionProfile` / `TimeoutSeconds` | Codex app-server WebSocket 端点；空模型使用服务端默认模型；权限配置默认 `:read-only`，也可填写管理员定义的 profile id |
 | `Inference:RateLimitDelayMs` | 推断 API 调用最小间隔（毫秒，默认 1000） |
+| `Health:ValkeyRequired` / `QbittorrentRequired` / `StorageRequired` / `AIRequired` | `/health/ready` 的依赖要求；PostgreSQL 始终必需，AI 默认不阻塞就绪 |
+| `OpenTelemetry:OtlpEndpoint` | 可选 OTLP Collector 地址；Prometheus `/metrics` 无需配置即启用 |
 | `Notifications:Webhook:Enabled` / `Url` | 通用 Webhook 通知渠道；完整 URL 按敏感配置处理，建议从网页设置中保存；远端地址必须使用 HTTPS |
 | `Notifications:WebPush:Enabled` / `Subject` / `VapidPublicKey` / `VapidPrivateKey` | 浏览器 Web Push；首次在网页启用时可由服务端生成 VAPID 密钥对，私钥加密保存；浏览器订阅需要 HTTPS 或 localhost 安全来源 |
 | `Notifications:Events` / `QuietHours` | 允许投递的领域事件与可选免打扰时段；启用且选中的事件会在核心操作完成后尽力写入持久化 Outbox，再异步重试投递 |
@@ -118,6 +122,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/HCGStudio/SecondDimensionWat
 
 > 从 v2.2 之前升级：旧的 `Inference:ApiKey/Provider/Model` 已迁移到 `AI:` 前缀。运行 `deployments/migrate-config.sh` 自动迁移；包管理器安装时 `postinstall.sh` 会自动执行。
 
+运行探针、持久任务恢复、死信操作和遥测标签约束详见 [运行可靠性与可观测性](docs/runtime-reliability.md)。
 升级前的备份、失败诊断、checkpoint 恢复和多副本发布流程见 **[数据库迁移运维手册](docs/migrations.md)**。
 
 ### 网页运行时设置

@@ -128,22 +128,58 @@ public class FileMappingRepository(
                 .AsNoTracking()
                 .Where(mapping => mapping.AnimationInfoId == animationInfoId)
                 .ToListAsync(cancellationToken);
+            var existingStagedMappings = await replaceContext.StagedFileMappings
+                .AsNoTracking()
+                .Where(mapping => mapping.AnimationInfoId == animationInfoId)
+                .ToListAsync(cancellationToken);
             var desiredMappings = mappings
                 .Select(mapping => mapping.ToEntity())
                 .ToList();
+            var previousEpisodeIdentity = AnimationInfoRepository.GetEpisodeIdentity(
+                replaceContext,
+                current);
+            var wasActiveRelease = current.IsActiveRelease;
+            await AnimationInfoRepository.SetEpisodeReleaseActivityAsync(
+                replaceContext,
+                current,
+                willHaveMappings: desiredMappings.Count > 0,
+                cancellationToken);
+            var shouldStage = previousEpisodeIdentity is not null && !current.IsActiveRelease;
+            var previousMappings = existingMappings.Count > 0
+                ? existingMappings
+                : existingStagedMappings.Select(ToFileMapping).ToList();
             await PlaybackProgressMappingMigrator.MigrateAsync(
                 replaceContext,
                 animationInfoId,
-                existingMappings,
+                previousMappings,
                 desiredMappings,
                 cancellationToken);
             var reconciliation = await FileMappingSetReconciler.ReconcileAsync(
                 replaceContext,
                 animationInfoId,
-                desiredMappings,
+                shouldStage ? [] : desiredMappings,
                 cancellationToken);
+            replaceContext.StagedFileMappings.RemoveRange(existingStagedMappings);
+            if (shouldStage)
+            {
+                await replaceContext.StagedFileMappings.AddRangeAsync(
+                    desiredMappings.Select(ToStagedFileMapping),
+                    cancellationToken);
+            }
+            var currentEpisodeIdentity = current.IsActiveRelease
+                ? AnimationInfoRepository.GetEpisodeIdentity(replaceContext, current)
+                : null;
             current.StateVersion = checked(current.StateVersion + 1);
             await replaceContext.SaveChangesAsync(cancellationToken);
+            await AnimationInfoRepository.PromotePreviousEpisodeSuccessorAsync(
+                replaceContext,
+                current.Id,
+                wasActiveRelease,
+                previousEpisodeIdentity,
+                currentEpisodeIdentity,
+                previousMappings,
+                retainChangedReleaseMappings: true,
+                cancellationToken);
             await reconciliation.RestoreEntryIdentitiesAsync(
                 replaceContext,
                 cancellationToken);
@@ -377,15 +413,18 @@ public class FileMappingRepository(
 
     public async Task<bool> ExistsForAnimationInfoAsync(Guid animationInfoId, CancellationToken cancellationToken)
     {
-        return await context.FileMappings
-            .AsNoTracking()
-            .AnyAsync(m => m.AnimationInfoId == animationInfoId, cancellationToken);
+        return await context.FileMappings.AsNoTracking()
+                   .AnyAsync(m => m.AnimationInfoId == animationInfoId, cancellationToken)
+               || await context.StagedFileMappings.AsNoTracking()
+                   .AnyAsync(m => m.AnimationInfoId == animationInfoId, cancellationToken);
     }
 
     public async Task<bool> TryFinalizeDownloadCancellationAsync(
         Guid animationInfoId,
         Guid? downloadAttemptId,
         Guid cancellationAttemptId,
+        Guid cancellationLeaseId,
+        SubscriptionAutomationDisposition? terminalDisposition,
         CancellationToken cancellationToken)
     {
         var strategy = context.Database.CreateExecutionStrategy();
@@ -415,26 +454,97 @@ public class FileMappingRepository(
                 || animationInfo.DownloadCancellationId != cancellationAttemptId)
                 return false;
 
+            var databaseNow = await finalizeContext.Database
+                .SqlQueryRaw<DateTimeOffset>("SELECT clock_timestamp() AS \"Value\"")
+                .SingleAsync(cancellationToken);
+            if (animationInfo.DownloadCancellationLeaseId != cancellationLeaseId ||
+                animationInfo.DownloadCancellationLeaseUntil <= databaseNow)
+                return false;
+            if (animationInfo.DownloadSubmissionLeaseId is not null &&
+                animationInfo.DownloadSubmissionLeaseId != cancellationLeaseId &&
+                (animationInfo.DownloadSubmissionLeaseUntil is null ||
+                 animationInfo.DownloadSubmissionLeaseUntil > databaseNow))
+                return false;
+            if (await finalizeContext.ReleaseUpgradeOperations.AnyAsync(
+                    operation => operation.CandidateReleaseId == animationInfoId &&
+                                 operation.DownloadSubmissionLeaseId != null &&
+                                 operation.DownloadSubmissionLeaseId != cancellationLeaseId &&
+                                 (operation.DownloadSubmissionLeaseUntil == null ||
+                                  operation.DownloadSubmissionLeaseUntil > databaseNow),
+                    cancellationToken))
+                return false;
+
+            var previousEpisodeIdentity = AnimationInfoRepository.GetEpisodeIdentity(
+                finalizeContext,
+                animationInfo);
+            var wasActiveRelease = animationInfo.IsActiveRelease;
+            var previousMappings = await finalizeContext.FileMappings
+                .AsNoTracking()
+                .Where(mapping => mapping.AnimationInfoId == animationInfoId)
+                .OrderBy(mapping => mapping.VirtualPath)
+                .ToListAsync(cancellationToken);
+            animationInfo.IsDownloadTracked = false;
+            animationInfo.IsDownloadFinished = false;
+            animationInfo.IsActiveRelease = false;
+            animationInfo.DownloadAttemptId = null;
+            animationInfo.DownloadSubmissionLeaseId = null;
+            animationInfo.DownloadSubmissionLeaseUntil = null;
+            // Retain the completed cancellation id until the next Start so a
+            // lost commit acknowledgement can be retried idempotently.
+            animationInfo.DownloadCancellationId = cancellationAttemptId;
+            animationInfo.DownloadCancellationLeaseId = null;
+            animationInfo.DownloadCancellationLeaseUntil = null;
+            animationInfo.AutomationDisposition = terminalDisposition
+                ?? (animationInfo.AutomationDisposition is
+                    SubscriptionAutomationDisposition.AutoDownloadQueued or
+                    SubscriptionAutomationDisposition.ManualDownloadQueued or
+                    SubscriptionAutomationDisposition.DownloadCompleted
+                        ? SubscriptionAutomationDisposition.DownloadCancelled
+                        : animationInfo.AutomationDisposition);
+            animationInfo.StateVersion = checked(animationInfo.StateVersion + 1);
+            await finalizeContext.ReleaseUpgradeOperations
+                .Where(operation => operation.CandidateReleaseId == animationInfoId &&
+                                    (operation.Status == ReleaseUpgradeStatus.Downloading ||
+                                     operation.Status == ReleaseUpgradeStatus.Verifying))
+                .ExecuteUpdateAsync(
+                    setters => setters
+                        .SetProperty(operation => operation.Status, ReleaseUpgradeStatus.Failed)
+                        .SetProperty(
+                            operation => operation.FailureSummary,
+                            "Candidate download was cancelled before upgrade activation.")
+                        .SetProperty(operation => operation.CompletedAt, databaseNow),
+                    cancellationToken);
+            await finalizeContext.ReleaseUpgradeOperations
+                .Where(operation =>
+                    operation.CandidateReleaseId == animationInfoId &&
+                    operation.DownloadSubmissionLeaseId != null &&
+                    (operation.Status == ReleaseUpgradeStatus.Failed ||
+                     operation.Status == ReleaseUpgradeStatus.RolledBack ||
+                     operation.Status == ReleaseUpgradeStatus.Completed))
+                .ExecuteUpdateAsync(setters => setters
+                        .SetProperty(operation => operation.DownloadSubmissionLeaseId, (Guid?)null)
+                        .SetProperty(operation => operation.DownloadSubmissionLeaseUntil,
+                            (DateTimeOffset?)null),
+                    cancellationToken);
+            await finalizeContext.SaveChangesAsync(cancellationToken);
+            await AnimationInfoRepository.PromotePreviousEpisodeSuccessorAsync(
+                finalizeContext,
+                animationInfo.Id,
+                wasActiveRelease,
+                previousEpisodeIdentity,
+                currentIdentity: null,
+                previousMappings,
+                retainChangedReleaseMappings: false,
+                cancellationToken);
             await finalizeContext.PlaybackProgresses
                 .Where(progress => progress.AnimationInfoId == animationInfoId)
                 .ExecuteDeleteAsync(cancellationToken);
             await finalizeContext.FileMappings
                 .Where(mapping => mapping.AnimationInfoId == animationInfoId)
                 .ExecuteDeleteAsync(cancellationToken);
-            animationInfo.IsDownloadTracked = false;
-            animationInfo.IsDownloadFinished = false;
-            animationInfo.DownloadAttemptId = null;
-            // Retain the completed cancellation id until the next Start so a
-            // lost commit acknowledgement can be retried idempotently.
-            animationInfo.DownloadCancellationId = cancellationAttemptId;
-            animationInfo.AutomationDisposition = animationInfo.AutomationDisposition is
-                SubscriptionAutomationDisposition.AutoDownloadQueued or
-                SubscriptionAutomationDisposition.ManualDownloadQueued or
-                SubscriptionAutomationDisposition.DownloadCompleted
-                    ? SubscriptionAutomationDisposition.DownloadCancelled
-                    : animationInfo.AutomationDisposition;
-            animationInfo.StateVersion = checked(animationInfo.StateVersion + 1);
-            await finalizeContext.SaveChangesAsync(cancellationToken);
+            await finalizeContext.StagedFileMappings
+                .Where(mapping => mapping.AnimationInfoId == animationInfoId)
+                .ExecuteDeleteAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             return true;
         });
@@ -454,16 +564,57 @@ public class FileMappingRepository(
                 removeContext,
                 animationInfoId,
                 cancellationToken);
+            var previousEpisodeIdentity = animationInfo is null
+                ? null
+                : AnimationInfoRepository.GetEpisodeIdentity(removeContext, animationInfo);
+            var wasActiveRelease = animationInfo?.IsActiveRelease == true;
+            var previousMappings = await removeContext.FileMappings
+                .AsNoTracking()
+                .Where(mapping => mapping.AnimationInfoId == animationInfoId)
+                .OrderBy(mapping => mapping.VirtualPath)
+                .ToListAsync(cancellationToken);
+            if (animationInfo is not null)
+            {
+                animationInfo.IsActiveRelease = false;
+                animationInfo.StateVersion = checked(animationInfo.StateVersion + 1);
+                await removeContext.SaveChangesAsync(cancellationToken);
+                await AnimationInfoRepository.PromotePreviousEpisodeSuccessorAsync(
+                    removeContext,
+                    animationInfo.Id,
+                    wasActiveRelease,
+                    previousEpisodeIdentity,
+                    currentIdentity: null,
+                    previousMappings,
+                    retainChangedReleaseMappings: false,
+                    cancellationToken);
+            }
+
             await removeContext.FileMappings
                 .Where(mapping => mapping.AnimationInfoId == animationInfoId)
                 .ExecuteDeleteAsync(cancellationToken);
-            if (animationInfo is not null)
-            {
-                animationInfo.StateVersion = checked(animationInfo.StateVersion + 1);
-                await removeContext.SaveChangesAsync(cancellationToken);
-            }
+            await removeContext.StagedFileMappings
+                .Where(mapping => mapping.AnimationInfoId == animationInfoId)
+                .ExecuteDeleteAsync(cancellationToken);
 
             await transaction.CommitAsync(cancellationToken);
         });
     }
+
+    private static Models.FileMapping ToFileMapping(Models.StagedFileMapping mapping) => new()
+    {
+        Id = mapping.Id,
+        AnimationInfoId = mapping.AnimationInfoId,
+        VirtualPath = mapping.VirtualPath,
+        PhysicalPath = mapping.PhysicalPath,
+        FileStore = mapping.FileStore
+    };
+
+    private static Models.StagedFileMapping ToStagedFileMapping(Models.FileMapping mapping) => new()
+    {
+        Id = mapping.Id,
+        AnimationInfoId = mapping.AnimationInfoId,
+        VirtualPath = mapping.VirtualPath,
+        PhysicalPath = mapping.PhysicalPath,
+        FileStore = mapping.FileStore
+    };
 }

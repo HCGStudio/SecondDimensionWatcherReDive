@@ -13,6 +13,7 @@ depends:
   - aspnetcore-runtime-10.0
   - postgresql-client
   - curl
+  - ffmpeg
 
 recommends:
   - valkey
@@ -21,6 +22,7 @@ overrides:
   rpm:
     depends:
       - aspnetcore-runtime-10.0
+      - ffmpeg
       - postgresql
       - curl
   archlinux:
@@ -28,6 +30,7 @@ overrides:
       - aspnet-runtime-10.0
       - postgresql
       - curl
+      - ffmpeg
     recommends:
       - valkey
 
@@ -109,6 +112,13 @@ contents:
     type: dir
     file_info:
       mode: 0700
+      owner: sdw-redive
+      group: sdw-redive
+
+  - dst: /var/lib/sdw-redive/transcode-cache
+    type: dir
+    file_info:
+      mode: 0750
       owner: sdw-redive
       group: sdw-redive
 
