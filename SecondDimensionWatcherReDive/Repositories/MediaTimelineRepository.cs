@@ -8,7 +8,8 @@ namespace SecondDimensionWatcherReDive.Repositories;
 [JsonSerializable(typeof(MediaTimelinePoint[]))]
 internal partial class TimelineJsonContext : JsonSerializerContext;
 
-internal sealed class MediaTimelineRepository(Models.ApplicationContext context) : IMediaTimelineRepository
+internal sealed class MediaTimelineRepository(Models.ApplicationContext context,
+    DbContextOptions<Models.ApplicationContext> options) : IMediaTimelineRepository
 {
     public async Task<MediaTimelineContext> GetAsync(string mediaVersion, string? seasonKey, CancellationToken cancellationToken)
     {
@@ -19,43 +20,57 @@ internal sealed class MediaTimelineRepository(Models.ApplicationContext context)
         return new MediaTimelineContext(mediaVersion, seasonKey, ToData(episode), ToData(defaults), accepted);
     }
 
-    public async Task SaveAsync(string mediaVersion, Guid mappingId, string? seasonKey, bool seasonDefault, double durationSeconds,
-        IReadOnlyList<MediaTimelinePoint> points, CancellationToken cancellationToken)
-    {
-        var key = seasonDefault ? seasonKey ?? throw new ArgumentException("Season unavailable") : "media:" + mediaVersion;
-        var row = await context.Set<Models.MediaTimeline>().FirstOrDefaultAsync(x => x.Key == key, cancellationToken);
-        if (row is null) { row = new Models.MediaTimeline { Key = key }; context.Add(row); }
-        row.DurationSeconds = durationSeconds;
-        row.PointsJson = JsonSerializer.Serialize(points.ToArray(), TimelineJsonContext.Default.MediaTimelinePointArray);
-        row.UpdatedAt = DateTimeOffset.UtcNow;
-        if (seasonDefault)
+    public Task SaveAsync(string mediaVersion, Guid mappingId, string? seasonKey, bool seasonDefault, double durationSeconds,
+        IReadOnlyList<MediaTimelinePoint> points, CancellationToken cancellationToken) =>
+        WriteAsync(async write =>
         {
-            // New season revisions require confirmation for other media versions.
-            var binding = await context.Set<Models.MediaTimelineBinding>().FindAsync([mediaVersion], cancellationToken);
-            if (binding is null) { binding = new Models.MediaTimelineBinding { MediaVersion = mediaVersion }; context.Add(binding); }
-            binding.MappingId = mappingId; binding.SeasonKey = key; binding.DurationSeconds = durationSeconds; binding.AcceptedRevision = row.UpdatedAt;
-        }
-        await context.SaveChangesAsync(cancellationToken);
-    }
+            var key = seasonDefault ? seasonKey ?? throw new ArgumentException("Season unavailable") : "media:" + mediaVersion;
+            var row = await write.Set<Models.MediaTimeline>().FirstOrDefaultAsync(x => x.Key == key, cancellationToken);
+            if (row is null) { row = new Models.MediaTimeline { Key = key }; write.Add(row); }
+            row.DurationSeconds = durationSeconds;
+            row.PointsJson = JsonSerializer.Serialize(points.ToArray(), TimelineJsonContext.Default.MediaTimelinePointArray);
+            row.UpdatedAt = DateTimeOffset.UtcNow;
+            if (seasonDefault)
+            {
+                // New season revisions require confirmation for other media versions.
+                var binding = await write.Set<Models.MediaTimelineBinding>().FindAsync([mediaVersion], cancellationToken);
+                if (binding is null) { binding = new Models.MediaTimelineBinding { MediaVersion = mediaVersion }; write.Add(binding); }
+                binding.MappingId = mappingId; binding.SeasonKey = key; binding.DurationSeconds = durationSeconds; binding.AcceptedRevision = row.UpdatedAt;
+            }
+        }, cancellationToken);
 
-    public async Task AcceptSeasonAsync(string mediaVersion, Guid mappingId, string seasonKey, double durationSeconds, CancellationToken cancellationToken)
-    {
-        var row = await context.Set<Models.MediaTimeline>().FirstOrDefaultAsync(x => x.Key == seasonKey, cancellationToken)
-                  ?? throw new KeyNotFoundException();
-        var data = ToData(row)!;
-        if (data.Points.Any(x => x.EndSeconds > durationSeconds || x.StartSeconds >= durationSeconds))
-            throw new ArgumentException("Season points exceed this media duration");
-        var binding = await context.Set<Models.MediaTimelineBinding>().FindAsync([mediaVersion], cancellationToken);
-        if (binding is null) { binding = new Models.MediaTimelineBinding { MediaVersion = mediaVersion }; context.Add(binding); }
-        binding.MappingId = mappingId; binding.SeasonKey = seasonKey; binding.DurationSeconds = durationSeconds; binding.AcceptedRevision = row.UpdatedAt;
-        await context.SaveChangesAsync(cancellationToken);
-    }
+    public Task AcceptSeasonAsync(string mediaVersion, Guid mappingId, string seasonKey, double durationSeconds, CancellationToken cancellationToken) =>
+        WriteAsync(async write =>
+        {
+            var row = await write.Set<Models.MediaTimeline>().FirstOrDefaultAsync(x => x.Key == seasonKey, cancellationToken)
+                      ?? throw new KeyNotFoundException();
+            var data = ToData(row)!;
+            if (data.Points.Any(x => x.EndSeconds > durationSeconds || x.StartSeconds >= durationSeconds))
+                throw new ArgumentException("Season points exceed this media duration");
+            var binding = await write.Set<Models.MediaTimelineBinding>().FindAsync([mediaVersion], cancellationToken);
+            if (binding is null) { binding = new Models.MediaTimelineBinding { MediaVersion = mediaVersion }; write.Add(binding); }
+            binding.MappingId = mappingId; binding.SeasonKey = seasonKey; binding.DurationSeconds = durationSeconds; binding.AcceptedRevision = row.UpdatedAt;
+        }, cancellationToken);
 
-    public async Task DeleteAsync(string mediaVersion, string? seasonKey, bool seasonDefault, CancellationToken cancellationToken)
-    {
-        var key = seasonDefault ? seasonKey : "media:" + mediaVersion;
-        await context.Set<Models.MediaTimeline>().Where(x => x.Key == key).ExecuteDeleteAsync(cancellationToken);
-    }
+    public Task DeleteAsync(string mediaVersion, string? seasonKey, bool seasonDefault, CancellationToken cancellationToken) =>
+        WriteAsync(async write =>
+        {
+            var key = seasonDefault ? seasonKey : "media:" + mediaVersion;
+            await write.Set<Models.MediaTimeline>().Where(x => x.Key == key).ExecuteDeleteAsync(cancellationToken);
+        }, cancellationToken);
+
+    private Task WriteAsync(Func<Models.ApplicationContext, Task> mutation, CancellationToken cancellationToken) =>
+        context.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
+        {
+            await using var write = new Models.ApplicationContext(options);
+            await using var transaction = await write.Database.BeginTransactionAsync(cancellationToken);
+            // Serialize create/update/delete and season acceptance with each other
+            // and with mapping changes, including the first insert for a key.
+            await MappingTransactionLock.AcquireAsync(write, cancellationToken);
+            await mutation(write);
+            await write.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        });
 
     private static MediaTimelineData? ToData(Models.MediaTimeline? row) => row is null ? null : new MediaTimelineData(row.Key,
         row.DurationSeconds, JsonSerializer.Deserialize(row.PointsJson, TimelineJsonContext.Default.MediaTimelinePointArray) ?? [], row.UpdatedAt);

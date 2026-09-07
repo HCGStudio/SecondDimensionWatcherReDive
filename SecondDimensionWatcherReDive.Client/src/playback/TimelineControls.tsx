@@ -82,7 +82,6 @@ export const TimelineControls: React.FC<{
     const guard: EndingProgressGuard = (id, mediaPath, position, duration) =>
       id === animationInfoId &&
       mediaPath === path &&
-      autoSkipRef.current &&
       Boolean(
         effectiveRef.current?.points.some(
           (point) =>
