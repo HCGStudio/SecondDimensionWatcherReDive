@@ -32,7 +32,8 @@ public sealed partial class LibraryCompletionService(ILibraryCompletionRepositor
         foreach (var episode in episodeNumbers.Distinct().Order())
         {
             var date = air.Episodes.FirstOrDefault(x => x.Episode == episode)?.AirDate;
-            var unaired = DateOnly.TryParse(date, out var parsed) && parsed > today;
+            var hasAirDate = DateOnly.TryParse(date, out var parsed);
+            var unaired = hasAirDate && parsed > today;
             var episodeReleases = releases.Where(x => x.Episode == episode).ToList();
             var candidates = episodeReleases.Where(IsReliable).Select(info =>
             {
@@ -45,11 +46,12 @@ public sealed partial class LibraryCompletionService(ILibraryCompletionRepositor
             // Completed cancellation retains its ID as an idempotency tombstone, not active work.
             var downloading = episodeReleases.Any(x => x.IsDownloadTracked);
             var failed = episodeReleases.Any(x => x.AutomationDisposition == SubscriptionAutomationDisposition.AutoDownloadFailed);
-            var selected = unaired || downloaded || mappingPending || downloading ? null : candidates.FirstOrDefault(x => x.Eligible)?.ReleaseId;
+            var selected = !hasAirDate || unaired || downloaded || mappingPending || downloading ? null : candidates.FirstOrDefault(x => x.Eligible)?.ReleaseId;
             var state = downloaded ? "downloaded" : mappingPending ? "mapping_pending" : downloading ? "downloading" : unaired ? "unaired" : failed ? "failed" :
                 candidates.Count > 0 ? "candidate" : date == null ? "air_date_unknown" : "aired_no_resource";
             items.Add(new(episode, state, date, selected, candidates,
-                selected != null ? "highest_eligible_score" : candidates.Count > 0 && !downloaded && !mappingPending && !downloading && !unaired ? "no_eligible_candidate" : state));
+                selected != null ? "highest_eligible_score" : downloaded || mappingPending || downloading || unaired ? state :
+                !hasAirDate ? "air_date_unknown" : candidates.Count > 0 ? "no_eligible_candidate" : state));
         }
         return new(tmdbId, releases.FirstOrDefault()?.Animation?.Name ?? group?.Name ?? tmdbId, season,
             DateTimeOffset.UtcNow, air.CheckedAt, air.Source, releases.Count(x => !IsReliable(x)), items);

@@ -75,8 +75,8 @@ public partial class FetchRemoteTorrentBackgroundService(
     protected override async Task ExecuteAsync(CancellationToken cancellationToken)
     {
         var reader = remoteTorrentTrackRequest.Reader;
-        var tracked = new ConcurrentDictionary<string, RemoteTorrentTrackRequest>();
-        var observations = new ConcurrentDictionary<string, DownloadObservation>();
+        var tracked = new ConcurrentDictionary<string, RemoteTorrentTrackRequest>(StringComparer.OrdinalIgnoreCase);
+        var observations = new ConcurrentDictionary<string, DownloadObservation>(StringComparer.OrdinalIgnoreCase);
         var nextDatabaseRefreshAt = DateTimeOffset.MinValue;
 
         while (!cancellationToken.IsCancellationRequested)
@@ -87,8 +87,19 @@ public partial class FetchRemoteTorrentBackgroundService(
                 {
                     // Periodic refresh recovers requests whose initial channel
                     // binding happened during a temporary database outage.
+                    var recovered = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                     await foreach (var request in FetchUnfinishedTaskFromDb(cancellationToken))
+                    {
+                        recovered.Add(request.Hash);
                         tracked[request.Hash] = request;
+                    }
+                    // A tracked attempt can return to the capacity queue. Only
+                    // reconcile removals after a complete successful DB refresh.
+                    foreach (var hash in tracked.Keys.Where(hash => !recovered.Contains(hash)))
+                    {
+                        tracked.TryRemove(hash, out _);
+                        observations.TryRemove(hash, out _);
+                    }
                     nextDatabaseRefreshAt = DateTimeOffset.UtcNow.AddSeconds(30);
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

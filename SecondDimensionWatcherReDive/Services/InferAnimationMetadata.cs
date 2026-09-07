@@ -138,8 +138,8 @@ public partial class InferAnimationMetadata(
 
                 if (rule is not null && (animation is null || string.IsNullOrWhiteSpace(animation.Name) || animation.Name == result.TmdbId)
                     && string.IsNullOrWhiteSpace(details?.Name))
-                    throw new MetadataRecognitionAmbiguousException(
-                        $"Rule '{rule.Name}' targets a TMDB series that could not be resolved. Review its target before applying it.");
+                    throw new InvalidOperationException(
+                        $"TMDB details for rule '{rule.Name}' (target {result.TmdbId}) are currently unavailable. Inference will retry before requiring intervention.");
                 if (animation == null)
                 {
                     animation = new Animation(

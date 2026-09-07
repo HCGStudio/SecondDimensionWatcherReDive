@@ -228,6 +228,10 @@ public partial class TmdbTool
                 Overview: show.Overview,
                 PosterPath: show.PosterPath);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             LogGetLocalizedDetailsFailed(_logger, ex, tmdbId);

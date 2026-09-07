@@ -10,7 +10,8 @@ namespace SecondDimensionWatcherReDive.Repositories;
 public sealed partial class ReleaseUpgradeRepository(
     Models.ApplicationContext context,
     DbContextOptions<Models.ApplicationContext> contextOptions,
-    IReleaseScoringService releaseScoringService) : IReleaseUpgradeRepository
+    IReleaseScoringService releaseScoringService,
+    ISubscriptionAutomationMatcher automationMatcher) : IReleaseUpgradeRepository
 {
     private sealed record CandidateRow(
         Guid CurrentReleaseId,
@@ -142,8 +143,11 @@ public sealed partial class ReleaseUpgradeRepository(
         var shared = await sourceContext.Set<Models.MultiSourceSubscription>().AsNoTracking().Include(x => x.Sources)
             .FirstOrDefaultAsync(x => x.Sources.Any(y => y.FeedId == feedId), cancellationToken);
         if (shared != null) return MultiSourceSubscriptionRepository.ToRecord(shared).ToPolicy(feedId);
-        return (await sourceContext.SubscriptionAutomationPolicies.AsNoTracking()
-            .SingleOrDefaultAsync(x => x.FeedId == feedId, cancellationToken))?.ToRecord();
+        // Standalone policy writes do not take the mapping lock; hold this row
+        // through the upgrade transaction so eligibility cannot change mid-start.
+        return (await sourceContext.SubscriptionAutomationPolicies
+            .FromSqlInterpolated($"SELECT * FROM \"SubscriptionAutomationPolicies\" WHERE \"FeedId\" = {feedId} FOR SHARE")
+            .AsNoTracking().SingleOrDefaultAsync(cancellationToken))?.ToRecord();
     }
 
     private ReleaseUpgradeCandidate? EvaluateCandidate(
@@ -310,6 +314,11 @@ public sealed partial class ReleaseUpgradeRepository(
                 }
             }
             var policy = await ReadEffectivePolicyAsync(writeContext, next.SourceFeedId, cancellationToken);
+            if (invocation != ReleaseUpgradeInvocation.Manual
+                && (policy is null || !automationMatcher.Evaluate(policy, new AnimationAddRequest(
+                    next.PublishTime, next.Title, next.Description, next.DownloadUrl, next.DownloadType,
+                    next.AdditionalDownloadInfo, next.SourceFeedId, next.ReleaseSizeBytes)).Matched))
+                return null;
             var currentScore = releaseScoringService.Score(new SubscriptionReleaseMetadata(
                 current.ReleaseSubtitleGroup, current.ReleaseResolution, current.ReleaseCodec,
                 current.ReleaseLanguages, current.ReleaseSizeBytes), policy);
