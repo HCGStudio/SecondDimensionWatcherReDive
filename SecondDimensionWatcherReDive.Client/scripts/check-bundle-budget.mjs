@@ -91,7 +91,6 @@ const report = {
   mainPageJavaScript,
   homeRouteJavaScriptBytes,
   asyncJavaScript,
-  wasmAssets,
   checks,
 };
 const rows = checks.map(

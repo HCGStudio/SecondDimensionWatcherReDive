@@ -1,6 +1,6 @@
 import Artplayer from "artplayer";
 import artplayerProxyMediabunny from "artplayer-proxy-mediabunny";
-import Hls from "hls.js";
+import type Hls from "hls.js";
 import {
   CaptionsFileFormat,
   CaptionsRenderer,
@@ -369,8 +369,7 @@ export const PlayerPage: React.FC = () => {
 
         setMkvStatus({ stage: "probing" });
         let probe: MkvPlaybackProbe | null = null;
-        const { probeMkvPlayback } =
-          await import("../playback/mkv/support");
+        const { probeMkvPlayback } = await import("../playback/mkv/support");
         try {
           probe = await probeMkvPlayback(videoLink.url, controller.signal);
         } catch (error) {
@@ -436,7 +435,6 @@ export const PlayerPage: React.FC = () => {
         }
 
         const initialSession = await prepareServerTranscoding(
-
           {
             id: animationId,
             path: playbackContext.media.path,
@@ -683,6 +681,7 @@ export const PlayerPage: React.FC = () => {
         : "en";
 
     let hls: Hls | null = null;
+    let disposed = false;
     const art = new Artplayer({
       container: playerContainerRef.current,
       url: playbackUrl,
@@ -690,7 +689,9 @@ export const PlayerPage: React.FC = () => {
       customType:
         playbackMode === "hls"
           ? {
-              m3u8: (video: HTMLVideoElement, url: string) => {
+              m3u8: async (video: HTMLVideoElement, url: string) => {
+                const { default: Hls } = await import("hls.js");
+                if (disposed) return;
                 if (!Hls.isSupported()) {
                   video.src = url;
                   return;
@@ -867,6 +868,7 @@ export const PlayerPage: React.FC = () => {
       window.removeEventListener("beforeunload", onBeforeUnload);
       captionsRenderer?.destroy();
       captionsOverlay?.remove();
+      disposed = true;
       hls?.destroy();
       if (captionsRendererRef.current === captionsRenderer) {
         captionsRendererRef.current = null;
