@@ -247,6 +247,7 @@ public sealed partial class ReleaseUpgradeRepository(
 
     public async Task<ReleaseUpgradeOperation?> TryBeginAsync(
         ReleaseUpgradeCandidate candidate,
+        ReleaseUpgradeInvocation invocation,
         DateTimeOffset createdAt,
         CancellationToken cancellationToken)
     {
@@ -287,17 +288,26 @@ public sealed partial class ReleaseUpgradeRepository(
 
             // Re-evaluate after claiming the release rows. A policy or release
             // may have changed since the candidate list was read.
-            if (candidate.Automatic && current.SourceFeedId is { } currentFeedId)
+            if (invocation != ReleaseUpgradeInvocation.Manual)
             {
-                var owner = await writeContext.Set<Models.MultiSourceSubscription>().AsNoTracking()
+                var owners = await writeContext.Set<Models.MultiSourceSubscription>().AsNoTracking()
                     .Include(subscription => subscription.Sources)
-                    .FirstOrDefaultAsync(subscription => subscription.Sources.Any(source => source.FeedId == currentFeedId), cancellationToken);
-                if (owner is not null && (owner.Mode != "AutoDownload"
-                    || owner.TmdbId != current.Animation.TmdbId || owner.Season != current.Season
-                    || !owner.Sources.Any(source => source.FeedId == next.SourceFeedId)
-                    || owner.Sources.Any(source => source.FeedId == currentFeedId && source.Priority > 0)
-                       && next.SourceFeedId != currentFeedId))
+                    .Where(subscription => subscription.Sources.Any(source =>
+                        source.FeedId == current.SourceFeedId || source.FeedId == next.SourceFeedId))
+                    .ToListAsync(cancellationToken);
+                if (invocation == ReleaseUpgradeInvocation.AutomaticFeed && owners.Count > 0)
                     return null;
+                if (invocation == ReleaseUpgradeInvocation.AutomaticMultiSource)
+                {
+                    var owner = owners.SingleOrDefault(subscription =>
+                        subscription.Sources.Any(source => source.FeedId == next.SourceFeedId));
+                    if (owner is null || owner.Mode != "AutoDownload"
+                        || owner.TmdbId != current.Animation.TmdbId || owner.Season != current.Season
+                        || owners.Any(subscription => subscription.Id != owner.Id)
+                        || owner.Sources.Any(source => source.FeedId == current.SourceFeedId && source.Priority > 0)
+                           && next.SourceFeedId != current.SourceFeedId)
+                        return null;
+                }
             }
             var policy = await ReadEffectivePolicyAsync(writeContext, next.SourceFeedId, cancellationToken);
             var currentScore = releaseScoringService.Score(new SubscriptionReleaseMetadata(
@@ -307,7 +317,7 @@ public sealed partial class ReleaseUpgradeRepository(
                 next.ReleaseSubtitleGroup, next.ReleaseResolution, next.ReleaseCodec,
                 next.ReleaseLanguages, next.ReleaseSizeBytes), policy);
             if (candidateScore.Value <= currentScore.Value ||
-                (candidate.Automatic &&
+                (invocation != ReleaseUpgradeInvocation.Manual &&
                  (current.ReleaseScoreReasonsJson is null || next.ReleaseScoreReasonsJson is null ||
                   policy is not { EnableVersionUpgrade: true } ||
                   candidateScore.Value - currentScore.Value < policy.MinimumUpgradeScore)))

@@ -27,7 +27,8 @@ public sealed class MultiSourceCoordinator(IMultiSourceSubscriptionRepository su
         return result.Single();
     }
 
-    public async Task EvaluateAsync(MultiSourceSubscription subscription, CancellationToken cancellationToken)
+    public async Task EvaluateAsync(MultiSourceSubscription subscription, CancellationToken cancellationToken,
+        bool retryFailures = false)
     {
         var all = await releases.GetSeasonReleasesAsync(subscription.TmdbId, subscription.Season, cancellationToken);
         var mapped = await releases.GetMappedReleaseIdsAsync(subscription.TmdbId, subscription.Season, cancellationToken);
@@ -37,6 +38,9 @@ public sealed class MultiSourceCoordinator(IMultiSourceSubscriptionRepository su
         {
             var now = DateTimeOffset.UtcNow;
             var old = previous.GetValueOrDefault(group.Key);
+            // Failed decisions are terminal for background evaluation, including while a failed
+            // submission is still being compensated. Only an explicit user retry reopens them.
+            if (old?.Outcome == "failed" && !retryFailures) continue;
             var firstSeen = group.Min(x => x.IngestedAt ?? x.PublishTime);
             if (firstSeen < subscription.CreatedAt) firstSeen = subscription.CreatedAt;
             var started = old?.WaitStartedAt ?? firstSeen;
@@ -68,7 +72,7 @@ public sealed class MultiSourceCoordinator(IMultiSourceSubscriptionRepository su
                         : await upgrades.FindCandidateAsync(current.Id, selected.Info.Id, cancellationToken);
                     if (candidate is { Automatic: true } && candidate.CandidateScore - candidate.CurrentScore >= subscription.MinimumUpgradeScore)
                     {
-                        var result = await upgradeCoordinator.ExecuteAsync(candidate, false, cancellationToken);
+                        var result = await upgradeCoordinator.ExecuteAsync(candidate, ReleaseUpgradeInvocation.AutomaticMultiSource, false, cancellationToken);
                         selectedId = candidate.CandidateReleaseId; outcome = result.IsSuccess ? "upgrading" : "failed"; reason = result.Outcome;
                     }
                     else reason = selected.Info is null ? "existing_release_retained" : "upgrade_threshold_not_met";
@@ -97,8 +101,9 @@ public sealed class MultiSourceCoordinator(IMultiSourceSubscriptionRepository su
                     if (!result.IsSuccess) reason = result.Outcome;
                 }
             }
-            await subscriptions.SaveDecisionAsync(new(subscription.Id, group.Key, started, until, selectedId,
+            var persisted = await subscriptions.SaveDecisionAsync(new(subscription.Id, group.Key, started, until, selectedId,
                 outcome, reason, now), cancellationToken);
+            if (persisted is null) continue;
             if (outcome is "notified" or "pending_confirmation" && (old?.Outcome != outcome || old.SelectedReleaseId != selectedId))
                 await notifications.PublishAsync(new NotificationEvent(
                     outcome == "notified" ? NotificationEventType.ReleaseMatched : NotificationEventType.DownloadPendingConfirmation,
