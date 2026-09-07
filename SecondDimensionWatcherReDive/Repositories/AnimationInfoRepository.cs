@@ -1649,7 +1649,7 @@ public class AnimationInfoRepository(
                 return false;
             if (await LibraryCompletionRepository.HasActiveClaimAsync(writeContext, info.Id, cancellationToken))
                 return false;
-            if (info.RevalidateRecognitionRules || info.RecognitionRule is not null)
+            if (info.RevalidateRecognitionRules || info.RecognitionRule is not null || info.RecognitionRulesAtFailure is not null)
             {
                 // Protect inserts and every rule edit until metadata commits, including the
                 // no-rule result of an inference that started before a matching rule was added.
@@ -1658,19 +1658,30 @@ public class AnimationInfoRepository(
                 var rules = (await writeContext.Set<Models.MetadataRecognitionRule>().AsNoTracking()
                     .Where(rule => rule.Enabled).ToListAsync(cancellationToken))
                     .Select(MetadataRecognitionRuleRepository.ToRecord).ToList();
-                await writeContext.Entry(entity).Reference(value => value.Group).LoadAsync(cancellationToken);
-                MetadataRecognitionRule? currentRule;
-                try { currentRule = MetadataRecognitionRuleService.Select(rules, entity.ToRecord()); }
-                catch (MetadataRecognitionAmbiguousException) { return false; }
-                if (currentRule?.Id != info.RecognitionRule?.Id || currentRule?.Revision != info.RecognitionRule?.Revision)
-                    return false;
-                if (info.RecognitionRule is { } recognitionRule)
-                    writeContext.Add(new Models.MetadataRecognitionHit
-                    {
-                        Id = Guid.NewGuid(), RuleId = recognitionRule.Id, RuleName = recognitionRule.Name,
-                        RuleRevision = recognitionRule.Revision, AnimationInfoId = info.Id, Title = info.Title,
-                        ItemRevision = checked(expectedStateVersion + 1), AppliedAt = DateTimeOffset.UtcNow
-                    });
+                if (info.RecognitionRulesAtFailure is { } observedRules)
+                {
+                    // A failure may have occurred before a single rule could be selected.
+                    // Preserve it only while the exact observed rule set still applies; otherwise
+                    // leave the item pending so the next attempt can use the administrator's edit.
+                    if (!rules.OrderBy(rule => rule.Id).SequenceEqual(observedRules.OrderBy(rule => rule.Id)))
+                        return false;
+                }
+                else
+                {
+                    await writeContext.Entry(entity).Reference(value => value.Group).LoadAsync(cancellationToken);
+                    MetadataRecognitionRule? currentRule;
+                    try { currentRule = MetadataRecognitionRuleService.Select(rules, entity.ToRecord()); }
+                    catch (MetadataRecognitionAmbiguousException) { return false; }
+                    if (currentRule?.Id != info.RecognitionRule?.Id || currentRule?.Revision != info.RecognitionRule?.Revision)
+                        return false;
+                    if (info.RecognitionRule is { } recognitionRule)
+                        writeContext.Add(new Models.MetadataRecognitionHit
+                        {
+                            Id = Guid.NewGuid(), RuleId = recognitionRule.Id, RuleName = recognitionRule.Name,
+                            RuleRevision = recognitionRule.Revision, AnimationInfoId = info.Id, Title = info.Title,
+                            ItemRevision = checked(expectedStateVersion + 1), AppliedAt = DateTimeOffset.UtcNow
+                        });
+                }
             }
             var previousEpisodeIdentity = GetEpisodeIdentity(writeContext, entity);
             var wasActiveRelease = entity.IsActiveRelease;
