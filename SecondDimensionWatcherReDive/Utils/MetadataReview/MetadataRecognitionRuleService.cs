@@ -145,7 +145,7 @@ public sealed class MetadataRecognitionRuleService(
         var rules = await repository.ListAsync(cancellationToken);
         var rule = rules.SingleOrDefault(candidate => candidate.Id == ruleId)
                    ?? throw new MetadataReviewNotFoundException("ruleNotFound", "The rule was not found.");
-        if (rule.Revision != ruleRevision)
+        if (!rule.Enabled || rule.Revision != ruleRevision)
             throw new MetadataReviewConflictException("ruleChanged", "The rule changed. Refresh its preview.");
         var item = await animationInfoRepository.FindByIdAsync(itemId, cancellationToken)
                    ?? throw new MetadataReviewNotFoundException("itemNotFound", "The item was not found.");
@@ -153,7 +153,11 @@ public sealed class MetadataRecognitionRuleService(
             throw new MetadataReviewConflictException("ruleConflict", "The rule no longer matches unambiguously.");
         var result = await ApplyHistoryAsync(rule, item, cancellationToken);
         return await reviewService.PreviewAsync(itemId, itemRevision,
-            new MetadataReviewCorrection(result.TmdbId, result.Season, result.Episode, result.GroupName),
+            new MetadataReviewCorrection(result.TmdbId, result.Season, result.Episode, result.GroupName)
+            {
+                RecognitionRuleId = rule.Id,
+                RecognitionRuleRevision = rule.Revision
+            },
             cancellationToken);
     }
 
