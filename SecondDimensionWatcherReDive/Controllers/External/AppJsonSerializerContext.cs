@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using SecondDimensionWatcherReDive.Framework.DataRepository;
 
 namespace SecondDimensionWatcherReDive.Controllers.External;
 
@@ -62,6 +63,10 @@ namespace SecondDimensionWatcherReDive.Controllers.External;
 [JsonSerializable(typeof(IncidentListResponse))]
 [JsonSerializable(typeof(IncidentRetryError))]
 [JsonSerializable(typeof(IncidentRetryBatchResponse))]
+[JsonSerializable(typeof(DurableJobItem))]
+[JsonSerializable(typeof(DurableJobListResponse))]
+[JsonSerializable(typeof(DurableJobMutationRequest))]
+[JsonSerializable(typeof(DurableJobMutationResponse))]
 [JsonSerializable(typeof(MediaLibrarySourceResponse))]
 [JsonSerializable(typeof(List<MediaLibrarySourceResponse>))]
 [JsonSerializable(typeof(CreateMediaLibrarySourceRequest))]
@@ -77,6 +82,22 @@ namespace SecondDimensionWatcherReDive.Controllers.External;
 [JsonSerializable(typeof(UpdatePluginConfigurationRequest))]
 [JsonSerializable(typeof(RemotePluginInstallRequest))]
 [JsonSerializable(typeof(PluginOperationError))]
+[JsonSerializable(typeof(LogicalDataBundle))]
+[JsonSerializable(typeof(LogicalDataExportEnvelope))]
+[JsonSerializable(typeof(LogicalDataImportRequest))]
+[JsonSerializable(typeof(LogicalImportResult))]
+[JsonSerializable(typeof(ExecuteReleaseUpgradeRequest))]
+[JsonSerializable(typeof(LibrarySearchResponse))]
+[JsonSerializable(typeof(List<LibraryIntegritySummaryResponse>))]
+[JsonSerializable(typeof(List<ReleaseUpgradeCandidateResponse>))]
+[JsonSerializable(typeof(List<ReleaseUpgradeOperationResponse>))]
+[JsonSerializable(typeof(ReleaseUpgradeMutationResponse))]
+[JsonSerializable(typeof(ReleaseUpgradeExecutionResponse))]
+[JsonSerializable(typeof(PrepareTranscodingRequest))]
+[JsonSerializable(typeof(TranscodingSessionResponse))]
+[JsonSerializable(typeof(TranscodingSubtitleResponse))]
+[JsonSerializable(typeof(List<TranscodingSubtitleResponse>))]
+[JsonSerializable(typeof(TranscodingMetricsResponse))]
 [JsonSerializable(typeof(NotificationDeliveryItem))]
 [JsonSerializable(typeof(List<NotificationDeliveryItem>))]
 [JsonSerializable(typeof(TestNotificationResponse))]

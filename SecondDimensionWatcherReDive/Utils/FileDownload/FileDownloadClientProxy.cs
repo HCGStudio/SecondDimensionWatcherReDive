@@ -40,6 +40,19 @@ public class FileDownloadClientProxy : IFileDownloadClient
             cancellationToken);
     }
 
+    public Task<DownloadTaskReconciliationOutcome> EnsureDownloadTaskAsync(
+        Guid itemId,
+        string downloadUrl,
+        byte[] cachedDownloadData,
+        string additionalDownloadInfo,
+        CancellationToken cancellationToken) =>
+        _poxyObject.EnsureDownloadTaskAsync(
+            itemId,
+            downloadUrl,
+            cachedDownloadData,
+            additionalDownloadInfo,
+            cancellationToken);
+
     public async Task SubmitQueryDownloadProgressAsync(
         Guid itemId,
         string downloadUrl,

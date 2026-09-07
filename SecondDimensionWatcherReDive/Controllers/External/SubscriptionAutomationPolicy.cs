@@ -8,7 +8,10 @@ internal sealed record UpsertSubscriptionAutomationPolicyRequest(
     long? MinSizeBytes,
     long? MaxSizeBytes,
     IReadOnlyList<string>? ExcludedKeywords,
-    string Mode);
+    string Mode,
+    bool EnableVersionUpgrade = false,
+    int? MinimumUpgradeScore = null,
+    int? UpgradeRollbackHours = null);
 
 internal sealed record SubscriptionAutomationPolicy(
     Guid FeedId,
@@ -21,7 +24,10 @@ internal sealed record SubscriptionAutomationPolicy(
     IReadOnlyList<string> ExcludedKeywords,
     string Mode,
     DateTimeOffset CreatedAt,
-    DateTimeOffset UpdatedAt);
+    DateTimeOffset UpdatedAt,
+    bool EnableVersionUpgrade,
+    int MinimumUpgradeScore,
+    int UpgradeRollbackHours);
 
 internal sealed record SubscriptionAutomationExplanation(
     string Field,

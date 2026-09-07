@@ -58,6 +58,7 @@ services:
       PasswordFile: "/app/data/password.json"
       DataProtection__KeyRingPath: "/app/data/data-protection-keys"
       PluginPlatform__RootPath: "/app/data/plugins"
+      Transcoding__CachePath: "/app/data/transcode-cache"
       Torrent__Remote__Url: "http://qbittorrent:8080"
       Torrent__Remote__UserName: ""
       Torrent__Remote__Password: ""
@@ -66,6 +67,9 @@ services:
     volumes:
       - downloads:/downloads
       - appdata:/app/data
+      - ./backups:/app/backups
+      # The backup CLI archives this deployment configuration without printing it.
+      - ./podman-compose.yml:/app/deployment/podman-compose.yml:ro
       # Existing libraries can be imported in place from Settings. Replace the
       # host path and keep the mount read-only so originals cannot be modified.
       # - /path/to/anime:/media/anime:ro

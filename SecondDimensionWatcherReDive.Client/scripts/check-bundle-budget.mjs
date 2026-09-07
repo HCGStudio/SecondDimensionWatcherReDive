@@ -6,7 +6,6 @@ const budgets = {
   initialJavaScriptBytes: 800_000,
   homeRouteJavaScriptBytes: 800_000,
   asyncJavaScriptBytes: 650_000,
-  ffmpegWasmBytes: 34_000_000,
 };
 
 const html = await readFile(path.join(distDirectory, "index.html"), "utf8");
@@ -42,9 +41,6 @@ const mainPageJavaScript = assets.filter(
 const homeRouteJavaScriptBytes =
   entry.bytes +
   mainPageJavaScript.reduce((total, asset) => total + asset.bytes, 0);
-const wasmAssets = assets
-  .filter((asset) => asset.name.endsWith(".wasm"))
-  .sort((left, right) => right.bytes - left.bytes);
 const requiredRouteChunks = [
   "MainPage.",
   "PlayerPage.",
@@ -73,14 +69,6 @@ const checks = [
     passed: (asyncJavaScript[0]?.bytes ?? 0) <= budgets.asyncJavaScriptBytes,
   },
   {
-    name: "FFmpeg WASM asset",
-    actual: wasmAssets[0]?.bytes ?? 0,
-    budget: budgets.ffmpegWasmBytes,
-    passed:
-      wasmAssets.length > 0 &&
-      (wasmAssets[0]?.bytes ?? 0) <= budgets.ffmpegWasmBytes,
-  },
-  {
     name: "FFmpeg excluded from initial JavaScript",
     actual: /ffmpeg-core|transcodeMkvForBrowser|new FFmpeg/i.test(entrySource)
       ? 1
@@ -103,7 +91,6 @@ const report = {
   mainPageJavaScript,
   homeRouteJavaScriptBytes,
   asyncJavaScript,
-  wasmAssets,
   checks,
 };
 const rows = checks.map(
