@@ -83,6 +83,9 @@ ConnectionStrings:
 # JWT 签名密钥（首次安装时自动生成，无需手动设置）
 JwtSecret: "..."
 
+Authentication:
+  RefreshTokenReuseGraceSeconds: 3
+
 DataProtection:
   KeyRingPath: /var/lib/sdw-redive/data-protection-keys
 
@@ -124,6 +127,9 @@ AI:
     TimeoutSeconds: 300
 Inference:
   RateLimitDelayMs: 1000
+
+OutboundHttp:
+  HappyEyeballsDelayMilliseconds: 250
 
 # Valkey / Redis 分布式缓存（可选，留空则使用内存缓存）
 # Valkey:
@@ -241,6 +247,19 @@ sudo systemctl stop sdw-redive
 ## 反向代理（推荐）
 
 生产环境建议在前面放置反向代理（Nginx / Caddy）处理 TLS 和域名。
+同机 loopback 代理默认受信；应用会在限流前处理其 `X-Forwarded-For` 和
+`X-Forwarded-Proto`。若代理位于另一台主机或容器，请在 YAML 中只加入代理自身的
+精确地址或最小网段，切勿加入客户端网段：
+
+```yaml
+ReverseProxy:
+  ForwardLimit: 1
+  KnownProxies:
+    - 10.20.0.5
+  KnownNetworks: []
+```
+
+多级代理必须同时把 `ForwardLimit` 调整为实际受信跳数，并逐一限定受信代理。
 
 ### Nginx 示例
 

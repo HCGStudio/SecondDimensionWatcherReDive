@@ -11,6 +11,9 @@
   "runNow": "Run now",
   "running": "Running",
   "idle": "Idle",
+  "announcements": {
+    "started": "Task {{name}} started"
+  },
   "empty": {
     "title": "No background tasks",
     "body": "No scheduled tasks are registered"

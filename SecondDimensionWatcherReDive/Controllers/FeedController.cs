@@ -2,13 +2,16 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
+using SecondDimensionWatcherReDive.Utils.Http;
 
 namespace SecondDimensionWatcherReDive.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
 [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
-internal class FeedController(IFeedRepository feedRepository) : ControllerBase
+internal class FeedController(
+    IFeedRepository feedRepository,
+    ISafeOutboundHttpFetcher outboundFetcher) : ControllerBase
 {
     [HttpGet]
     public async Task<IActionResult> GetFeeds(CancellationToken cancellationToken)
@@ -21,6 +24,15 @@ internal class FeedController(IFeedRepository feedRepository) : ControllerBase
     public async Task<IActionResult> AddFeed([FromBody] External.AddFeedRequest request,
         CancellationToken cancellationToken)
     {
+        try
+        {
+            await outboundFetcher.ValidateUrlAsync(request.Url, cancellationToken);
+        }
+        catch (OutboundRequestBlockedException exception)
+        {
+            return BadRequest(new { error = exception.Message });
+        }
+
         var feed = new Feed(Guid.NewGuid(), request.Url, request.Name, DateTimeOffset.Now);
 
         await feedRepository.AddAsync(feed, cancellationToken);

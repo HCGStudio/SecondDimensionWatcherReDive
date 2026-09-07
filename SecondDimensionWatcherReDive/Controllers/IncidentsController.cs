@@ -19,7 +19,8 @@ internal sealed class IncidentsController(
         [FromQuery] int skip = 0,
         [FromQuery] int take = 50,
         [FromQuery] bool includeResolved = false,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        [FromQuery] Guid? focus = null)
     {
         if (skip < 0 || take is < 1 or > 200)
             return BadRequest(new { message = "skip must be non-negative and take must be between 1 and 200." });
@@ -32,8 +33,16 @@ internal sealed class IncidentsController(
             skip,
             take,
             cancellationToken);
+        var items = page.Items;
+        if (focus.HasValue && items.All(item => item.Id != focus.Value))
+        {
+            var focused = await incidentRepository.FindByIdAsync(focus.Value, cancellationToken);
+            if (focused is not null
+                && (!parsedType.HasValue || focused.Type == parsedType.Value))
+                items = [focused, .. items];
+        }
         return Ok(new External.IncidentListResponse(
-            page.Items.Select(ToExternal).ToList(),
+            items.Select(ToExternal).ToList(),
             page.TotalCount,
             page.OpenCount,
             page.OpenCountsByType.ToDictionary(

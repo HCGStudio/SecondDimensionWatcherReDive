@@ -29,7 +29,8 @@ public sealed record Incident(
     DateTimeOffset? ResolvedAt,
     int RetryCount,
     DateTimeOffset? LastRetryAt,
-    string? LastRetryError);
+    string? LastRetryError,
+    int Occurrence = 1);
 
 public sealed record IncidentPage(
     IReadOnlyList<Incident> Items,

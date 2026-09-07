@@ -1,12 +1,14 @@
 using System.Security.Cryptography;
 using System.Text;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
+using SecondDimensionWatcherReDive.Framework.Notifications;
 
 namespace SecondDimensionWatcherReDive.Utils.Incidents;
 
 public sealed partial class IncidentReporter(
     IServiceScopeFactory scopeFactory,
-    ILogger<IncidentReporter> logger) : IIncidentReporter
+    ILogger<IncidentReporter> logger,
+    INotificationPublisher? notificationPublisher = null) : IIncidentReporter
 {
     private const int MaxTitleLength = 256;
     private const int MaxDetailLength = 2048;
@@ -37,7 +39,29 @@ public sealed partial class IncidentReporter(
         {
             await using var scope = scopeFactory.CreateAsyncScope();
             var repository = scope.ServiceProvider.GetRequiredService<IIncidentRepository>();
-            return await repository.UpsertAsync(incident, cancellationToken);
+            var saved = await repository.UpsertAsync(incident, cancellationToken);
+            if (notificationPublisher is not null)
+            {
+                var isDiskSpaceLow = saved.Type == IncidentType.DiskSpaceLow;
+                var notificationType = isDiskSpaceLow
+                    ? NotificationEventType.DiskSpaceLow
+                    : NotificationEventType.IncidentOpened;
+                var deduplicationKey =
+                    $"{(isDiskSpaceLow ? "disk-space-low" : "incident-opened")}:{saved.Id}";
+                // Occurrence 1 deliberately retains the pre-occurrence key so an
+                // upgrade does not redeliver notifications already in the outbox.
+                if (saved.Occurrence > 1)
+                    deduplicationKey += $":{saved.Occurrence}";
+                await notificationPublisher.PublishAsync(new NotificationEvent(
+                    notificationType,
+                    deduplicationKey,
+                    saved.Title,
+                    saved.Detail,
+                    isDiskSpaceLow
+                        ? $"/incidents?type=diskSpaceLow&focus={saved.Id}"
+                        : $"/incidents?focus={saved.Id}"), cancellationToken);
+            }
+            return saved;
         }
         catch (OperationCanceledException)
         {

@@ -26,8 +26,7 @@ export const retryInference = async (id: string) => {
 };
 
 export const reidentifyFilesWithAi = async (id: string) => {
-  return await fetcher(
-    `/api/animationinfo/${id}/reidentify-files/ai`,
-    { method: "POST" },
-  );
+  return await fetcher(`/api/animationinfo/${id}/reidentify-files/ai`, {
+    method: "POST",
+  });
 };

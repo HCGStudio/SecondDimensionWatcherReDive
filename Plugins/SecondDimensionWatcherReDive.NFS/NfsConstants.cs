@@ -67,6 +67,7 @@ internal static class NfsConstants
     public const uint ErrBadHandle = 10001;
     public const uint ErrBadCookie = 10003;
     public const uint ErrNotSupp = 10004;
+    public const uint ErrTooSmall = 10005;
     public const uint ErrServerFault = 10006;
     public const uint ErrBadType = 10007;
     public const uint ErrNoFileHandle = 10020;

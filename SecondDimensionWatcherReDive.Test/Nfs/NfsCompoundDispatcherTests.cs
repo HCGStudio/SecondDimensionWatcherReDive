@@ -15,6 +15,9 @@ namespace SecondDimensionWatcherReDive.Test.Nfs;
 [TestClass]
 public class NfsCompoundDispatcherTests
 {
+    private static readonly Guid s_animeDirId = Guid.Parse("11111111-1111-1111-1111-111111111111");
+    private static readonly Guid s_fileId = Guid.Parse("22222222-2222-2222-2222-222222222222");
+    private static readonly Guid s_subDirId = Guid.Parse("33333333-3333-3333-3333-333333333333");
     private static readonly DateTimeOffset s_modified = new(2026, 4, 27, 0, 0, 0, TimeSpan.Zero);
     private static readonly byte[] s_fileBytes = "hello-world-this-is-a-test-payload"u8.ToArray();
     private static readonly FileMapping s_mapping = new(
@@ -36,29 +39,92 @@ public class NfsCompoundDispatcherTests
         _storeProvider = new Mock<IFileStoreProvider>();
         _store = new Mock<IFileStore>();
 
-        _explorer.Setup(e => e.EnumerateDirectoryAsync(
+        _explorer.Setup(e => e.GetDirectoryEntriesAsync(
                 It.Is<DirectoryToken>(t => t.Path == "/"),
                 It.IsAny<CancellationToken>()))
-            .ReturnsAsync((IReadOnlyList<IFileExploreToken>)
-                [new DirectoryToken("/anime-a", "anime-a")]);
+            .ReturnsAsync((IReadOnlyList<FileExploreEntry>)
+                [new FileExploreEntry("/anime-a", "anime-a", true, null, null)]);
 
-        _explorer.Setup(e => e.EnumerateDirectoryAsync(
+        _explorer.Setup(e => e.GetDirectoryEntriesAsync(
                 It.Is<DirectoryToken>(t => t.Path == "/anime-a"),
                 It.IsAny<CancellationToken>()))
-            .ReturnsAsync((IReadOnlyList<IFileExploreToken>)
+            .ReturnsAsync((IReadOnlyList<FileExploreEntry>)
             [
-                new FileToken("/anime-a/01.mkv", "01.mkv"),
-                new DirectoryToken("/anime-a/sub", "sub"),
+                new FileExploreEntry(
+                    "/anime-a/01.mkv",
+                    "01.mkv",
+                    false,
+                    s_mapping,
+                    new FileStoreInfo(false, "/disk/01.mkv", "01.mkv", s_fileBytes.Length, s_modified)),
+                new FileExploreEntry("/anime-a/sub", "sub", true, null, null),
             ]);
 
-        _mappingRepo.Setup(r => r.FindByVirtualPathAsync(
-                "/anime-a/01.mkv", It.IsAny<CancellationToken>()))
-            .ReturnsAsync(s_mapping);
+        _explorer.Setup(e => e.GetDirectoryEntriesPageAsync(
+                It.Is<DirectoryToken>(t => t.Path == "/"),
+                It.IsAny<long?>(),
+                It.IsAny<int>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new FileExplorePage(
+                [new FileExploreEntry("/anime-a", "anime-a", true, null, null, s_animeDirId, 1)],
+                7,
+                null,
+                true));
+
+        _explorer.Setup(e => e.GetDirectoryEntriesPageAsync(
+                It.Is<DirectoryToken>(t => t.Path == "/anime-a"),
+                It.IsAny<long?>(),
+                It.IsAny<int>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new FileExplorePage(
+                [
+                    new FileExploreEntry(
+                        "/anime-a/01.mkv",
+                        "01.mkv",
+                        false,
+                        s_mapping,
+                        new FileStoreInfo(false, "/disk/01.mkv", "01.mkv", s_fileBytes.Length, s_modified),
+                        s_fileId,
+                        2),
+                    new FileExploreEntry(
+                        "/anime-a/sub", "sub", true, null, null, s_subDirId, 3),
+                ],
+                7,
+                null,
+                true));
+
+        _mappingRepo.Setup(r => r.FindFileSystemEntryAsync(
+                It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string path, CancellationToken _) => path switch
+            {
+                "/anime-a" => new FileSystemEntry(
+                    s_animeDirId, "/anime-a", "/", "anime-a", true, 1, 1, null),
+                "/anime-a/01.mkv" => new FileSystemEntry(
+                    s_fileId, "/anime-a/01.mkv", "/anime-a", "01.mkv", false, 1, 2, s_mapping),
+                "/anime-a/sub" => new FileSystemEntry(
+                    s_subDirId, "/anime-a/sub", "/anime-a", "sub", true, 0, 3, null),
+                _ => null
+            });
+
+        _mappingRepo.Setup(r => r.FindFileSystemEntryByIdAsync(
+                It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Guid id, CancellationToken _) => id switch
+            {
+                var value when value == s_animeDirId => new FileSystemEntry(
+                    s_animeDirId, "/anime-a", "/", "anime-a", true, 1, 1, null),
+                var value when value == s_fileId => new FileSystemEntry(
+                    s_fileId, "/anime-a/01.mkv", "/anime-a", "01.mkv", false, 1, 2, s_mapping),
+                var value when value == s_subDirId => new FileSystemEntry(
+                    s_subDirId, "/anime-a/sub", "/anime-a", "sub", true, 0, 3, null),
+                _ => null
+            });
 
         _storeProvider.Setup(p => p.GetClient("local")).Returns(_store.Object);
 
         _store.Setup(s => s.FileInfoAsync("/disk/01.mkv", It.IsAny<CancellationToken>()))
             .ReturnsAsync(new FileStoreInfo(false, "/disk/01.mkv", "01.mkv", s_fileBytes.Length, s_modified));
+
+        _store.Setup(s => s.OpenReadStreamAsync("/disk/01.mkv", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => new MemoryStream(s_fileBytes, writable: false));
 
         _explorer.Setup(e => e.OpenReadStreamAsync(
                 It.Is<FileToken>(t => t.Path == "/anime-a/01.mkv"),
@@ -121,7 +187,7 @@ public class NfsCompoundDispatcherTests
         Assert.AreEqual(NfsConstants.Ok, getFhReader.ReadUInt32());
         var handle = NfsFileHandle.FromBytes(getFhReader.ReadOpaque());
         Assert.AreEqual(NfsHandleKind.Directory, handle.Kind);
-        Assert.AreEqual("/anime-a", handle.VirtualPath);
+        Assert.AreEqual(s_animeDirId, handle.EntryId);
     }
 
     [TestMethod]
@@ -146,7 +212,10 @@ public class NfsCompoundDispatcherTests
     [TestMethod]
     public async Task LookupP_FromAnimeDir_ReachesRoot()
     {
-        var ctx = new NfsRequestContext { CurrentFh = new NfsFileHandle(NfsHandleKind.Directory, "/anime-a") };
+        var ctx = new NfsRequestContext
+        {
+            CurrentFh = new NfsFileHandle(NfsHandleKind.Directory, s_animeDirId)
+        };
         var result = await DispatchAsync(ctx, new LookupPOp());
         Assert.AreEqual(NfsConstants.Ok, result.Status);
         Assert.AreEqual(NfsHandleKind.Root, ctx.CurrentFh!.Kind);
@@ -155,7 +224,10 @@ public class NfsCompoundDispatcherTests
     [TestMethod]
     public async Task GetAttr_ForFile_EncodesTypeAndSize()
     {
-        var ctx = new NfsRequestContext { CurrentFh = new NfsFileHandle(NfsHandleKind.File, "/anime-a/01.mkv") };
+        var ctx = new NfsRequestContext
+        {
+            CurrentFh = new NfsFileHandle(NfsHandleKind.File, s_fileId)
+        };
         var bitmap = NfsAttributes.BitmapFromIds([NfsConstants.FattrType, NfsConstants.FattrSize]);
         var result = await DispatchAsync(ctx, new GetAttrOp(bitmap));
 
@@ -203,7 +275,10 @@ public class NfsCompoundDispatcherTests
     [TestMethod]
     public async Task Read_ReturnsBytesAtOffset()
     {
-        var ctx = new NfsRequestContext { CurrentFh = new NfsFileHandle(NfsHandleKind.File, "/anime-a/01.mkv") };
+        var ctx = new NfsRequestContext
+        {
+            CurrentFh = new NfsFileHandle(NfsHandleKind.File, s_fileId)
+        };
         var result = await DispatchAsync(ctx, new ReadOp(NfsStateId.AnyState, 7, 5));
 
         Assert.AreEqual(NfsConstants.Ok, result.Status);
@@ -218,7 +293,10 @@ public class NfsCompoundDispatcherTests
     [TestMethod]
     public async Task Read_PastEnd_SetsEof()
     {
-        var ctx = new NfsRequestContext { CurrentFh = new NfsFileHandle(NfsHandleKind.File, "/anime-a/01.mkv") };
+        var ctx = new NfsRequestContext
+        {
+            CurrentFh = new NfsFileHandle(NfsHandleKind.File, s_fileId)
+        };
         var result = await DispatchAsync(ctx, new ReadOp(NfsStateId.AnyState, 0, 1024));
 
         Assert.AreEqual(NfsConstants.Ok, result.Status);

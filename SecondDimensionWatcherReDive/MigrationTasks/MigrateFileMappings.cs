@@ -1,10 +1,11 @@
+using System.Text.Json;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Framework.Tasks;
 using SecondDimensionWatcherReDive.Utils.FileStore;
 
 namespace SecondDimensionWatcherReDive.MigrationTasks;
 
-public partial class MigrateFileMappings(
+public sealed partial class MigrateFileMappings(
     IServiceScopeFactory scopeFactory,
     ILogger<MigrateFileMappings> logger) : IMigrationTask
 {
@@ -13,72 +14,116 @@ public partial class MigrateFileMappings(
 
     public string Key => "MigrateFileMappings";
 
-    public async Task ExecuteAsync(CancellationToken cancellationToken)
+    // Version 2 reruns the old marker-based migration because v1 could mark a
+    // partially failed pass as complete.
+    public int Version => 2;
+
+    public MigrationFailurePolicy FailurePolicy => MigrationFailurePolicy.BlockStartup;
+
+    public async Task ExecuteAsync(
+        MigrationExecutionContext context,
+        CancellationToken cancellationToken)
     {
-        await using var scope = scopeFactory.CreateAsyncScope();
-        var animationInfoRepository = scope.ServiceProvider.GetRequiredService<IAnimationInfoRepository>();
-        var fileMappingRepository = scope.ServiceProvider.GetRequiredService<IFileMappingRepository>();
-        var fileMapper = scope.ServiceProvider.GetRequiredService<IFileMapper>();
+        var checkpoint = ParseCheckpoint(context.Checkpoint);
+        var migrated = checkpoint?.Migrated ?? 0;
+        var skipped = checkpoint?.Skipped ?? 0;
+        var processed = checkpoint?.Processed ?? 0;
 
-        var skip = 0;
-        var migrated = 0;
-        var failed = 0;
-
-        while (!cancellationToken.IsCancellationRequested)
+        while (true)
         {
-            var page = await animationInfoRepository.GetDownloadedPagedAsync(skip, PageSize, cancellationToken);
-            if (page.Data.Count == 0) break;
+            cancellationToken.ThrowIfCancellationRequested();
+            await using var scope = scopeFactory.CreateAsyncScope();
+            var animationInfoRepository = scope.ServiceProvider
+                .GetRequiredService<IAnimationInfoRepository>();
+            var fileMappingRepository = scope.ServiceProvider
+                .GetRequiredService<IFileMappingRepository>();
+            var fileMapper = scope.ServiceProvider.GetRequiredService<IFileMapper>();
 
-            var advancedSkip = 0;
-            foreach (var info in page.Data)
+            var batch = await animationInfoRepository.GetDownloadedMigrationBatchAsync(
+                checkpoint?.PublishTime,
+                checkpoint?.Id,
+                PageSize,
+                cancellationToken);
+            if (batch.Count == 0) break;
+
+            foreach (var info in batch)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 if (info.FileStore is null || info.StorePath is null)
                 {
-                    advancedSkip++;
-                    continue;
+                    skipped++;
                 }
-
-                // Inference will call MapDownloadAsync itself once it fills in metadata.
-                // If we map here in parallel we race InferAnimationMetadata's MapDownloadAsync
-                // and can replace the canonical mapping with a stale /unknown/... one.
-                if (!info.IsAiProcessed && info.AiRetryCount < InferenceMaxRetryCount)
+                // Inference calls MapDownloadAsync after filling in metadata. Mapping
+                // here would race it and could replace the canonical mapping with /unknown.
+                else if (!info.IsAiProcessed && info.AiRetryCount < InferenceMaxRetryCount)
                 {
-                    advancedSkip++;
-                    continue;
+                    skipped++;
                 }
-
-                if (await fileMappingRepository.ExistsForAnimationInfoAsync(info.Id, cancellationToken))
+                else if (await fileMappingRepository.ExistsForAnimationInfoAsync(
+                             info.Id,
+                             cancellationToken))
                 {
-                    advancedSkip++;
-                    continue;
+                    skipped++;
                 }
-
-                try
+                else
                 {
-                    await fileMapper.MapDownloadAsync(info.Id, cancellationToken);
+                    var mapped = await fileMapper.MapDownloadAsync(info.Id, cancellationToken);
+                    if (!mapped)
+                        throw new InvalidOperationException(
+                            $"File mapping migration did not produce mappings for AnimationInfo {info.Id}.");
                     migrated++;
                 }
-                catch (Exception ex) when (ex is not OperationCanceledException)
-                {
-                    failed++;
-                    advancedSkip++;
-                    LogItemFailed(logger, ex, info.Id);
-                }
+
+                processed++;
+                checkpoint = new FileMappingCheckpoint(
+                    info.PublishTime,
+                    info.Id,
+                    processed,
+                    migrated,
+                    skipped);
             }
 
-            // Migrated rows now have mappings and will be filtered by ExistsForAnimationInfoAsync
-            // when they appear on the next page. Skipped and failed rows won't, so we advance
-            // past them here to avoid retrying failures forever or leapfrogging them later.
-            skip += advancedSkip;
-            if (skip >= page.TotalCount) break;
+            // Mapping writes are idempotent and committed before this checkpoint.
+            // A crash between them safely replays at most one batch.
+            await context.SaveCheckpointAsync(
+                JsonSerializer.Serialize(checkpoint),
+                cancellationToken);
+            LogCheckpoint(logger, processed, migrated, skipped);
         }
 
-        LogSummary(logger, migrated, failed);
+        LogSummary(logger, migrated, skipped);
     }
 
-    [LoggerMessage(Level = LogLevel.Error, Message = "Failed to migrate file mappings for AnimationInfo {ItemId}")]
-    private static partial void LogItemFailed(ILogger logger, Exception ex, Guid itemId);
+    private static FileMappingCheckpoint? ParseCheckpoint(string? value)
+    {
+        if (value is null) return null;
+        try
+        {
+            return JsonSerializer.Deserialize<FileMappingCheckpoint>(value)
+                   ?? throw new JsonException("Checkpoint was null.");
+        }
+        catch (JsonException exception)
+        {
+            throw new InvalidOperationException(
+                "The MigrateFileMappings checkpoint is invalid; inspect the migration state before retrying.",
+                exception);
+        }
+    }
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "File mapping migration: {Migrated} migrated, {Failed} failed")]
-    private static partial void LogSummary(ILogger logger, int migrated, int failed);
+    private sealed record FileMappingCheckpoint(
+        DateTimeOffset PublishTime,
+        Guid Id,
+        int Processed,
+        int Migrated,
+        int Skipped);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "File mapping migration checkpoint: {Processed} processed, {Migrated} migrated, {Skipped} skipped")]
+    private static partial void LogCheckpoint(
+        ILogger logger,
+        int processed,
+        int migrated,
+        int skipped);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "File mapping migration complete: {Migrated} migrated, {Skipped} skipped")]
+    private static partial void LogSummary(ILogger logger, int migrated, int skipped);
 }

@@ -102,6 +102,8 @@ internal sealed class WebDavWebApplicationFactory : WebApplicationFactory<Migrat
 
             // Strip all registered IMigrationTask so MigrationTaskRunner.RunAsync iterates an empty collection.
             services.RemoveAll<IMigrationTask>();
+            services.RemoveAll<IMigrationLock>();
+            services.AddSingleton<IMigrationLock, NoOpMigrationLock>();
 
             // Strip all hosted services originating from this solution so background loops never start.
             var hostedToRemove = services
@@ -123,6 +125,7 @@ internal sealed class WebDavWebApplicationFactory : WebApplicationFactory<Migrat
             services.RemoveAll<IWebDavTokenRepository>();
             services.RemoveAll<IApplicationSettingsRepository>();
             services.RemoveAll<IReadinessRepository>();
+            services.RemoveAll<IAuthenticationStateRepository>();
 
             services.AddSingleton(FileStoreMock.Object);
             services.AddSingleton(FileStoreProviderMock.Object);
@@ -132,6 +135,7 @@ internal sealed class WebDavWebApplicationFactory : WebApplicationFactory<Migrat
                 new FakeWebDavTokenRepository(TestUserName, BCrypt.Net.BCrypt.HashPassword(TestPassword)));
             services.AddSingleton<IApplicationSettingsRepository, FakeApplicationSettingsRepository>();
             services.AddSingleton<IReadinessRepository, UnavailableReadinessRepository>();
+            services.AddSingleton<IAuthenticationStateRepository, FakeAuthenticationStateRepository>();
         });
     }
 
@@ -168,7 +172,9 @@ internal sealed class WebDavWebApplicationFactory : WebApplicationFactory<Migrat
         var keyBytes = Encoding.ASCII.GetBytes(JwtSecret);
         var creds = new SigningCredentials(new SymmetricSecurityKey(keyBytes), SecurityAlgorithms.HmacSha256);
         var token = new JwtSecurityToken(
-            claims: new[] { new Claim(ClaimTypes.Name, TestUserName) },
+            issuer: "SecondDimensionWatcherReDive",
+            audience: "SecondDimensionWatcherReDive.Client",
+            claims: [new Claim(ClaimTypes.Name, TestUserName)],
             expires: DateTime.UtcNow.AddMinutes(10),
             signingCredentials: creds);
         var jwt = new JwtSecurityTokenHandler().WriteToken(token);
@@ -196,6 +202,14 @@ internal sealed class WebDavWebApplicationFactory : WebApplicationFactory<Migrat
     {
         public Task<bool> CanConnectAsync(CancellationToken cancellationToken) =>
             Task.FromResult(false);
+    }
+
+    private sealed class NoOpMigrationLock : IMigrationLock, IMigrationLockLease
+    {
+        public Task<IMigrationLockLease> AcquireAsync(CancellationToken cancellationToken)
+            => Task.FromResult<IMigrationLockLease>(this);
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
     private sealed class FakeApplicationSettingsRepository : IApplicationSettingsRepository
@@ -231,5 +245,20 @@ internal sealed class WebDavWebApplicationFactory : WebApplicationFactory<Migrat
                 return Task.FromResult<ApplicationSettings?>(_settings);
             }
         }
+    }
+
+    private sealed class FakeAuthenticationStateRepository : IAuthenticationStateRepository
+    {
+        private string? _passwordHash;
+
+        public Task<string?> GetPasswordHashAsync(CancellationToken cancellationToken) =>
+            Task.FromResult(Volatile.Read(ref _passwordHash));
+
+        public Task<bool> TryClaimPasswordAsync(
+            string passwordHash,
+            Guid claimId,
+            DateTimeOffset registeredAt,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(Interlocked.CompareExchange(ref _passwordHash, passwordHash, null) is null);
     }
 }
