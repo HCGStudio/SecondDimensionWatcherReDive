@@ -18,6 +18,7 @@ import { ResilientPoster } from "../components/ResilientPoster";
 import { Button } from "../components/ui/Button";
 import { EmptyPrompt } from "../components/ui/EmptyPrompt";
 import { Spinner } from "../components/ui/Spinner";
+import { WatchlistButton } from "../watchlist/WatchlistButton";
 import { PageTemplate } from "./PageTemplate";
 
 const AnimeCard: React.FC<{
@@ -138,6 +139,9 @@ export const EpisodeListPage: React.FC = () => {
           <h2 className="font-serif text-xl font-medium leading-heading text-foreground">
             {anime.name}
           </h2>
+          <div className="mt-3">
+            <WatchlistButton tmdbId={tmdbId} title={anime.name} />
+          </div>
           {anime.originalName && anime.originalName !== anime.name ? (
             <p className="mt-1 text-sm leading-body text-subtle">
               {anime.originalName}

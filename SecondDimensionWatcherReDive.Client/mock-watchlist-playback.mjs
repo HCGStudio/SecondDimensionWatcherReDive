@@ -1,8 +1,16 @@
-// Development data for native browser downloads.
-import { randomBytes } from "node:crypto";
+// Development data for personal watchlists and native downloads.
+import { randomBytes, randomUUID } from "node:crypto";
 
+const lists = new Map();
 const grants = new Map();
 const sessions = new Map();
+const statuses = new Set([
+  "planned",
+  "watching",
+  "onHold",
+  "dropped",
+  "completed",
+]);
 
 export async function handleWatchlistPlayback(context) {
   const {
@@ -13,10 +21,16 @@ export async function handleWatchlistPlayback(context) {
     searchParams,
     json,
     empty,
+    readBody,
+    animations,
+    seasonBangumis,
     profileId,
     session,
     liveSessions,
     vfsResolve,
+    playbackProgress,
+    playbackKey,
+    playablePaths,
   } = context;
   const reply = (data, status = 200) => {
     json(res, data, status);
@@ -26,6 +40,82 @@ export async function handleWatchlistPlayback(context) {
     empty(res, status);
     return true;
   };
+  const list = lists.get(profileId) ?? new Map();
+  lists.set(profileId, list);
+  if (pathname === "/api/watchlist" && method === "GET") {
+    const start = new Date(
+      searchParams.get("weekStart") ?? Date.now(),
+    ).getTime();
+    const end = start + 7 * 86400000;
+    return reply(
+      [...list.values()].map((item) => ({
+        ...item,
+        dayOfWeek: (() => {
+          const day = seasonBangumis.find(
+            (x) => x.mikanId === item.mikanId,
+          )?.dayOfWeek;
+          return day >= 0 && day <= 6 ? day : null;
+        })(),
+        episodes: [...animations.values()]
+          .filter((x) => x.animation?.tmdbId === item.tmdbId)
+          .map((x) => {
+            const path = playablePaths()[0];
+            const state = playbackProgress.get(playbackKey(x.id, path));
+            return state?.isWatched
+              ? null
+              : {
+                  animationInfoId: x.id,
+                  title: x.title,
+                  season: x.season,
+                  episode: x.episode,
+                  publishedAt: x.publishTime,
+                  availability: x.isDownloadFinished
+                    ? "downloaded"
+                    : "released",
+                  path: x.isDownloadFinished ? path : null,
+                  positionSeconds: state?.positionSeconds ?? 0,
+                };
+          })
+          .filter(
+            (x) =>
+              x &&
+              (x.path ||
+                (new Date(x.publishedAt).getTime() >= start &&
+                  new Date(x.publishedAt).getTime() < end)),
+          ),
+      })),
+    );
+  }
+  if (pathname === "/api/watchlist" && method === "PUT") {
+    const body = await readBody(req);
+    if (
+      !statuses.has(body.status) ||
+      !body.title?.trim() ||
+      (!body.tmdbId && !body.mikanId)
+    )
+      return done(400);
+    const matching = [...list.values()].filter(
+      (x) =>
+        x.id === body.id ||
+        (body.tmdbId && x.tmdbId === body.tmdbId) ||
+        (body.mikanId && x.mikanId === body.mikanId),
+    );
+    const previous = matching.find((x) => x.id === body.id) ?? matching[0];
+    for (const item of matching) list.delete(item.id);
+    const item = {
+      ...previous,
+      ...body,
+      id: previous?.id ?? randomUUID(),
+      tmdbId: body.tmdbId ?? previous?.tmdbId ?? null,
+      mikanId: body.mikanId ?? previous?.mikanId ?? null,
+      updatedAt: new Date().toISOString(),
+    };
+    list.set(item.id, item);
+    return done();
+  }
+  if (pathname.startsWith("/api/watchlist/") && method === "DELETE")
+    return done(list.delete(pathname.split("/").pop()) ? 204 : 404);
+
   if (pathname === "/api/vfs/download-link" && method === "POST") {
     const path = searchParams.get("path");
     const entry = vfsResolve(path);
