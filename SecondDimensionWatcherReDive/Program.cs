@@ -721,6 +721,8 @@ builder.Services.AddScoped<IWebDavTokenRepository, WebDavTokenRepository>();
 builder.Services.AddScoped<IPlaybackRepository, PlaybackRepository>();
 builder.Services.AddScoped<IIncidentRepository, IncidentRepository>();
 builder.Services.AddScoped<IMediaLibrarySourceRepository, MediaLibrarySourceRepository>();
+builder.Services.AddScoped<ILogicalDataTransferRepository, LogicalDataTransferRepository>();
+builder.Services.AddScoped<LogicalDataTransferWorker>();
 builder.Services.AddScoped<IDurableJobRepository, DurableJobRepository>();
 builder.Services.AddScoped<IScheduledTaskLeaseRepository, ScheduledTaskLeaseRepository>();
 builder.Services.AddScoped<IReadinessRepository, ReadinessRepository>();

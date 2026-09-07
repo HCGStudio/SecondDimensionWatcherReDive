@@ -11,15 +11,25 @@ license: "Apache-2.0"
 
 depends:
   - aspnetcore-runtime-10.0
+  - postgresql-client
+  - curl
   - ffmpeg
 
 recommends:
   - valkey
 
 overrides:
+  rpm:
+    depends:
+      - aspnetcore-runtime-10.0
+      - ffmpeg
+      - postgresql
+      - curl
   archlinux:
     depends:
       - aspnet-runtime-10.0
+      - postgresql
+      - curl
       - ffmpeg
     recommends:
       - valkey
@@ -44,6 +54,25 @@ contents:
     dst: /usr/lib/sdw-redive/migrate-config.sh
     file_info:
       mode: 0755
+
+  - src: ./deployments/sdw-backup
+    dst: /usr/bin/sdw-backup
+    file_info:
+      mode: 0755
+
+  - src: ./packaging/sdw-backup.service
+    dst: /usr/lib/systemd/system/sdw-backup.service
+
+  - src: ./packaging/sdw-backup.timer
+    dst: /usr/lib/systemd/system/sdw-backup.timer
+
+  - src: ./packaging/backup.env
+    dst: /etc/sdw-redive/backup.env
+    type: config|noreplace
+    file_info:
+      mode: 0640
+      owner: root
+      group: sdw-redive
 
   - src: ./LICENSE
     dst: /usr/share/doc/sdw-redive/LICENSE
@@ -73,6 +102,13 @@ contents:
       group: sdw-redive
 
   - dst: /var/lib/sdw-redive/data-protection-keys
+    type: dir
+    file_info:
+      mode: 0700
+      owner: sdw-redive
+      group: sdw-redive
+
+  - dst: /var/lib/sdw-redive/backups
     type: dir
     file_info:
       mode: 0700

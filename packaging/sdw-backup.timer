@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily SecondDimensionWatcher Re:Dive backup
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+Persistent=true
+RandomizedDelaySec=30m
+Unit=sdw-backup.service
+
+[Install]
+WantedBy=timers.target

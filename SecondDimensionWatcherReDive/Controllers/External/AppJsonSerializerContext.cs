@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using SecondDimensionWatcherReDive.Framework.DataRepository;
 
 namespace SecondDimensionWatcherReDive.Controllers.External;
 
@@ -73,6 +74,10 @@ namespace SecondDimensionWatcherReDive.Controllers.External;
 [JsonSerializable(typeof(QueueMediaLibraryScanResponse))]
 [JsonSerializable(typeof(ApplicationSettingsResponse))]
 [JsonSerializable(typeof(PatchApplicationSettingsRequest))]
+[JsonSerializable(typeof(LogicalDataBundle))]
+[JsonSerializable(typeof(LogicalDataExportEnvelope))]
+[JsonSerializable(typeof(LogicalDataImportRequest))]
+[JsonSerializable(typeof(LogicalImportResult))]
 [JsonSerializable(typeof(ExecuteReleaseUpgradeRequest))]
 [JsonSerializable(typeof(LibrarySearchResponse))]
 [JsonSerializable(typeof(List<LibraryIntegritySummaryResponse>))]

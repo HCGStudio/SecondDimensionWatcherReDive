@@ -16,6 +16,9 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
 
 jobs:
+  backup_restore:
+    uses: ./.github/workflows/backup-restore.yml
+
   backend:
     name: Backend
     runs-on: ubuntu-latest
@@ -323,6 +326,7 @@ jobs:
       - container
       - fuse_mount_smoke
       - delivery_smoke
+      - backup_restore
     runs-on: ubuntu-latest
     steps:
       - name: Require every verification job
@@ -333,6 +337,7 @@ jobs:
           CONTAINER_RESULT: ${{ needs.container.result }}
           FUSE_MOUNT_RESULT: ${{ needs.fuse_mount_smoke.result }}
           DELIVERY_RESULT: ${{ needs.delivery_smoke.result }}
+          BACKUP_RESULT: ${{ needs.backup_restore.result }}
         run: |
           test "$BACKEND_RESULT" = success
           test "$FRONTEND_RESULT" = success
@@ -340,3 +345,4 @@ jobs:
           test "$CONTAINER_RESULT" = success
           test "$FUSE_MOUNT_RESULT" = success
           test "$DELIVERY_RESULT" = success
+          test "$BACKUP_RESULT" = success
