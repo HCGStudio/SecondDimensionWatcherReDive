@@ -90,24 +90,48 @@ export async function handleWatchlistPlayback(context) {
     const body = await readBody(req);
     if (
       !statuses.has(body.status) ||
-      !body.title?.trim() ||
-      (!body.tmdbId && !body.mikanId)
+      typeof body.title !== "string" ||
+      !body.title.trim() ||
+      (body.mikanId != null &&
+        (!Number.isInteger(body.mikanId) || body.mikanId <= 0))
     )
       return done(400);
+    if (body.tmdbId != null) {
+      if (
+        typeof body.tmdbId !== "string" ||
+        !/^\+?\d+$/.test(body.tmdbId.trim())
+      )
+        return done(400);
+      const tmdbId = BigInt(body.tmdbId.trim());
+      if (tmdbId <= 0n || tmdbId > 9223372036854775807n) return done(400);
+      body.tmdbId = tmdbId.toString();
+    }
+    const target = body.id != null ? list.get(body.id) : undefined;
+    if (body.id != null && !target) return done(404);
+    const tmdbId = Object.hasOwn(body, "tmdbId")
+      ? body.tmdbId
+      : target?.tmdbId;
+    const mikanId = Object.hasOwn(body, "mikanId")
+      ? body.mikanId
+      : target?.mikanId;
+    if (tmdbId == null && mikanId == null) return done(400);
     const matching = [...list.values()].filter(
       (x) =>
-        x.id === body.id ||
-        (body.tmdbId && x.tmdbId === body.tmdbId) ||
-        (body.mikanId && x.mikanId === body.mikanId),
+        (tmdbId != null && x.tmdbId === tmdbId) ||
+        (mikanId != null && x.mikanId === mikanId),
     );
-    const previous = matching.find((x) => x.id === body.id) ?? matching[0];
+    const previous = target ?? matching[0];
     for (const item of matching) list.delete(item.id);
     const item = {
       ...previous,
       ...body,
       id: previous?.id ?? randomUUID(),
-      tmdbId: body.tmdbId ?? previous?.tmdbId ?? null,
-      mikanId: body.mikanId ?? previous?.mikanId ?? null,
+      tmdbId: Object.hasOwn(body, "tmdbId")
+        ? body.tmdbId
+        : (previous?.tmdbId ?? null),
+      mikanId: Object.hasOwn(body, "mikanId")
+        ? body.mikanId
+        : (previous?.mikanId ?? null),
       updatedAt: new Date().toISOString(),
     };
     list.set(item.id, item);

@@ -19,7 +19,7 @@ import { PageTemplate } from "./PageTemplate";
 
 export const WatchlistPage: React.FC = () => {
   const { t, i18n } = useTranslation("watchlist");
-  const { canPlaybackWrite } = useAccess();
+  const { canPlaybackWrite, isAdministrator } = useAccess();
   const [week, setWeek] = React.useState(currentWeek);
   const [filter, setFilter] = React.useState("all");
   const { data, error, isLoading } = useWatchlist(week.toISOString());
@@ -218,7 +218,7 @@ export const WatchlistPage: React.FC = () => {
         <p className="mt-2 text-sm text-muted">{t("description")}</p>
         <div className="mt-3 flex flex-wrap gap-4 text-sm text-brand">
           <Link to="/">{t("continue")}</Link>
-          <Link to="/todo">{t("notifications")}</Link>
+          {isAdministrator && <Link to="/todo">{t("notifications")}</Link>}
           <Link to="/feeds">{t("discover")}</Link>
         </div>
       </header>
