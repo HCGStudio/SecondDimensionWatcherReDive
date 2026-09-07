@@ -1,0 +1,71 @@
+{
+  "eyebrow": "メディア管理",
+  "title": "ライブラリ全体を検索",
+  "description": "タイトル、話数、取得元、視聴状態、仮想パスを横断検索できます。フィルターは URL に保存されます。",
+  "queryLabel": "タイトル、別名、グループ、パスを検索",
+  "queryPlaceholder": "タイトル、別名、グループ、TMDB ID、パス…",
+  "search": "検索",
+  "filters": {
+    "title": "フィルター（{{count}} 件）",
+    "clear": "すべて解除",
+    "season": "シーズン",
+    "episode": "話数",
+    "subtitleGroup": "リリースグループ",
+    "path": "仮想パス",
+    "resolution": "解像度",
+    "codec": "コーデック",
+    "language": "言語",
+    "downloadState": "ダウンロード状態",
+    "watchState": "視聴状態",
+    "source": "取得元",
+    "sort": "並び順"
+  },
+  "values": {
+    "Any": "すべて",
+    "NotDownloaded": "未取得",
+    "Downloading": "取得中",
+    "Downloaded": "取得済み",
+    "Unwatched": "未視聴",
+    "InProgress": "視聴中",
+    "Watched": "視聴済み",
+    "Torrent": "Torrent",
+    "MediaLibraryImport": "メディア取込",
+    "PublishedDescending": "新しい順",
+    "TitleAscending": "タイトル順",
+    "EpisodeAscending": "話数順",
+    "ScoreDescending": "スコア順"
+  },
+  "results": {
+    "title": "検索結果",
+    "pageCount": "このページに {{count}} 件",
+    "empty": "条件に一致するリリースはありません",
+    "error": "ライブラリ検索を読み込めません",
+    "unidentified": "未識別",
+    "score": "リリーススコア",
+    "morePaths": "他 {{count}} 件のパス",
+    "next": "次のページ"
+  },
+  "integrity": {
+    "title": "完全性とアップグレード",
+    "description": "欠番、重複、未識別の話数と高スコア候補を確認します。",
+    "refresh": "更新",
+    "season": "シーズン {{season}} · 全 {{count}} 話予定",
+    "missing": "欠番",
+    "duplicates": "重複",
+    "unidentified": "未識別"
+  },
+  "upgrade": {
+    "episode": "第 {{episode}} 話を更新",
+    "preview": "ドライラン",
+    "apply": "更新",
+    "confirm": "検証して更新を開始しますか？旧ファイルはロールバック期間中保持されます。",
+    "previewNeedsDownload": "ドライラン成功：候補の取得が必要です",
+    "previewReady": "ドライラン成功：候補ファイルは準備済みです",
+    "failed": "更新を開始できませんでした",
+    "outcomes": {
+      "download_queued": "候補をダウンロード待ちに追加しました",
+      "applied": "更新を適用しました",
+      "already_applied": "更新は適用済みです"
+    }
+  }
+}

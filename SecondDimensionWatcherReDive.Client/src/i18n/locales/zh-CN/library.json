@@ -1,0 +1,71 @@
+{
+  "eyebrow": "媒体库智能",
+  "title": "搜索整个媒体库",
+  "description": "跨标题、剧集元数据、下载来源、观看状态和虚拟路径检索；全部筛选条件都会保存在 URL 中。",
+  "queryLabel": "搜索标题、别名、字幕组和路径",
+  "queryPlaceholder": "标题、别名、字幕组、TMDB ID 或路径…",
+  "search": "搜索",
+  "filters": {
+    "title": "筛选（已启用 {{count}} 项）",
+    "clear": "全部清除",
+    "season": "季度",
+    "episode": "集数",
+    "subtitleGroup": "字幕组",
+    "path": "虚拟路径",
+    "resolution": "分辨率",
+    "codec": "编码",
+    "language": "语言",
+    "downloadState": "下载状态",
+    "watchState": "观看状态",
+    "source": "来源",
+    "sort": "排序"
+  },
+  "values": {
+    "Any": "不限",
+    "NotDownloaded": "未下载",
+    "Downloading": "下载中",
+    "Downloaded": "已下载",
+    "Unwatched": "未观看",
+    "InProgress": "观看中",
+    "Watched": "已看完",
+    "Torrent": "种子下载",
+    "MediaLibraryImport": "媒体库导入",
+    "PublishedDescending": "最新发布",
+    "TitleAscending": "标题升序",
+    "EpisodeAscending": "剧集顺序",
+    "ScoreDescending": "评分最高"
+  },
+  "results": {
+    "title": "搜索结果",
+    "pageCount": "本页 {{count}} 项",
+    "empty": "没有符合筛选条件的 Release",
+    "error": "无法加载媒体库搜索",
+    "unidentified": "未识别",
+    "score": "Release 评分",
+    "morePaths": "另有 {{count}} 个路径",
+    "next": "下一页"
+  },
+  "integrity": {
+    "title": "完整性与版本升级",
+    "description": "集中查看缺集、重复集、未识别剧集和评分更高的候选版本。",
+    "refresh": "刷新",
+    "season": "第 {{season}} 季 · 预计 {{count}} 集",
+    "missing": "缺集",
+    "duplicates": "重复",
+    "unidentified": "未识别"
+  },
+  "upgrade": {
+    "episode": "第 {{episode}} 集升级",
+    "preview": "预演",
+    "apply": "升级",
+    "confirm": "验证并启动该升级？旧文件会在回滚窗口内保留。",
+    "previewNeedsDownload": "预演通过；需要下载候选版本",
+    "previewReady": "预演通过；候选文件已就绪",
+    "failed": "无法启动版本升级",
+    "outcomes": {
+      "download_queued": "候选版本已加入下载",
+      "applied": "版本升级已应用",
+      "already_applied": "版本升级已应用"
+    }
+  }
+}

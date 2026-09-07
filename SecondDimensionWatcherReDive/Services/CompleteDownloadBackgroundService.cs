@@ -6,6 +6,7 @@ using SecondDimensionWatcherReDive.Framework.Notifications;
 using SecondDimensionWatcherReDive.Plugin;
 using SecondDimensionWatcherReDive.Utils.FileStore;
 using SecondDimensionWatcherReDive.Utils.Incidents;
+using SecondDimensionWatcherReDive.Utils.ReleaseUpgrades;
 
 namespace SecondDimensionWatcherReDive.Services;
 
@@ -74,6 +75,9 @@ public partial class CompleteDownloadBackgroundService(
 
         if (info is null)
         {
+            if (scope.ServiceProvider.GetService<IReleaseUpgradeCoordinator>() is { } retryCoordinator &&
+                await retryCoordinator.TryActivateCandidateAsync(request.ItemId, cancellationToken) is not null)
+                return;
             LogCompletionIgnored(logger, request.ItemId);
             return;
         }
@@ -98,11 +102,13 @@ public partial class CompleteDownloadBackgroundService(
         }
 
         // Build virtual-fs mappings for the downloaded files.
+        var mappingSucceeded = false;
         try
         {
             var fileMapper = scope.ServiceProvider.GetRequiredService<IFileMapper>();
             if (!await fileMapper.MapDownloadAsync(request.ItemId, cancellationToken))
                 throw new InvalidOperationException("No file mapping could be produced.");
+            mappingSucceeded = true;
 
             if (incidentReporter is not null)
             {
@@ -125,6 +131,11 @@ public partial class CompleteDownloadBackgroundService(
                         request.ItemId.ToString()),
                     cancellationToken);
             }
+        }
+
+        if (mappingSucceeded && scope.ServiceProvider.GetService<IReleaseUpgradeCoordinator>() is { } coordinator)
+        {
+            await coordinator.TryActivateCandidateAsync(request.ItemId, cancellationToken);
         }
 
         // Fire plugin event

@@ -15,4 +15,7 @@ public sealed record SubscriptionAutomationPolicy(
     IReadOnlyList<string> ExcludedKeywords,
     SubscriptionAutomationMode Mode,
     DateTimeOffset CreatedAt,
-    DateTimeOffset UpdatedAt);
+    DateTimeOffset UpdatedAt,
+    bool EnableVersionUpgrade = false,
+    int MinimumUpgradeScore = 25,
+    int UpgradeRollbackHours = 72);
