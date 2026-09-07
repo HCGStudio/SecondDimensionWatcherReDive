@@ -128,9 +128,15 @@ export async function handleWatchlistPlayback(context) {
     const mediaVersion = createHash("sha256")
       .update(`${animation.id}:${body.path}`)
       .digest("hex");
-    const seasonKey = animation.animation
-      ? `season:${animation.animation.tmdbId}:${animation.group?.id}:${animation.season}`
-      : null;
+    const seasonKey =
+      animation.animation && animation.group?.name && animation.season != null
+        ? JSON.stringify([
+            "season",
+            animation.animation.tmdbId,
+            animation.group.name,
+            animation.season,
+          ])
+        : null;
     const episodeKey = `media:${mediaVersion}`;
     const season = timelines.get(seasonKey) ?? null;
     if (method === "GET")

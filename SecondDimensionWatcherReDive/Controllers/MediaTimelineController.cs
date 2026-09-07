@@ -82,7 +82,7 @@ internal sealed class MediaTimelineController(IMediaTimelineRepository repositor
         var virtualPath = PlaybackPathResolver.ResolveVirtualPath(info, path);
         if (!DevicePathScope.TryMapInternalToPublic(virtualPath, DevicePathScope.GetVirtualRoot(User), out _)) return null;
         var mapping = await mappings.FindByVirtualPathAsync(virtualPath, cancellationToken);
-        if (mapping is null || mapping.AnimationInfoId != id || !VideoExtensions.Contains(Path.GetExtension(virtualPath))) return null;
+        if (mapping is null || mapping.AnimationInfoId != id || !MediaFileTypes.IsVideo(virtualPath)) return null;
         FileStoreInfo metadata;
         try { metadata = await stores.GetRequiredClient(mapping.FileStore).FileInfoAsync(mapping.PhysicalPath, cancellationToken); }
         catch (FileNotFoundException) { return null; }
@@ -94,6 +94,4 @@ internal sealed class MediaTimelineController(IMediaTimelineRepository repositor
         return new Media(mapping.Id, version, seasonKey);
     }
     private sealed record Media(Guid MappingId, string Version, string? SeasonKey);
-    private static readonly HashSet<string> VideoExtensions = new(StringComparer.OrdinalIgnoreCase)
-        { ".mkv", ".mp4", ".webm", ".avi", ".mov", ".m4v", ".ts", ".m2ts" };
 }
