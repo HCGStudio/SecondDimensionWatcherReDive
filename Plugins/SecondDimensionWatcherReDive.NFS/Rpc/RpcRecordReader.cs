@@ -42,13 +42,14 @@ internal static class RpcRecordReader
         CancellationToken cancellationToken)
     {
         var totalLength = 0;
+        var fragmentCount = 0;
         byte[]? buffer = null;
         var success = false;
+        var headerBuf = new byte[RpcConstants.RecordHeaderSize];
         try
         {
             while (true)
             {
-                var headerBuf = new byte[RpcConstants.RecordHeaderSize];
                 var read = await ReadExactAsync(stream, headerBuf, cancellationToken).ConfigureAwait(false);
                 if (read == 0 && totalLength == 0)
                     return null;
@@ -58,6 +59,13 @@ internal static class RpcRecordReader
                 var header = BinaryPrimitives.ReadUInt32BigEndian(headerBuf);
                 var isLast = (header & RpcConstants.LastFragmentMask) != 0;
                 var fragmentLength = (int)(header & RpcConstants.LengthMask);
+
+                fragmentCount++;
+                if (fragmentCount > RpcConstants.MaxFragmentsPerRecord)
+                    throw new InvalidDataException(
+                        $"RPC record exceeds the fragment limit ({RpcConstants.MaxFragmentsPerRecord}).");
+                if (!isLast && fragmentLength == 0)
+                    throw new InvalidDataException("RPC record contains a non-final empty fragment.");
 
                 if (totalLength + fragmentLength > maxRecordBytes)
                     throw new InvalidDataException(

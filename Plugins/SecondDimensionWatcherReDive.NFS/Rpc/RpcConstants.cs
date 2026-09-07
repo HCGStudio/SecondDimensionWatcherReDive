@@ -41,6 +41,7 @@ internal static class RpcConstants
     public const uint LengthMask = 0x7FFFFFFFu;
 
     public const int MaxRequestBytes = 1 * 1024 * 1024;
+    public const int MaxFragmentsPerRecord = 1024;
     public const int MaxMachineNameBytes = 255;
     public const int MaxOpaqueAuthBytes = 400;
 }

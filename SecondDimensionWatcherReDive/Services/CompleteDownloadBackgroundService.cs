@@ -2,6 +2,7 @@ using System.Threading.Channels;
 using SecondDimensionWatcherReDive.Data;
 using SecondDimensionWatcherReDive.Framework.PluginParams;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
+using SecondDimensionWatcherReDive.Framework.Notifications;
 using SecondDimensionWatcherReDive.Plugin;
 using SecondDimensionWatcherReDive.Utils.FileStore;
 using SecondDimensionWatcherReDive.Utils.Incidents;
@@ -12,7 +13,8 @@ public partial class CompleteDownloadBackgroundService(
     Channel<DownloadCompleteRequest> downloadCompleteRequest,
     IServiceScopeFactory scopeFactory,
     ILogger<CompleteDownloadBackgroundService> logger,
-    IIncidentReporter? incidentReporter = null)
+    IIncidentReporter? incidentReporter = null,
+    INotificationPublisher? notificationPublisher = null)
     : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken cancellationToken)
@@ -76,6 +78,16 @@ public partial class CompleteDownloadBackgroundService(
             return;
         }
         LogDownloadMarkedFinished(logger, request.ItemId, info.Title);
+
+        if (notificationPublisher is not null)
+        {
+            await notificationPublisher.PublishAsync(new NotificationEvent(
+                NotificationEventType.DownloadCompleted,
+                $"download-completed:{info.Id}:{request.DownloadAttemptId?.ToString() ?? "legacy"}",
+                "Download completed",
+                info.Title,
+                "/downloaded"), cancellationToken);
+        }
 
         if (incidentReporter is not null)
         {

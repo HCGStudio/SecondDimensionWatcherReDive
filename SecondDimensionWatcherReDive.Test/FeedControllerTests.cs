@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Moq;
 using SecondDimensionWatcherReDive.Controllers;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
+using SecondDimensionWatcherReDive.Utils.Http;
 
 namespace SecondDimensionWatcherReDive.Test;
 
@@ -10,14 +11,19 @@ namespace SecondDimensionWatcherReDive.Test;
 public class FeedControllerTests
 {
     private Mock<IFeedRepository> _repoMock = null!;
+    private Mock<ISafeOutboundHttpFetcher> _outboundFetcher = null!;
     private FeedController _controller = null!;
 
     [TestInitialize]
     public void Setup()
     {
         _repoMock = new Mock<IFeedRepository>();
+        _outboundFetcher = new Mock<ISafeOutboundHttpFetcher>();
+        _outboundFetcher.Setup(fetcher => fetcher.ValidateUrlAsync(
+                It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
 
-        _controller = new FeedController(_repoMock.Object)
+        _controller = new FeedController(_repoMock.Object, _outboundFetcher.Object)
         {
             ControllerContext = new ControllerContext
             {

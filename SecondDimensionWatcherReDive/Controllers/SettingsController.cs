@@ -30,7 +30,8 @@ internal sealed class SettingsController(IRuntimeSettingsService settingsService
             && request.Torrent is null
             && request.MediaLibrary is null
             && request.Incidents is null
-            && request.Nfs is null)
+            && request.Nfs is null
+            && request.Notifications is null)
         {
             ModelState.AddModelError(string.Empty, "At least one settings section is required.");
             return ValidationProblem(ModelState);
@@ -62,6 +63,7 @@ internal sealed class SettingsController(IRuntimeSettingsService settingsService
         var mediaLibrary = MapMediaLibrary(request.MediaLibrary);
         var incidents = MapIncidents(request.Incidents);
         var nfs = MapNfs(request.Nfs);
+        var notifications = MapNotifications(request.Notifications);
 
         patch = new RuntimeSettingsPatch(
             request.ExpectedRevision,
@@ -72,7 +74,8 @@ internal sealed class SettingsController(IRuntimeSettingsService settingsService
             torrent,
             mediaLibrary,
             incidents,
-            nfs);
+            nfs,
+            notifications);
         return ModelState.IsValid;
     }
 
@@ -213,18 +216,57 @@ internal sealed class SettingsController(IRuntimeSettingsService settingsService
         if (request.BindAddress is null) AddRequired("nfs.bindAddress");
         if (request.LeaseSeconds is null) AddRequired("nfs.leaseSeconds");
         if (request.MaxConnections is null) AddRequired("nfs.maxConnections");
+        if (request.IdleTimeoutSeconds is null) AddRequired("nfs.idleTimeoutSeconds");
+        if (request.AllowAnonymous is null) AddRequired("nfs.allowAnonymous");
+        if (request.AllowedNetworks is null) AddRequired("nfs.allowedNetworks");
         return request.Enabled is not null
                && request.Port is not null
                && request.BindAddress is not null
                && request.LeaseSeconds is not null
                && request.MaxConnections is not null
+               && request.IdleTimeoutSeconds is not null
+               && request.AllowAnonymous is not null
+               && request.AllowedNetworks is not null
             ? new NfsSettingsValues(
                 request.Enabled.Value,
                 request.Port.Value,
                 request.BindAddress,
                 request.LeaseSeconds.Value,
                 request.MaxConnections.Value)
+            {
+                IdleTimeoutSeconds = request.IdleTimeoutSeconds.Value,
+                AllowAnonymous = request.AllowAnonymous.Value,
+                AllowedNetworks = request.AllowedNetworks
+                    .Select(value => value.Trim())
+                    .Where(value => value.Length > 0)
+                    .ToArray()
+            }
             : null;
+    }
+
+    private NotificationSettingsUpdate? MapNotifications(
+        NotificationSettingsPatchRequest? request)
+    {
+        if (request is null)
+            return null;
+        if (request.WebhookEnabled is null) AddRequired("notifications.webhookEnabled");
+        if (request.WebPushEnabled is null) AddRequired("notifications.webPushEnabled");
+        if (request.WebPushSubject is null) AddRequired("notifications.webPushSubject");
+        if (request.Events is null) AddRequired("notifications.events");
+        if (request.TimeZoneId is null) AddRequired("notifications.timeZoneId");
+        if (!ModelState.IsValid)
+            return null;
+
+        return new NotificationSettingsUpdate(
+            request.WebhookEnabled!.Value,
+            request.WebPushEnabled!.Value,
+            request.WebPushSubject!,
+            request.Events!,
+            request.QuietHoursStart,
+            request.QuietHoursEnd,
+            request.TimeZoneId!,
+            MapSecret(request.WebhookUrl, "notifications.webhook.url"),
+            request.GenerateVapidKeys);
     }
 
     private SecretMutation? MapSecret(SecretMutationRequest? request, string path)
@@ -295,8 +337,22 @@ internal sealed class SettingsController(IRuntimeSettingsService settingsService
                 values.Nfs.BindAddress,
                 values.Nfs.LeaseSeconds,
                 values.Nfs.MaxConnections,
+                values.Nfs.IdleTimeoutSeconds,
+                values.Nfs.AllowAnonymous,
+                values.Nfs.AllowedNetworks,
                 RestartRequired: true,
-                state.PendingRestart));
+                state.PendingRestart),
+            new NotificationSettingsResponse(
+                values.Notifications.WebhookEnabled,
+                values.Notifications.WebPushEnabled,
+                values.Notifications.WebPushSubject,
+                values.Notifications.VapidPublicKey,
+                Secret(state, RuntimeSecretKeys.NotificationVapidPrivateKey),
+                values.Notifications.Events,
+                values.Notifications.QuietHoursStart,
+                values.Notifications.QuietHoursEnd,
+                values.Notifications.TimeZoneId,
+                Secret(state, RuntimeSecretKeys.NotificationWebhookUrl)));
     }
 
     private static SecretStateResponse Secret(RuntimeSettingsState state, string key)

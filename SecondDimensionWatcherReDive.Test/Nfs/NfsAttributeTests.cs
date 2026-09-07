@@ -63,7 +63,7 @@ public class NfsAttributeTests
             IsDirectory: false,
             Size: 1024,
             MTime: DateTimeOffset.UnixEpoch,
-            Handle: new NfsFileHandle(NfsHandleKind.File, "/x"),
+            Handle: new NfsFileHandle(NfsHandleKind.File, Guid.NewGuid()),
             OwnerName: "0@sdw",
             GroupName: "0@sdw",
             LeaseTimeSeconds: 90);
@@ -89,7 +89,7 @@ public class NfsAttributeTests
             IsDirectory: false,
             Size: 100,
             MTime: DateTimeOffset.UnixEpoch,
-            Handle: new NfsFileHandle(NfsHandleKind.File, "/x"),
+            Handle: new NfsFileHandle(NfsHandleKind.File, Guid.NewGuid()),
             OwnerName: "0@sdw",
             GroupName: "0@sdw",
             LeaseTimeSeconds: 90);

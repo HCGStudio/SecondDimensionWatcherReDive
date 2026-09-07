@@ -7,12 +7,14 @@
   "unknownFile": "不明なファイル",
   "unknownAnime": "不明なアニメ",
   "back": "戻る",
+  "retry": "再読み込みして再試行",
   "useExternalHint": "再生位置は端末間で同期されます。再生できない場合はローカルプレーヤーをお試しください。",
   "openInExternal": "ローカルプレーヤーで開く：",
   "continue": {
     "title": "続きから見る",
     "subtitle": "どの端末でも前回の続きから再生できます",
-    "resume": "再開"
+    "resume": "再開",
+    "progress": "再生進捗"
   },
   "progress": {
     "resumed": "{{time}} から再開しました",
