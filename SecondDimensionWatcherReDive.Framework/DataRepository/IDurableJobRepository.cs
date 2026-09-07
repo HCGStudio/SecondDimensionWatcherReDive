@@ -79,6 +79,14 @@ public interface IDurableJobRepository
         DateTimeOffset leaseUntil,
         CancellationToken cancellationToken);
 
+    Task<bool> DeferAsync(
+        Guid id,
+        string workerId,
+        DurableJobStage expectedStage,
+        DateTimeOffset now,
+        DateTimeOffset nextAttemptAt,
+        CancellationToken cancellationToken);
+
     Task MarkFailedAsync(
         Guid id,
         string workerId,

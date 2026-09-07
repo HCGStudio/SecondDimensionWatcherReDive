@@ -49,8 +49,11 @@ public sealed class DurableJobRepository(Models.ApplicationContext context)
             return [];
 
         return (await context.DurableJobs
+                .FromSqlRaw("SELECT * FROM \"DurableJobs\" WHERE \"LeaseExpiresAt\" > clock_timestamp()")
                 .AsNoTracking()
-                .Where(job => claimedIds.Contains(job.Id))
+                .Where(job => claimedIds.Contains(job.Id)
+                              && job.LeaseOwner == workerId
+                              && job.Status == DurableJobStatus.Processing)
                 .OrderBy(job => job.CreatedAt)
                 .ToListAsync(cancellationToken))
             .Select(ToRecord)
@@ -103,6 +106,21 @@ public sealed class DurableJobRepository(Models.ApplicationContext context)
                 .SetProperty(job => job.UpdatedAt, now), cancellationToken);
         return affected == 1;
     }
+
+    public async Task<bool> DeferAsync(
+        Guid id,
+        string workerId,
+        DurableJobStage expectedStage,
+        DateTimeOffset now,
+        DateTimeOffset nextAttemptAt,
+        CancellationToken cancellationToken) =>
+        await context.Database.ExecuteSqlInterpolatedAsync($"""
+            UPDATE "DurableJobs"
+            SET "Status" = 'Pending', "UpdatedAt" = {now}, "NextAttemptAt" = {nextAttemptAt},
+                "LeaseOwner" = NULL, "LeaseExpiresAt" = NULL
+            WHERE "Id" = {id} AND "LeaseOwner" = {workerId} AND "Status" = 'Processing'
+                AND "Stage" = {expectedStage.ToString()} AND "LeaseExpiresAt" > clock_timestamp()
+            """, cancellationToken) == 1;
 
     public Task MarkFailedAsync(
         Guid id,

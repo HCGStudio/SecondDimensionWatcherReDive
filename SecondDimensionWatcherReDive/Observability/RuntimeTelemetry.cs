@@ -11,7 +11,9 @@ public sealed class RuntimeTelemetry : IDisposable
 
     private readonly Meter _meter = new(MeterName);
     private readonly Counter<long> _jobAttempts;
+    private readonly Counter<long> _jobDeferrals;
     private readonly Histogram<double> _jobDuration;
+    private readonly Histogram<double> _jobQueueWait;
     private readonly Counter<long> _scheduledTaskRuns;
     private readonly Histogram<double> _scheduledTaskDuration;
     private int _pendingJobs;
@@ -21,10 +23,15 @@ public sealed class RuntimeTelemetry : IDisposable
 
     public RuntimeTelemetry()
     {
+        _jobQueueWait = _meter.CreateHistogram<double>("sdw.durable_job.queue_wait", "s", "Time eligible jobs wait for a worker.");
         _jobAttempts = _meter.CreateCounter<long>(
             "sdw.durable_job.attempts",
             "{attempt}",
             "Durable job execution attempts.");
+        _jobDeferrals = _meter.CreateCounter<long>(
+            "sdw.durable_job.deferrals",
+            "{deferral}",
+            "Durable jobs deferred while the serialized plugin callback is busy.");
         _jobDuration = _meter.CreateHistogram<double>(
             "sdw.durable_job.duration",
             "s",
@@ -74,6 +81,16 @@ public sealed class RuntimeTelemetry : IDisposable
         _jobAttempts.Add(1, tags);
         _jobDuration.Record(duration.TotalSeconds, tags);
     }
+
+    public void RecordJobQueueWait(DurableJobType type, TimeSpan wait) =>
+        _jobQueueWait.Record(Math.Max(0, wait.TotalSeconds), new KeyValuePair<string, object?>("job.type", ToTag(type)));
+
+    public void RecordJobDeferred(DurableJobType type, DurableJobStage stage) =>
+        _jobDeferrals.Add(1, new TagList
+        {
+            { "job.type", ToTag(type) },
+            { "job.stage", ToTag(stage) }
+        });
 
     public void UpdateJobStatistics(DurableJobStatistics statistics)
     {
