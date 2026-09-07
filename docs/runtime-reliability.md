@@ -64,3 +64,7 @@ HTTP 指标使用显式标签白名单：服务端只保留方法、状态码、
 `job.type`、`job.stage`、`outcome` 和 `status`。原始路径、查询串、动画标题、工具参数、
 SQL 文本和查询参数不会作为指标标签或导出的链路标签。定时任务指标的 `task.id` 也只
 允许四个内置任务值，未知扩展统一归为 `other`。
+
+## 容量与完成处理并发
+
+下载接受后先进入持久容量队列，空间预留提交后才向下载器提交。`DownloadCompletion:Workers` 默认 2，每个 worker 具有独立作用域、领取身份和续租生命周期；插件回调在单实例内串行，跨实例幂等要求继续有效。新增 `sdw.durable_job.queue_wait`（秒）记录任务可领取后等待 worker 的时间，已有 duration 记录处理耗时。轮询按批退避，未查询的 hash 不参与缺失判断。配置与异常恢复入口见 [下载使用指南](library-workflows.md)。

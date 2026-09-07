@@ -1,37 +1,29 @@
 # TODOS
 
-## Backend
+## 已实现
 
-### Plugin System
+以下为当前源码的能力清单，部署依赖、权限与首版边界见 [使用指南](docs/library-workflows.md)；不等同于正式版已完成交付。
 
-- [ ] **实现 `IJavaScriptPluginLoader`** — `Framework/Plugin/IJavaScriptPluginLoader.cs` 定义了接口但无具体实现，需集成 ClearScript 或其他 JS 引擎加载插件
-- [x] **实现 `IPluginServices`** — 已通过 `Plugin/PluginServices.cs` 实现，持有事件名到事件实例的映射
-- [x] **实现 `IPluginEventRegister<TParam>` 和 `IPluginEventTrigger<TParams>`** — 已通过 `Plugin/PluginEvent.cs` 统一实现
-- [x] **完成 `PluginHelper.InitializePlugin()`** — 已注册事件单例和 PluginServices 到 DI 容器
+- [x] RSS 管理、过滤/质量策略、待确认/通知/自动下载、番剧多来源优先级与等待回退。
+- [x] qBittorrent 提交/暂停/恢复/取消，持久容量预留与 FIFO 等待队列，自适应轮询和独立作用域的完成处理 worker。
+- [x] 媒体原地导入、虚拟路径映射、搜索、播出感知缺集计划、版本升级与回滚。
+- [x] 元数据审核、映射预览与撤销；另行保存限定范围的长期识别规则、冲突人工处理与历史预览。
+- [x] 播放进度、HLS 转码、字幕/音轨、OP/ED 手动/个人自动跳过、命名章节、媒体版本绑定的季默认。
+- [x] 个人追番清单与本周视图、继续观看；家庭档案独立，媒体库共享。
+- [x] 浏览器原生文件下载、多次 Range 续传、短期会话/单文件授权；WebDAV/VFS 只读设备凭据。
+- [x] 受控插件平台：本地包检查、签名/能力确认、隔离进程、生命周期和已接入的通知/存储 Provider。
+- [x] 持久任务/Outbox、通知/待办、故障诊断、可恢复迁移、数据库/配置/密钥备份与受限逻辑导入导出。
+- [x] Radix Toast 错误反馈、路由错误页、简体中文 / English / 日本語界面。
 
-### FileStore
+当前功能与实际操作入口见 [README](README.md)、[使用指南](docs/library-workflows.md) 和 [架构参考](docs/architecture.md)。历史接口占位不代表受控插件平台尚未实现。
 
-- [x] **重构 `IFileStore.Rename()`** — 已从 `IFileStore` 提取到独立的 `IFileOperator` 接口，`LocalFileStore` 不再需要实现 Rename，由下载器负责
+## 尚未支持
 
-### FileDownload
+- [ ] WebDAV 写入与内置种子下载引擎。
+- [ ] 外部种子搜索、推荐算法、第三方追番同步与日历导出。
+- [ ] 音视频自动 OP/ED 识别、第三方片头数据库与自动章节提取。
+- [ ] 任意远程 JavaScript 安装；插件下载/元数据 Provider 适配（[现有 API 1.0](docs/plugin-platform.md)）。
 
-- [x] **实现 `FileDownloadClientProxy.CancelDownloadTask()`** — 已委托给底层 `_poxyObject` 调用
-- [x] **完善 `RemoteTorrentDownloadClient.CancelDownloadTask()`** — 已传递 `deleteFiles` 参数给 qBittorrent API，由 qBittorrent 负责删除文件
+## 发布交付
 
-## Frontend
-
-### UI 功能缺失
-
-- [x] **实现删除按钮功能** — 后端添加 `DELETE cancel/{id}` endpoint，前端添加 `cancelDownload` API 并绑定删除按钮（带确认对话框）
-- [x] **实现"下载列表"导航** — 添加 `DownloadingPage`，注册 `/downloading` 路由，绑定导航链接
-- [x] **实现"已下载"导航** — 添加 `DownloadedPage`，注册 `/downloaded` 路由，绑定导航链接
-
-### 错误处理
-
-- [x] **为下载/暂停/恢复操作添加用户可见的错误提示** — 添加 ToastProvider（基于 EuiGlobalToastList），操作失败时弹出错误 Toast
-- [x] **添加路由错误页面** — 添加 `ErrorPage` 组件，所有路由使用独立错误页面替代 `MainPage`
-
-### 代码清理
-
-- [x] **移除调试日志** — 已移除 `MainPage.tsx` 中的 `console.log`
-- [x] **添加更多语言支持** — 已添加 ja、ko、zh-tw locale
+功能实现与正式版本发布分开记录。[3.0 发布目标](docs/release-3.0.md) 中的新装、升级、恢复与正式制品验收须在候选阶段执行；本功能 PR 不改变版本号或触发发布。
