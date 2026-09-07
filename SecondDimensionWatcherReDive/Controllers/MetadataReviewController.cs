@@ -172,7 +172,7 @@ internal sealed class MetadataReviewController(
             item.CanUndo);
     }
 
-    private static External.MetadataReviewPreviewResponse ToExternal(
+    internal static External.MetadataReviewPreviewResponse ToExternal(
         MetadataReviewPreviewResult result) =>
         new(
             result.PreviewId,

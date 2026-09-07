@@ -1592,6 +1592,22 @@ public class AnimationInfoRepository(
                 cancellationToken);
             if (entity is null || entity.StateVersion != expectedStateVersion)
                 return false;
+            if (info.RecognitionRule is { } recognitionRule)
+            {
+                // A shared row lock makes disabling/editing and applying a rule ordered operations.
+                var currentRule = await writeContext.Set<Models.MetadataRecognitionRule>()
+                    .FromSqlInterpolated($"SELECT * FROM \"MetadataRecognitionRules\" WHERE \"Id\" = {recognitionRule.Id} FOR SHARE")
+                    .AsNoTracking().SingleOrDefaultAsync(cancellationToken);
+                if (currentRule is null || !currentRule.Enabled || currentRule.Revision != recognitionRule.Revision
+                    || info.IngestedAt is null || info.IngestedAt < currentRule.EffectiveFrom)
+                    return false;
+                writeContext.Add(new Models.MetadataRecognitionHit
+                {
+                    Id = Guid.NewGuid(), RuleId = recognitionRule.Id, RuleName = recognitionRule.Name,
+                    RuleRevision = recognitionRule.Revision, AnimationInfoId = info.Id, Title = info.Title,
+                    ItemRevision = checked(expectedStateVersion + 1), AppliedAt = DateTimeOffset.UtcNow
+                });
+            }
             var previousEpisodeIdentity = GetEpisodeIdentity(writeContext, entity);
             var wasActiveRelease = entity.IsActiveRelease;
             var previousMappings = await writeContext.FileMappings

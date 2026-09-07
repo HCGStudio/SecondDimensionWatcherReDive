@@ -4,6 +4,7 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { handleCompletion } from "./mock-completion.mjs";
+import { handleMetadataRules } from "./mock-metadata-rules.mjs";
 
 const PORT = parseInt(process.env.MOCK_PORT ?? "5097", 10);
 
@@ -2705,6 +2706,9 @@ async function route(method, pathname, searchParams, req, res) {
   }
 
   if (await handleCompletion({ req, res, method, pathname, searchParams, json, readBody, animations, downloadState })) return;
+  if (await handleMetadataRules({ req, res, method, pathname, searchParams, json, readBody,
+    animations, feeds, metadataReviewItems, metadataReviewPreviews, metadataCatalog,
+    mockMappedFiles, buildMetadataPathChanges })) return;
 
   // --- Animation Info ---
 

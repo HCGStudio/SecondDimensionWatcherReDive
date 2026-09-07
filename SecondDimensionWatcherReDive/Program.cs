@@ -816,6 +816,9 @@ builder.Services.AddScoped<IAuthenticationStateRepository, AuthenticationStateRe
 builder.Services.AddScoped<AuthenticationStateInitializer>();
 builder.Services.AddSingleton<ISeasonScraper, MikananiSeasonScraper>();
 builder.Services.AddScoped<IMetadataReviewService, MetadataReviewService>();
+builder.Services.AddScoped<IMetadataRecognitionRuleRepository, MetadataRecognitionRuleRepository>();
+builder.Services.AddScoped<MetadataRecognitionRuleService>();
+builder.Services.AddSingleton<MetadataRecognitionRuleSupport>();
 builder.Services.AddScoped<IIncidentRetryService, IncidentRetryService>();
 builder.Services.AddScoped<IReleaseUpgradeCoordinator, ReleaseUpgradeCoordinator>();
 

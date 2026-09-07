@@ -37,7 +37,7 @@ public class MetadataReviewRepository(
                 .Include(info => info.Animation)
                 .Include(info => info.Group)
                 .SingleOrDefaultAsync(
-                    info => info.Id == focusId.Value && info.MetadataStatus == status,
+                    info => info.Id == focusId.Value,
                     cancellationToken);
             if (focused is not null)
                 entities.Insert(0, focused);
