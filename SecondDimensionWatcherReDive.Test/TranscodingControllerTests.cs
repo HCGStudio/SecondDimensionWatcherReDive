@@ -1,3 +1,7 @@
+using System.Security.Claims;
+using Microsoft.AspNetCore.DataProtection;
+using SecondDimensionWatcherReDive.Framework.Authorization;
+using SecondDimensionWatcherReDive.Framework.DataRepository;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Routing;
@@ -12,6 +16,8 @@ namespace SecondDimensionWatcherReDive.Test;
 [TestClass]
 public class TranscodingControllerTests
 {
+    private readonly Guid _identitySessionId = Guid.NewGuid();
+    private readonly IDataProtectionProvider _protection = new EphemeralDataProtectionProvider();
     private StubTranscodingService _service = null!;
     private TranscodingController _controller = null!;
 
@@ -19,9 +25,21 @@ public class TranscodingControllerTests
     public void Setup()
     {
         _service = new StubTranscodingService();
-        _controller = new TranscodingController(_service)
+        var now = DateTimeOffset.UtcNow;
+        var identity = new Mock<IIdentityRepository>();
+        identity.Setup(repository => repository.GetAuthenticatedSessionAsync(
+                _identitySessionId, It.IsAny<DateTimeOffset>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AuthenticatedSession(
+                new UserAccount(IdentityDefaults.UserId, "admin", null, UserRole.Admin, false, now, now),
+                new UserProfile(Guid.Empty, IdentityDefaults.UserId, "Home", null, null, true, now, now),
+                new UserSession(_identitySessionId, IdentityDefaults.UserId, Guid.Empty, "hash", null, now, now, now, now.AddDays(1), null)));
+        _controller = new TranscodingController(_service, identity.Object, _protection)
         {
-            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() },
+            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext {
+                User = new ClaimsPrincipal(new ClaimsIdentity([
+                    new Claim(IdentityClaimTypes.UserId, IdentityDefaults.UserId.ToString()),
+                    new Claim(IdentityClaimTypes.ProfileId, Guid.Empty.ToString()),
+                    new Claim(IdentityClaimTypes.SessionId, _identitySessionId.ToString())], "test")) } },
             Url = CreateUrlHelper()
         };
     }
@@ -48,7 +66,7 @@ public class TranscodingControllerTests
         Assert.AreEqual("queued", response.State);
         Assert.IsNull(response.PlaybackUrl);
         StringAssert.Contains(response.StatusUrl, session.SessionId.ToString());
-        StringAssert.Contains(response.CancelUrl, session.AccessToken);
+        StringAssert.Contains(response.CancelUrl, session.SessionId.ToString());
     }
 
     [TestMethod]
@@ -69,7 +87,8 @@ public class TranscodingControllerTests
     public async Task GetPlaylist_RewritesEverySegmentWithSessionToken()
     {
         var sessionId = Guid.NewGuid();
-        const string token = "secret-token";
+        var token = _protection.CreateProtector("SDW.Transcoding.Identity.v1").Protect(
+            $"{IdentityDefaults.UserId:N}.{_identitySessionId:N}.{Guid.Empty:N}.{sessionId:N}.secret-token");
         _service.Playlist = "#EXTM3U\n#EXTINF:6,\nsegment-000000.ts\n#EXT-X-ENDLIST\n";
 
         var result = await _controller.GetPlaylist(sessionId, token, CancellationToken.None);

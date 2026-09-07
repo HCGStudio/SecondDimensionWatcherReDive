@@ -84,16 +84,30 @@ function hasAuth(req) {
 // ---------------------------------------------------------------------------
 
 let registered = false;
-const activeRefreshTokens = new Set();
-
-function issueAuth() {
+const activeRefreshTokens = new Map();
+const mockAccessSessions = new Map();
+const mockUserId = "00000000-0000-0000-0000-000000000001";
+const mockProfiles = [{
+  id: "00000000-0000-0000-0000-000000000000",
+  name: "Home", avatar: null, hasPin: false, isDefault: true,
+}];
+const defaultMockSession = {
+  id: "10000000-0000-0000-0000-000000000001",
+  profileId: mockProfiles[0].id,
+};
+const mockSessionFor = (req) =>
+  mockAccessSessions.get(req.headers.authorization?.slice(7)) ?? defaultMockSession;
+const mockAuthState = (req) => ({
+  userId: mockUserId, username: "admin", role: "Admin",
+  sessionId: mockSessionFor(req).id, profileId: mockSessionFor(req).profileId,
+  profiles: mockProfiles,
+});
+function issueAuth(session = { id: randomUUID(), profileId: mockProfiles[0].id }) {
   const refreshToken = fakeToken();
-  activeRefreshTokens.add(refreshToken);
-  return {
-    token: fakeToken(),
-    refreshToken,
-    success: true,
-  };
+  const token = fakeToken();
+  activeRefreshTokens.set(refreshToken, session);
+  mockAccessSessions.set(token, session);
+  return { token, refreshToken, success: true, sessionId: session.id, profileId: session.profileId };
 }
 
 const ANIME_TITLES = [
@@ -1706,20 +1720,31 @@ async function route(method, pathname, searchParams, req, res) {
 
   if (method === "POST" && pathname === "/api/auth/refresh") {
     const body = await readBody(req);
-    if (!activeRefreshTokens.delete(body.refreshToken))
+    const session = activeRefreshTokens.get(body.refreshToken);
+    if (!session || !activeRefreshTokens.delete(body.refreshToken))
       return json(res, { token: null, refreshToken: null, success: false }, 400);
-    return json(res, issueAuth());
+    return json(res, issueAuth(session));
   }
 
   if (method === "POST" && pathname === "/api/auth/logout") {
-    const body = await readBody(req);
-    activeRefreshTokens.delete(body.refreshToken);
+    const session = mockSessionFor(req);
+    for (const [token, candidate] of activeRefreshTokens) {
+      if (candidate.id === session.id) activeRefreshTokens.delete(token);
+    }
+    for (const [token, candidate] of mockAccessSessions) {
+      if (candidate.id === session.id) mockAccessSessions.delete(token);
+    }
     return empty(res, 204);
   }
 
   if (method === "GET" && pathname === "/api/auth/verify") {
     if (!hasAuth(req)) return empty(res, 401);
-    return json(res, [{ Type: "sub", Value: "mock-user" }]);
+    return json(res, mockAuthState(req));
+  }
+
+  if (pathname === "/api/auth/reauthenticate" && method === "POST") {
+    await readBody(req);
+    return json(res, issueAuth(mockSessionFor(req)));
   }
 
   // --- All remaining endpoints require auth ---
@@ -1732,6 +1757,42 @@ async function route(method, pathname, searchParams, req, res) {
     !publicTranscodingSession
   ) {
     return empty(res, 401);
+  }
+
+  if (pathname === "/api/accounts/profiles" && method === "GET") return json(res, mockProfiles);
+  if (pathname === "/api/accounts/profiles" && method === "POST") {
+    const body = await readBody(req);
+    const profile = { id: randomUUID(), name: body.name, avatar: body.avatar ?? null,
+      hasPin: Boolean(body.pin), isDefault: false };
+    mockProfiles.push(profile);
+    return json(res, profile);
+  }
+  if (pathname === "/api/accounts/profiles/switch" && method === "POST") {
+    const body = await readBody(req);
+    if (!mockProfiles.some((profile) => profile.id === body.profileId)) return empty(res, 404);
+    const session = mockSessionFor(req);
+    activeRefreshTokens.delete(body.refreshToken);
+    return json(res, issueAuth({ ...session, profileId: body.profileId }));
+  }
+  if (pathname.startsWith("/api/accounts/profiles/") && method === "PATCH") {
+    const body = await readBody(req);
+    const profile = mockProfiles.find((item) => item.id === pathname.split("/").pop());
+    if (!profile) return empty(res, 404);
+    Object.assign(profile, { name: body.name, avatar: body.avatar ?? null });
+    if (body.replacePin) profile.hasPin = Boolean(body.pin);
+    return empty(res, 204);
+  }
+  if (pathname === "/api/accounts/users" && method === "GET") {
+    return json(res, [{ id: mockUserId, username: "admin", role: "Admin", isDisabled: false,
+      createdAt: new Date().toISOString(), profiles: mockProfiles }]);
+  }
+  if (pathname.startsWith("/api/accounts/sessions") && method === "GET") {
+    const session = mockSessionFor(req);
+    return json(res, [{ ...session, userId: mockUserId, username: "admin",
+      profileName: mockProfiles.find((profile) => profile.id === session.profileId)?.name,
+      createdAt: new Date().toISOString(), lastSeenAt: new Date().toISOString(),
+      authenticatedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 86400000).toISOString(),
+      isCurrent: true }]);
   }
 
   if (method === "GET") {

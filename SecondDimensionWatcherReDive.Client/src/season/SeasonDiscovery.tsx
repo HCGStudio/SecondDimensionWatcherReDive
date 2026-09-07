@@ -11,6 +11,7 @@ import {
   Users,
 } from "lucide-react";
 
+import { useAccess } from "../auth/hooks";
 import { ResilientPoster } from "../components/ResilientPoster";
 import { useToast } from "../components/ToastProvider";
 import { Button } from "../components/ui/Button";
@@ -87,6 +88,7 @@ function buildSubgroupRssUrl(mikanId: number, subgroupId: number): string {
 
 export const SeasonDiscovery: React.FC = () => {
   const { t } = useTranslation("season");
+  const { canContentWrite, isAdministrator } = useAccess();
   const formatLabel = React.useCallback(
     (year: number, season: string) =>
       t("seasonLabel", {
@@ -255,18 +257,20 @@ export const SeasonDiscovery: React.FC = () => {
               })}
             </span>
           ) : null}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onRefresh}
-            disabled={refreshing || isLoading}
-          >
-            <RefreshCw
-              size={14}
-              className={refreshing || isLoading ? "animate-spin" : ""}
-            />
-            {t("refresh")}
-          </Button>
+          {isAdministrator ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onRefresh}
+              disabled={refreshing || isLoading}
+            >
+              <RefreshCw
+                size={14}
+                className={refreshing || isLoading ? "animate-spin" : ""}
+              />
+              {t("refresh")}
+            </Button>
+          ) : null}
         </div>
       </div>
 
@@ -323,24 +327,26 @@ export const SeasonDiscovery: React.FC = () => {
                         {bangumi.title}
                       </p>
                       <div className="flex flex-col gap-2 min-[420px]:flex-row">
-                        <Button
-                          size="sm"
-                          variant={isSubscribed ? "outline" : "solid"}
-                          disabled={isSubscribed}
-                          onClick={() => onSubscribeAll(bangumi)}
-                        >
-                          {isSubscribed ? (
-                            <>
-                              <Check size={12} />
-                              {t("subscribed")}
-                            </>
-                          ) : (
-                            <>
-                              <Rss size={12} />
-                              {t("subscribe")}
-                            </>
-                          )}
-                        </Button>
+                        {canContentWrite ? (
+                          <Button
+                            size="sm"
+                            variant={isSubscribed ? "outline" : "solid"}
+                            disabled={isSubscribed}
+                            onClick={() => onSubscribeAll(bangumi)}
+                          >
+                            {isSubscribed ? (
+                              <>
+                                <Check size={12} />
+                                {t("subscribed")}
+                              </>
+                            ) : (
+                              <>
+                                <Rss size={12} />
+                                {t("subscribe")}
+                              </>
+                            )}
+                          </Button>
+                        ) : null}
                         <Button
                           size="sm"
                           variant="outline"
@@ -376,6 +382,7 @@ export const SeasonDiscovery: React.FC = () => {
                 bangumi={selectedBangumi}
                 subscribedUrls={subscribedUrls}
                 onSubscribed={mutateFeeds}
+                canSubscribe={canContentWrite}
               />
             ) : null}
           </SheetBody>
@@ -389,7 +396,8 @@ const SubgroupList: React.FC<{
   bangumi: ISeasonBangumi;
   subscribedUrls: Set<string>;
   onSubscribed: () => void;
-}> = ({ bangumi, subscribedUrls, onSubscribed }) => {
+  canSubscribe: boolean;
+}> = ({ bangumi, subscribedUrls, onSubscribed, canSubscribe }) => {
   const { t } = useTranslation("season");
   const { data: subgroups, error } = useBangumiSubgroups(bangumi.mikanId);
   const { addToast } = useToast();
@@ -438,38 +446,40 @@ const SubgroupList: React.FC<{
             <span className="text-sm font-medium text-foreground">
               {t("allSubgroups")}
             </span>
-            <Button
-              size="sm"
-              variant={isAllSubscribed ? "outline" : "solid"}
-              disabled={isAllSubscribed}
-              onClick={async () => {
-                try {
-                  await subscribeBangumi(bangumi.mikanId);
-                  onSubscribed();
-                  addToast({
-                    title: t("toast.subscribed", { name: bangumi.title }),
-                    color: "success",
-                  });
-                } catch {
-                  addToast({
-                    title: t("toast.subscribeFailed"),
-                    color: "danger",
-                  });
-                }
-              }}
-            >
-              {isAllSubscribed ? (
-                <>
-                  <Check size={12} />
-                  {t("subscribed")}
-                </>
-              ) : (
-                <>
-                  <Rss size={12} />
-                  {t("subscribe")}
-                </>
-              )}
-            </Button>
+            {canSubscribe ? (
+              <Button
+                size="sm"
+                variant={isAllSubscribed ? "outline" : "solid"}
+                disabled={isAllSubscribed}
+                onClick={async () => {
+                  try {
+                    await subscribeBangumi(bangumi.mikanId);
+                    onSubscribed();
+                    addToast({
+                      title: t("toast.subscribed", { name: bangumi.title }),
+                      color: "success",
+                    });
+                  } catch {
+                    addToast({
+                      title: t("toast.subscribeFailed"),
+                      color: "danger",
+                    });
+                  }
+                }}
+              >
+                {isAllSubscribed ? (
+                  <>
+                    <Check size={12} />
+                    {t("subscribed")}
+                  </>
+                ) : (
+                  <>
+                    <Rss size={12} />
+                    {t("subscribe")}
+                  </>
+                )}
+              </Button>
+            ) : null}
           </div>
         );
       })()}
@@ -484,24 +494,26 @@ const SubgroupList: React.FC<{
             className="flex flex-col gap-3 rounded-md border border-border-light p-3 sm:flex-row sm:items-center sm:justify-between"
           >
             <span className="text-sm text-foreground">{sg.name}</span>
-            <Button
-              size="sm"
-              variant={isSubscribed ? "outline" : "solid"}
-              disabled={isSubscribed}
-              onClick={() => onSubscribe(sg.mikanSubgroupId, sg.name)}
-            >
-              {isSubscribed ? (
-                <>
-                  <Check size={12} />
-                  {t("subscribed")}
-                </>
-              ) : (
-                <>
-                  <Rss size={12} />
-                  {t("subscribe")}
-                </>
-              )}
-            </Button>
+            {canSubscribe ? (
+              <Button
+                size="sm"
+                variant={isSubscribed ? "outline" : "solid"}
+                disabled={isSubscribed}
+                onClick={() => onSubscribe(sg.mikanSubgroupId, sg.name)}
+              >
+                {isSubscribed ? (
+                  <>
+                    <Check size={12} />
+                    {t("subscribed")}
+                  </>
+                ) : (
+                  <>
+                    <Rss size={12} />
+                    {t("subscribe")}
+                  </>
+                )}
+              </Button>
+            ) : null}
           </div>
         );
       })}

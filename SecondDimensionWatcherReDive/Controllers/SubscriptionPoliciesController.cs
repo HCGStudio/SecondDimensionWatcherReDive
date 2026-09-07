@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using SecondDimensionWatcherReDive.Framework.Authorization;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Framework.Feed;
 
@@ -36,6 +37,7 @@ internal sealed class SubscriptionPoliciesController(
     }
 
     [HttpPut("{feedId:guid}")]
+    [Authorize(Policy = AccessPolicies.ContentWrite)]
     public async Task<IActionResult> UpsertPolicy(
         [FromRoute] Guid feedId,
         [FromBody] External.UpsertSubscriptionAutomationPolicyRequest request,
@@ -73,6 +75,7 @@ internal sealed class SubscriptionPoliciesController(
     }
 
     [HttpDelete("{feedId:guid}")]
+    [Authorize(Policy = AccessPolicies.ContentWrite)]
     public async Task<IActionResult> DeletePolicy(
         [FromRoute] Guid feedId,
         CancellationToken cancellationToken)

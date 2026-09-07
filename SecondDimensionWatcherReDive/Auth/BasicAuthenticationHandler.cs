@@ -5,6 +5,7 @@ using System.Text.Encodings.Web;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
+using SecondDimensionWatcherReDive.Framework.Authorization;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 
 namespace SecondDimensionWatcherReDive.Auth;
@@ -59,7 +60,17 @@ internal sealed class BasicAuthenticationHandler : AuthenticationHandler<Authent
 
         var repository = Context.RequestServices.GetRequiredService<IWebDavTokenRepository>();
         var record = await repository.FindByUsernameAsync(username, Context.RequestAborted);
-        if (record is null)
+        var now = DateTimeOffset.UtcNow;
+        if (record is null
+            || record.RevokedAt is not null
+            || record.ExpiresAt is { } expiresAt && expiresAt <= now
+            || !string.Equals(record.Scope, "read", StringComparison.Ordinal)
+            || !DevicePathScope.TryNormalizeAbsolutePath(record.VirtualRoot, out var virtualRoot))
+            return await RejectAuthenticationAttemptAsync("Invalid credentials.");
+
+        var identityRepository = Context.RequestServices.GetRequiredService<IIdentityRepository>();
+        var user = await identityRepository.FindUserByIdAsync(record.UserId, Context.RequestAborted);
+        if (user is null || user.IsDisabled)
             return await RejectAuthenticationAttemptAsync("Invalid credentials.");
 
         bool verified;
@@ -103,7 +114,15 @@ internal sealed class BasicAuthenticationHandler : AuthenticationHandler<Authent
                 ? AuthenticateResult.Fail("Invalid credentials.")
                 : await RejectAuthenticationAttemptAsync("Invalid credentials.");
 
-        var identity = new ClaimsIdentity([new Claim(ClaimTypes.Name, username)], Scheme.Name);
+        var identity = new ClaimsIdentity(
+        [
+            new Claim(ClaimTypes.Name, username),
+            new Claim(ClaimTypes.Role, user.Role.ToString()),
+            new Claim(IdentityClaimTypes.UserId, user.Id.ToString()),
+            new Claim(IdentityClaimTypes.DeviceTokenId, record.Id.ToString()),
+            new Claim(IdentityClaimTypes.DeviceScope, record.Scope),
+            new Claim(IdentityClaimTypes.VirtualRoot, virtualRoot)
+        ], Scheme.Name);
         var principal = new ClaimsPrincipal(identity);
         return AuthenticateResult.Success(new AuthenticationTicket(principal, Scheme.Name));
     }

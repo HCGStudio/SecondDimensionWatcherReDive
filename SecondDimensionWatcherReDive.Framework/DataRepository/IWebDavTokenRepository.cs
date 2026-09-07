@@ -10,6 +10,10 @@ public interface IWebDavTokenRepository
 
     Task AddAsync(WebDavToken token, CancellationToken cancellationToken);
 
+    Task<bool> RevokeByIdAsync(
+        Guid id,
+        DateTimeOffset revokedAt,
+        CancellationToken cancellationToken);
     Task<bool> UpdateHashAsync(
         Guid id,
         string expectedHash,

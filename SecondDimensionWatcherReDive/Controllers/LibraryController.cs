@@ -1,3 +1,4 @@
+using SecondDimensionWatcherReDive.Framework.Authorization;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
@@ -96,6 +97,7 @@ internal sealed class LibraryController(
     }
 
     [HttpPost("upgrades/execute")]
+    [Authorize(Policy = AccessPolicies.ContentWrite)]
     public async Task<IActionResult> ExecuteUpgradeAsync(
         [FromBody] External.ExecuteReleaseUpgradeRequest request,
         CancellationToken cancellationToken)
@@ -113,6 +115,7 @@ internal sealed class LibraryController(
     }
 
     [HttpPost("upgrades/{operationId:guid}/rollback")]
+    [Authorize(Policy = AccessPolicies.ContentWrite)]
     public async Task<IActionResult> RollbackUpgradeAsync(
         [FromRoute] Guid operationId,
         CancellationToken cancellationToken)
@@ -133,13 +136,7 @@ internal sealed class LibraryController(
         return Ok(result.Select(item => item.ToExternal()).ToList());
     }
 
-    private bool TryGetUserId(out Guid userId)
-    {
-        var raw = User.FindFirstValue("Id")
-                  ?? User.FindFirstValue(ClaimTypes.NameIdentifier)
-                  ?? User.FindFirstValue("sub");
-        return Guid.TryParse(raw, out userId);
-    }
+    private bool TryGetUserId(out Guid userId) => User.TryGetProfileId(out userId);
 
     private static string? Normalize(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();

@@ -1,3 +1,7 @@
+using System.Security.Cryptography;
+using Microsoft.AspNetCore.DataProtection;
+using SecondDimensionWatcherReDive.Framework.Authorization;
+using SecondDimensionWatcherReDive.Framework.DataRepository;
 using System.ComponentModel.DataAnnotations;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
@@ -10,13 +14,20 @@ namespace SecondDimensionWatcherReDive.Controllers;
 [ApiController]
 [Route("api/transcoding")]
 [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
-internal sealed class TranscodingController(IHlsTranscodingService transcodingService) : ControllerBase
+internal sealed class TranscodingController(
+    IHlsTranscodingService transcodingService,
+    IIdentityRepository identityRepository,
+    IDataProtectionProvider dataProtectionProvider) : ControllerBase
 {
+    private readonly IDataProtector _accessProtector = dataProtectionProvider.CreateProtector("SDW.Transcoding.Identity.v1");
+
     [HttpPost("prepare")]
     public async Task<IActionResult> Prepare(
         [FromBody] External.PrepareTranscodingRequest request,
         CancellationToken cancellationToken)
     {
+        if (!User.TryGetUserId(out var userId) || !User.TryGetProfileId(out var profileId) ||
+            !User.TryGetSessionId(out var identitySessionId)) return Unauthorized();
         try
         {
             var selection = TranscodingSelection.Create(
@@ -30,7 +41,9 @@ internal sealed class TranscodingController(IHlsTranscodingService transcodingSe
                 request.Path,
                 selection,
                 cancellationToken);
-            var response = ToResponse(status);
+            var accessToken = _accessProtector.Protect(
+                $"{userId:N}.{identitySessionId:N}.{profileId:N}.{status.SessionId:N}.{status.AccessToken}");
+            var response = ToResponse(status, accessToken);
             return status.State == TranscodingJobState.Ready ? Ok(response) : Accepted(response);
         }
         catch (ArgumentException exception)
@@ -61,8 +74,10 @@ internal sealed class TranscodingController(IHlsTranscodingService transcodingSe
         [FromQuery][Required] string token,
         CancellationToken cancellationToken)
     {
-        var status = await transcodingService.GetStatusAsync(sessionId, token, cancellationToken);
-        return status is null ? NotFound() : Ok(ToResponse(status));
+        var accessToken = await ValidateAccessTokenAsync(sessionId, token, cancellationToken);
+        if (accessToken is null) return NotFound();
+        var status = await transcodingService.GetStatusAsync(sessionId, accessToken, cancellationToken);
+        return status is null ? NotFound() : Ok(ToResponse(status, token));
     }
 
     [AllowAnonymous]
@@ -72,7 +87,9 @@ internal sealed class TranscodingController(IHlsTranscodingService transcodingSe
         [FromQuery][Required] string token,
         CancellationToken cancellationToken)
     {
-        return await transcodingService.CancelAsync(sessionId, token, cancellationToken)
+        var accessToken = await ValidateAccessTokenAsync(sessionId, token, cancellationToken);
+        if (accessToken is null) return NotFound();
+        return await transcodingService.CancelAsync(sessionId, accessToken, cancellationToken)
             ? NoContent()
             : NotFound();
     }
@@ -84,7 +101,9 @@ internal sealed class TranscodingController(IHlsTranscodingService transcodingSe
         [FromQuery][Required] string token,
         CancellationToken cancellationToken)
     {
-        var content = await transcodingService.OpenDirectAsync(sessionId, token, cancellationToken);
+        var accessToken = await ValidateAccessTokenAsync(sessionId, token, cancellationToken);
+        if (accessToken is null) return NotFound();
+        var content = await transcodingService.OpenDirectAsync(sessionId, accessToken, cancellationToken);
         if (content is null) return NotFound();
         SetContentHeaders(content, immutable: false);
         return File(content.Stream, content.ContentType, content.FileName, enableRangeProcessing: true);
@@ -97,7 +116,9 @@ internal sealed class TranscodingController(IHlsTranscodingService transcodingSe
         [FromQuery][Required] string token,
         CancellationToken cancellationToken)
     {
-        var playlist = await transcodingService.GetPlaylistAsync(sessionId, token, cancellationToken);
+        var accessToken = await ValidateAccessTokenAsync(sessionId, token, cancellationToken);
+        if (accessToken is null) return NotFound();
+        var playlist = await transcodingService.GetPlaylistAsync(sessionId, accessToken, cancellationToken);
         if (playlist is null) return NotFound();
 
         var rewritten = new List<string>();
@@ -128,9 +149,11 @@ internal sealed class TranscodingController(IHlsTranscodingService transcodingSe
         [FromQuery][Required] string token,
         CancellationToken cancellationToken)
     {
+        var accessToken = await ValidateAccessTokenAsync(sessionId, token, cancellationToken);
+        if (accessToken is null) return NotFound();
         var content = await transcodingService.OpenSegmentAsync(
             sessionId,
-            token,
+            accessToken,
             fileName,
             cancellationToken);
         if (content is null) return NotFound();
@@ -146,9 +169,11 @@ internal sealed class TranscodingController(IHlsTranscodingService transcodingSe
         [FromQuery][Required] string token,
         CancellationToken cancellationToken)
     {
+        var accessToken = await ValidateAccessTokenAsync(sessionId, token, cancellationToken);
+        if (accessToken is null) return NotFound();
         var content = await transcodingService.OpenSubtitleAsync(
             sessionId,
-            token,
+            accessToken,
             fileName,
             cancellationToken);
         if (content is null) return NotFound();
@@ -157,6 +182,7 @@ internal sealed class TranscodingController(IHlsTranscodingService transcodingSe
     }
 
     [HttpGet("metrics")]
+    [Authorize(Policy = AccessPolicies.Administrator)]
     public async Task<IActionResult> GetMetrics(CancellationToken cancellationToken)
     {
         var snapshot = await transcodingService.GetMetricsAsync(cancellationToken);
@@ -173,22 +199,22 @@ internal sealed class TranscodingController(IHlsTranscodingService transcodingSe
             snapshot.FailureRate));
     }
 
-    private External.TranscodingSessionResponse ToResponse(TranscodingSessionStatus status)
+    private External.TranscodingSessionResponse ToResponse(TranscodingSessionStatus status, string accessToken)
     {
         var statusUrl = Url.ActionLink(
             nameof(GetStatus),
-            values: new { sessionId = status.SessionId, token = status.AccessToken })!;
+            values: new { sessionId = status.SessionId, token = accessToken })!;
         var cancelUrl = Url.ActionLink(
             nameof(Cancel),
-            values: new { sessionId = status.SessionId, token = status.AccessToken })!;
+            values: new { sessionId = status.SessionId, token = accessToken })!;
         var playbackUrl = status.IsPlayable
             ? status.Strategy == TranscodingStrategy.Direct
                 ? Url.ActionLink(
                     nameof(GetSource),
-                    values: new { sessionId = status.SessionId, token = status.AccessToken })
+                    values: new { sessionId = status.SessionId, token = accessToken })
                 : Url.ActionLink(
                     nameof(GetPlaylist),
-                    values: new { sessionId = status.SessionId, token = status.AccessToken })
+                    values: new { sessionId = status.SessionId, token = accessToken })
             : null;
         var subtitles = status.Subtitles.Select(subtitle =>
             new External.TranscodingSubtitleResponse(
@@ -203,7 +229,7 @@ internal sealed class TranscodingController(IHlsTranscodingService transcodingSe
                     {
                         sessionId = status.SessionId,
                         fileName = subtitle.FileName,
-                        token = status.AccessToken
+                        token = accessToken
                     })!)).ToArray();
         return new External.TranscodingSessionResponse(
             status.SessionId,
@@ -222,6 +248,32 @@ internal sealed class TranscodingController(IHlsTranscodingService transcodingSe
             playbackUrl,
             subtitles,
             status.UnsupportedSubtitleCount);
+    }
+
+    private async Task<string?> ValidateAccessTokenAsync(
+        Guid sessionId,
+        string token,
+        CancellationToken cancellationToken)
+    {
+        string[] parts;
+        try
+        {
+            parts = _accessProtector.Unprotect(token).Split('.', 5);
+        }
+        catch (Exception exception) when (exception is CryptographicException or FormatException or ArgumentException)
+        {
+            return null;
+        }
+        if (parts.Length != 5 || !Guid.TryParseExact(parts[0], "N", out var userId) ||
+            !Guid.TryParseExact(parts[1], "N", out var identitySessionId) ||
+            !Guid.TryParseExact(parts[2], "N", out var profileId) ||
+            !Guid.TryParseExact(parts[3], "N", out var expectedSessionId) || expectedSessionId != sessionId)
+            return null;
+        var authenticated = await identityRepository.GetAuthenticatedSessionAsync(
+            identitySessionId, DateTimeOffset.UtcNow, cancellationToken);
+        return authenticated?.User.Id == userId && authenticated.Profile.Id == profileId
+            ? parts[4]
+            : null;
     }
 
     private void SetContentHeaders(TranscodingContent content, bool immutable)

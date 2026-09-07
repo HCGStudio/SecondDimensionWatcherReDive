@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Npgsql;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
+using SecondDimensionWatcherReDive.Framework.Authorization;
 using SecondDimensionWatcherReDive.Services;
 using SecondDimensionWatcherReDive.Utils.FileStore;
 
@@ -13,6 +14,7 @@ namespace SecondDimensionWatcherReDive.Controllers;
 [ApiController]
 [Route("api/media-library/sources")]
 [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
+[Authorize(Policy = AccessPolicies.Administrator)]
 internal sealed class MediaLibraryController(
     IMediaLibrarySourceRepository repository,
     IMediaLibraryScanQueue scanQueue,

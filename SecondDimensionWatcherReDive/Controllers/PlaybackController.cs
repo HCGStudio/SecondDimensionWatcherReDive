@@ -1,9 +1,9 @@
 using System.ComponentModel.DataAnnotations;
-using System.Security.Claims;
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using SecondDimensionWatcherReDive.Framework.Authorization;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 using DataAnimationInfo = SecondDimensionWatcherReDive.Framework.DataRepository.AnimationInfo;
 
@@ -36,7 +36,7 @@ internal sealed partial class PlaybackController(
         [FromQuery, Range(1, MaxContinueLimit)] int limit = DefaultContinueLimit,
         CancellationToken cancellationToken = default)
     {
-        if (!TryGetUserId(out var userId)) return Unauthorized();
+        if (!User.TryGetProfileId(out var userId)) return Unauthorized();
 
         var items = await playbackRepository.GetContinueWatchingAsync(userId, limit, cancellationToken);
         var response = items
@@ -52,7 +52,7 @@ internal sealed partial class PlaybackController(
         [FromQuery] Guid animationInfoId,
         CancellationToken cancellationToken)
     {
-        if (!TryGetUserId(out var userId)) return Unauthorized();
+        if (!User.TryGetProfileId(out var userId)) return Unauthorized();
         if (animationInfoId == Guid.Empty) return BadRequest();
 
         var info = await animationInfoRepository.FindByIdWithAnimationAsync(animationInfoId, cancellationToken);
@@ -86,7 +86,7 @@ internal sealed partial class PlaybackController(
         [FromQuery, Required] string? path,
         CancellationToken cancellationToken)
     {
-        if (!TryGetUserId(out var userId)) return Unauthorized();
+        if (!User.TryGetProfileId(out var userId)) return Unauthorized();
         var resolution = await ResolveVideoAsync(animationInfoId, path, cancellationToken);
         if (resolution.Status is ResolutionStatus.Invalid) return BadRequest();
         if (resolution.Status is ResolutionStatus.Missing) return NotFound();
@@ -111,11 +111,12 @@ internal sealed partial class PlaybackController(
     }
 
     [HttpPut("progress")]
+    [Authorize(Policy = AccessPolicies.PlaybackWrite)]
     public async Task<IActionResult> UpdateProgress(
         [FromBody] External.PlaybackProgressRequest request,
         CancellationToken cancellationToken)
     {
-        if (!TryGetUserId(out var userId)) return Unauthorized();
+        if (!User.TryGetProfileId(out var userId)) return Unauthorized();
         if (!double.IsFinite(request.PositionSeconds)
             || !double.IsFinite(request.DurationSeconds)
             || request.PositionSeconds < 0
@@ -152,11 +153,12 @@ internal sealed partial class PlaybackController(
     }
 
     [HttpPut("watched")]
+    [Authorize(Policy = AccessPolicies.PlaybackWrite)]
     public async Task<IActionResult> SetWatched(
         [FromBody] External.PlaybackWatchedRequest request,
         CancellationToken cancellationToken)
     {
-        if (!TryGetUserId(out var userId)) return Unauthorized();
+        if (!User.TryGetProfileId(out var userId)) return Unauthorized();
 
         var resolution = await ResolveVideoAsync(request.AnimationInfoId, request.Path, cancellationToken);
         if (resolution.Status is ResolutionStatus.Invalid) return BadRequest();
@@ -183,17 +185,18 @@ internal sealed partial class PlaybackController(
     [HttpGet("preferences")]
     public async Task<IActionResult> GetPreferences(CancellationToken cancellationToken)
     {
-        if (!TryGetUserId(out var userId)) return Unauthorized();
+        if (!User.TryGetProfileId(out var userId)) return Unauthorized();
         var preferences = await playbackRepository.GetPreferencesAsync(userId, cancellationToken);
         return Ok(ToPreferencesResponse(preferences));
     }
 
     [HttpPut("preferences")]
+    [Authorize(Policy = AccessPolicies.PlaybackWrite)]
     public async Task<IActionResult> UpdatePreferences(
         [FromBody] External.PlaybackPreferencesRequest request,
         CancellationToken cancellationToken)
     {
-        if (!TryGetUserId(out var userId)) return Unauthorized();
+        if (!User.TryGetProfileId(out var userId)) return Unauthorized();
 
         var preferences = new PlaybackPreferences(
             userId,
@@ -354,14 +357,6 @@ internal sealed partial class PlaybackController(
             preferences.AudioTrackLabel,
             preferences.AutoPlayNext,
             preferences.UpdatedAt == DateTimeOffset.UnixEpoch ? null : preferences.UpdatedAt);
-
-    private bool TryGetUserId(out Guid userId)
-    {
-        var raw = User.FindFirstValue("Id")
-                  ?? User.FindFirstValue(ClaimTypes.NameIdentifier)
-                  ?? User.FindFirstValue("sub");
-        return Guid.TryParse(raw, out userId);
-    }
 
     private static bool TryNormalizeRelativePath(string? raw, out string normalized)
     {

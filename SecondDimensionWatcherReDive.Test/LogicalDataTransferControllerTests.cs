@@ -1,3 +1,5 @@
+using System.Security.Claims;
+using SecondDimensionWatcherReDive.Framework.Authorization;
 using System.Security.Cryptography;
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
@@ -166,7 +168,7 @@ public sealed class LogicalDataTransferControllerTests
         {
             ControllerContext = new ControllerContext
             {
-                HttpContext = new DefaultHttpContext()
+                HttpContext = new DefaultHttpContext { User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(IdentityClaimTypes.ProfileId, Guid.Empty.ToString())], "test")) }
             }
         };
 

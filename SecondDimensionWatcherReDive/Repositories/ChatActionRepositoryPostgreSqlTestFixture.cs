@@ -46,6 +46,19 @@ internal sealed class ChatActionRepositoryPostgreSqlTestFixture(string connectio
         var toolCallId = "call-" + Guid.NewGuid().ToString("N");
         var tokenHash = new string('A', 64);
         var parameterHash = new string('B', 64);
+        if (!await context.Profiles.AnyAsync(profile => profile.Id == Guid.Empty, cancellationToken))
+        {
+            context.Users.Add(new Models.UserAccount
+            {
+                Id = IdentityDefaults.UserId, Username = IdentityDefaults.Username,
+                Role = UserRole.Admin, CreatedAt = now, UpdatedAt = now
+            });
+            context.Profiles.Add(new Models.UserProfile
+            {
+                Id = Guid.Empty, UserId = IdentityDefaults.UserId, Name = IdentityDefaults.ProfileName,
+                IsDefault = true, CreatedAt = now, UpdatedAt = now
+            });
+        }
         context.ChatConversations.Add(new Models.ChatConversation
         {
             Id = conversationId,
@@ -80,6 +93,7 @@ internal sealed class ChatActionRepositoryPostgreSqlTestFixture(string connectio
             var chatRepository = new ChatRepository(context);
             await chatRepository.AddMessageAsync(
                 conversationId,
+                Guid.Empty,
                 new ChatMessageRecord(
                     Guid.NewGuid(),
                     "tool",
@@ -162,6 +176,7 @@ internal sealed class ChatActionRepositoryPostgreSqlTestFixture(string connectio
         var repository = new ChatRepository(context);
         await repository.AddMessageAsync(
             seed.ConversationId,
+            Guid.Empty,
             new ChatMessageRecord(
                 Guid.NewGuid(),
                 "tool",
@@ -200,7 +215,7 @@ internal sealed class ChatActionRepositoryPostgreSqlTestFixture(string connectio
     {
         await using var context = new Models.ApplicationContext(_contextOptions);
         var repository = new ChatRepository(context);
-        var messages = await repository.GetMessagesAsync(seed.ConversationId, cancellationToken);
+        var messages = await repository.GetMessagesAsync(seed.ConversationId, Guid.Empty, cancellationToken);
         return messages.SingleOrDefault(message =>
             message.Role == "tool" && message.ToolCallId == seed.ToolCallId)?.Content;
     }

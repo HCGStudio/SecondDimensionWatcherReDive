@@ -1,3 +1,4 @@
+export const loadAccountPage = () => import("../pages/AccountPage");
 export const loadMainPage = () => import("../pages/MainPage");
 export const loadDownloadingPage = () => import("../pages/DownloadingPage");
 export const loadDownloadedPage = () => import("../pages/DownloadedPage");

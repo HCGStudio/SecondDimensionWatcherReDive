@@ -123,10 +123,15 @@ internal static class RepositoryConverter
 
     public static DataRepo.WebDavToken ToRecord(this Models.WebDavToken entity) =>
         new(entity.Id,
+            entity.UserId,
             entity.Username,
             entity.TokenHash,
             entity.Description,
-            entity.CreatedAt);
+            entity.CreatedAt,
+            entity.Scope,
+            entity.VirtualRoot,
+            entity.ExpiresAt,
+            entity.RevokedAt);
 
     public static DataRepo.PlaybackProgress ToRecord(this Models.PlaybackProgress entity) =>
         new(entity.Id,
@@ -291,10 +296,15 @@ internal static class RepositoryConverter
         new()
         {
             Id = record.Id,
+            UserId = record.UserId,
             Username = record.Username,
             TokenHash = record.TokenHash,
             Description = record.Description,
-            CreatedAt = record.CreatedAt
+            CreatedAt = record.CreatedAt,
+            Scope = record.Scope,
+            VirtualRoot = record.VirtualRoot,
+            ExpiresAt = record.ExpiresAt,
+            RevokedAt = record.RevokedAt
         };
 
     public static Models.PlaybackProgress ToEntity(this DataRepo.PlaybackProgress record) =>

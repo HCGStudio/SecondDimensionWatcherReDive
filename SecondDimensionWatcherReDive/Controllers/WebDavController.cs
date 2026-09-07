@@ -43,13 +43,14 @@ internal partial class WebDavController(
     [HttpPropFind(RouteTemplate)]
     public async Task<IActionResult> PropFind(string? path, CancellationToken cancellationToken)
     {
-        var virtualPath = NormalizeVirtualPath(path);
+        if (!TryGetScopedPaths(path, out var publicPath, out var internalPath))
+            return BadRequest();
         var depth = ParseDepth(Request.Headers[WebDavConstants.Headers.Depth].ToString());
 
-        var resource = await ResolveAsync(virtualPath, cancellationToken);
+        var resource = await ResolveAsync(publicPath, internalPath, cancellationToken);
         if (resource is null)
         {
-            LogResourceMissing(logger, virtualPath);
+            LogResourceMissing(logger, publicPath);
             return NotFound();
         }
 
@@ -69,16 +70,16 @@ internal partial class WebDavController(
         if (depth == DepthValue.One && resource.IsDirectory)
         {
             var children = await fileExplorer.GetDirectoryEntriesAsync(
-                new DirectoryToken(EnsureTrailingSlash(resource.VirtualPath), Path.GetFileName(resource.VirtualPath.TrimEnd('/'))),
+                new DirectoryToken(EnsureTrailingSlash(resource.InternalPath), Path.GetFileName(resource.InternalPath.TrimEnd('/'))),
                 cancellationToken);
 
             foreach (var child in children)
             {
+                if (!DevicePathScope.TryMapInternalToPublic(
+                        child.Path, DevicePathScope.GetVirtualRoot(User), out var childPublicPath))
+                    continue;
                 var childResource = new ResolvedResource(
-                    child.Path,
-                    child.IsDirectory,
-                    child.Mapping,
-                    child.FileInfo);
+                    childPublicPath, child.Path, child.IsDirectory, child.Mapping, child.FileInfo);
                 multiStatus.Responses.Add(await BuildResponseAsync(childResource, filter, cancellationToken));
             }
         }
@@ -90,11 +91,12 @@ internal partial class WebDavController(
     [HttpHead(RouteTemplate)]
     public async Task<IActionResult> GetFile(string? path, CancellationToken cancellationToken)
     {
-        var virtualPath = NormalizeVirtualPath(path);
-        var resource = await ResolveAsync(virtualPath, cancellationToken);
+        if (!TryGetScopedPaths(path, out var publicPath, out var internalPath))
+            return BadRequest();
+        var resource = await ResolveAsync(publicPath, internalPath, cancellationToken);
         if (resource is null)
         {
-            LogResourceMissing(logger, virtualPath);
+            LogResourceMissing(logger, publicPath);
             return NotFound();
         }
 
@@ -106,7 +108,7 @@ internal partial class WebDavController(
         }
 
         var mapping = resource.Mapping!;
-        var fileName = Path.GetFileName(mapping.VirtualPath);
+        var fileName = Path.GetFileName(resource.PublicPath);
         var contentType = ResolveContentType(fileName);
 
         var stream = await fileExplorer.OpenReadStreamAsync(new FileToken(mapping.VirtualPath, fileName), cancellationToken);
@@ -131,14 +133,14 @@ internal partial class WebDavController(
     {
         var response = new DavResponse
         {
-            Href = BuildHref(resource.VirtualPath, resource.IsDirectory)
+            Href = BuildHref(resource.PublicPath, resource.IsDirectory)
         };
 
         var prop = new Prop
         {
-            DisplayName = resource.VirtualPath == "/"
+            DisplayName = resource.PublicPath == "/"
                 ? string.Empty
-                : Path.GetFileName(resource.VirtualPath.TrimEnd('/'))
+                : Path.GetFileName(resource.PublicPath.TrimEnd('/'))
         };
 
         if (resource.IsDirectory)
@@ -209,17 +211,22 @@ internal partial class WebDavController(
         return response;
     }
 
-    private async Task<ResolvedResource?> ResolveAsync(string virtualPath, CancellationToken cancellationToken)
+    private async Task<ResolvedResource?> ResolveAsync(
+        string publicPath,
+        string internalPath,
+        CancellationToken cancellationToken)
     {
-        if (virtualPath == "/") return new ResolvedResource("/", IsDirectory: true, null);
+        if (internalPath == "/")
+            return new ResolvedResource(publicPath, internalPath, IsDirectory: true, null);
 
-        var trimmed = virtualPath.TrimEnd('/');
-        if (trimmed.Length == 0) return new ResolvedResource("/", IsDirectory: true, null);
+        var trimmed = internalPath.TrimEnd('/');
+        if (trimmed.Length == 0)
+            return new ResolvedResource(publicPath, "/", IsDirectory: true, null);
 
         var entry = await fileMappingRepository.FindFileSystemEntryAsync(trimmed, cancellationToken);
         return entry is null
             ? null
-            : new ResolvedResource(entry.Path, entry.IsDirectory, entry.Mapping);
+            : new ResolvedResource(publicPath, trimmed, entry.IsDirectory, entry.Mapping);
     }
 
     private async Task<PropFindRequest?> TryReadPropFindRequestAsync(CancellationToken cancellationToken)
@@ -245,11 +252,21 @@ internal partial class WebDavController(
     private string ResolveContentType(string fileName) =>
         contentTypeProvider.TryGetContentType(fileName, out var ct) ? ct : "application/octet-stream";
 
-    private static string NormalizeVirtualPath(string? routeValue)
+    private bool TryGetScopedPaths(
+        string? routeValue,
+        out string publicPath,
+        out string internalPath)
     {
-        if (string.IsNullOrEmpty(routeValue)) return "/";
-        var trimmed = routeValue.Trim('/');
-        return trimmed.Length == 0 ? "/" : "/" + trimmed;
+        var absolutePath = string.IsNullOrEmpty(routeValue)
+            ? "/"
+            : routeValue.StartsWith("/", StringComparison.Ordinal)
+                ? routeValue
+                : "/" + routeValue;
+        return DevicePathScope.TryMapPublicToInternal(
+            absolutePath,
+            DevicePathScope.GetVirtualRoot(User),
+            out publicPath,
+            out internalPath);
     }
 
     private static string EnsureTrailingSlash(string path) => path.EndsWith('/') ? path : path + "/";
@@ -405,7 +422,8 @@ internal partial class WebDavController(
     }
 
     private sealed record ResolvedResource(
-        string VirtualPath,
+        string PublicPath,
+        string InternalPath,
         bool IsDirectory,
         FileMapping? Mapping,
         FileStoreInfo? FileInfo = null);

@@ -3,10 +3,12 @@ import { useTranslation } from "react-i18next";
 import { createBrowserRouter } from "react-router";
 import { RouterProvider } from "react-router/dom";
 
+import { useAuthSynchronization } from "./auth/hooks";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { ErrorPage } from "./pages/ErrorPage";
 import { RouteLoadingBoundary } from "./routes/RouteLoadingBoundary";
 import {
+  loadAccountPage,
   loadChatPage,
   loadDownloadedPage,
   loadDownloadingPage,
@@ -23,6 +25,9 @@ import {
   loadTodoPage,
 } from "./routes/pageLoaders";
 
+const AccountPage = React.lazy(async () => ({
+  default: (await loadAccountPage()).AccountPage,
+}));
 const ChatPage = React.lazy(async () => ({
   default: (await loadChatPage()).ChatPage,
 }));
@@ -206,6 +211,15 @@ const router = createBrowserRouter([
     errorElement: <ErrorPage />,
   },
   {
+    path: "/account",
+    element: (
+      <ProtectedRoute>
+        <AccountPage />
+      </ProtectedRoute>
+    ),
+    errorElement: <ErrorPage />,
+  },
+  {
     path: "/settings",
     element: (
       <ProtectedRoute>
@@ -222,6 +236,7 @@ const router = createBrowserRouter([
 ]);
 
 export const Main: React.FC = () => {
+  useAuthSynchronization();
   const { t } = useTranslation();
   React.useEffect(() => {
     document.title = `${t("appName")} Re:Dive`;

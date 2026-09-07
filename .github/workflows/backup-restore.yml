@@ -124,7 +124,6 @@ jobs:
             'SELECT "MigrationId" FROM "__EFMigrationsHistory" ORDER BY "MigrationId" DESC LIMIT 1')
           [[ "$schema" =~ ^[A-Za-z0-9._:+/@-]+$ ]]
           printf 'BACKUP_SCHEMA=%s\n' "$schema" >> "$GITHUB_ENV"
-          test -s "$WORK_DIR/source/password.json"
           test "$(find "$WORK_DIR/source/keys" -type f | wc -l)" -gt 0
 
       - name: Create, verify, and reject archive corruption
@@ -226,7 +225,6 @@ jobs:
           test "$(psql --no-psqlrc -Atc 'SELECT count(*) FROM "Feeds"')" = 1
           test "$(psql --no-psqlrc -Atc \
             "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind IN ('r','p','v','m','S','f') AND pg_get_userbyid(c.relowner) <> 'sdw_app'")" = 0
-          cmp "$WORK_DIR/source/password.json" "$WORK_DIR/restored/password.json"
           cmp "$WORK_DIR/source/appsettings.yml" "$WORK_DIR/restored/appsettings.yml"
           cmp "$WORK_DIR/plugins/example/manifest.json" \
             "$WORK_DIR/restored/plugins/example/manifest.json"

@@ -9,6 +9,7 @@ export const useTodos = (options?: {
   skip?: number;
   take?: number;
   focus?: string | null;
+  enabled?: boolean;
 }) => {
   const params = new URLSearchParams();
   if (options?.includeRead) params.set("includeRead", "true");
@@ -17,7 +18,11 @@ export const useTodos = (options?: {
   if (options?.take) params.set("take", String(options.take));
   if (options?.focus) params.set("focus", options.focus);
   const query = params.toString();
-  return useSWR<TodoList>(`/api/todos${query ? `?${query}` : ""}`, fetcher, {
-    refreshInterval: 15_000,
-  });
+  return useSWR<TodoList>(
+    options?.enabled === false ? null : `/api/todos${query ? `?${query}` : ""}`,
+    fetcher,
+    {
+      refreshInterval: 15_000,
+    },
+  );
 };

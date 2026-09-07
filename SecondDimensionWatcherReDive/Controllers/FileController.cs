@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.Extensions.Options;
 using SecondDimensionWatcherReDive.Configuration;
 using SecondDimensionWatcherReDive.Auth;
+using SecondDimensionWatcherReDive.Framework.Authorization;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Framework.FileStore;
 using SecondDimensionWatcherReDive.Utils.FileStore;
@@ -20,6 +21,7 @@ internal partial class FileController(
     IAnimationInfoRepository animationInfoRepository,
     IFileExplorer fileExplorer,
     PlaybackTicketService playbackTickets,
+    IIdentityRepository identityRepository,
     IContentTypeProvider contentTypeProvider,
     IOptions<TokenSecurityOptions> tokenSecurityOptions,
     ILogger<FileController> logger) : ControllerBase
@@ -41,13 +43,20 @@ internal partial class FileController(
         var virtualPath = PlaybackPathResolver.ResolveVirtualPath(info, payload.Path);
         LogResolvedTargetPath(logger, virtualPath, "virtual path");
 
-        var userId = User.FindFirst("Id")?.Value;
+        if (!User.TryGetUserId(out var identityUserId) ||
+            !User.TryGetProfileId(out var profileId) ||
+            !User.TryGetSessionId(out var sessionId))
+            return Unauthorized();
+        var virtualRoot = DevicePathScope.GetVirtualRoot(User);
+        if (!DevicePathScope.TryMapInternalToPublic(virtualPath, virtualRoot, out _))
+            return NotFound();
+        var userId = identityUserId.ToString();
         var accessTokenId = User.FindFirst(JwtRegisteredClaimNames.Jti)?.Value;
         if (string.IsNullOrWhiteSpace(userId) || string.IsNullOrWhiteSpace(accessTokenId))
             return Unauthorized();
 
         var lifetime = TimeSpan.FromMinutes(tokenSecurityOptions.Value.PlaybackLinkMinutes);
-        var tickets = playbackTickets.Issue(userId, accessTokenId, virtualPath, lifetime);
+        var tickets = playbackTickets.Issue(userId, accessTokenId, virtualPath, lifetime, sessionId, profileId);
         var cookieName = Request.IsHttps
             ? PlaybackTicketService.SecureCookieName
             : PlaybackTicketService.DevelopmentCookieName;
@@ -82,6 +91,14 @@ internal partial class FileController(
             LogPlayTokenInvalid(logger);
             return NotFound();
         }
+
+        if (grant.IdentitySessionId is not { } sessionId || grant.ProfileId is not { } profileId)
+            return NotFound();
+        var authenticated = await identityRepository.GetAuthenticatedSessionAsync(
+            sessionId, DateTimeOffset.UtcNow, cancellationToken);
+        if (authenticated is null || authenticated.User.Id.ToString() != grant.UserId ||
+            authenticated.Profile.Id != profileId)
+            return NotFound();
 
         var fileName = Path.GetFileName(grant.Path);
         var contentType = contentTypeProvider.TryGetContentType(fileName, out var type)

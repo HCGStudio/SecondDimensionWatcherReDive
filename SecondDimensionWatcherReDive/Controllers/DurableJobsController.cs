@@ -1,3 +1,4 @@
+using SecondDimensionWatcherReDive.Framework.Authorization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -8,6 +9,7 @@ namespace SecondDimensionWatcherReDive.Controllers;
 [ApiController]
 [Route("api/jobs")]
 [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
+[Authorize(Policy = AccessPolicies.Administrator)]
 internal sealed class DurableJobsController(IDurableJobRepository repository) : ControllerBase
 {
     [HttpGet]

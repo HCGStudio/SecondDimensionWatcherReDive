@@ -18,6 +18,8 @@
   },
   "user": {
     "account": "账户",
+    "manageAccount": "管理账户",
+    "profilePin": "请输入此档案的 PIN",
     "language": "语言",
     "logout": "注销",
     "logoutFailed": "已在本机退出，但无法确认远端刷新令牌已撤销。",

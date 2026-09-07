@@ -47,7 +47,7 @@ public sealed class TranscodingApiTests
         var segmentUrl = (await playlist.Content.ReadAsStringAsync())
             .Split('\n', StringSplitOptions.RemoveEmptyEntries)
             .Single(line => !line.StartsWith('#'));
-        StringAssert.Contains(segmentUrl, _factory.TranscodingService.Token);
+        StringAssert.Contains(segmentUrl, "token=");
         using var segment = await anonymous.GetAsync(segmentUrl);
         Assert.AreEqual(HttpStatusCode.OK, segment.StatusCode);
         CollectionAssert.AreEqual(new byte[] { 1, 2, 3 }, await segment.Content.ReadAsByteArrayAsync());

@@ -53,7 +53,13 @@ test("playback progress sends the persisted position with keepalive and auth", a
       watchedAt: null,
     });
   };
-  setAuthResult({ success: true, token: "token", refreshToken: "refresh" });
+  setAuthResult({
+    success: true,
+    sessionId: "10000000-0000-0000-0000-000000000001",
+    profileId: "00000000-0000-0000-0000-000000000000",
+    token: "token",
+    refreshToken: "refresh",
+  });
 
   await savePlaybackProgress(
     {

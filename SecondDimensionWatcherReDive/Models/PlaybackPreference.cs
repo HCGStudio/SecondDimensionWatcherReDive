@@ -4,6 +4,8 @@ public class PlaybackPreference
 {
     public Guid UserId { get; set; }
 
+    public UserProfile? Profile { get; set; }
+
     public string? SubtitleLanguage { get; set; }
 
     public string? SubtitleTrackLabel { get; set; }

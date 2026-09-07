@@ -1,15 +1,13 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
-using System.Text;
-using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
-using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using SecondDimensionWatcherReDive.Auth;
-using SecondDimensionWatcherReDive.Configuration;
+using SecondDimensionWatcherReDive.Framework.Authorization;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 
 namespace SecondDimensionWatcherReDive.Controllers;
@@ -17,266 +15,316 @@ namespace SecondDimensionWatcherReDive.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [EnableRateLimiting("auth")]
-internal partial class AuthController : ControllerBase
+internal partial class AuthController(
+    IConfiguration configuration,
+    TokenValidationParameters tokenValidationParams,
+    IIdentityRepository identityRepository,
+    SessionTokenIssuer tokenIssuer,
+    ILogger<AuthController> logger,
+    IAuthenticationStateRepository? authenticationStateRepository = null) : ControllerBase
 {
-    private readonly IConfiguration _configuration;
-    private readonly IAuthenticationStateRepository _authenticationStateRepository;
-    private readonly ILogger<AuthController> _logger;
-    private readonly RefreshTokenStore _refreshTokens;
-    private readonly TokenValidationParameters _tokenValidationParams;
-    private readonly TokenSecurityOptions _securityOptions;
-    private readonly TimeProvider _timeProvider;
-
-    public AuthController(
-        IConfiguration configuration,
-        IAuthenticationStateRepository authenticationStateRepository,
-        TokenValidationParameters tokenValidationParams,
-        RefreshTokenStore refreshTokens,
-        IOptions<TokenSecurityOptions> securityOptions,
-        TimeProvider timeProvider,
-        ILogger<AuthController> logger)
-    {
-        _configuration = configuration;
-        _authenticationStateRepository = authenticationStateRepository;
-        _tokenValidationParams = tokenValidationParams;
-        _refreshTokens = refreshTokens;
-        _securityOptions = securityOptions.Value;
-        _timeProvider = timeProvider;
-        _logger = logger;
-    }
-
-    private async Task<External.LoginResult> GenerateJwtTokenAsync(CancellationToken cancellationToken)
-    {
-        var jwtId = Guid.NewGuid().ToString();
-        var refreshToken = await _refreshTokens.IssueAsync(
-            jwtId,
-            cancellationToken);
-        return refreshToken is null
-            ? new External.LoginResult(null, null, false)
-            : CreateLoginResult(refreshToken);
-    }
+    [GeneratedRegex("^[a-z0-9._-]{3,64}$")]
+    private static partial Regex UsernamePattern();
 
     [HttpPost("register")]
+    [RequestSizeLimit(4096)]
     public async Task<IActionResult> Register(
         [FromBody] External.LoginData data,
         CancellationToken cancellationToken)
     {
-        if (!string.IsNullOrWhiteSpace(_configuration["Password:Value"]))
-            return BadRequest();
-        if (!string.IsNullOrWhiteSpace(
-                await _authenticationStateRepository.GetPasswordHashAsync(cancellationToken)))
-            return BadRequest();
-
-        var passwordHash = BCrypt.Net.BCrypt.HashPassword(data.Password);
-        if (!await _authenticationStateRepository.TryClaimPasswordAsync(
-                passwordHash,
-                Guid.NewGuid(),
-                _timeProvider.GetUtcNow(),
-                cancellationToken))
+        if (await identityRepository.AnyUsersAsync(cancellationToken)
+            || await HasLegacyPasswordAsync(cancellationToken))
+            return Conflict();
+        if (!TryNormalizeUsername(data.Username, out var username)
+            || string.IsNullOrEmpty(data.Password))
             return BadRequest();
 
-        var passwordFile = _configuration["PasswordFile"] ?? "password.json";
+        var now = DateTimeOffset.UtcNow;
+        var user = new UserAccount(
+            IdentityDefaults.UserId,
+            username,
+            BCrypt.Net.BCrypt.HashPassword(data.Password),
+            UserRole.Admin,
+            false,
+            now,
+            now);
+        var profile = new UserProfile(
+            IdentityDefaults.ProfileId,
+            user.Id,
+            NormalizeProfileName(data.ProfileName),
+            null,
+            null,
+            true,
+            now,
+            now);
         try
         {
-            await PersistPasswordFileAsync(passwordFile, passwordHash, cancellationToken);
+            await identityRepository.CreateUserWithProfileAsync(user, profile, cancellationToken);
         }
-        catch (Exception exception) when (exception is not OperationCanceledException)
+        catch (IdentityConflictException)
         {
-            // PostgreSQL is authoritative. A failed compatibility-file update must not strand
-            // the sole successful claimant without its access/refresh credentials.
-            LogPasswordFilePersistenceFailed(_logger, exception);
+            return Conflict();
         }
-
-        return Ok(await GenerateJwtTokenAsync(cancellationToken));
+        return Ok(ToResult(await tokenIssuer.CreateSessionAsync(
+            user, profile, data.DeviceName, cancellationToken)));
     }
 
     [HttpPost("login")]
+    [RequestSizeLimit(4096)]
     public async Task<IActionResult> Login(
         [FromBody] External.LoginData data,
         CancellationToken cancellationToken)
     {
-        var storedValue = await GetPasswordHashAsync(cancellationToken);
-        if (string.IsNullOrWhiteSpace(storedValue))
-            return BadRequest();
+        if (!TryNormalizeUsername(data.Username, out var username))
+            return Unauthorized();
 
-        if (!BCrypt.Net.BCrypt.Verify(data.Password, storedValue))
-            return BadRequest();
+        var user = await identityRepository.FindUserByUsernameAsync(username, cancellationToken);
+        if (user is null
+            && string.Equals(username, IdentityDefaults.Username, StringComparison.Ordinal)
+            && await VerifyLegacyPasswordAsync(data.Password, cancellationToken))
+            user = await CreateLegacyAdminAsync(data.Password, cancellationToken);
+        if (user is null || user.IsDisabled || !await VerifyPasswordAsync(
+                user, data.Password, cancellationToken))
+            return Unauthorized();
 
-        return Ok(await GenerateJwtTokenAsync(cancellationToken));
+        var profiles = await identityRepository.GetProfilesAsync(user.Id, cancellationToken);
+        var profile = profiles.FirstOrDefault(candidate => candidate.IsDefault)
+                      ?? profiles.FirstOrDefault();
+        if (profile is null) return Unauthorized();
+
+        return Ok(ToResult(await tokenIssuer.CreateSessionAsync(
+            user, profile, data.DeviceName, cancellationToken)));
     }
 
     [HttpPost("refresh")]
+    [RequestSizeLimit(4096)]
     public async Task<IActionResult> Refresh(
         [FromBody] External.AuthRequest request,
         CancellationToken cancellationToken)
     {
-        var result = await VerifyAndGenerateTokenAsync(request, cancellationToken);
-        return result.Success ? Ok(result) : BadRequest(result);
+        var principal = ValidateExpiredAccessToken(request.Token);
+        if (principal is null
+            || !principal.TryGetUserId(out var userId)
+            || !principal.TryGetSessionId(out var sessionId))
+            return Unauthorized(new External.LoginResult(null, null, false));
+
+        var authenticated = await identityRepository.GetAuthenticatedSessionAsync(
+            sessionId, DateTimeOffset.UtcNow, cancellationToken);
+        if (authenticated is null || authenticated.User.Id != userId)
+            return Unauthorized(new External.LoginResult(null, null, false));
+
+        var rotated = await tokenIssuer.RotateSessionAsync(
+            authenticated,
+            authenticated.Profile,
+            request.RefreshToken,
+            reauthenticated: false,
+            cancellationToken);
+        return rotated is null
+            ? Unauthorized(new External.LoginResult(null, null, false))
+            : Ok(ToResult(rotated));
     }
 
-    private async Task<External.LoginResult> VerifyAndGenerateTokenAsync(
-        External.AuthRequest request,
+    [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
+    [HttpPost("reauthenticate")]
+    [RequestSizeLimit(4096)]
+    public async Task<IActionResult> Reauthenticate(
+        [FromBody] External.ReauthenticateRequest request,
         CancellationToken cancellationToken)
     {
-        try
-        {
-            var handler = new JwtSecurityTokenHandler();
-            var param = _tokenValidationParams.Clone();
-            param.ValidateLifetime = false;
-            var tokenInVerification =
-                handler.ValidateToken(request.Token, param, out var validatedToken);
+        var authenticated = await GetCurrentSessionAsync(cancellationToken);
+        if (authenticated is null
+            || !await VerifyPasswordAsync(authenticated.User, request.Password, cancellationToken))
+            return Unauthorized();
 
-
-            if (validatedToken is JwtSecurityToken securityToken && !securityToken.Header.Alg.Equals(
-                    SecurityAlgorithms.HmacSha256,
-                    StringComparison.InvariantCultureIgnoreCase))
-                return new External.LoginResult(null, null, false);
-
-            var jwtId = tokenInVerification.FindFirst(c => c.Type == JwtRegisteredClaimNames.Jti)?.Value;
-            if (string.IsNullOrEmpty(jwtId))
-                return new External.LoginResult(null, null, false);
-
-            var replacement = await _refreshTokens.RotateAsync(
-                request.RefreshToken,
-                jwtId,
-                Guid.NewGuid().ToString(),
-                cancellationToken);
-            return replacement is null
-                ? new External.LoginResult(null, null, false)
-                : CreateLoginResult(replacement);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception exception)
-        {
-            LogTokenVerificationFailed(_logger, exception);
-            return new External.LoginResult(null, null, false);
-        }
+        var rotated = await tokenIssuer.RotateSessionAsync(
+            authenticated,
+            authenticated.Profile,
+            request.RefreshToken,
+            reauthenticated: true,
+            cancellationToken);
+        return rotated is null ? Unauthorized() : Ok(ToResult(rotated));
     }
 
+    [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
     [HttpPost("logout")]
-    [AllowAnonymous]
-    [EnableRateLimiting("logout")]
-    [RequestSizeLimit(1024)]
-    public async Task<IActionResult> Logout(
-        [FromBody] External.RevokeTokenRequest request,
-        CancellationToken cancellationToken)
+    [RequestSizeLimit(4096)]
+    public async Task<IActionResult> Logout(CancellationToken cancellationToken)
     {
-        await _refreshTokens.RevokeAsync(request.RefreshToken, cancellationToken);
+        if (!User.TryGetSessionId(out var sessionId)) return Unauthorized();
+        await identityRepository.RevokeSessionAsync(
+            sessionId,
+            requiredUserId: null,
+            DateTimeOffset.UtcNow,
+            cancellationToken);
         Response.Cookies.Delete(PlaybackTicketService.SecureCookieName, new CookieOptions
         {
-            HttpOnly = true,
-            Secure = true,
-            SameSite = SameSiteMode.Strict,
-            Path = "/"
+            HttpOnly = true, Secure = true, SameSite = SameSiteMode.Strict, Path = "/"
         });
         Response.Cookies.Delete(PlaybackTicketService.DevelopmentCookieName, new CookieOptions
         {
-            HttpOnly = true,
-            SameSite = SameSiteMode.Strict,
-            Path = "/api/file/play"
+            HttpOnly = true, SameSite = SameSiteMode.Strict, Path = "/api/file/play"
         });
         return NoContent();
     }
 
-    [HttpGet("verify")]
     [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
-    public IActionResult Verify()
+    [HttpGet("verify")]
+    public async Task<IActionResult> Verify(CancellationToken cancellationToken)
     {
-        return Ok(HttpContext.User.Claims.Select(c => new { c.Type, c.Value }));
+        var authenticated = await GetCurrentSessionAsync(cancellationToken);
+        if (authenticated is null) return Unauthorized();
+        var profiles = await identityRepository.GetProfilesAsync(
+            authenticated.User.Id, cancellationToken);
+        return Ok(new External.AuthStateResponse(
+            authenticated.User.Id,
+            authenticated.User.Username,
+            authenticated.User.Role.ToString(),
+            authenticated.Session.Id,
+            authenticated.Profile.Id,
+            profiles.Select(ToProfileResponse).ToList()));
     }
 
     [HttpGet("allowRegister")]
-    public async Task<IActionResult> CanRegister(CancellationToken cancellationToken)
-    {
-        return Ok(new
+    public async Task<IActionResult> CanRegister(CancellationToken cancellationToken) =>
+        Ok(new
         {
-            Allow = string.IsNullOrWhiteSpace(await GetPasswordHashAsync(cancellationToken))
+            Allow = !await HasLegacyPasswordAsync(cancellationToken)
+                    && !await identityRepository.AnyUsersAsync(cancellationToken)
         });
-    }
 
-    private async Task<string?> GetPasswordHashAsync(CancellationToken cancellationToken)
-    {
-        var databaseHash = await _authenticationStateRepository.GetPasswordHashAsync(cancellationToken);
-        if (!string.IsNullOrWhiteSpace(databaseHash))
-            return databaseHash;
-
-        var deploymentHash = _configuration["Password:Value"];
-        return string.IsNullOrWhiteSpace(deploymentHash) ? null : deploymentHash;
-    }
-
-    private static async Task PersistPasswordFileAsync(
-        string passwordFile,
-        string passwordHash,
+    private async Task<AuthenticatedSession?> GetCurrentSessionAsync(
         CancellationToken cancellationToken)
     {
-        var fullPath = Path.GetFullPath(passwordFile);
-        var directory = Path.GetDirectoryName(fullPath)!;
-        Directory.CreateDirectory(directory);
-        var temporaryPath = Path.Combine(
-            directory,
-            $".{Path.GetFileName(fullPath)}.{Guid.NewGuid():N}.tmp");
-        var contents = JsonSerializer.SerializeToUtf8Bytes(
-            new External.PasswordConfig(new External.PasswordHash(passwordHash)),
-            External.AppJsonSerializerContext.Default.PasswordConfig);
-        var options = new FileStreamOptions
-        {
-            Mode = FileMode.CreateNew,
-            Access = FileAccess.Write,
-            Share = FileShare.None,
-            Options = FileOptions.Asynchronous | FileOptions.WriteThrough
-        };
-        if (!OperatingSystem.IsWindows())
-            options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+        if (!User.TryGetSessionId(out var sessionId)) return null;
+        return await identityRepository.GetAuthenticatedSessionAsync(
+            sessionId, DateTimeOffset.UtcNow, cancellationToken);
+    }
 
+    private ClaimsPrincipal? ValidateExpiredAccessToken(string token)
+    {
         try
         {
-            await using (var stream = new FileStream(temporaryPath, options))
-            {
-                await stream.WriteAsync(contents, cancellationToken);
-                await stream.FlushAsync(cancellationToken);
-                stream.Flush(flushToDisk: true);
-            }
-            System.IO.File.Move(temporaryPath, fullPath, overwrite: true);
-            if (!OperatingSystem.IsWindows())
-                System.IO.File.SetUnixFileMode(fullPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            var parameters = tokenValidationParams.Clone();
+            parameters.ValidateLifetime = false;
+            var principal = new JwtSecurityTokenHandler().ValidateToken(
+                token, parameters, out var validatedToken);
+            return validatedToken is JwtSecurityToken securityToken
+                   && string.Equals(
+                       securityToken.Header.Alg,
+                       SecurityAlgorithms.HmacSha256,
+                       StringComparison.OrdinalIgnoreCase)
+                ? principal
+                : null;
         }
-        finally
+        catch (Exception exception)
         {
-            System.IO.File.Delete(temporaryPath);
+            LogTokenVerificationFailed(logger, exception);
+            return null;
         }
     }
 
-    private External.LoginResult CreateLoginResult(IssuedRefreshToken refreshToken)
+    private async Task<UserAccount> CreateLegacyAdminAsync(
+        string password,
+        CancellationToken cancellationToken)
     {
-        var handler = new JwtSecurityTokenHandler();
-        var key = Encoding.UTF8.GetBytes(_configuration["JwtSecret"]!);
-        var now = _timeProvider.GetUtcNow();
-        var tokenDescriptor = new SecurityTokenDescriptor
+        var now = DateTimeOffset.UtcNow;
+        var user = new UserAccount(
+            IdentityDefaults.UserId,
+            IdentityDefaults.Username,
+            BCrypt.Net.BCrypt.HashPassword(password),
+            UserRole.Admin,
+            false,
+            now,
+            now);
+        var profile = new UserProfile(
+            IdentityDefaults.ProfileId,
+            user.Id,
+            IdentityDefaults.ProfileName,
+            null,
+            null,
+            true,
+            now,
+            now);
+        try
         {
-            Subject = new ClaimsIdentity(new[]
-            {
-                new Claim("Id", Guid.Empty.ToString()),
-                new Claim(JwtRegisteredClaimNames.Jti, refreshToken.JwtId)
-            }),
-            Issuer = _securityOptions.Issuer,
-            Audience = _securityOptions.Audience,
-            IssuedAt = now.UtcDateTime,
-            NotBefore = now.UtcDateTime,
-            Expires = now.AddMinutes(_securityOptions.AccessTokenMinutes).UtcDateTime,
-            SigningCredentials =
-                new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha256Signature)
-        };
-        var token = handler.CreateToken(tokenDescriptor);
-        return new External.LoginResult(handler.WriteToken(token), refreshToken.Token);
+            await identityRepository.CreateUserWithProfileAsync(user, profile, cancellationToken);
+            return user;
+        }
+        catch (IdentityConflictException)
+        {
+            var existing = await identityRepository.FindUserByUsernameAsync(
+                IdentityDefaults.Username, cancellationToken);
+            if (existing is null) throw;
+            return existing;
+        }
     }
+
+    private async Task<bool> VerifyPasswordAsync(
+        UserAccount user,
+        string password,
+        CancellationToken cancellationToken)
+    {
+        if (user.PasswordHash is not null)
+            return VerifyHash(password, user.PasswordHash);
+        if (user.Id != IdentityDefaults.UserId || !await VerifyLegacyPasswordAsync(password, cancellationToken))
+            return false;
+
+        return await identityRepository.SetPasswordHashAsync(
+            user.Id,
+            BCrypt.Net.BCrypt.HashPassword(password),
+            DateTimeOffset.UtcNow,
+            cancellationToken);
+    }
+
+    private async Task<bool> VerifyLegacyPasswordAsync(string password, CancellationToken cancellationToken)
+    {
+        var value = await GetLegacyPasswordHashAsync(cancellationToken);
+        return !string.IsNullOrWhiteSpace(value) && VerifyHash(password, value);
+    }
+
+    private async Task<bool> HasLegacyPasswordAsync(CancellationToken cancellationToken) =>
+        !string.IsNullOrWhiteSpace(await GetLegacyPasswordHashAsync(cancellationToken));
+
+    private async Task<string?> GetLegacyPasswordHashAsync(CancellationToken cancellationToken)
+    {
+        var hash = authenticationStateRepository is null ? null :
+            await authenticationStateRepository.GetPasswordHashAsync(cancellationToken);
+        return string.IsNullOrWhiteSpace(hash) ? configuration["Password:Value"] : hash;
+    }
+
+    private static bool VerifyHash(string password, string hash)
+    {
+        try
+        {
+            return BCrypt.Net.BCrypt.Verify(password, hash);
+        }
+        catch (BCrypt.Net.SaltParseException)
+        {
+            return false;
+        }
+    }
+
+    private static bool TryNormalizeUsername(string? value, out string username)
+    {
+        username = string.IsNullOrWhiteSpace(value)
+            ? IdentityDefaults.Username
+            : value.Trim().ToLowerInvariant();
+        return UsernamePattern().IsMatch(username);
+    }
+
+    private static string NormalizeProfileName(string? value)
+    {
+        var name = value?.Trim();
+        if (string.IsNullOrEmpty(name)) return IdentityDefaults.ProfileName;
+        return name.Length <= 64 ? name : name[..64];
+    }
+
+    private static External.LoginResult ToResult(IssuedSessionTokens tokens) =>
+        new(tokens.AccessToken, tokens.RefreshToken, true, tokens.SessionId, tokens.ProfileId);
+
+    internal static External.AuthProfileResponse ToProfileResponse(UserProfile profile) =>
+        new(profile.Id, profile.Name, profile.Avatar, profile.PinHash is not null, profile.IsDefault);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Token verification failed")]
-    private static partial void LogTokenVerificationFailed(ILogger logger, Exception ex);
-
-    [LoggerMessage(Level = LogLevel.Error,
-        Message = "The durable password claim succeeded, but the compatibility password file could not be updated")]
-    private static partial void LogPasswordFilePersistenceFailed(ILogger logger, Exception exception);
+    private static partial void LogTokenVerificationFailed(ILogger logger, Exception exception);
 }

@@ -15,6 +15,8 @@ using Microsoft.Extensions.Logging;
 using SecondDimensionWatcherReDive.AI.Abstractions;
 using SecondDimensionWatcherReDive.AI.Models;
 using SecondDimensionWatcherReDive.Chat.External;
+using SecondDimensionWatcherReDive.Chat.Tools;
+using SecondDimensionWatcherReDive.Framework.Authorization;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 
 namespace SecondDimensionWatcherReDive.Chat;
@@ -71,21 +73,23 @@ internal sealed partial class ChatController(
     }
 
     [HttpGet("conversations")]
-    public async Task<IReadOnlyList<ChatConversationSummary>> GetConversations(
+    public async Task<IActionResult> GetConversations(
         CancellationToken cancellationToken)
     {
-        return await chatRepository.GetConversationsAsync(cancellationToken);
+        if (!User.TryGetProfileId(out var profileId)) return Unauthorized();
+        return Ok(await chatRepository.GetConversationsAsync(profileId, cancellationToken));
     }
 
     [HttpGet("conversations/{id:guid}")]
     public async Task<IActionResult> GetConversation(Guid id, CancellationToken cancellationToken)
     {
-        if (TryGetUserId(out var userId))
+        if (!User.TryGetProfileId(out var profileId) || !TryGetUserId(out var userId)) return Unauthorized();
+        var detail = await chatRepository.GetConversationWithMessagesAsync(id, profileId, cancellationToken);
+        if (detail is not null)
         {
-            await chatActionService.GetForConversationAsync(
-                id, userId, cancellationToken);
+            await chatActionService.GetForConversationAsync(id, userId, cancellationToken);
+            detail = await chatRepository.GetConversationWithMessagesAsync(id, profileId, cancellationToken);
         }
-        var detail = await chatRepository.GetConversationWithMessagesAsync(id, cancellationToken);
         if (detail is null)
         {
             LogConversationNotFound(id);
@@ -95,19 +99,25 @@ internal sealed partial class ChatController(
     }
 
     [HttpPost("conversations")]
-    public async Task<ChatConversationSummary> CreateConversation(
+    [Authorize(Policy = AccessPolicies.ChatWrite)]
+    public async Task<IActionResult> CreateConversation(
         [FromBody] CreateConversationRequest? request,
         CancellationToken cancellationToken)
     {
-        var conv = await chatRepository.CreateConversationAsync(request?.Title, cancellationToken);
+        if (!User.TryGetProfileId(out var profileId)) return Unauthorized();
+        var conv = await chatRepository.CreateConversationAsync(
+            profileId, request?.Title, cancellationToken);
         LogConversationCreated(conv.Id, request?.Title);
-        return conv;
+        return Ok(conv);
     }
 
     [HttpDelete("conversations/{id:guid}")]
+    [Authorize(Policy = AccessPolicies.ChatWrite)]
     public async Task<IActionResult> DeleteConversation(Guid id, CancellationToken cancellationToken)
     {
-        var deleted = await chatRepository.DeleteConversationAsync(id, cancellationToken);
+        if (!User.TryGetProfileId(out var profileId)) return Unauthorized();
+        var deleted = await chatRepository.DeleteConversationAsync(
+            id, profileId, cancellationToken);
         if (deleted)
             LogConversationDeleted(id);
         else
@@ -116,12 +126,15 @@ internal sealed partial class ChatController(
     }
 
     [HttpPatch("conversations/{id:guid}")]
+    [Authorize(Policy = AccessPolicies.ChatWrite)]
     public async Task<IActionResult> UpdateConversationTitle(
         Guid id,
         [FromBody] UpdateConversationRequest request,
         CancellationToken cancellationToken)
     {
-        await chatRepository.UpdateConversationTitleAsync(id, request.Title, cancellationToken);
+        if (!User.TryGetProfileId(out var profileId)) return Unauthorized();
+        await chatRepository.UpdateConversationTitleAsync(
+            id, profileId, request.Title, cancellationToken);
         return Ok();
     }
 
@@ -130,9 +143,8 @@ internal sealed partial class ChatController(
         Guid conversationId,
         CancellationToken cancellationToken)
     {
-        if (!TryGetUserId(out var userId)) return Unauthorized();
-        if (await chatRepository.GetConversationWithMessagesAsync(
-                conversationId, cancellationToken) is null)
+        if (!TryGetUserId(out var userId) || !User.TryGetProfileId(out var profileId)) return Unauthorized();
+        if (await chatRepository.GetConversationWithMessagesAsync(conversationId, profileId, cancellationToken) is null)
             return NotFound();
 
         var actions = await chatActionService.GetForConversationAsync(
@@ -146,20 +158,25 @@ internal sealed partial class ChatController(
         Guid actionId,
         CancellationToken cancellationToken)
     {
-        if (!TryGetUserId(out var userId)) return Unauthorized();
+        if (!TryGetUserId(out var userId) || !User.TryGetProfileId(out var profileId)) return Unauthorized();
+        if (await chatRepository.GetConversationWithMessagesAsync(conversationId, profileId, cancellationToken) is null)
+            return NotFound();
         var action = await chatActionService.GetAsync(
             actionId, conversationId, userId, cancellationToken);
         return action is null ? NotFound() : Ok(ToResponse(action));
     }
 
     [HttpPost("conversations/{conversationId:guid}/actions/{actionId:guid}/approve")]
+    [Authorize(Policy = AccessPolicies.ChatWrite)]
     public async Task<IActionResult> ApproveAction(
         Guid conversationId,
         Guid actionId,
         [FromBody] ApproveChatActionRequest request,
         CancellationToken cancellationToken)
     {
-        if (!TryGetUserId(out var userId)) return Unauthorized();
+        if (!TryGetUserId(out var userId) || !User.TryGetProfileId(out var profileId)) return Unauthorized();
+        if (await chatRepository.GetConversationWithMessagesAsync(conversationId, profileId, cancellationToken) is null)
+            return NotFound();
         if (string.IsNullOrWhiteSpace(request.ApprovalToken)
             || string.IsNullOrWhiteSpace(request.ParameterHash))
             return BadRequest();
@@ -191,13 +208,16 @@ internal sealed partial class ChatController(
     }
 
     [HttpPost("conversations/{conversationId:guid}/actions/{actionId:guid}/reject")]
+    [Authorize(Policy = AccessPolicies.ChatWrite)]
     public async Task<IActionResult> RejectAction(
         Guid conversationId,
         Guid actionId,
         [FromBody] RejectChatActionRequest request,
         CancellationToken cancellationToken)
     {
-        if (!TryGetUserId(out var userId)) return Unauthorized();
+        if (!TryGetUserId(out var userId) || !User.TryGetProfileId(out var profileId)) return Unauthorized();
+        if (await chatRepository.GetConversationWithMessagesAsync(conversationId, profileId, cancellationToken) is null)
+            return NotFound();
         if (string.IsNullOrWhiteSpace(request.ApprovalToken)
             || string.IsNullOrWhiteSpace(request.ParameterHash))
             return BadRequest();
@@ -226,7 +246,9 @@ internal sealed partial class ChatController(
         Guid conversationId,
         CancellationToken cancellationToken)
     {
-        if (!TryGetUserId(out var userId)) return Unauthorized();
+        if (!TryGetUserId(out var userId) || !User.TryGetProfileId(out var profileId)) return Unauthorized();
+        if (await chatRepository.GetConversationWithMessagesAsync(conversationId, profileId, cancellationToken) is null)
+            return NotFound();
         await chatActionService.GetForConversationAsync(
             conversationId, userId, cancellationToken);
         var entries = await chatActionRepository.GetAuditAsync(
@@ -245,23 +267,25 @@ internal sealed partial class ChatController(
     }
 
     [HttpPost("conversations/{id:guid}/messages")]
+    [Authorize(Policy = AccessPolicies.ChatWrite)]
     public async Task<IResult> SendMessage(
         Guid id,
         [FromBody] SendMessageRequest request,
         CancellationToken cancellationToken)
     {
-        if (!TryGetUserId(out var userId))
+        if (!User.TryGetProfileId(out var profileId) || !TryGetUserId(out var userId))
             return TypedResults.Unauthorized();
-
         var aiEngine = serviceProvider.GetService<IAIEngine>();
         var status = serviceProvider.GetService<IAIEngineStatus>();
         if (aiEngine is null || status is { IsConfigured: false })
             return TypedResults.StatusCode(503);
 
-        // Recover an execution whose owning process stopped before rebuilding model history.
-        // ChatRepository then overlays the terminal tool result onto the original tool message.
-        await chatActionService.GetForConversationAsync(id, userId, cancellationToken);
-        var conversation = await chatRepository.GetConversationWithMessagesAsync(id, cancellationToken);
+        var conversation = await chatRepository.GetConversationWithMessagesAsync(id, profileId, cancellationToken);
+        if (conversation is not null)
+        {
+            await chatActionService.GetForConversationAsync(id, userId, cancellationToken);
+            conversation = await chatRepository.GetConversationWithMessagesAsync(id, profileId, cancellationToken);
+        }
         if (conversation is null)
         {
             LogConversationNotFound(id);
@@ -269,13 +293,15 @@ internal sealed partial class ChatController(
         }
 
         // Get current message count for ordering
-        var messageOrder = await chatRepository.GetMessageCountAsync(id, cancellationToken);
+        var messageOrder = await chatRepository.GetMessageCountAsync(
+            id, profileId, cancellationToken);
 
         // Save user message
         var userMessage = new ChatMessageRecord(
             Guid.NewGuid(), "user", request.Content, null, null, null,
             messageOrder, DateTimeOffset.Now);
-        await chatRepository.AddMessageAsync(id, userMessage, cancellationToken);
+        await chatRepository.AddMessageAsync(
+            id, profileId, userMessage, cancellationToken);
         messageOrder++;
 
         LogUserMessageReceived(id, messageOrder - 1, request.Content.Length);
@@ -306,7 +332,7 @@ internal sealed partial class ChatController(
         LogStreamingStarted(id, request.Model);
 
         return TypedResults.ServerSentEvents(
-            StreamChatEvents(aiEngine, messages, chatOptions, id, messageOrder,
+            StreamChatEvents(aiEngine, messages, chatOptions, id, profileId, messageOrder,
                 request.Content, !hadPriorAssistant && titleEligible, request.Model,
                 userId,
                 cancellationToken));
@@ -317,6 +343,7 @@ internal sealed partial class ChatController(
         List<IMessage> messages,
         ChatOptions chatOptions,
         Guid conversationId,
+        Guid profileId,
         int messageOrder,
         string firstUserMessage,
         bool autoTitleEligible,
@@ -338,7 +365,7 @@ internal sealed partial class ChatController(
         // Keep the task and await it during iterator disposal so a disconnected request cannot
         // release this controller's scoped repository before tool-call audit records are saved.
         var producer = ProduceChatEventsAsync(
-            aiEngine, messages, chatOptions, conversationId, messageOrder,
+            aiEngine, messages, chatOptions, conversationId, profileId, messageOrder,
             firstUserMessage, autoTitleEligible, model,
             userId,
             channel.Writer, producerCancellation.Token);
@@ -364,6 +391,7 @@ internal sealed partial class ChatController(
         List<IMessage> messages,
         ChatOptions chatOptions,
         Guid conversationId,
+        Guid profileId,
         int messageOrder,
         string firstUserMessage,
         bool autoTitleEligible,
@@ -519,7 +547,8 @@ internal sealed partial class ChatController(
 
             if (messagesToSave.Count > 0)
             {
-                await chatRepository.AddMessagesAsync(conversationId, messagesToSave, CancellationToken.None);
+                await chatRepository.AddMessagesAsync(
+                    conversationId, profileId, messagesToSave, CancellationToken.None);
                 LogMessagesSaved(conversationId, messagesToSave.Count);
 
                 // Capture data needed for the post-stream auto-title task.
@@ -547,7 +576,8 @@ internal sealed partial class ChatController(
         // stalled provider can never hang the conversation.
         if (firstAssistantContentForTitle is not null)
         {
-            _ = RunAutoTitleAsync(conversationId, firstUserMessage, firstAssistantContentForTitle, model);
+            _ = RunAutoTitleAsync(
+                conversationId, profileId, firstUserMessage, firstAssistantContentForTitle, model);
         }
     }
 
@@ -569,7 +599,11 @@ internal sealed partial class ChatController(
     }
 
     private async Task RunAutoTitleAsync(
-        Guid conversationId, string firstUserMessage, string firstAssistantMessage, string? model)
+        Guid conversationId,
+        Guid profileId,
+        string firstUserMessage,
+        string firstAssistantMessage,
+        string? model)
     {
         try
         {
@@ -577,7 +611,12 @@ internal sealed partial class ChatController(
             var generator = scope.ServiceProvider.GetRequiredService<IConversationTitleGenerator>();
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
             await generator.TryAutoTitleAsync(
-                conversationId, firstUserMessage, firstAssistantMessage, model, cts.Token);
+                conversationId,
+                profileId,
+                firstUserMessage,
+                firstAssistantMessage,
+                model,
+                cts.Token);
         }
         catch (Exception ex)
         {
@@ -670,13 +709,7 @@ internal sealed partial class ChatController(
         return messages;
     }
 
-    private bool TryGetUserId(out Guid userId)
-    {
-        var raw = User.FindFirstValue("Id")
-                  ?? User.FindFirstValue(ClaimTypes.NameIdentifier)
-                  ?? User.FindFirstValue("sub");
-        return Guid.TryParse(raw, out userId);
-    }
+    private bool TryGetUserId(out Guid userId) => User.TryGetUserId(out userId);
 
     private static bool TryGetApprovalAction(
         JsonElement result,

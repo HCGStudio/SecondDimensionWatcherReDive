@@ -1,3 +1,4 @@
+using SecondDimensionWatcherReDive.Framework.Authorization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -9,7 +10,7 @@ namespace SecondDimensionWatcherReDive.Controllers;
 
 [ApiController]
 [Route("api/notifications")]
-[Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
+[Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme, Policy = AccessPolicies.Administrator)]
 internal sealed class NotificationsController(
     INotificationPublisher publisher,
     INotificationOutboxRepository outboxRepository,

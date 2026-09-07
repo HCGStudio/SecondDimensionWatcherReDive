@@ -1,6 +1,6 @@
 # 备份、恢复与逻辑数据迁移
 
-`sdw-backup` 提供可自动化的本地备份目标；系统包和应用容器均携带该命令。备份由 PostgreSQL custom-format dump、部署配置、`password.json`、Data Protection 密钥环和插件 manifest 组成。下载媒体、导入的原始媒体、qBittorrent 数据与 Valkey 缓存不在其中。
+`sdw-backup` 提供可自动化的本地备份目标；系统包和应用容器均携带该命令。备份由 PostgreSQL custom-format dump、部署配置、旧版 `password.json`（存在时）、Data Protection 密钥环和插件 manifest 组成。家庭账户、密码哈希、配置档案和会话随数据库一起备份；没有旧版密码文件的安装会保存空的兼容文件。下载媒体、导入的原始媒体、qBittorrent 数据与 Valkey 缓存不在其中。
 
 ## 恢复目标与范围
 

@@ -26,6 +26,7 @@ public sealed class ChatControllerStreamingTests
                 [],
                 new ChatOptions(),
                 Guid.NewGuid(),
+                Guid.Empty,
                 0,
                 "question",
                 false,
@@ -48,6 +49,7 @@ public sealed class ChatControllerStreamingTests
         var repository = new Mock<IChatRepository>(MockBehavior.Strict);
         repository.Setup(candidate => candidate.AddMessagesAsync(
                 conversationId,
+                Guid.Empty,
                 It.Is<IEnumerable<ChatMessageRecord>>(messages =>
                     messages.Any(message => message.Role == "assistant"
                                             && message.Content == "partial")),
@@ -60,6 +62,7 @@ public sealed class ChatControllerStreamingTests
                 [],
                 new ChatOptions(),
                 conversationId,
+                Guid.Empty,
                 0,
                 "question",
                 false,

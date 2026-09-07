@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useReducer, useRef } from "react";
 
+import {
+  AuthBoundRequest,
+  AuthIdentityChangedError,
+  beginAuthBoundRequest,
+} from "../auth/httpClient";
 import { ChatAction } from "./types";
 
 interface StreamingToolCall {
@@ -140,66 +145,49 @@ const initialState: StreamingState = {
 
 export function useStreamingChat() {
   const [state, dispatch] = useReducer(reducer, initialState);
-  const abortRef = useRef<AbortController | null>(null);
-
-  useEffect(() => () => abortRef.current?.abort(), []);
+  const activeRequestRef = useRef<AuthBoundRequest | null>(null);
+  const requestGenerationRef = useRef(0);
 
   const sendMessage = useCallback(
     async (conversationId: string, content: string, model?: string) => {
+      activeRequestRef.current?.abort();
+      activeRequestRef.current?.dispose();
+      const generation = requestGenerationRef.current + 1;
+      requestGenerationRef.current = generation;
       dispatch({ type: "start" });
 
-      const authStr = localStorage.getItem("auth");
-      if (!authStr) {
-        dispatch({ type: "error", code: "notAuthenticated" });
-        return;
-      }
-
-      let token: string;
+      let request: AuthBoundRequest | null = null;
       try {
-        const auth: unknown = JSON.parse(authStr);
-        if (
-          !auth ||
-          typeof auth !== "object" ||
-          typeof (auth as { token?: unknown }).token !== "string"
-        ) {
-          throw new TypeError();
-        }
-        token = (auth as { token: string }).token;
-      } catch {
-        dispatch({ type: "error", code: "invalidAuthentication" });
-        return;
-      }
-
-      abortRef.current?.abort();
-      const controller = new AbortController();
-      abortRef.current = controller;
-
-      try {
+        request = beginAuthBoundRequest(true);
+        activeRequestRef.current = request;
         const response = await fetch(
           `/api/chat/conversations/${conversationId}/messages`,
           {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
-              Authorization: `Bearer ${token}`,
+              Authorization: `Bearer ${request.auth.token}`,
             },
             body: JSON.stringify({ content, model: model ?? null }),
-            signal: controller.signal,
+            signal: request.signal,
           },
         );
+        if (!request.isCurrent()) throw new AuthIdentityChangedError();
 
         if (!response.ok) {
-          dispatch({
-            type: "error",
-            code:
-              response.status === 401
-                ? "unauthorized"
-                : response.status === 429
-                  ? "rateLimited"
-                  : response.status >= 500
-                    ? "serviceUnavailable"
-                    : "requestFailed",
-          });
+          if (requestGenerationRef.current === generation) {
+            dispatch({
+              type: "error",
+              code:
+                response.status === 401
+                  ? "unauthorized"
+                  : response.status === 429
+                    ? "rateLimited"
+                    : response.status >= 500
+                      ? "serviceUnavailable"
+                      : "requestFailed",
+            });
+          }
           return;
         }
 
@@ -215,6 +203,7 @@ export function useStreamingChat() {
 
         while (true) {
           const { done, value } = await reader.read();
+          if (!request.isCurrent()) throw new AuthIdentityChangedError();
           if (done) break;
 
           buffer += decoder.decode(value, { stream: true });
@@ -230,29 +219,37 @@ export function useStreamingChat() {
                 const data = JSON.parse(line.slice(6));
                 switch (currentEvent) {
                   case "text_delta":
-                    dispatch({ type: "text_delta", text: data.text });
+                    if (requestGenerationRef.current === generation) {
+                      dispatch({ type: "text_delta", text: data.text });
+                    }
                     break;
                   case "tool_call_begin":
-                    dispatch({
-                      type: "tool_call_begin",
-                      id: data.id,
-                      name: data.name,
-                    });
+                    if (requestGenerationRef.current === generation) {
+                      dispatch({
+                        type: "tool_call_begin",
+                        id: data.id,
+                        name: data.name,
+                      });
+                    }
                     break;
                   case "tool_call_delta":
-                    dispatch({
-                      type: "tool_call_delta",
-                      id: data.id,
-                      argumentsDelta: data.arguments_delta,
-                    });
+                    if (requestGenerationRef.current === generation) {
+                      dispatch({
+                        type: "tool_call_delta",
+                        id: data.id,
+                        argumentsDelta: data.arguments_delta,
+                      });
+                    }
                     break;
                   case "tool_result":
-                    dispatch({
-                      type: "tool_result",
-                      toolCallId: data.tool_call_id,
-                      name: data.name,
-                      result: data.result,
-                    });
+                    if (requestGenerationRef.current === generation) {
+                      dispatch({
+                        type: "tool_result",
+                        toolCallId: data.tool_call_id,
+                        name: data.name,
+                        result: data.result,
+                      });
+                    }
                     break;
                   case "approval_required":
                     dispatch({
@@ -263,10 +260,14 @@ export function useStreamingChat() {
                     break;
                   case "finished":
                     receivedFinished = true;
-                    dispatch({ type: "finished" });
+                    if (requestGenerationRef.current === generation) {
+                      dispatch({ type: "finished" });
+                    }
                     break;
                   case "error":
-                    dispatch({ type: "error", code: "streamFailed" });
+                    if (requestGenerationRef.current === generation) {
+                      dispatch({ type: "error", code: "streamFailed" });
+                    }
                     break;
                 }
               } catch {
@@ -277,27 +278,49 @@ export function useStreamingChat() {
           }
         }
 
-        if (!receivedFinished) {
+        if (!receivedFinished && requestGenerationRef.current === generation) {
           dispatch({ type: "finished" });
         }
-      } catch {
-        if (controller.signal.aborted) return;
-        dispatch({
-          type: "error",
-          code: "connectionFailed",
-        });
+      } catch (err) {
+        if (requestGenerationRef.current !== generation) return;
+        if (
+          err instanceof AuthIdentityChangedError ||
+          (err instanceof DOMException && err.name === "AbortError")
+        ) {
+          dispatch({ type: "reset" });
+        } else {
+          dispatch({
+            type: "error",
+            code: "connectionFailed",
+          });
+        }
       } finally {
-        if (abortRef.current === controller) abortRef.current = null;
+        request?.dispose();
+        if (activeRequestRef.current === request) {
+          activeRequestRef.current = null;
+        }
       }
     },
     [],
   );
 
   const reset = useCallback(() => {
-    abortRef.current?.abort();
-    abortRef.current = null;
+    requestGenerationRef.current += 1;
+    activeRequestRef.current?.abort();
+    activeRequestRef.current?.dispose();
+    activeRequestRef.current = null;
     dispatch({ type: "reset" });
   }, []);
+
+  useEffect(
+    () => () => {
+      requestGenerationRef.current += 1;
+      activeRequestRef.current?.abort();
+      activeRequestRef.current?.dispose();
+      activeRequestRef.current = null;
+    },
+    [],
+  );
 
   return { ...state, sendMessage, reset };
 }

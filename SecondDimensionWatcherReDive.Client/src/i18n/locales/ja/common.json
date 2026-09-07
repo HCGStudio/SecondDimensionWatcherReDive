@@ -18,6 +18,8 @@
   },
   "user": {
     "account": "アカウント",
+    "manageAccount": "アカウント管理",
+    "profilePin": "このプロフィールの PIN を入力してください",
     "language": "言語",
     "logout": "ログアウト",
     "logoutFailed": "ローカルではログアウトしましたが、リモートの更新トークン失効を確認できませんでした。",

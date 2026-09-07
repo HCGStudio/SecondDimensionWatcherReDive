@@ -40,7 +40,9 @@ internal sealed class PlaybackTicketService
         string userId,
         string accessTokenId,
         string path,
-        TimeSpan lifetime)
+        TimeSpan lifetime,
+        Guid? identitySessionId = null,
+        Guid? profileId = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(userId);
         ArgumentException.ThrowIfNullOrWhiteSpace(accessTokenId);
@@ -53,7 +55,7 @@ internal sealed class PlaybackTicketService
         // binding. Different login/refresh sessions cannot borrow each other's cookie.
         var sessionId = _tokenHasher.Hash($"playback-session:{userId}:{accessTokenId}");
         var session = new PlaybackSessionTicket(userId, sessionId, expiresAt);
-        var resource = new PlaybackResourceTicket(path, userId, sessionId, expiresAt);
+        var resource = new PlaybackResourceTicket(path, userId, sessionId, expiresAt, identitySessionId, profileId);
 
         return new PlaybackTicketBundle(
             ProtectResource(resource),

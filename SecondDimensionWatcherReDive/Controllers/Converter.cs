@@ -261,7 +261,15 @@ internal static class Converter
             result.ValidationErrors);
 
     public static External.WebDavTokenSummary ToExternal(this WebDavToken record) =>
-        new(record.Id, record.Username, record.Description, record.CreatedAt);
+        new(record.Id,
+            record.UserId,
+            record.Username,
+            record.Description,
+            record.CreatedAt,
+            record.Scope,
+            record.VirtualRoot,
+            record.ExpiresAt,
+            record.RevokedAt);
 
     public static External.SeasonBangumi ToExternal(this SeasonBangumi record) =>
         new(record.Id,

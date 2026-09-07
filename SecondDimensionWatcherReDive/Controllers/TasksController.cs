@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using SecondDimensionWatcherReDive.Framework.Authorization;
 using SecondDimensionWatcherReDive.Framework.Tasks;
 
 namespace SecondDimensionWatcherReDive.Controllers;
@@ -35,6 +36,7 @@ internal class TasksController(
     }
 
     [HttpPost("{id}/run")]
+    [Authorize(Policy = AccessPolicies.Administrator)]
     public IActionResult RunTask([FromRoute] string id)
     {
         var task = scheduledTasks.FirstOrDefault(t =>

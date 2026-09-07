@@ -8,6 +8,7 @@ export interface IncidentQuery {
   skip?: number;
   take?: number;
   includeResolved?: boolean;
+  enabled?: boolean;
   focus?: string | null;
 }
 
@@ -29,6 +30,10 @@ export const incidentListKey = ({
 };
 
 export const useIncidents = (query: IncidentQuery = {}) =>
-  useSWR<IncidentListResponse>(incidentListKey(query), fetcher, {
-    refreshInterval: 15_000,
-  });
+  useSWR<IncidentListResponse>(
+    query.enabled === false ? null : incidentListKey(query),
+    fetcher,
+    {
+      refreshInterval: 15_000,
+    },
+  );

@@ -113,7 +113,7 @@ Usage:
 Create options:
   --output DIR              Local backup target
   --config FILE             Deployment config to include
-  --password-file FILE      password.json to include
+  --password-file FILE      legacy password.json to include when present
   --key-ring DIR            Data Protection key ring to include
   --plugin-dir DIR          Plugin directory; manifest files are included
   --retention-days DAYS     Delete completed backups older than DAYS
@@ -362,7 +362,6 @@ create_backup() {
     [[ "${retention_days}" =~ ^[0-9]+$ ]] || die "retention days must be a non-negative integer"
     safe_token "${app_version}" || die "application version contains unsupported characters"
     [[ -f "${config}" ]] || die "configuration file is missing"
-    [[ -f "${password_file}" ]] || die "password file is missing; register the application before backup"
     [[ -d "${key_ring}" ]] || die "Data Protection key ring is missing"
     validate_output_directory "${output}"
     require_command pg_dump
@@ -396,7 +395,14 @@ create_backup() {
     # Data Protection key files are append-only. Copying them after the database
     # snapshot produces a safe superset for every encrypted value in the dump.
     install -m 0600 -- "${config}" "${stage}/state/config/appsettings.yml"
-    install -m 0600 -- "${password_file}" "${stage}/state/password.json"
+    if [[ -f "${password_file}" ]]; then
+        install -m 0600 -- "${password_file}" "${stage}/state/password.json"
+    else
+        # Household credentials live in the database dump. Restore an empty
+        # legacy file so a previous installation's password cannot be revived.
+        install -m 0600 /dev/null "${stage}/state/password.json"
+        printf '{}\n' > "${stage}/state/password.json"
+    fi
     cp -a -- "${key_ring}/." "${stage}/state/data-protection-keys/"
     find "${stage}/state/data-protection-keys" -type d -exec chmod 0700 {} +
     find "${stage}/state/data-protection-keys" -type f -exec chmod 0600 {} +

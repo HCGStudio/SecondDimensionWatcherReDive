@@ -10,7 +10,7 @@ using SecondDimensionWatcherReDive.Utils.FileStore;
 using Testcontainers.PostgreSql;
 using Models = SecondDimensionWatcherReDive.Models;
 
-namespace SecondDimensionWatcherReDive.IntegrationTest.PostgreSql;
+namespace SecondDimensionWatcherReDive.Repositories;
 
 [TestClass]
 public sealed class LogicalDataTransferPostgreSqlTests
@@ -41,6 +41,10 @@ public sealed class LogicalDataTransferPostgreSqlTests
         await using var context = new Models.ApplicationContext(Options);
         await context.Database.EnsureDeletedAsync();
         await context.Database.MigrateAsync();
+        var now = DateTimeOffset.UtcNow;
+        context.Users.Add(new Models.UserAccount { Id = IdentityDefaults.UserId, Username = "admin", Role = UserRole.Admin, CreatedAt = now, UpdatedAt = now });
+        context.Profiles.Add(new Models.UserProfile { Id = Guid.Empty, UserId = IdentityDefaults.UserId, Name = "Home", IsDefault = true, CreatedAt = now, UpdatedAt = now });
+        await context.SaveChangesAsync();
     }
 
     [TestMethod]

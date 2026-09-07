@@ -1,3 +1,4 @@
+using SecondDimensionWatcherReDive.Framework.Authorization;
 using System.Globalization;
 using System.Reflection;
 using System.Security.Cryptography;
@@ -14,11 +15,11 @@ namespace SecondDimensionWatcherReDive.Controllers;
 [ApiController]
 [Route("api/data-transfer")]
 [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
+[Authorize(Policy = AccessPolicies.Administrator)]
 internal sealed class LogicalDataTransferController(
     ILogicalDataTransferRepository repository) : ControllerBase
 {
     private const int SupportedFormatVersion = 1;
-    private static readonly Guid CurrentUserId = Guid.Empty;
     private static readonly string ApplicationVersion =
         typeof(LogicalDataTransferController).Assembly
             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
@@ -30,6 +31,7 @@ internal sealed class LogicalDataTransferController(
         [FromQuery] string categories = "all",
         CancellationToken cancellationToken = default)
     {
+        if (!User.TryGetProfileId(out var profileId)) return Unauthorized();
         if (!TryParseCategories(categories, out var selected))
             return BadRequest(new { error = "Unknown data category." });
 
@@ -38,7 +40,7 @@ internal sealed class LogicalDataTransferController(
         {
             bundle = await repository.ExportAsync(
                 selected,
-                CurrentUserId,
+                profileId,
                 ApplicationVersion,
                 cancellationToken);
         }
@@ -70,11 +72,13 @@ internal sealed class LogicalDataTransferController(
     }
 
     [HttpPost("import")]
+    [Authorize(Policy = AccessPolicies.RecentAdministrator)]
     [RequestSizeLimit(LogicalDataTransferLimits.MaximumPayloadBytes)]
     public async Task<IActionResult> ImportAsync(
         [FromBody] External.LogicalDataImportRequest request,
         CancellationToken cancellationToken)
     {
+        if (!User.TryGetProfileId(out var profileId)) return Unauthorized();
         if (request.Data is null || request.ConflictStrategy is null ||
             string.IsNullOrWhiteSpace(request.Sha256))
             return BadRequest(new { error = "Data, sha256 and conflictStrategy are required." });
@@ -94,7 +98,7 @@ internal sealed class LogicalDataTransferController(
             var result = await repository.ImportAsync(
                 request.Data,
                 request.ConflictStrategy.Value,
-                CurrentUserId,
+                profileId,
                 cancellationToken);
             return Ok(result);
         }

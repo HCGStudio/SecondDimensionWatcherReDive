@@ -1,3 +1,4 @@
+using SecondDimensionWatcherReDive.Framework.Authorization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using System.Text.Json;
 using Microsoft.AspNetCore.Authorization;
@@ -11,6 +12,7 @@ namespace SecondDimensionWatcherReDive.Controllers;
 [ApiController]
 [Route("api/plugins")]
 [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
+[Authorize(Policy = AccessPolicies.Administrator)]
 internal sealed class PluginController(
     IPluginManager manager,
     IJavaScriptPluginLoader packageLoader) : ControllerBase

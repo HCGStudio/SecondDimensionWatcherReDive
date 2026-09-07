@@ -4,6 +4,7 @@ import { useSearchParams } from "react-router";
 
 import { AlertTriangle, RefreshCw, RotateCw } from "lucide-react";
 
+import { retryAfterReauthentication } from "../auth/utils";
 import { AccessSettingsSection } from "../components/settings/AccessSettingsSection";
 import { AiSettingsSection } from "../components/settings/AiSettingsSection";
 import { DownloadSettingsSection } from "../components/settings/DownloadSettingsSection";
@@ -20,6 +21,7 @@ import { Button } from "../components/ui/Button";
 import { EmptyPrompt } from "../components/ui/EmptyPrompt";
 import { Spinner } from "../components/ui/Spinner";
 import { ApiError, apiErrorStatus } from "../errors/apiError";
+import "../i18n/settingsResources";
 import { useSystemSettings } from "../settings/hooks";
 import { updateSystemSettings } from "../settings/systemApi";
 import { SystemSettings, SystemSettingsPatch } from "../settings/systemTypes";
@@ -59,10 +61,14 @@ export const SettingsPage: React.FC = () => {
     async (patch: SettingsPatchWithoutRevision): Promise<SystemSettings> => {
       if (!data) throw new ApiError("settings_not_loaded", 0);
       try {
-        const updated = await updateSystemSettings({
-          expectedRevision: data.revision,
-          ...patch,
-        });
+        const updated = await retryAfterReauthentication(
+          () =>
+            updateSystemSettings({
+              expectedRevision: data.revision,
+              ...patch,
+            }),
+          t("settings:system.reauthenticatePrompt"),
+        );
         await mutate(updated, { revalidate: false });
         return updated;
       } catch (saveError) {

@@ -1,3 +1,6 @@
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
+using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.AI.Abstractions;
 using SecondDimensionWatcherReDive.AI.Models;
 using SecondDimensionWatcherReDive.Chat.Tools;
@@ -13,15 +16,21 @@ internal interface IChatRawToolExecutorFactory
 internal sealed class ChatRawToolExecutorFactory(IServiceProvider serviceProvider)
     : IChatRawToolExecutorFactory
 {
-    public IToolExecutor Create() => new ToolExecutorBuilder(serviceProvider)
-        .AddTool<QueryAnimationsTool>()
-        .AddTool<ManageFeedsTool>()
-        .AddTool<QuerySeasonTool>()
-        .AddTool<SubscribeBangumiTool>()
-        .AddTool<ManageTasksTool>()
-        .AddTool<ManageDownloadsTool>()
-        .AddTool<QueryFilesTool>()
-        .Build();
+    public IToolExecutor Create()
+    {
+        var user = serviceProvider.GetService<IHttpContextAccessor>()?.HttpContext?.User;
+        IToolExecutorBuilder builder = new ToolExecutorBuilder(serviceProvider)
+            .AddTool<QueryAnimationsTool>()
+            .AddTool<QuerySeasonTool>()
+            .AddTool<QueryFilesTool>();
+        if (user?.IsInRole(nameof(UserRole.Admin)) == true || user?.IsInRole(nameof(UserRole.Member)) == true)
+            builder = builder.AddTool<ManageFeedsTool>()
+                .AddTool<SubscribeBangumiTool>()
+                .AddTool<ManageDownloadsTool>();
+        if (user?.IsInRole(nameof(UserRole.Admin)) == true)
+            builder = builder.AddTool<ManageTasksTool>();
+        return builder.Build();
+    }
 }
 
 internal sealed class ApprovalToolExecutor(

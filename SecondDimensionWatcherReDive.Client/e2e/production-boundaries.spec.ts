@@ -2,6 +2,8 @@ import { Page, expect, test } from "@playwright/test";
 
 const auth = {
   success: true,
+  sessionId: "10000000-0000-0000-0000-000000000001",
+  profileId: "00000000-0000-0000-0000-000000000000",
   token: "playwright-token",
   refreshToken: "playwright-refresh-token",
 };

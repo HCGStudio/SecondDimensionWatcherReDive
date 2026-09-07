@@ -18,6 +18,8 @@
   },
   "user": {
     "account": "Account",
+    "manageAccount": "Manage account",
+    "profilePin": "Enter this profile's PIN",
     "language": "Language",
     "logout": "Sign out",
     "logoutFailed": "Signed out locally, but remote refresh-token revocation could not be confirmed.",

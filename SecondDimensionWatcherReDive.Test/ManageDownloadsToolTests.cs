@@ -1,3 +1,6 @@
+using System.Security.Claims;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Authorization;
 using System.Text.Json;
 using Moq;
 using SecondDimensionWatcherReDive.AI.Models;
@@ -126,7 +129,9 @@ public sealed class ManageDownloadsToolTests
             Tool = new ManageDownloadsTool(
                 AnimationRepository.Object,
                 MappingRepository.Object,
-                ClientProvider.Object);
+                ClientProvider.Object,
+                new HttpContextAccessor { HttpContext = new DefaultHttpContext { User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.Role, nameof(UserRole.Member))], "test")) } },
+                Mock.Of<IAuthorizationService>());
         }
 
         public AnimationInfo Info { get; }

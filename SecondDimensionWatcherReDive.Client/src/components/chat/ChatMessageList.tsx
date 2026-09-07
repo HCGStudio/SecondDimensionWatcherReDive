@@ -13,11 +13,11 @@ interface ChatMessageListProps {
   hasStreamError?: boolean;
 }
 
+/** Group consecutive non-user messages into runs. Each user message is its own group. */
 type MessageGroup =
   | { type: "user"; message: ChatMessageData }
   | { type: "assistant"; messages: ChatMessageData[] };
 
-/** Group consecutive non-user messages into runs. Each user message is its own group. */
 function groupMessages(messages: ChatMessageData[]): MessageGroup[] {
   const groups: MessageGroup[] = [];
 

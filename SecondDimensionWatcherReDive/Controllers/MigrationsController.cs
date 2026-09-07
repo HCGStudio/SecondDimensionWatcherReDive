@@ -1,3 +1,4 @@
+using SecondDimensionWatcherReDive.Framework.Authorization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -8,7 +9,7 @@ namespace SecondDimensionWatcherReDive.Controllers;
 
 [ApiController]
 [Route("api/migrations")]
-[Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
+[Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme, Policy = AccessPolicies.Administrator)]
 internal sealed class MigrationsController(
     IMigrationStateRepository stateRepository,
     MigrationAdministrationService administrationService) : ControllerBase

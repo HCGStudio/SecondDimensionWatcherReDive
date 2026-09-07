@@ -12,6 +12,7 @@ import {
   Search,
 } from "lucide-react";
 
+import { useAccess } from "../auth/hooks";
 import { useToast } from "../components/ToastProvider";
 import { Button } from "../components/ui/Button";
 import { EmptyPrompt } from "../components/ui/EmptyPrompt";
@@ -46,6 +47,7 @@ const selectClass =
 
 export const SearchPage: React.FC = () => {
   const { t } = useTranslation("library");
+  const { canContentWrite } = useAccess();
   const { addToast } = useToast();
   const [params, setParams] = useSearchParams();
   const [query, setQuery] = React.useState(params.get("q") ?? "");
@@ -454,32 +456,34 @@ export const SearchPage: React.FC = () => {
                           (+{candidate.candidateScore - candidate.currentScore})
                         </p>
                       </div>
-                      <div className="flex gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          disabled={
-                            runningUpgrade === candidate.candidateReleaseId
-                          }
-                          onClick={() => void runUpgrade(candidate, true)}
-                        >
-                          {t("upgrade.preview")}
-                        </Button>
-                        <Button
-                          size="sm"
-                          disabled={
-                            runningUpgrade === candidate.candidateReleaseId
-                          }
-                          onClick={() => void runUpgrade(candidate, false)}
-                        >
-                          {runningUpgrade === candidate.candidateReleaseId ? (
-                            <Spinner className="h-4 w-4" />
-                          ) : (
-                            <Download size={14} />
-                          )}
-                          {t("upgrade.apply")}
-                        </Button>
-                      </div>
+                      {canContentWrite ? (
+                        <div className="flex gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={
+                              runningUpgrade === candidate.candidateReleaseId
+                            }
+                            onClick={() => void runUpgrade(candidate, true)}
+                          >
+                            {t("upgrade.preview")}
+                          </Button>
+                          <Button
+                            size="sm"
+                            disabled={
+                              runningUpgrade === candidate.candidateReleaseId
+                            }
+                            onClick={() => void runUpgrade(candidate, false)}
+                          >
+                            {runningUpgrade === candidate.candidateReleaseId ? (
+                              <Spinner className="h-4 w-4" />
+                            ) : (
+                              <Download size={14} />
+                            )}
+                            {t("upgrade.apply")}
+                          </Button>
+                        </div>
+                      ) : null}
                     </div>
                     <ul className="mt-2 text-xs text-subtle">
                       {candidate.scoreReasons.map((reason) => (
