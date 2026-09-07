@@ -290,7 +290,7 @@ New feature repositories include `ILibraryCompletionRepository` (episode claims/
 
 `DownloadCapacity:Enabled` defaults to true and `SafetyBytes` to 5 GiB. Disabled mode bypasses admission for new downloads and drains the existing unpaused durable queue. `LocalVolumePath` is an optional explicit shared mount of the actual downloader volume, not an application-root fallback. `Torrent:Polling` controls bounded refresh/backoff; `DownloadCompletion:Workers` defaults to 2 (clamped 1–16). See [feature configuration and boundaries](library-workflows.md).
 
-HLS cache reservations remain independent of download admission; after acquiring one, a worker rechecks the shared completed manifest and reuses it before considering cache recreation.
+HLS cache reservations remain independent of download admission. Waiting workers reuse atomically published shared manifests without reserving another write budget, and recheck again after acquiring a reservation before recreating a directory. Failure/cancellation cleanup only removes output created by that worker while its reservation still owns the directory; completed manifests and output belonging to another owner are preserved.
 
 EF Core migrations run automatically on application startup.
 
