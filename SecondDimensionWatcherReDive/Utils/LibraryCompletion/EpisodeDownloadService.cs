@@ -22,8 +22,8 @@ public sealed class EpisodeDownloadService(IAnimationInfoRepository releases, IF
         try
         {
             client = clients.GetRequiredClient(info.DownloadType);
-            var started = await releases.TryStartDownloadAsync(info.Id, attempt, lease, TimeSpan.FromMinutes(3),
-                DateTimeOffset.UtcNow, SubscriptionAutomationDisposition.AutoDownloadQueued, cancellationToken);
+            var started = await releases.TryStartClaimedEpisodeDownloadAsync(info, claim, attempt, lease,
+                TimeSpan.FromMinutes(3), DateTimeOffset.UtcNow, cancellationToken);
             if (started == null) return new(episode, info.Id, "state_changed", false);
             using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             budget.CancelAfter(TimeSpan.FromSeconds(90));

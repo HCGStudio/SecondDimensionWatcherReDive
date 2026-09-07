@@ -50,4 +50,12 @@ public sealed class LibraryCompletionRepository(Models.ApplicationContext contex
         CancellationToken cancellationToken) => await context.Set<Models.EpisodeAcquisition>()
         .Where(x => x.TmdbId == tmdbId && x.Season == season && x.Episode == episode && x.ClaimId == claimId)
         .ExecuteDeleteAsync(cancellationToken);
+
+    internal static Task<bool> HasActiveClaimAsync(Models.ApplicationContext writeContext, Guid releaseId,
+        CancellationToken cancellationToken)
+    {
+        var now = DateTimeOffset.UtcNow;
+        return writeContext.Set<Models.EpisodeAcquisition>()
+            .AnyAsync(claim => claim.ReleaseId == releaseId && claim.ExpiresAt > now, cancellationToken);
+    }
 }

@@ -4,7 +4,7 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { handleCompletion } from "./mock-completion.mjs";
-import { handleMetadataRules } from "./mock-metadata-rules.mjs";
+import { handleMetadataRules, isMetadataRulePreviewCurrent } from "./mock-metadata-rules.mjs";
 import { handleWatchlistPlayback } from "./mock-watchlist-playback.mjs";
 import { handleMultiSourceSubscriptions, removeMultiSourceFeed } from "./mock-multi-source.mjs";
 
@@ -2601,7 +2601,8 @@ async function route(method, pathname, searchParams, req, res) {
       }
       if (
         Date.parse(preview.expiresAt) <= Date.now() ||
-        preview.baseRevision !== item.revision
+        preview.baseRevision !== item.revision ||
+        !isMetadataRulePreviewCurrent(preview, item, animations.get(item.id), feeds)
       ) {
         metadataReviewPreviews.delete(preview.previewId);
         return json(res, { error: "Preview is stale." }, 409);
