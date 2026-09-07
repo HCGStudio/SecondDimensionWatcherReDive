@@ -39,7 +39,7 @@ internal sealed class NativeDownloadController(
         if (entry?.Mapping is not { } mapping || entry.IsDirectory) return NotFound();
         FileStoreInfo metadata;
         try { metadata = await stores.GetRequiredClient(mapping.FileStore).FileInfoAsync(mapping.PhysicalPath, cancellationToken); }
-        catch (FileNotFoundException) { return NotFound(); }
+        catch (IOException ex) when (ex is FileNotFoundException or DirectoryNotFoundException) { return NotFound(); }
         if (metadata.IsDirectory) return NotFound();
         var lifetime = TimeSpan.FromMinutes(options.Value.PlaybackLinkMinutes);
         var bundle = tickets.Issue(userId.ToString(), jti, mapping.VirtualPath, lifetime, sessionId, profileId,
@@ -71,15 +71,24 @@ internal sealed class NativeDownloadController(
         var store = stores.GetRequiredClient(mapping.FileStore);
         FileStoreInfo metadata;
         try { metadata = await store.FileInfoAsync(mapping.PhysicalPath, cancellationToken); }
-        catch (FileNotFoundException) { return NotFound(); }
+        catch (IOException ex) when (ex is FileNotFoundException or DirectoryNotFoundException) { return NotFound(); }
         if (metadata.IsDirectory || Fingerprint(mapping, metadata) != grant.MappingFingerprint) return NotFound();
         // Open the validated physical file directly: a concurrent virtual remap cannot redirect this grant.
-        var stream = await store.OpenReadStreamAsync(mapping.PhysicalPath, cancellationToken);
+        Stream stream;
+        try { stream = await store.OpenReadStreamAsync(mapping.PhysicalPath, cancellationToken); }
+        catch (IOException ex) when (ex is FileNotFoundException or DirectoryNotFoundException) { return NotFound(); }
         if (!stream.CanSeek && metadata.Length.HasValue) Response.ContentLength = metadata.Length.Value;
         var filename = Path.GetFileName(mapping.VirtualPath);
         var contentType = contentTypes.TryGetContentType(filename, out var type) ? type : "application/octet-stream";
-        return File(stream, contentType, filename, metadata.LastModifiedUtc,
-            new EntityTagHeaderValue($"\"{grant.MappingFingerprint}\""), enableRangeProcessing: stream.CanSeek);
+        // Resuming requires a physical version, not just the identity of the virtual mapping.
+        var hasStableVersion = metadata.Length.HasValue && metadata.LastModifiedUtc.HasValue;
+        return new FileStreamResult(stream, contentType)
+        {
+            FileDownloadName = filename,
+            LastModified = hasStableVersion ? metadata.LastModifiedUtc : null,
+            EntityTag = hasStableVersion ? new EntityTagHeaderValue($"\"{grant.MappingFingerprint}\"") : null,
+            EnableRangeProcessing = stream.CanSeek && hasStableVersion
+        };
     }
 
     private void SetHeaders()
