@@ -1,37 +1,10 @@
-# CLAUDE.md
+# Architecture and Configuration
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
-## Important Rules
-
-- **NEVER use `npm` or `npx`**. This project uses Yarn Berry (PnP). Always use `yarn` for all frontend commands.
-- **NEVER add regression checks in any form**. Do not add regression tests, test-only scripts, workflow contract assertions, or equivalent guards.
-- **NEVER reference `ApplicationContext` directly** outside of `Repositories/` implementations, `Program.cs` (DI + migrations), and EF Core migration files. All data access goes through repository interfaces defined in `Framework/DataRepository/`.
-- **Async method conventions in interfaces**: All interface methods returning `Task` or `Task<T>` must (1) have names ending with `Async`, (2) accept a `CancellationToken cancellationToken` parameter, and (3) must NOT have default values on `CancellationToken` in interface definitions. The parameter must be named `cancellationToken` (not `ct`).
-
-## Build & Development Commands
-
-```bash
-# Backend
-dotnet build SecondDimensionWatcherReDive.slnx                                # Build entire solution
-dotnet run --project SecondDimensionWatcherReDive                             # Run backend (http://localhost:5097)
-dotnet test SecondDimensionWatcherReDive.slnx                                 # Run all tests
-
-# Frontend (in SecondDimensionWatcherReDive.Client/)
-yarn install        # Install dependencies (Yarn 4.2.2 Berry with PnP)
-yarn start          # Dev server on http://localhost:1234
-yarn build          # Production build to dist/
-yarn mock           # Mock API server on http://localhost:5097
-yarn dev            # Mock server + dev server together
-
-# Podman / Container
-cd deployments && podman-compose up -d             # Full stack: PostgreSQL + qBittorrent + app
-podman build -f Containerfile -t sdw-redive .      # Build container image locally
-```
+Repository guidance and development commands are in [AGENTS.md](../AGENTS.md).
 
 ## Architecture
 
-This is an anime/animation download management system (二次元观测器 Re:Dive) with a .NET 10 backend, React 18 frontend, and PostgreSQL database.
+This is an anime/animation download management system (二次元观测器 Re:Dive) with a .NET 10 backend, React frontend, and PostgreSQL database.
 
 ### Solution Projects
 
@@ -206,13 +179,13 @@ In development, the main project proxies non-`/api` requests to the Parcel dev s
 
 ### Authentication
 
-JWT Bearer tokens with BCrypt password hashing. Refresh token flow via `AuthController`. All `/api` endpoints require JWT authentication. Frontend uses `ProtectedRoute` component to redirect unauthenticated users to `/login`. The HTTP client (`httpClient.ts`) handles automatic token refresh with deduplication on 401 responses, and throws on non-OK responses so SWR error boundaries work correctly.
+JWT Bearer tokens with BCrypt password hashing. Refresh token flow via `AuthController`. Most protected `/api` endpoints require JWT authentication; `/api/vfs` accepts Basic or Bearer credentials, while registration, login, and refresh have their own authentication flows. Frontend uses `ProtectedRoute` component to redirect unauthenticated users to `/login`. The HTTP client (`httpClient.ts`) handles automatic token refresh with deduplication on 401 responses, and throws on non-OK responses so SWR error boundaries work correctly.
 
-`/webdav` uses a separate HTTP Basic scheme (`BasicAuthenticationHandler` in `Auth/`, scheme name `"Basic"`, registered alongside JWT in `Program.cs`). Credentials are per-device tokens issued via `WebDavTokenController` and stored in the `WebDavTokens` table — the handler looks up the row by username through `IWebDavTokenRepository.FindByUsernameAsync` and BCrypt-verifies the supplied password against the stored `TokenHash`. There is no fixed username and no shared password in configuration. On challenge it emits `WWW-Authenticate: Basic realm="SecondDimensionWatcher WebDAV", charset="UTF-8"`. The WebDAV controller opts into this scheme explicitly via `[Authorize(AuthenticationSchemes = BasicAuthenticationHandler.SchemeName)]` — JWT clients cannot reach WebDAV and Basic clients cannot reach `/api`.
+`/webdav` uses a separate HTTP Basic scheme (`BasicAuthenticationHandler` in `Auth/`, scheme name `"Basic"`, registered alongside JWT in `Program.cs`). Credentials are per-device tokens issued via `WebDavTokenController` and stored in the `WebDavTokens` table — the handler looks up the row by username through `IWebDavTokenRepository.FindByUsernameAsync` and BCrypt-verifies the supplied password against the stored `TokenHash`. There is no fixed username and no shared password in configuration. On challenge it emits `WWW-Authenticate: Basic realm="SecondDimensionWatcher WebDAV", charset="UTF-8"`. The WebDAV controller opts into this scheme explicitly via `[Authorize(AuthenticationSchemes = BasicAuthenticationHandler.SchemeName)]` — JWT clients cannot reach WebDAV; Basic credentials are also accepted by `/api/vfs`.
 
 ### Frontend
 
-React 18 + TypeScript with Tailwind CSS for styling and Radix UI for accessible interactive primitives (Dialog, Toast, Progress). Uses SWR for data fetching, React Router v6 for routing, lucide-react for icons, Artplayer for video playback, react-i18next for localization (zh-CN / en / ja). Design system follows DESIGN.md (warm parchment canvas, serif headlines, terracotta accents).
+React + TypeScript with Tailwind CSS for styling and Radix UI for accessible interactive primitives (Dialog, Toast, Progress). Uses SWR for data fetching, React Router for routing, lucide-react for icons, Artplayer for video playback, react-i18next for localization (zh-CN / en / ja). Design system follows DESIGN.md (warm parchment canvas, serif headlines, terracotta accents).
 
 **Pages:**
 - Main (`/`) — Anime card grid grouped by TMDB ID, with poster images; uncategorized section for unmatched items
