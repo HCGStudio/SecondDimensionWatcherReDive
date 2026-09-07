@@ -6,6 +6,7 @@ import { createServer } from "node:http";
 import { handleCompletion } from "./mock-completion.mjs";
 import { handleMetadataRules } from "./mock-metadata-rules.mjs";
 import { handleWatchlistPlayback } from "./mock-watchlist-playback.mjs";
+import { handleMultiSourceSubscriptions } from "./mock-multi-source.mjs";
 
 const PORT = parseInt(process.env.MOCK_PORT ?? "5097", 10);
 
@@ -3251,6 +3252,8 @@ async function route(method, pathname, searchParams, req, res) {
       return json(res, feed);
     });
   }
+
+  if (await handleMultiSourceSubscriptions({ req, res, method, pathname, json, readBody, animations, downloadState, feeds })) return;
 
   // --- Feeds ---
 

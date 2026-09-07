@@ -18,7 +18,8 @@ public sealed class ReleaseUpgradeCoordinator(
     IFileStoreProvider fileStoreProvider,
     IPluginEventTrigger<FileDownloadStartParam> beforeDownloadStartEventTrigger,
     IIncidentReporter incidentReporter,
-    ILogger<ReleaseUpgradeCoordinator> logger) : IReleaseUpgradeCoordinator
+    ILogger<ReleaseUpgradeCoordinator> logger,
+    IMultiSourceSubscriptionRepository? multiSourceSubscriptions = null) : IReleaseUpgradeCoordinator
 {
     private static readonly TimeSpan DownloadSubmissionLeaseDuration = TimeSpan.FromMinutes(3);
     private static readonly TimeSpan DownloadSubmissionRemoteBudget = TimeSpan.FromSeconds(90);
@@ -578,7 +579,8 @@ public sealed class ReleaseUpgradeCoordinator(
         if (candidate?.SourceFeedId is { } feedId)
         {
             var policy = await policyRepository.FindByFeedIdAsync(feedId, cancellationToken);
-            rollbackHours = policy?.UpgradeRollbackHours ?? rollbackHours;
+            var shared = multiSourceSubscriptions == null ? null : await multiSourceSubscriptions.FindByFeedIdAsync(feedId, cancellationToken);
+            rollbackHours = shared?.UpgradeRollbackHours ?? policy?.UpgradeRollbackHours ?? rollbackHours;
         }
 
         var now = DateTimeOffset.UtcNow;

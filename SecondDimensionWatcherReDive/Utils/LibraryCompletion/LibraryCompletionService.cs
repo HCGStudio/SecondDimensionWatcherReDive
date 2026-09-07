@@ -5,7 +5,7 @@ using SecondDimensionWatcherReDive.Framework.FileDownload;
 namespace SecondDimensionWatcherReDive.Utils.LibraryCompletion;
 
 public sealed partial class LibraryCompletionService(ILibraryCompletionRepository repository,
-    ISubscriptionAutomationPolicyRepository policies,
+    ISubscriptionAutomationPolicyRepository policies, IMultiSourceSubscriptionRepository sources,
     ISubscriptionAutomationMatcher matcher, IReleaseScoringService scoring,
     EpisodeAirCalendarService calendar, EpisodeDownloadService downloads)
 {
@@ -26,6 +26,7 @@ public sealed partial class LibraryCompletionService(ILibraryCompletionRepositor
         var expected = releases.Select(x => x.ExpectedEpisodeCount ?? 0).DefaultIfEmpty().Max();
         episodeNumbers = episodeNumbers.Concat(Enumerable.Range(1, Math.Clamp(expected, 0, 10000)));
         var policyByFeed = (await policies.GetAllOrderedAsync(cancellationToken)).ToDictionary(x => x.FeedId);
+        var group = (await sources.GetAllAsync(cancellationToken)).FirstOrDefault(x => x.TmdbId == tmdbId && x.Season == season);
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
         var items = new List<EpisodeCompletionItem>();
         foreach (var episode in episodeNumbers.Distinct().Order())
@@ -36,6 +37,7 @@ public sealed partial class LibraryCompletionService(ILibraryCompletionRepositor
             var candidates = episodeReleases.Select(info =>
             {
                 var policy = info.SourceFeedId is { } feedId ? policyByFeed.GetValueOrDefault(feedId) : null;
+                if (group != null && info.SourceFeedId is { } linkedId && group.FeedIds.Contains(linkedId)) policy = group.ToPolicy(linkedId);
                 return Candidate(info, policy);
             }).OrderByDescending(x => x.Eligible).ThenByDescending(x => x.Score).ThenByDescending(x => x.PublishedAt).ThenBy(x => x.ReleaseId).ToList();
             var downloaded = episodeReleases.Any(x => x.IsDownloadFinished && mapped.Contains(x.Id));
@@ -48,7 +50,7 @@ public sealed partial class LibraryCompletionService(ILibraryCompletionRepositor
             items.Add(new(episode, state, date, selected, candidates,
                 selected != null ? "highest_eligible_score" : candidates.Count > 0 && !downloaded && !downloading && !unaired ? "no_eligible_candidate" : state));
         }
-        return new(tmdbId, releases.FirstOrDefault()?.Animation?.Name ?? tmdbId, season,
+        return new(tmdbId, releases.FirstOrDefault()?.Animation?.Name ?? group?.Name ?? tmdbId, season,
             DateTimeOffset.UtcNow, air.CheckedAt, air.Source, releases.Count(x => !IsReliable(x)), items);
     }
 

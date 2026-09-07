@@ -2,7 +2,7 @@
 const iso = (timestamp) => new Date(timestamp).toISOString();
 const date = (timestamp) => iso(timestamp).slice(0, 10);
 
-function planFor(animations, tmdbId, season) {
+export function planFor(animations, tmdbId, season) {
   const releases = [...animations.values()].filter(
     (x) => x.animation?.tmdbId === tmdbId && x.season === season,
   );
@@ -72,7 +72,7 @@ function planFor(animations, tmdbId, season) {
   };
 }
 
-function submit(animations, downloadState, tmdbId, season, selections) {
+export function submit(animations, downloadState, tmdbId, season, selections) {
   return selections.map((selection) => {
     const episode = planFor(animations, tmdbId, season).episodes.find(
       (x) => x.episode === selection.episode,

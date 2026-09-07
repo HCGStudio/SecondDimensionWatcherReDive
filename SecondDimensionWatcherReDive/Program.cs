@@ -822,6 +822,7 @@ builder.Services.AddScoped<IScheduledTaskLeaseRepository, ScheduledTaskLeaseRepo
 builder.Services.AddScoped<IReadinessRepository, ReadinessRepository>();
 builder.Services.AddScoped<ILibrarySearchRepository, LibrarySearchRepository>();
 SecondDimensionWatcherReDive.Utils.LibraryCompletion.LibraryCompletionExtensions.AddLibraryCompletion(builder.Services);
+SecondDimensionWatcherReDive.Utils.LibraryCompletion.LibraryCompletionExtensions.AddMultiSourceSubscriptions(builder.Services);
 builder.Services.AddScoped<IReleaseUpgradeRepository, ReleaseUpgradeRepository>();
 builder.Services.AddScoped<INotificationOutboxRepository, NotificationOutboxRepository>();
 builder.Services.AddScoped<IWebPushSubscriptionRepository, WebPushSubscriptionRepository>();

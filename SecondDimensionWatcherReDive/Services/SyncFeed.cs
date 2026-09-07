@@ -156,11 +156,16 @@ internal partial class SyncFeed(
         try
         {
             SubscriptionAutomationPolicy? policy = null;
+            MultiSourceSubscription? multiSource = null;
             if (request.FeedId is { } feedId)
             {
                 var policyRepository = scope.ServiceProvider
                     .GetRequiredService<ISubscriptionAutomationPolicyRepository>();
                 policy = await policyRepository.FindByFeedIdAsync(feedId, cancellationToken);
+                var multiSourceRepository = scope.ServiceProvider.GetService<IMultiSourceSubscriptionRepository>();
+                multiSource = multiSourceRepository == null ? null : await multiSourceRepository
+                    .FindByFeedIdAsync(feedId, cancellationToken);
+                if (multiSource != null) policy = multiSource.ToPolicy(feedId);
             }
 
             var torrentData = request.DownloadType switch
@@ -179,7 +184,7 @@ internal partial class SyncFeed(
             if (policy is not null)
             {
                 evaluation = automationMatcher.Evaluate(policy, releaseWithSize);
-                if (!evaluation.Matched)
+                if (!evaluation.Matched && multiSource == null)
                     return;
             }
 
@@ -213,7 +218,7 @@ internal partial class SyncFeed(
                     AiRetryCount: 0,
                     SourceFeedId: request.FeedId,
                     ReleaseSizeBytes: torrentData.PayloadSizeBytes,
-                    AutomationDisposition: policy?.Mode switch
+                    AutomationDisposition: multiSource != null ? null : policy?.Mode switch
                     {
                         SubscriptionAutomationMode.NotifyOnly => SubscriptionAutomationDisposition.Notified,
                         SubscriptionAutomationMode.ManualConfirm =>
@@ -249,7 +254,7 @@ internal partial class SyncFeed(
                 return;
             }
 
-            if (notificationPublisher is not null)
+            if (notificationPublisher is not null && multiSource == null)
             {
                 if (policy?.Mode == SubscriptionAutomationMode.NotifyOnly)
                 {
@@ -277,7 +282,7 @@ internal partial class SyncFeed(
                     CreateDownloadIncidentSourceId(request.DownloadUrl),
                     cancellationToken);
 
-            if (policy?.Mode == SubscriptionAutomationMode.AutoDownload)
+            if (policy?.Mode == SubscriptionAutomationMode.AutoDownload && multiSource == null)
             {
                 var started = await QueueAutomaticDownloadAsync(
                     info,

@@ -123,9 +123,28 @@ public sealed partial class ReleaseUpgradeRepository(
     }
 
     private async Task<Dictionary<Guid, SubscriptionAutomationPolicy>> ReadPoliciesAsync(
-        CancellationToken cancellationToken) =>
-        (await context.SubscriptionAutomationPolicies.AsNoTracking().ToListAsync(cancellationToken))
-        .ToDictionary(policy => policy.FeedId, policy => policy.ToRecord());
+        CancellationToken cancellationToken)
+    {
+        var result = (await context.SubscriptionAutomationPolicies.AsNoTracking().ToListAsync(cancellationToken))
+            .ToDictionary(policy => policy.FeedId, policy => policy.ToRecord());
+        foreach (var entity in await context.Set<Models.MultiSourceSubscription>().AsNoTracking().Include(x => x.Sources).ToListAsync(cancellationToken))
+        {
+            var subscription = MultiSourceSubscriptionRepository.ToRecord(entity);
+            foreach (var feedId in subscription.FeedIds) result[feedId] = subscription.ToPolicy(feedId);
+        }
+        return result;
+    }
+
+    private static async Task<SubscriptionAutomationPolicy?> ReadEffectivePolicyAsync(
+        Models.ApplicationContext sourceContext, Guid? sourceFeedId, CancellationToken cancellationToken)
+    {
+        if (sourceFeedId is not { } feedId) return null;
+        var shared = await sourceContext.Set<Models.MultiSourceSubscription>().AsNoTracking().Include(x => x.Sources)
+            .FirstOrDefaultAsync(x => x.Sources.Any(y => y.FeedId == feedId), cancellationToken);
+        if (shared != null) return MultiSourceSubscriptionRepository.ToRecord(shared).ToPolicy(feedId);
+        return (await sourceContext.SubscriptionAutomationPolicies.AsNoTracking()
+            .SingleOrDefaultAsync(x => x.FeedId == feedId, cancellationToken))?.ToRecord();
+    }
 
     private ReleaseUpgradeCandidate? EvaluateCandidate(
         CandidateRow row,
@@ -167,6 +186,7 @@ public sealed partial class ReleaseUpgradeRepository(
         if (automaticOnly)
             eligibleCandidates = eligibleCandidates.Where(candidate =>
                 candidate.ReleaseScoreReasonsJson != null &&
+                !context.Set<Models.MultiSourceFeed>().Any(source => source.FeedId == candidate.SourceFeedId) &&
                 context.SubscriptionAutomationPolicies.Any(policy =>
                     policy.FeedId == candidate.SourceFeedId && policy.EnableVersionUpgrade));
 
@@ -263,11 +283,7 @@ public sealed partial class ReleaseUpgradeRepository(
 
             // Re-evaluate after claiming the release rows. A policy or release
             // may have changed since the candidate list was read.
-            var policyEntity = next.SourceFeedId is { } feedId
-                ? await writeContext.SubscriptionAutomationPolicies.AsNoTracking()
-                    .SingleOrDefaultAsync(policy => policy.FeedId == feedId, cancellationToken)
-                : null;
-            var policy = policyEntity?.ToRecord();
+            var policy = await ReadEffectivePolicyAsync(writeContext, next.SourceFeedId, cancellationToken);
             var currentScore = releaseScoringService.Score(new SubscriptionReleaseMetadata(
                 current.ReleaseSubtitleGroup, current.ReleaseResolution, current.ReleaseCodec,
                 current.ReleaseLanguages, current.ReleaseSizeBytes), policy);
@@ -773,11 +789,7 @@ public sealed partial class ReleaseUpgradeRepository(
                 candidate.IsActiveRelease)
                 return new ReleaseUpgradeMutationResult(false, "release_changed", operation.ToRecord());
 
-            var policyEntity = candidate.SourceFeedId is { } feedId
-                ? await writeContext.SubscriptionAutomationPolicies.AsNoTracking()
-                    .SingleOrDefaultAsync(policy => policy.FeedId == feedId, cancellationToken)
-                : null;
-            var policy = policyEntity?.ToRecord();
+            var policy = await ReadEffectivePolicyAsync(writeContext, candidate.SourceFeedId, cancellationToken);
             var currentScore = releaseScoringService.Score(new SubscriptionReleaseMetadata(
                 current.ReleaseSubtitleGroup, current.ReleaseResolution, current.ReleaseCodec,
                 current.ReleaseLanguages, current.ReleaseSizeBytes), policy);
