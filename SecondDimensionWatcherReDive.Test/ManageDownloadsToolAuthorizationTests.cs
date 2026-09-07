@@ -33,6 +33,11 @@ public class ManageDownloadsToolAuthorizationTests
             It.IsAny<Guid>(),
             It.IsAny<Guid?>(),
             It.IsAny<Guid>(),
+            It.IsAny<Guid>(),
+            It.IsAny<TimeSpan>(),
+            It.IsAny<bool>(),
+            It.IsAny<bool>(),
+            It.IsAny<SubscriptionAutomationDisposition?>(),
             It.IsAny<CancellationToken>()), Times.Never);
         client.Verify(downloadClient => downloadClient.CancelDownloadTaskAsync(
             It.IsAny<Guid>(),
@@ -51,15 +56,20 @@ public class ManageDownloadsToolAuthorizationTests
                 animation.Id,
                 animation.DownloadAttemptId,
                 It.IsAny<Guid>(),
+                It.IsAny<Guid>(),
+                It.IsAny<TimeSpan>(),
+                false,
+                false,
+                It.IsAny<SubscriptionAutomationDisposition?>(),
                 It.IsAny<CancellationToken>()))
-            .ReturnsAsync(true);
+            .ReturnsAsync(new DownloadCancellationLease(Guid.NewGuid(), DateTimeOffset.UtcNow.AddMinutes(1), false));
         client.Setup(downloadClient => downloadClient.CancelDownloadTaskAsync(
                 animation.Id,
                 animation.DownloadUrl,
                 animation.CachedDownloadData,
                 animation.AdditionalDownloadInfo,
                 false,
-                CancellationToken.None))
+                It.IsAny<CancellationToken>()))
             .ReturnsAsync(new CancelDownloadResult(true, false));
         var result = await tool.ExecuteAsync(Arguments(
             animation.Id, removeFile: false), CancellationToken.None);
@@ -76,7 +86,7 @@ public class ManageDownloadsToolAuthorizationTests
             animation.CachedDownloadData,
             animation.AdditionalDownloadInfo,
             false,
-            CancellationToken.None), Times.Once);
+            It.IsAny<CancellationToken>()), Times.Once);
     }
 
     private static (
@@ -119,6 +129,8 @@ public class ManageDownloadsToolAuthorizationTests
                 animation.Id,
                 animation.DownloadAttemptId,
                 It.IsAny<Guid>(),
+                It.IsAny<Guid>(),
+                It.IsAny<SubscriptionAutomationDisposition?>(),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
         var client = new Mock<IFileDownloadClient>();

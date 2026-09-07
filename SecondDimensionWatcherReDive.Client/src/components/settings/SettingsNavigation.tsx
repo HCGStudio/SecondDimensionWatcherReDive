@@ -8,6 +8,7 @@ import {
   Database,
   Download,
   Network,
+  Puzzle,
 } from "lucide-react";
 
 import { cn } from "../../lib/cn";
@@ -20,6 +21,7 @@ export const settingsSectionIds = [
   "health",
   "notifications",
   "access",
+  "plugins",
 ] as const;
 
 export type SettingsSectionId = (typeof settingsSectionIds)[number];
@@ -31,6 +33,7 @@ const sectionIcons: Record<SettingsSectionId, React.ReactNode> = {
   health: <Activity size={17} />,
   notifications: <BellRing size={17} />,
   access: <Network size={17} />,
+  plugins: <Puzzle size={17} />,
 };
 
 export interface SettingsNavigationProps {

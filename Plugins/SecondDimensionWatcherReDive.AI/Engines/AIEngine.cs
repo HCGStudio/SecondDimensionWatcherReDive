@@ -144,7 +144,7 @@ public sealed partial class AIEngine : IAIEngineBackend
             {
                 foreach (var toolCall in completedCalls)
                 {
-                    LogToolCall(_logger, provider.ProviderName, toolCall.Name, toolCall.Arguments);
+                    LogToolCall(_logger, provider.ProviderName, toolCall.Name);
                     var toolResult = await executor.ExecuteAsync(toolCall, cancellationToken);
                     var json = JsonSerializer.SerializeToElement(
                         toolResult, toolResult.GetType(), ToolJsonOptions.Options);
@@ -190,7 +190,7 @@ public sealed partial class AIEngine : IAIEngineBackend
         ILogger logger, string provider, string? stopReason, int toolCallCount);
 
     [LoggerMessage(Level = LogLevel.Debug,
-        Message = "[{Provider}] Tool call: {ToolName}, args: {Args}")]
+        Message = "[{Provider}] Tool call: {ToolName}")]
     private static partial void LogToolCall(
-        ILogger logger, string provider, string toolName, string args);
+        ILogger logger, string provider, string toolName);
 }

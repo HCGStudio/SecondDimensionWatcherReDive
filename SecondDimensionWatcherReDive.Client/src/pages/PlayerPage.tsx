@@ -1,5 +1,6 @@
 import Artplayer from "artplayer";
 import artplayerProxyMediabunny from "artplayer-proxy-mediabunny";
+import type Hls from "hls.js";
 import {
   CaptionsFileFormat,
   CaptionsRenderer,
@@ -45,7 +46,13 @@ import {
 } from "../playback/mkv/runtime";
 import type { MkvSubtitleDownloadProgress } from "../playback/mkv/subtitles";
 import type { MkvPlaybackProbe } from "../playback/mkv/support";
-import type { MkvTranscodeStage } from "../playback/mkv/transcoder";
+import {
+  ServerTranscodingStrategy,
+  prepareServerTranscoding,
+  releaseServerTranscoding,
+  touchServerTranscoding,
+  watchServerTranscoding,
+} from "../playback/serverTranscoding";
 import {
   ExternalSubtitle,
   PlaybackPreferences,
@@ -66,13 +73,21 @@ interface ResolvedSubtitle extends ExternalSubtitle {
   source: "external" | "embedded";
 }
 
-type PlaybackMode = "native" | "mkvProxy" | "transcoded";
+type PlaybackMode = "native" | "mkvProxy" | "hls";
 type MkvPreparationStage =
-  "probing" | "extractingSubtitles" | MkvTranscodeStage;
+  | "probing"
+  | "extractingSubtitles"
+  | "serverQueued"
+  | "serverProbing"
+  | "serverRemuxing"
+  | "serverTranscoding"
+  | "serverFinalizing";
 
 interface MkvPreparationStatus {
   stage: MkvPreparationStage;
   progress?: number;
+  queuePosition?: number;
+  speed?: number;
 }
 
 interface BrowserAudioTrack {
@@ -251,6 +266,9 @@ export const PlayerPage: React.FC = () => {
   const [mkvStatus, setMkvStatus] = React.useState<MkvPreparationStatus | null>(
     null,
   );
+  const [serverStrategy, setServerStrategy] =
+    React.useState<ServerTranscodingStrategy | null>(null);
+  const [serverCacheHit, setServerCacheHit] = React.useState(false);
   const [skippedSubtitleCount, setSkippedSubtitleCount] = React.useState(0);
   const [subtitleDiscoveryComplete, setSubtitleDiscoveryComplete] =
     React.useState(false);
@@ -332,6 +350,8 @@ export const PlayerPage: React.FC = () => {
     setPlaybackMode("native");
     setMkvProbe(null);
     setMkvStatus(null);
+    setServerStrategy(null);
+    setServerCacheHit(false);
     setSkippedSubtitleCount(0);
     setSubtitleDiscoveryComplete(false);
     setSubtitles([]);
@@ -349,6 +369,9 @@ export const PlayerPage: React.FC = () => {
     if (!animationId || !playbackContext) return;
     let cancelled = false;
     let releasePreparedMedia: (() => void) | null = null;
+    let cancelServerUrl: string | null = null;
+    let serverKeepAliveTimer: ReturnType<typeof globalThis.setInterval> | null =
+      null;
     const controller = new AbortController();
     setLinkLoading(true);
     setLinkError(null);
@@ -383,14 +406,13 @@ export const PlayerPage: React.FC = () => {
 
         setMkvStatus({ stage: "probing" });
         let probe: MkvPlaybackProbe | null = null;
-        const { canCopyVideoCodecToMp4, probeMkvPlayback } =
-          await import("../playback/mkv/support");
+        const { probeMkvPlayback } = await import("../playback/mkv/support");
         try {
           probe = await probeMkvPlayback(videoLink.url, controller.signal);
         } catch (error) {
           if (isAbortError(error)) throw error;
           // A server/probe incompatibility should still get a chance to use
-          // the full-file software fallback.
+          // the server-side probe and streaming fallback.
         }
         if (cancelled) return;
         setMkvProbe(probe);
@@ -449,37 +471,78 @@ export const PlayerPage: React.FC = () => {
           return;
         }
 
-        const { transcodeMkvForBrowser } =
-          await import("../playback/mkv/transcoder");
-        const transcoded = await transcodeMkvForBrowser(
-          videoLink.url,
-          controller.signal,
-          (update) => {
-            if (!cancelled) setMkvStatus(update);
-          },
+        const initialSession = await prepareServerTranscoding(
           {
-            copyVideo:
-              probe?.videoDecodable === true &&
-              canCopyVideoCodecToMp4(probe.videoCodec),
+            id: animationId,
+            path: playbackContext.media.path,
+            quality: "auto",
+            audioLanguage: playbackContext.preferences.audioLanguage,
+            audioTrackLabel: playbackContext.preferences.audioTrackLabel,
+            subtitleLanguage: playbackContext.preferences.subtitleLanguage,
+            subtitleTrackLabel: playbackContext.preferences.subtitleTrackLabel,
+          },
+          controller.signal,
+        );
+        cancelServerUrl = initialSession.cancelUrl;
+        const readySession = await watchServerTranscoding(
+          initialSession,
+          controller.signal,
+          (session) => {
+            if (cancelled) return;
+            cancelServerUrl = session.cancelUrl;
+            setServerStrategy(session.strategy);
+            setServerCacheHit(session.cacheHit);
+            setSkippedSubtitleCount(session.unsupportedSubtitleCount);
+            if (session.subtitles.length > 0) {
+              setSubtitles([
+                ...subtitleLinks,
+                ...session.subtitles.map((subtitle) => ({
+                  ...subtitle,
+                  source: "embedded" as const,
+                })),
+              ]);
+            }
+
+            if (session.isPlayable && session.playbackUrl) {
+              setPlaybackMode(session.strategy === "direct" ? "native" : "hls");
+              setPlaybackUrl(session.playbackUrl);
+              setLinkLoading(false);
+            }
+
+            if (session.state === "ready") {
+              setMkvStatus(null);
+              setSubtitleDiscoveryComplete(true);
+              return;
+            }
+            const stage: MkvPreparationStage =
+              session.state === "queued"
+                ? "serverQueued"
+                : session.state === "probing"
+                  ? "serverProbing"
+                  : session.strategy === "remux"
+                    ? "serverRemuxing"
+                    : session.isPlayable
+                      ? "serverFinalizing"
+                      : "serverTranscoding";
+            setMkvStatus({
+              stage,
+              progress: session.progress ?? undefined,
+              queuePosition: session.queuePosition ?? undefined,
+              speed: session.speed ?? undefined,
+            });
           },
         );
-        if (cancelled) {
-          transcoded.release();
-          return;
+        if (!cancelled) {
+          serverKeepAliveTimer = globalThis.setInterval(
+            () => {
+              void touchServerTranscoding(
+                readySession.statusUrl,
+                controller.signal,
+              ).catch(() => undefined);
+            },
+            5 * 60 * 1000,
+          );
         }
-        releasePreparedMedia = transcoded.release;
-        setSkippedSubtitleCount(transcoded.skippedSubtitleCount);
-        setPlaybackMode("transcoded");
-        setPlaybackUrl(transcoded.url);
-        setSubtitles([
-          ...subtitleLinks,
-          ...transcoded.subtitles.map((subtitle) => ({
-            ...subtitle,
-            source: "embedded" as const,
-          })),
-        ]);
-        setSubtitleDiscoveryComplete(true);
-        setMkvStatus(null);
       } catch (error) {
         if (cancelled || isAbortError(error)) return;
         const message = i18n.t(
@@ -500,6 +563,10 @@ export const PlayerPage: React.FC = () => {
       cancelled = true;
       controller.abort();
       releasePreparedMedia?.();
+      if (serverKeepAliveTimer !== null) {
+        globalThis.clearInterval(serverKeepAliveTimer);
+      }
+      if (cancelServerUrl) releaseServerTranscoding(cancelServerUrl);
     };
   }, [
     animationId,
@@ -682,9 +749,42 @@ export const PlayerPage: React.FC = () => {
         ? "ja"
         : "en";
 
+    let hls: Hls | null = null;
+    let disposed = false;
     const art = new Artplayer({
       container: playerContainerRef.current,
       url: playbackUrl,
+      type: playbackMode === "hls" ? "m3u8" : undefined,
+      customType:
+        playbackMode === "hls"
+          ? {
+              m3u8: async (video: HTMLVideoElement, url: string) => {
+                const { default: Hls } = await import("hls.js");
+                if (disposed) return;
+                if (!Hls.isSupported()) {
+                  video.src = url;
+                  return;
+                }
+                hls = new Hls({
+                  backBufferLength: 90,
+                  maxBufferLength: 30,
+                  manifestLoadingMaxRetry: 6,
+                  levelLoadingMaxRetry: 6,
+                  fragLoadingMaxRetry: 6,
+                });
+                hls.on(Hls.Events.ERROR, (_event, data) => {
+                  if (!data.fatal || !hls) return;
+                  if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+                    hls.startLoad();
+                  } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+                    hls.recoverMediaError();
+                  }
+                });
+                hls.loadSource(url);
+                hls.attachMedia(video);
+              },
+            }
+          : undefined,
       proxy:
         playbackMode === "mkvProxy"
           ? artplayerProxyMediabunny({
@@ -730,27 +830,40 @@ export const PlayerPage: React.FC = () => {
       captionsRendererRef.current = captionsRenderer;
     }
 
+    const applyInitialSeek = () => {
+      const context = contextRef.current;
+      if (!context || initialSeekAppliedRef.current) return;
+      const resumeAt = context.state?.positionSeconds ?? 0;
+      const duration = art.duration;
+      if (
+        playbackMode === "hls" &&
+        !context.state?.isWatched &&
+        resumeAt >= 5 &&
+        (!Number.isFinite(duration) || resumeAt >= duration - 10)
+      ) {
+        // The event playlist grows while FFmpeg works. Wait for the requested
+        // timestamp to appear instead of discarding the cross-device resume.
+        return;
+      }
+      if (
+        !context.state?.isWatched &&
+        resumeAt >= 5 &&
+        Number.isFinite(duration) &&
+        resumeAt < duration - 10
+      ) {
+        art.currentTime = resumeAt;
+        art.notice.show = i18n.t("player:progress.resumed", {
+          time: new Date(resumeAt * 1000).toISOString().slice(11, 19),
+        });
+        lastSyncedTimeRef.current = resumeAt;
+      }
+      initialSeekAppliedRef.current = true;
+    };
+
     const onLoadedMetadata = () => {
       const context = contextRef.current;
       if (!context) return;
-
-      if (!initialSeekAppliedRef.current) {
-        const resumeAt = context.state?.positionSeconds ?? 0;
-        const duration = art.duration;
-        if (
-          !context.state?.isWatched &&
-          resumeAt >= 5 &&
-          Number.isFinite(duration) &&
-          resumeAt < duration - 10
-        ) {
-          art.currentTime = resumeAt;
-          art.notice.show = i18n.t("player:progress.resumed", {
-            time: new Date(resumeAt * 1000).toISOString().slice(11, 19),
-          });
-          lastSyncedTimeRef.current = resumeAt;
-        }
-        initialSeekAppliedRef.current = true;
-      }
+      applyInitialSeek();
 
       const discoveredTracks = readAudioTracks(
         art.video as VideoWithAudioTracks,
@@ -810,6 +923,7 @@ export const PlayerPage: React.FC = () => {
     const onBeforeUnload = () => persistCurrentProgressRef.current(true, true);
 
     art.on("video:loadedmetadata", onLoadedMetadata);
+    art.on("video:durationchange", applyInitialSeek);
     art.on("video:timeupdate", onTimeUpdate);
     art.on("video:pause", onPause);
     art.on("video:seeked", onSeeked);
@@ -823,6 +937,8 @@ export const PlayerPage: React.FC = () => {
       window.removeEventListener("beforeunload", onBeforeUnload);
       captionsRenderer?.destroy();
       captionsOverlay?.remove();
+      disposed = true;
+      hls?.destroy();
       if (captionsRendererRef.current === captionsRenderer) {
         captionsRendererRef.current = null;
       }
@@ -1082,7 +1198,13 @@ export const PlayerPage: React.FC = () => {
     mkvStatus?.progress == null
       ? null
       : Math.round(Math.min(1, Math.max(0, mkvStatus.progress)) * 100);
-  const mkvStatusLabel = mkvStatus ? t(`mkv.stages.${mkvStatus.stage}`) : null;
+  const mkvStatusLabel = mkvStatus
+    ? t(`mkv.stages.${mkvStatus.stage}`, {
+        position: mkvStatus.queuePosition ?? 1,
+      })
+    : null;
+  const mkvSpeedLabel =
+    mkvStatus?.speed == null ? null : `${mkvStatus.speed.toFixed(2)}×`;
 
   return (
     <PageTemplate>
@@ -1099,6 +1221,7 @@ export const PlayerPage: React.FC = () => {
               <p className="text-sm text-muted">
                 {mkvStatusLabel}
                 {mkvProgressPercent == null ? "" : ` · ${mkvProgressPercent}%`}
+                {mkvSpeedLabel ? ` · ${mkvSpeedLabel}` : ""}
               </p>
               {mkvProgressPercent == null ? null : (
                 <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-border-light">
@@ -1110,7 +1233,11 @@ export const PlayerPage: React.FC = () => {
               )}
               {mkvStatus?.stage === "probing" ? null : (
                 <p className="mt-2 text-xs text-subtle">
-                  {t("mkv.transcodeNotice")}
+                  {t(
+                    mkvStatus?.stage === "extractingSubtitles"
+                      ? "mkv.subtitleNotice"
+                      : "mkv.serverNotice",
+                  )}
                 </p>
               )}
             </div>
@@ -1154,14 +1281,21 @@ export const PlayerPage: React.FC = () => {
                       {t(
                         playbackMode === "mkvProxy"
                           ? "mkv.mode.demuxed"
-                          : "mkv.mode.transcoded",
+                          : serverStrategy === "remux"
+                            ? "mkv.mode.serverRemuxed"
+                            : "mkv.mode.serverTranscoded",
                       )}
+                    </span>
+                  ) : null}
+                  {serverCacheHit ? (
+                    <span className="inline-flex items-center rounded-full bg-success/10 px-2 py-0.5 text-[11px] font-medium text-success">
+                      {t("mkv.cacheHit")}
                     </span>
                   ) : null}
                 </div>
                 <p className="mt-0.5 text-xs text-muted">
                   {mkvStatusLabel
-                    ? `${mkvStatusLabel}${mkvProgressPercent == null ? "" : ` · ${mkvProgressPercent}%`}`
+                    ? `${mkvStatusLabel}${mkvProgressPercent == null ? "" : ` · ${mkvProgressPercent}%`}${mkvSpeedLabel ? ` · ${mkvSpeedLabel}` : ""}`
                     : playbackMode === "mkvProxy" && mkvProbe
                       ? t("mkv.codecSummary", {
                           video: mkvProbe.videoCodec,

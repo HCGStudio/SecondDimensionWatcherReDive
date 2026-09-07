@@ -7,10 +7,10 @@ import enErrors from "./locales/en/errors.json";
 import enFeeds from "./locales/en/feeds.json";
 import enFiles from "./locales/en/files.json";
 import enIncidents from "./locales/en/incidents.json";
+import enLibrary from "./locales/en/library.json";
 import enMetadataReview from "./locales/en/metadataReview.json";
 import enPlayer from "./locales/en/player.json";
 import enSeason from "./locales/en/season.json";
-import enSettings from "./locales/en/settings.json";
 import enTasks from "./locales/en/tasks.json";
 import enTodos from "./locales/en/todos.json";
 import jaAccounts from "./locales/ja/accounts.json";
@@ -22,10 +22,10 @@ import jaErrors from "./locales/ja/errors.json";
 import jaFeeds from "./locales/ja/feeds.json";
 import jaFiles from "./locales/ja/files.json";
 import jaIncidents from "./locales/ja/incidents.json";
+import jaLibrary from "./locales/ja/library.json";
 import jaMetadataReview from "./locales/ja/metadataReview.json";
 import jaPlayer from "./locales/ja/player.json";
 import jaSeason from "./locales/ja/season.json";
-import jaSettings from "./locales/ja/settings.json";
 import jaTasks from "./locales/ja/tasks.json";
 import jaTodos from "./locales/ja/todos.json";
 import zhCnAccounts from "./locales/zh-CN/accounts.json";
@@ -37,10 +37,10 @@ import zhCnErrors from "./locales/zh-CN/errors.json";
 import zhCnFeeds from "./locales/zh-CN/feeds.json";
 import zhCnFiles from "./locales/zh-CN/files.json";
 import zhCnIncidents from "./locales/zh-CN/incidents.json";
+import zhCnLibrary from "./locales/zh-CN/library.json";
 import zhCnMetadataReview from "./locales/zh-CN/metadataReview.json";
 import zhCnPlayer from "./locales/zh-CN/player.json";
 import zhCnSeason from "./locales/zh-CN/season.json";
-import zhCnSettings from "./locales/zh-CN/settings.json";
 import zhCnTasks from "./locales/zh-CN/tasks.json";
 import zhCnTodos from "./locales/zh-CN/todos.json";
 
@@ -56,8 +56,11 @@ export const resources = {
     chat: zhCnChat,
     feeds: zhCnFeeds,
     incidents: zhCnIncidents,
+    library: zhCnLibrary,
     season: zhCnSeason,
-    settings: zhCnSettings,
+    settings: {
+      system: { reauthenticatePrompt: "请输入账户密码以确认此敏感操作" },
+    },
     tasks: zhCnTasks,
     player: zhCnPlayer,
     todos: zhCnTodos,
@@ -73,8 +76,14 @@ export const resources = {
     chat: enChat,
     feeds: enFeeds,
     incidents: enIncidents,
+    library: enLibrary,
     season: enSeason,
-    settings: enSettings,
+    settings: {
+      system: {
+        reauthenticatePrompt:
+          "Enter your account password to confirm this sensitive action",
+      },
+    },
     tasks: enTasks,
     player: enPlayer,
     todos: enTodos,
@@ -90,8 +99,14 @@ export const resources = {
     chat: jaChat,
     feeds: jaFeeds,
     incidents: jaIncidents,
+    library: jaLibrary,
     season: jaSeason,
-    settings: jaSettings,
+    settings: {
+      system: {
+        reauthenticatePrompt:
+          "この重要な操作を確認するため、アカウントのパスワードを入力してください",
+      },
+    },
     tasks: jaTasks,
     player: jaPlayer,
     todos: jaTodos,

@@ -118,21 +118,16 @@ internal sealed class HouseholdMigrationPostgreSqlTestFixture(string connectionS
 
         var now = DateTimeOffset.UtcNow;
         var animationInfoId = Guid.Parse("41000000-0000-0000-0000-000000000001");
-        context.AnimationInfo.Add(new Models.AnimationInfo
-        {
-            Id = animationInfoId,
-            Title = "legacy episode",
-            Description = string.Empty,
-            PublishTime = now,
-            DownloadUrl = string.Empty,
-            DownloadType = string.Empty,
-            CachedDownloadData = [],
-            AdditionalDownloadInfo = string.Empty,
-            IsDownloadFinished = true,
-            FileStore = "local",
-            StorePath = "/legacy"
-        });
-        await context.SaveChangesAsync(cancellationToken);
+        await context.Database.ExecuteSqlInterpolatedAsync(
+            $"""
+             INSERT INTO "AnimationInfo"
+                 ("Id", "Title", "Description", "PublishTime", "DownloadUrl", "DownloadType",
+                  "CachedDownloadData", "AdditionalDownloadInfo", "IsDownloadTracked",
+                  "DownloadStartTime", "DownloadEndTime", "IsDownloadFinished", "FileStore", "StorePath",
+                  "IsAiProcessed", "AiRetryCount")
+             VALUES ({animationInfoId}, 'legacy episode', '', {now}, '', '', {Array.Empty<byte>()}, '',
+                     FALSE, {now}, {now}, TRUE, 'local', '/legacy', FALSE, 0);
+             """, cancellationToken);
 
         var progressId = Guid.Parse("42000000-0000-0000-0000-000000000001");
         var conversationId = Guid.Parse("43000000-0000-0000-0000-000000000001");

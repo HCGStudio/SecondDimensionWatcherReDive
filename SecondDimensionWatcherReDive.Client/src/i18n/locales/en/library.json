@@ -1,0 +1,71 @@
+{
+  "eyebrow": "Media intelligence",
+  "title": "Search the whole library",
+  "description": "Find releases across titles, episode metadata, download source, watch state, and virtual paths. Every filter is preserved in the URL.",
+  "queryLabel": "Search titles, aliases, groups, and paths",
+  "queryPlaceholder": "Title, alias, group, TMDB ID, or path…",
+  "search": "Search",
+  "filters": {
+    "title": "Filters ({{count}} active)",
+    "clear": "Clear all",
+    "season": "Season",
+    "episode": "Episode",
+    "subtitleGroup": "Release group",
+    "path": "Virtual path",
+    "resolution": "Resolution",
+    "codec": "Codec",
+    "language": "Language",
+    "downloadState": "Download state",
+    "watchState": "Watch state",
+    "source": "Source",
+    "sort": "Sort"
+  },
+  "values": {
+    "Any": "Any",
+    "NotDownloaded": "Not downloaded",
+    "Downloading": "Downloading",
+    "Downloaded": "Downloaded",
+    "Unwatched": "Unwatched",
+    "InProgress": "In progress",
+    "Watched": "Watched",
+    "Torrent": "Torrent",
+    "MediaLibraryImport": "Media import",
+    "PublishedDescending": "Newest first",
+    "TitleAscending": "Title A–Z",
+    "EpisodeAscending": "Episode order",
+    "ScoreDescending": "Best score"
+  },
+  "results": {
+    "title": "Search results",
+    "pageCount": "{{count}} on this page",
+    "empty": "No releases match these filters",
+    "error": "The library search could not be loaded",
+    "unidentified": "Unidentified",
+    "score": "release score",
+    "morePaths": "+{{count}} more paths",
+    "next": "Next page"
+  },
+  "integrity": {
+    "title": "Completeness and upgrades",
+    "description": "Missing, duplicate, and unidentified episodes plus higher-scoring releases.",
+    "refresh": "Refresh",
+    "season": "Season {{season}} · {{count}} expected",
+    "missing": "Missing",
+    "duplicates": "Duplicates",
+    "unidentified": "Unidentified"
+  },
+  "upgrade": {
+    "episode": "Episode {{episode}} upgrade",
+    "preview": "Dry run",
+    "apply": "Upgrade",
+    "confirm": "Validate and start this upgrade? The old files remain available during the rollback window.",
+    "previewNeedsDownload": "Dry run passed; the candidate must be downloaded",
+    "previewReady": "Dry run passed; candidate files are ready",
+    "failed": "The upgrade could not be started",
+    "outcomes": {
+      "download_queued": "Candidate download queued",
+      "applied": "Upgrade applied",
+      "already_applied": "Upgrade was already applied"
+    }
+  }
+}

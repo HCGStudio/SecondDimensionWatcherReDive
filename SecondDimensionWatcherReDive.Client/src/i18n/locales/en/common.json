@@ -2,6 +2,8 @@
   "appName": "SDW Re:Dive",
   "nav": {
     "home": "Home",
+    "search": "Search",
+    "searchPlaceholder": "Search library…",
     "todo": "To-do center",
     "downloading": "Downloading",
     "downloaded": "Downloaded",

@@ -1,0 +1,16 @@
+[Unit]
+Description=Create a verified SecondDimensionWatcher Re:Dive backup
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=sdw-redive
+Group=sdw-redive
+EnvironmentFile=/etc/sdw-redive/backup.env
+ExecStart=/usr/bin/sdw-backup create
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/sdw-redive/backups

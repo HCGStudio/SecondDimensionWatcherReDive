@@ -161,6 +161,14 @@ namespace SecondDimensionWatcherReDive.Migrations
                     SELECT 1 FROM "Users"
                     WHERE "Id" = '00000000-0000-0000-0000-000000000001');
 
+                UPDATE "ChatPendingActions"
+                SET "UserId" = '00000000-0000-0000-0000-000000000001'
+                WHERE "UserId" = '00000000-0000-0000-0000-000000000000';
+
+                UPDATE "ChatActionAudits"
+                SET "UserId" = '00000000-0000-0000-0000-000000000001'
+                WHERE "UserId" = '00000000-0000-0000-0000-000000000000';
+
                 UPDATE "PlaybackProgresses"
                 SET "UserId" = '00000000-0000-0000-0000-000000000000';
 

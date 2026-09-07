@@ -3,11 +3,9 @@ using SecondDimensionWatcherReDive.Framework.Plugin;
 
 namespace SecondDimensionWatcherReDive.Plugin;
 
-public class PluginServices(IServiceProvider serviceProvider) : IPluginServices
+public class PluginServices : IPluginServices
 {
     private readonly Dictionary<string, object> _events = new();
-
-    public IServiceProvider ServiceProvider => serviceProvider;
 
     public void AddEvent<TParam>(string eventName, PluginEvent<TParam> pluginEvent)
         => _events[eventName] = pluginEvent;

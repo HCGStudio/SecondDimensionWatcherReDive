@@ -39,6 +39,8 @@ public class ChatRepository(ApplicationContext context) : IChatRepository
                 m.Id, m.Role, m.Content, m.ToolCallsJson,
                 m.ToolCallId, m.ToolName, m.Order, m.CreatedAt))
             .ToListAsync(cancellationToken);
+        messages = await OverlayCompletedToolResultsAsync(
+            id, messages, cancellationToken);
 
         return new ChatConversationDetail(
             conversation.Id, conversation.Title,
@@ -128,6 +130,11 @@ public class ChatRepository(ApplicationContext context) : IChatRepository
         conversation.UpdatedAt = DateTimeOffset.Now;
 
         await context.SaveChangesAsync(cancellationToken);
+        if (message.Role == "tool" && message.ToolCallId is not null)
+        {
+            await ReconcileStoredToolResultsAsync(
+                conversationId, [message.ToolCallId], cancellationToken);
+        }
     }
 
     public async Task AddMessagesAsync(
@@ -142,7 +149,8 @@ public class ChatRepository(ApplicationContext context) : IChatRepository
             cancellationToken);
         if (conversation is null) return;
 
-        foreach (var message in messages)
+        var messageList = messages.ToList();
+        foreach (var message in messageList)
         {
             context.ChatMessages.Add(new ChatMessage
             {
@@ -161,6 +169,16 @@ public class ChatRepository(ApplicationContext context) : IChatRepository
         conversation.UpdatedAt = DateTimeOffset.Now;
 
         await context.SaveChangesAsync(cancellationToken);
+        var toolCallIds = messageList
+            .Where(message => message.Role == "tool" && message.ToolCallId is not null)
+            .Select(message => message.ToolCallId!)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        if (toolCallIds.Length > 0)
+        {
+            await ReconcileStoredToolResultsAsync(
+                conversationId, toolCallIds, cancellationToken);
+        }
     }
 
     public async Task<IReadOnlyList<ChatMessageRecord>> GetMessagesAsync(
@@ -168,7 +186,7 @@ public class ChatRepository(ApplicationContext context) : IChatRepository
         Guid profileId,
         CancellationToken cancellationToken)
     {
-        return await context.ChatMessages
+        var messages = await context.ChatMessages
             .AsNoTracking()
             .Where(m => m.ConversationId == conversationId
                         && m.Conversation.ProfileId == profileId)
@@ -177,6 +195,8 @@ public class ChatRepository(ApplicationContext context) : IChatRepository
                 m.Id, m.Role, m.Content, m.ToolCallsJson,
                 m.ToolCallId, m.ToolName, m.Order, m.CreatedAt))
             .ToListAsync(cancellationToken);
+        return await OverlayCompletedToolResultsAsync(
+            conversationId, messages, cancellationToken);
     }
 
     public async Task<int> GetMessageCountAsync(
@@ -189,5 +209,75 @@ public class ChatRepository(ApplicationContext context) : IChatRepository
                 m => m.ConversationId == conversationId
                      && m.Conversation.ProfileId == profileId,
                 cancellationToken);
+    }
+
+    private async Task<List<ChatMessageRecord>> OverlayCompletedToolResultsAsync(
+        Guid conversationId,
+        List<ChatMessageRecord> messages,
+        CancellationToken cancellationToken)
+    {
+        var toolCallIds = messages
+            .Where(message => message.Role == "tool" && message.ToolCallId is not null)
+            .Select(message => message.ToolCallId!)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        if (toolCallIds.Length == 0)
+            return messages;
+
+        var completedResults = await GetCompletedToolResultsAsync(
+            conversationId, toolCallIds, cancellationToken);
+        if (completedResults.Count == 0)
+            return messages;
+
+        return messages.Select(message =>
+            message.Role == "tool"
+            && message.ToolCallId is not null
+            && completedResults.TryGetValue(message.ToolCallId, out var result)
+                ? message with { Content = result }
+                : message).ToList();
+    }
+
+    private async Task ReconcileStoredToolResultsAsync(
+        Guid conversationId,
+        IReadOnlyCollection<string> toolCallIds,
+        CancellationToken cancellationToken)
+    {
+        var completedResults = await GetCompletedToolResultsAsync(
+            conversationId, toolCallIds, cancellationToken);
+        foreach (var (toolCallId, result) in completedResults)
+        {
+            await context.ChatMessages
+                .Where(message =>
+                    message.ConversationId == conversationId
+                    && message.Role == "tool"
+                    && message.ToolCallId == toolCallId
+                    && message.Content != result)
+                .ExecuteUpdateAsync(
+                    setters => setters.SetProperty(message => message.Content, result),
+                    cancellationToken);
+        }
+    }
+
+    private async Task<Dictionary<string, string>> GetCompletedToolResultsAsync(
+        Guid conversationId,
+        IReadOnlyCollection<string> toolCallIds,
+        CancellationToken cancellationToken)
+    {
+        var results = await context.ChatPendingActions
+            .AsNoTracking()
+            .Where(action =>
+                action.ConversationId == conversationId
+                && toolCallIds.Contains(action.ToolCallId)
+                && action.ToolResultJson != null)
+            .OrderByDescending(action => action.CompletedAt)
+            .Select(action => new { action.ToolCallId, action.ToolResultJson })
+            .ToListAsync(cancellationToken);
+
+        return results
+            .GroupBy(result => result.ToolCallId, StringComparer.Ordinal)
+            .ToDictionary(
+                group => group.Key,
+                group => group.First().ToolResultJson!,
+                StringComparer.Ordinal);
     }
 }

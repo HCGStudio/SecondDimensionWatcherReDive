@@ -1,5 +1,6 @@
 using System.Net.ServerSentEvents;
 using System.Runtime.CompilerServices;
+using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Channels;
@@ -26,6 +27,9 @@ namespace SecondDimensionWatcherReDive.Chat;
 [EnableRateLimiting("ai")]
 internal sealed partial class ChatController(
     IChatRepository chatRepository,
+    IChatActionRepository chatActionRepository,
+    IChatActionService chatActionService,
+    IChatRawToolExecutorFactory toolExecutorFactory,
     IServiceScopeFactory scopeFactory,
     IServiceProvider serviceProvider,
     ILogger<ChatController> logger) : ControllerBase
@@ -79,9 +83,10 @@ internal sealed partial class ChatController(
     [HttpGet("conversations/{id:guid}")]
     public async Task<IActionResult> GetConversation(Guid id, CancellationToken cancellationToken)
     {
-        if (!User.TryGetProfileId(out var profileId)) return Unauthorized();
-        var detail = await chatRepository.GetConversationWithMessagesAsync(
-            id, profileId, cancellationToken);
+        if (!User.TryGetProfileId(out var profileId) || !TryGetUserId(out var userId)) return Unauthorized();
+        var detail = await chatRepository.GetConversationWithMessagesAsync(id, profileId, cancellationToken);
+        if (detail is not null)
+            await chatActionService.GetForConversationAsync(id, userId, cancellationToken);
         if (detail is null)
         {
             LogConversationNotFound(id);
@@ -130,6 +135,134 @@ internal sealed partial class ChatController(
         return Ok();
     }
 
+    [HttpGet("conversations/{conversationId:guid}/actions")]
+    public async Task<IActionResult> GetActions(
+        Guid conversationId,
+        CancellationToken cancellationToken)
+    {
+        if (!TryGetUserId(out var userId) || !User.TryGetProfileId(out var profileId)) return Unauthorized();
+        if (await chatRepository.GetConversationWithMessagesAsync(conversationId, profileId, cancellationToken) is null)
+            return NotFound();
+
+        var actions = await chatActionService.GetForConversationAsync(
+            conversationId, userId, cancellationToken);
+        return Ok(actions.Select(action => ToResponse(action)).ToArray());
+    }
+
+    [HttpGet("conversations/{conversationId:guid}/actions/{actionId:guid}")]
+    public async Task<IActionResult> GetAction(
+        Guid conversationId,
+        Guid actionId,
+        CancellationToken cancellationToken)
+    {
+        if (!TryGetUserId(out var userId) || !User.TryGetProfileId(out var profileId)) return Unauthorized();
+        if (await chatRepository.GetConversationWithMessagesAsync(conversationId, profileId, cancellationToken) is null)
+            return NotFound();
+        var action = await chatActionService.GetAsync(
+            actionId, conversationId, userId, cancellationToken);
+        return action is null ? NotFound() : Ok(ToResponse(action));
+    }
+
+    [HttpPost("conversations/{conversationId:guid}/actions/{actionId:guid}/approve")]
+    [Authorize(Policy = AccessPolicies.ChatWrite)]
+    public async Task<IActionResult> ApproveAction(
+        Guid conversationId,
+        Guid actionId,
+        [FromBody] ApproveChatActionRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!TryGetUserId(out var userId) || !User.TryGetProfileId(out var profileId)) return Unauthorized();
+        if (await chatRepository.GetConversationWithMessagesAsync(conversationId, profileId, cancellationToken) is null)
+            return NotFound();
+        if (string.IsNullOrWhiteSpace(request.ApprovalToken)
+            || string.IsNullOrWhiteSpace(request.ParameterHash))
+            return BadRequest();
+
+        var result = await chatActionService.ApproveAsync(
+            actionId,
+            conversationId,
+            userId,
+            request.ApprovalToken,
+            request.ParameterHash,
+            request.ConfirmDestructive,
+            cancellationToken);
+        var response = new ChatActionDecisionResponse(
+            result.Outcome.ToString(),
+            result.Action is null
+                ? null
+                : ToResponse(result.Action, result.ToolResult?.GetRawText()));
+        return result.Outcome switch
+        {
+            ChatActionClaimOutcome.Claimed => Ok(response),
+            ChatActionClaimOutcome.NotFound or ChatActionClaimOutcome.ConversationMissing => NotFound(response),
+            ChatActionClaimOutcome.Expired => StatusCode(StatusCodes.Status410Gone, response),
+            ChatActionClaimOutcome.ConfirmationRequired or ChatActionClaimOutcome.AlreadyProcessed =>
+                Conflict(response),
+            ChatActionClaimOutcome.InvalidToken or ChatActionClaimOutcome.ParameterMismatch =>
+                StatusCode(StatusCodes.Status403Forbidden, response),
+            _ => BadRequest(response)
+        };
+    }
+
+    [HttpPost("conversations/{conversationId:guid}/actions/{actionId:guid}/reject")]
+    [Authorize(Policy = AccessPolicies.ChatWrite)]
+    public async Task<IActionResult> RejectAction(
+        Guid conversationId,
+        Guid actionId,
+        [FromBody] RejectChatActionRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!TryGetUserId(out var userId) || !User.TryGetProfileId(out var profileId)) return Unauthorized();
+        if (await chatRepository.GetConversationWithMessagesAsync(conversationId, profileId, cancellationToken) is null)
+            return NotFound();
+        if (string.IsNullOrWhiteSpace(request.ApprovalToken)
+            || string.IsNullOrWhiteSpace(request.ParameterHash))
+            return BadRequest();
+
+        var outcome = await chatActionService.RejectAsync(
+            actionId,
+            conversationId,
+            userId,
+            request.ApprovalToken,
+            request.ParameterHash,
+            cancellationToken);
+        return outcome switch
+        {
+            ChatActionRejectOutcome.Rejected => Ok(new { outcome = outcome.ToString() }),
+            ChatActionRejectOutcome.NotFound or ChatActionRejectOutcome.ConversationMissing => NotFound(),
+            ChatActionRejectOutcome.Expired => StatusCode(StatusCodes.Status410Gone),
+            ChatActionRejectOutcome.AlreadyProcessed => Conflict(),
+            ChatActionRejectOutcome.InvalidToken or ChatActionRejectOutcome.ParameterMismatch =>
+                StatusCode(StatusCodes.Status403Forbidden),
+            _ => BadRequest()
+        };
+    }
+
+    [HttpGet("conversations/{conversationId:guid}/action-audit")]
+    public async Task<IActionResult> GetActionAudit(
+        Guid conversationId,
+        CancellationToken cancellationToken)
+    {
+        if (!TryGetUserId(out var userId) || !User.TryGetProfileId(out var profileId)) return Unauthorized();
+        if (await chatRepository.GetConversationWithMessagesAsync(conversationId, profileId, cancellationToken) is null)
+            return NotFound();
+        await chatActionService.GetForConversationAsync(
+            conversationId, userId, cancellationToken);
+        var entries = await chatActionRepository.GetAuditAsync(
+            conversationId, userId, cancellationToken);
+        return Ok(entries.Select(entry => new ChatActionAuditResponse(
+            entry.Id,
+            entry.ActionId,
+            entry.ConversationId,
+            entry.ToolName,
+            entry.RiskLevel.ToString(),
+            entry.Event.ToString(),
+            entry.ParameterHash,
+            entry.ParameterSummary,
+            entry.Detail,
+            entry.CreatedAt)).ToArray());
+    }
+
     [HttpPost("conversations/{id:guid}/messages")]
     [Authorize(Policy = AccessPolicies.ChatWrite)]
     public async Task<IResult> SendMessage(
@@ -137,15 +270,16 @@ internal sealed partial class ChatController(
         [FromBody] SendMessageRequest request,
         CancellationToken cancellationToken)
     {
-        if (!User.TryGetProfileId(out var profileId))
+        if (!User.TryGetProfileId(out var profileId) || !TryGetUserId(out var userId))
             return TypedResults.Unauthorized();
         var aiEngine = serviceProvider.GetService<IAIEngine>();
         var status = serviceProvider.GetService<IAIEngineStatus>();
         if (aiEngine is null || status is { IsConfigured: false })
             return TypedResults.StatusCode(503);
 
-        var conversation = await chatRepository.GetConversationWithMessagesAsync(
-            id, profileId, cancellationToken);
+        var conversation = await chatRepository.GetConversationWithMessagesAsync(id, profileId, cancellationToken);
+        if (conversation is not null)
+            await chatActionService.GetForConversationAsync(id, userId, cancellationToken);
         if (conversation is null)
         {
             LogConversationNotFound(id);
@@ -175,21 +309,12 @@ internal sealed partial class ChatController(
         var messages = BuildMessagesFromHistory(conversation.Messages, request.Content);
         LogHistoryBuilt(id, messages.Count);
 
-        IToolExecutorBuilder toolBuilder = new ToolExecutorBuilder(serviceProvider)
-            .AddTool<QueryAnimationsTool>()
-            .AddTool<QuerySeasonTool>()
-            .AddTool<QueryFilesTool>();
-        if (User.IsInRole(nameof(UserRole.Admin))
-            || User.IsInRole(nameof(UserRole.Member)))
-        {
-            toolBuilder = toolBuilder
-                .AddTool<ManageFeedsTool>()
-                .AddTool<SubscribeBangumiTool>()
-                .AddTool<ManageDownloadsTool>();
-        }
-        if (User.IsInRole(nameof(UserRole.Admin)))
-            toolBuilder = toolBuilder.AddTool<ManageTasksTool>();
-        var toolExecutor = toolBuilder.Build();
+        var toolExecutor = new ApprovalToolExecutor(
+            toolExecutorFactory.Create(),
+            serviceProvider.GetRequiredService<IChatToolActionPlanner>(),
+            chatActionService,
+            id,
+            userId);
 
         var chatOptions = new ChatOptions
         {
@@ -203,10 +328,11 @@ internal sealed partial class ChatController(
         return TypedResults.ServerSentEvents(
             StreamChatEvents(aiEngine, messages, chatOptions, id, profileId, messageOrder,
                 request.Content, !hadPriorAssistant && titleEligible, request.Model,
+                userId,
                 cancellationToken));
     }
 
-    private async IAsyncEnumerable<SseItem<string>> StreamChatEvents(
+    internal async IAsyncEnumerable<SseItem<string>> StreamChatEvents(
         IAIEngine aiEngine,
         List<IMessage> messages,
         ChatOptions chatOptions,
@@ -216,9 +342,18 @@ internal sealed partial class ChatController(
         string firstUserMessage,
         bool autoTitleEligible,
         string? model,
+        Guid userId,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        var channel = Channel.CreateUnbounded<SseItem<string>>();
+        var channel = Channel.CreateBounded<SseItem<string>>(
+            new BoundedChannelOptions(256)
+            {
+                SingleReader = true,
+                SingleWriter = true,
+                FullMode = BoundedChannelFullMode.Wait
+            });
+        using var producerCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken);
 
         // Producer: runs AI chat streaming in background, writes SSE items to channel.
         // Keep the task and await it during iterator disposal so a disconnected request cannot
@@ -226,7 +361,8 @@ internal sealed partial class ChatController(
         var producer = ProduceChatEventsAsync(
             aiEngine, messages, chatOptions, conversationId, profileId, messageOrder,
             firstUserMessage, autoTitleEligible, model,
-            channel.Writer, cancellationToken);
+            userId,
+            channel.Writer, producerCancellation.Token);
 
         try
         {
@@ -236,13 +372,15 @@ internal sealed partial class ChatController(
         }
         finally
         {
-            // Do not use the canceled request token here. The producer receives it directly,
-            // performs bounded engine cleanup, and persists accumulated messages before returning.
+            // The reader can be disposed independently of RequestAborted (for example when
+            // response-body I/O fails). Explicitly stop the producer, then let it persist
+            // accumulated messages before this request scope is released.
+            await producerCancellation.CancelAsync();
             await producer;
         }
     }
 
-    private async Task ProduceChatEventsAsync(
+    internal async Task ProduceChatEventsAsync(
         IAIEngine aiEngine,
         List<IMessage> messages,
         ChatOptions chatOptions,
@@ -252,6 +390,7 @@ internal sealed partial class ChatController(
         string firstUserMessage,
         bool autoTitleEligible,
         string? model,
+        Guid userId,
         ChannelWriter<SseItem<string>> writer,
         CancellationToken cancellationToken)
     {
@@ -330,6 +469,33 @@ internal sealed partial class ChatController(
                             toolResult.ToolCallId, toolName,
                             0, DateTimeOffset.Now)); // Order assigned during flush
                         hasToolResults = true;
+                        if (TryGetApprovalAction(
+                                toolResult.Result, out var actionId, out var parameterHash))
+                        {
+                            // Persist only a stable approval reference for mutating calls. The exact
+                            // parameters live encrypted in ChatPendingActions and must not be copied
+                            // into ordinary chat history or its query surface.
+                            if (tcBuilder.Args is { } persistedArguments)
+                            {
+                                persistedArguments.Clear();
+                                persistedArguments.Append(
+                                    $$"""{"pending_action_id":"{{actionId}}","parameter_hash":"{{parameterHash}}"}""");
+                            }
+                            var action = await chatActionService.GetAsync(
+                                actionId, conversationId, userId, CancellationToken.None);
+                            if (action is not null)
+                            {
+                                await WriteToolAuditEventAsync(writer,
+                                    new SseItem<string>(
+                                        JsonSerializer.Serialize(
+                                            new SseApprovalRequired(
+                                                toolResult.ToolCallId,
+                                                ToResponse(action)),
+                                            ChatJsonSerializerContext.Default.SseApprovalRequired),
+                                        "approval_required"),
+                                    cancellationToken);
+                            }
+                        }
                         await WriteToolAuditEventAsync(writer,
                             new SseItem<string>(
                                 JsonSerializer.Serialize(new SseToolResult(toolResult.ToolCallId, toolName ?? "", resultText),
@@ -357,12 +523,14 @@ internal sealed partial class ChatController(
         catch (Exception ex)
         {
             LogStreamingError(ex, conversationId);
-            await writer.WriteAsync(
+            // A disconnected/failed reader may leave this bounded channel full.
+            // Terminal error delivery is best-effort so persistence and request
+            // scope disposal can never wait forever for a reader that is gone.
+            writer.TryWrite(
                 new SseItem<string>(
                     JsonSerializer.Serialize(new SseError(ex.Message),
                         ChatJsonSerializerContext.Default.SseError),
-                    "error"),
-                CancellationToken.None);
+                    "error"));
         }
 
         // Save all accumulated segments to DB
@@ -500,29 +668,29 @@ internal sealed partial class ChatController(
                     break;
 
                 case "assistant":
-                {
-                    IReadOnlyList<ToolCall>? toolCalls = null;
-                    if (msg.ToolCallsJson is not null)
                     {
-                        try
+                        IReadOnlyList<ToolCall>? toolCalls = null;
+                        if (msg.ToolCallsJson is not null)
                         {
-                            using var doc = JsonDocument.Parse(msg.ToolCallsJson);
-                            toolCalls = doc.RootElement.EnumerateArray()
-                                .Select(tc => new ToolCall(
-                                    tc.GetProperty("id").GetString() ?? "",
-                                    tc.GetProperty("name").GetString() ?? "",
-                                    tc.GetProperty("arguments").GetString() ?? ""))
-                                .ToList();
+                            try
+                            {
+                                using var doc = JsonDocument.Parse(msg.ToolCallsJson);
+                                toolCalls = doc.RootElement.EnumerateArray()
+                                    .Select(tc => new ToolCall(
+                                        tc.GetProperty("id").GetString() ?? "",
+                                        tc.GetProperty("name").GetString() ?? "",
+                                        tc.GetProperty("arguments").GetString() ?? ""))
+                                    .ToList();
+                            }
+                            catch
+                            {
+                                // Skip malformed tool calls
+                            }
                         }
-                        catch
-                        {
-                            // Skip malformed tool calls
-                        }
-                    }
 
-                    messages.Add(new AssistantMessage(msg.Content, toolCalls));
-                    break;
-                }
+                        messages.Add(new AssistantMessage(msg.Content, toolCalls));
+                        break;
+                    }
 
                 case "tool":
                     if (msg.ToolCallId is not null)
@@ -534,6 +702,50 @@ internal sealed partial class ChatController(
         messages.Add(new UserMessage(newUserMessage));
         return messages;
     }
+
+    private bool TryGetUserId(out Guid userId) => User.TryGetUserId(out userId);
+
+    private static bool TryGetApprovalAction(
+        JsonElement result,
+        out Guid actionId,
+        out string parameterHash)
+    {
+        actionId = default;
+        parameterHash = string.Empty;
+        return result.ValueKind == JsonValueKind.Object
+               && result.TryGetProperty("result", out var payload)
+               && payload.ValueKind == JsonValueKind.Object
+               && payload.TryGetProperty("approval_required", out var approvalRequired)
+               && approvalRequired.ValueKind == JsonValueKind.True
+               && payload.TryGetProperty("action_id", out var actionIdElement)
+               && actionIdElement.ValueKind == JsonValueKind.String
+               && Guid.TryParse(actionIdElement.GetString(), out actionId)
+               && payload.TryGetProperty("parameter_hash", out var parameterHashElement)
+               && parameterHashElement.ValueKind == JsonValueKind.String
+               && (parameterHash = parameterHashElement.GetString() ?? string.Empty).Length == 64;
+    }
+
+    private static ChatActionResponse ToResponse(
+        ChatActionDetails action,
+        string? toolResult = null) => new(
+        action.Id,
+        action.ConversationId,
+        action.ToolCallId,
+        action.ToolName,
+        action.RiskLevel.ToString(),
+        action.State.ToString(),
+        action.ParameterHash,
+        action.ParameterSummary,
+        action.ImpactSummary,
+        action.IsReversible,
+        action.CreatedAt,
+        action.ExpiresAt,
+        action.DecidedAt,
+        action.CompletedAt,
+        action.ResultSummary,
+        action.ErrorSummary,
+        action.ApprovalToken,
+        toolResult ?? action.ToolResultJson);
 
     // --- LoggerMessage definitions ---
 

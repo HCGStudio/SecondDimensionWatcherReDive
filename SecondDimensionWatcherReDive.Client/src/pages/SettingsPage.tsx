@@ -11,6 +11,7 @@ import { DownloadSettingsSection } from "../components/settings/DownloadSettings
 import { HealthSettingsSection } from "../components/settings/HealthSettingsSection";
 import { MediaSettingsSection } from "../components/settings/MediaSettingsSection";
 import { NotificationSettingsSection } from "../components/settings/NotificationSettingsSection";
+import { PluginSettingsSection } from "../components/settings/PluginSettingsSection";
 import {
   SettingsNavigation,
   SettingsSectionId,
@@ -20,6 +21,7 @@ import { Button } from "../components/ui/Button";
 import { EmptyPrompt } from "../components/ui/EmptyPrompt";
 import { Spinner } from "../components/ui/Spinner";
 import { ApiError, apiErrorStatus } from "../errors/apiError";
+import "../i18n/settingsResources";
 import { useSystemSettings } from "../settings/hooks";
 import { updateSystemSettings } from "../settings/systemApi";
 import { SystemSettings, SystemSettingsPatch } from "../settings/systemTypes";
@@ -171,6 +173,8 @@ const ActiveSection: React.FC<ActiveSectionProps> = ({
       );
     case "access":
       return <AccessSettingsSection value={settings.nfs} onSave={onSave} />;
+    case "plugins":
+      return <PluginSettingsSection />;
     case "notifications":
       return (
         <NotificationSettingsSection

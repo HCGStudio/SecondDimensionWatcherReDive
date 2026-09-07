@@ -1,10 +1,84 @@
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Framework.FileDownload;
+using SecondDimensionWatcherReDive.Framework.Plugin;
 
 namespace SecondDimensionWatcherReDive.Controllers;
 
 internal static class Converter
 {
+    public static External.PluginCapabilities ToExternal(this PluginCapabilities capabilities) =>
+        new(capabilities.NetworkDomains,
+            capabilities.FileRoots,
+            capabilities.Notifications,
+            capabilities.DownloadControl,
+            capabilities.StorageAccess,
+            capabilities.BackgroundTasks);
+
+    public static PluginCapabilities ToDomain(this External.PluginCapabilities capabilities) =>
+        new()
+        {
+            NetworkDomains = capabilities.NetworkDomains,
+            FileRoots = capabilities.FileRoots,
+            Notifications = capabilities.Notifications,
+            DownloadControl = capabilities.DownloadControl,
+            StorageAccess = capabilities.StorageAccess,
+            BackgroundTasks = capabilities.BackgroundTasks
+        };
+
+    public static External.PluginManifest ToExternal(this PluginManifest manifest) =>
+        new(manifest.Id,
+            manifest.Name,
+            manifest.Version,
+            manifest.ApiVersion,
+            manifest.EntryPoint,
+            manifest.Description,
+            manifest.Dependencies.Select(dependency =>
+                new External.PluginDependency(dependency.Id, dependency.MinimumVersion)).ToArray(),
+            manifest.Capabilities.ToExternal(),
+            manifest.Platforms,
+            manifest.Integrity?.Files ?? new Dictionary<string, string>(),
+            manifest.Signature?.Publisher,
+            manifest.Signature?.Algorithm,
+            manifest.Providers.Select(provider => new External.PluginProvider(
+                provider.Kind,
+                provider.Name,
+                provider.Handlers)).ToArray(),
+            manifest.DataVersion,
+            manifest.DataMigration is null
+                ? null
+                : new External.PluginDataMigration(
+                    manifest.DataMigration.Strategy,
+                    manifest.DataMigration.Description));
+
+    public static External.PluginHealth ToExternal(this PluginHealth health) =>
+        new(health.Status,
+            health.ConsecutiveFailures,
+            health.LastSuccessAt,
+            health.LastFailureAt,
+            health.LastError,
+            health.CircuitOpenUntil);
+
+    public static External.InstalledPlugin ToExternal(this InstalledPlugin plugin) =>
+        new(plugin.Manifest.ToExternal(),
+            plugin.IsEnabled,
+            plugin.ApprovedCapabilities.ToExternal(),
+            plugin.CompatibilityErrors,
+            plugin.Health.ToExternal(),
+            plugin.Configuration.ValueKind == System.Text.Json.JsonValueKind.Object &&
+            plugin.Configuration.EnumerateObject().Any());
+
+    public static External.PluginPackagePreview ToExternal(this PluginPackagePreview preview) =>
+        new(preview.Token,
+            preview.PackageSha256,
+            preview.Manifest.ToExternal(),
+            preview.CompatibilityErrors,
+            preview.IsSignatureTrusted,
+            preview.SignatureStatus,
+            preview.ExpiresAt);
+
+    public static External.PluginInstallResult ToExternal(this PluginInstallResult result) =>
+        new(result.Id, result.Version, result.IsUpgrade, result.CompatibilityErrors);
+
     public static External.AnimationInfo ToExternal(this AnimationInfo record) =>
         new(record.Id,
             record.Title,
@@ -84,7 +158,10 @@ internal static class Converter
             record.ExcludedKeywords,
             record.Mode.ToString(),
             record.CreatedAt,
-            record.UpdatedAt);
+            record.UpdatedAt,
+            record.EnableVersionUpgrade,
+            record.MinimumUpgradeScore,
+            record.UpgradeRollbackHours);
 
     public static External.SubscriptionAutomationSimulationResult ToExternal(
         this Framework.Feed.SubscriptionAutomationSimulationResult result) =>
@@ -103,6 +180,85 @@ internal static class Converter
                         explanation.Actual,
                         explanation.Expected,
                         explanation.Message)).ToList())).ToList());
+
+    public static External.LibrarySearchItemResponse ToExternal(this LibrarySearchItem item) =>
+        new(item.AnimationInfoId,
+            item.Title,
+            item.AnimationName,
+            item.AnimationOriginalName,
+            item.TmdbId,
+            item.Season,
+            item.Episode,
+            item.SubtitleGroup,
+            item.Resolution,
+            item.Codec,
+            item.Languages,
+            item.IsDownloadTracked,
+            item.IsDownloadFinished,
+            item.IsMediaLibraryImport,
+            item.IsWatched,
+            item.PlaybackPositionSeconds,
+            item.VirtualPaths,
+            item.VirtualPathCount,
+            item.ReleaseScore,
+            item.ScoreReasons,
+            item.PublishedAt);
+
+    public static External.LibrarySearchResponse ToExternal(this LibrarySearchResult result) =>
+        new(result.Items.Select(item => item.ToExternal()).ToList(), result.NextCursor);
+
+    public static External.ReleaseUpgradeCandidateResponse ToExternal(
+        this ReleaseUpgradeCandidate candidate) =>
+        new(candidate.CurrentReleaseId,
+            candidate.CandidateReleaseId,
+            candidate.AnimationName,
+            candidate.Season,
+            candidate.Episode,
+            candidate.CurrentScore,
+            candidate.CandidateScore,
+            candidate.ScoreReasons,
+            candidate.Automatic);
+
+    public static External.LibraryIntegritySummaryResponse ToExternal(
+        this LibraryIntegritySummary summary) =>
+        new(summary.TmdbId,
+            summary.AnimationName,
+            summary.Season,
+            summary.ExpectedEpisodeCount,
+            summary.MissingEpisodes,
+            summary.DuplicateEpisodes.Select(duplicate => new External.EpisodeDuplicateResponse(
+                duplicate.Episode,
+                duplicate.ReleaseIds)).ToList(),
+            summary.UnidentifiedReleaseCount,
+            summary.UpgradeCandidates.Select(candidate => candidate.ToExternal()).ToList());
+
+    public static External.ReleaseUpgradeOperationResponse ToExternal(
+        this ReleaseUpgradeOperation operation) =>
+        new(operation.Id,
+            operation.CurrentReleaseId,
+            operation.CandidateReleaseId,
+            operation.Status.ToString(),
+            operation.CurrentScore,
+            operation.CandidateScore,
+            operation.CreatedAt,
+            operation.VerifiedAt,
+            operation.AppliedAt,
+            operation.RollbackUntil,
+            operation.CompletedAt,
+            operation.FailureSummary);
+
+    public static External.ReleaseUpgradeMutationResponse ToExternal(
+        this ReleaseUpgradeMutationResult result) =>
+        new(result.IsSuccess, result.Outcome, result.Operation?.ToExternal());
+
+    public static External.ReleaseUpgradeExecutionResponse ToExternal(
+        this Utils.ReleaseUpgrades.ReleaseUpgradeExecutionResult result) =>
+        new(result.IsSuccess,
+            result.Outcome,
+            result.DryRun,
+            result.RequiresDownload,
+            result.Operation?.ToExternal(),
+            result.ValidationErrors);
 
     public static External.WebDavTokenSummary ToExternal(this WebDavToken record) =>
         new(record.Id,

@@ -19,6 +19,7 @@ import {
   loadMainPage,
   loadMetadataReviewPage,
   loadPlayerPage,
+  loadSearchPage,
   loadSettingsPage,
   loadTasksPage,
   loadTodoPage,
@@ -59,6 +60,9 @@ const MetadataReviewPage = React.lazy(async () => ({
 }));
 const PlayerPage = React.lazy(async () => ({
   default: (await loadPlayerPage()).PlayerPage,
+}));
+const SearchPage = React.lazy(async () => ({
+  default: (await loadSearchPage()).SearchPage,
 }));
 const SettingsPage = React.lazy(async () => ({
   default: (await loadSettingsPage()).SettingsPage,
@@ -121,6 +125,15 @@ const router = createBrowserRouter([
     element: (
       <ProtectedRoute>
         <FilesPage />
+      </ProtectedRoute>
+    ),
+    errorElement: <ErrorPage />,
+  },
+  {
+    path: "/search",
+    element: (
+      <ProtectedRoute>
+        <SearchPage />
       </ProtectedRoute>
     ),
     errorElement: <ErrorPage />,

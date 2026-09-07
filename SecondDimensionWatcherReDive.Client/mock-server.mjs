@@ -437,6 +437,7 @@ function initAnimations() {
           }
         : null,
       isAiProcessed: !!entry.animeName,
+      isMediaLibraryImport: i === 2,
     });
   });
 }
@@ -756,6 +757,9 @@ const subscriptionPolicies = new Map([
       maxSizeBytes: 1600 * 1024 * 1024,
       excludedKeywords: ["合集", "NCOP"],
       mode: "ManualConfirm",
+      enableVersionUpgrade: true,
+      minimumUpgradeScore: 80,
+      upgradeRollbackHours: 72,
       createdAt: POLICY_CREATED_AT,
       updatedAt: new Date(Date.now() - 3600_000 * 8).toISOString(),
     },
@@ -772,6 +776,9 @@ const subscriptionPolicies = new Map([
       maxSizeBytes: 1400 * 1024 * 1024,
       excludedKeywords: ["预告"],
       mode: "AutoDownload",
+      enableVersionUpgrade: false,
+      minimumUpgradeScore: 25,
+      upgradeRollbackHours: 72,
       createdAt: POLICY_CREATED_AT,
       updatedAt: new Date(Date.now() - 3600_000 * 3).toISOString(),
     },
@@ -1141,6 +1148,60 @@ let systemSettings = {
     webhookUrl: { isConfigured: false, source: "none" },
   },
 };
+
+const mockPluginManifest = {
+  id: "example.webhook",
+  name: "Webhook notifications",
+  version: "1.0.0",
+  apiVersion: "1.0",
+  entryPoint: "index.js",
+  description: "Mock notification provider for the controlled plugin UI.",
+  dependencies: [],
+  capabilities: {
+    networkDomains: ["hooks.example.com"],
+    fileRoots: [],
+    notifications: true,
+    downloadControl: false,
+    storageAccess: false,
+    backgroundTasks: false,
+  },
+  platforms: ["any"],
+  fileSha256: {
+    "index.js":
+      "cb04e27dacbadf8de122b491b2c2d32cb553564fcc9c390a3ab4d922a2cd0e1b",
+  },
+  signaturePublisher: null,
+  signatureAlgorithm: null,
+  providers: [
+    {
+      kind: "notification",
+      name: "webhook",
+      handlers: { send: "sendNotification" },
+    },
+  ],
+  dataVersion: 1,
+  dataMigration: null,
+};
+
+let mockPlugins = [];
+
+function mockInstalledPlugin(manifest = mockPluginManifest) {
+  return {
+    manifest,
+    isEnabled: false,
+    approvedCapabilities: manifest.capabilities,
+    compatibilityErrors: [],
+    health: {
+      status: "healthy",
+      consecutiveFailures: 0,
+      lastSuccessAt: null,
+      lastFailureAt: null,
+      lastError: null,
+      circuitOpenUntil: null,
+    },
+    hasConfiguration: false,
+  };
+}
 
 const deploymentSecrets = {
   openAi: { isConfigured: true, source: "deployment" },
@@ -1687,7 +1748,14 @@ async function route(method, pathname, searchParams, req, res) {
   }
 
   // --- All remaining endpoints require auth ---
-  if (!hasAuth(req) && !pathname.startsWith("/api/auth/")) {
+  const publicTranscodingSession =
+    (method === "GET" || method === "DELETE") &&
+    pathname.startsWith("/api/transcoding/sessions/");
+  if (
+    !hasAuth(req) &&
+    !pathname.startsWith("/api/auth/") &&
+    !publicTranscodingSession
+  ) {
     return empty(res, 401);
   }
 
@@ -1896,6 +1964,79 @@ async function route(method, pathname, searchParams, req, res) {
       return json(res, systemSettings);
     } catch (error) {
       return json(res, { error: error.message }, 400);
+    }
+  }
+
+  // --- Controlled plugins ---
+
+  if (method === "GET" && pathname === "/api/plugins") {
+    return json(res, mockPlugins);
+  }
+
+  if (method === "POST" && pathname === "/api/plugins/preview") {
+    await readBody(req);
+    return json(res, {
+      token: randomBytes(24).toString("hex"),
+      packageSha256:
+        "7d9fc7ef8ef86ffa9c4965f05b3e715b5f4ef872af326ed8bc4761a0003f71d3",
+      manifest: mockPluginManifest,
+      compatibilityErrors: [],
+      isSignatureTrusted: false,
+      signatureStatus: "Package is unsigned (mock development mode).",
+      expiresAt: new Date(Date.now() + 30 * 60_000).toISOString(),
+    });
+  }
+
+  if (method === "POST" && pathname === "/api/plugins/preview-remote") {
+    return json(
+      res,
+      {
+        code: "remote_install_disabled",
+        message: "Remote JavaScript installation is disabled.",
+      },
+      403,
+    );
+  }
+
+  if (
+    method === "POST" &&
+    (pathname === "/api/plugins/install" ||
+      /^\/api\/plugins\/[^/]+\/upgrade$/.test(pathname))
+  ) {
+    await readBody(req);
+    mockPlugins = [
+      ...mockPlugins.filter(
+        (plugin) => plugin.manifest.id !== mockPluginManifest.id,
+      ),
+      mockInstalledPlugin(),
+    ];
+    return json(res, {
+      id: mockPluginManifest.id,
+      version: mockPluginManifest.version,
+      isUpgrade: pathname.endsWith("/upgrade"),
+      compatibilityErrors: [],
+    });
+  }
+
+  {
+    const match = pathname.match(/^\/api\/plugins\/([^/]+)\/(enable|disable)$/);
+    if (match && method === "POST") {
+      const plugin = mockPlugins.find(
+        (candidate) => candidate.manifest.id === decodeURIComponent(match[1]),
+      );
+      if (!plugin) return json(res, { code: "plugin_not_found" }, 404);
+      plugin.isEnabled = match[2] === "enable";
+      return empty(res);
+    }
+  }
+
+  {
+    const match = pathname.match(/^\/api\/plugins\/([^/]+)$/);
+    if (match && method === "DELETE") {
+      mockPlugins = mockPlugins.filter(
+        (plugin) => plugin.manifest.id !== decodeURIComponent(match[1]),
+      );
+      return empty(res);
     }
   }
 
@@ -2564,6 +2705,166 @@ async function route(method, pathname, searchParams, req, res) {
 
   // --- Animation Info ---
 
+  if (method === "GET" && pathname === "/api/library/search") {
+    const q = (searchParams.get("q") ?? "").toLocaleLowerCase();
+    const season = searchParams.get("season");
+    const episode = searchParams.get("episode");
+    const source = searchParams.get("source") ?? "Any";
+    const downloadState = searchParams.get("downloadState") ?? "Any";
+    const resolution = searchParams.get("resolution");
+    const codec = searchParams.get("codec");
+    const pathQuery = (searchParams.get("path") ?? "").toLocaleLowerCase();
+    const take = Math.min(
+      100,
+      Math.max(1, Number(searchParams.get("take") ?? 30)),
+    );
+    let offset = 0;
+    try {
+      if (searchParams.get("cursor"))
+        offset =
+          Number(
+            Buffer.from(searchParams.get("cursor"), "base64url").toString(
+              "utf8",
+            ),
+          ) || 0;
+    } catch {}
+
+    const mapped = [...animations.values()]
+      .map((item, index) => {
+        const group = item.group?.name ?? null;
+        const itemResolution = /2160p/i.test(item.title) ? "2160p" : "1080p";
+        const itemCodec = /HEVC/i.test(item.title) ? "HEVC" : "AVC";
+        const name = item.animation?.name ?? item.title;
+        const virtualPaths = item.isDownloadFinished
+          ? [
+              `/${name}/${group ?? "Unknown"}/${name} S${String(item.season ?? 1).padStart(2, "0")}E${String(item.episode ?? 1).padStart(2, "0")}.mkv`,
+            ]
+          : [];
+        return {
+          animationInfoId: item.id,
+          title: item.title,
+          animationName: item.animation?.name ?? null,
+          animationOriginalName: item.animation?.originalName ?? null,
+          tmdbId: item.animation?.tmdbId ?? null,
+          season: item.season,
+          episode: item.episode,
+          subtitleGroup: group,
+          resolution: itemResolution,
+          codec: itemCodec,
+          languages: index % 2 ? ["ja"] : ["zh-CN"],
+          isDownloadTracked: item.isDownloadTracked,
+          isDownloadFinished: item.isDownloadFinished,
+          isMediaLibraryImport: item.isMediaLibraryImport,
+          isWatched: false,
+          playbackPositionSeconds: null,
+          virtualPaths,
+          virtualPathCount: virtualPaths.length,
+          releaseScore: 260 + (index % 5) * 55,
+          scoreReasons: [
+            `resolution:${itemResolution}:+200`,
+            `codec:${itemCodec}:+40`,
+          ],
+          publishedAt: item.publishTime,
+        };
+      })
+      .filter((item) => {
+        const haystack = [
+          item.title,
+          item.animationName,
+          item.animationOriginalName,
+          item.tmdbId,
+          item.subtitleGroup,
+          ...item.virtualPaths,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLocaleLowerCase();
+        if (q && !haystack.includes(q)) return false;
+        if (season && item.season !== Number(season)) return false;
+        if (episode && item.episode !== Number(episode)) return false;
+        if (source === "MediaLibraryImport" && !item.isMediaLibraryImport)
+          return false;
+        if (source === "Torrent" && item.isMediaLibraryImport) return false;
+        if (downloadState === "Downloaded" && !item.isDownloadFinished)
+          return false;
+        if (
+          downloadState === "Downloading" &&
+          (!item.isDownloadTracked || item.isDownloadFinished)
+        )
+          return false;
+        if (downloadState === "NotDownloaded" && item.isDownloadTracked)
+          return false;
+        if (
+          resolution &&
+          item.resolution.toLocaleLowerCase() !== resolution.toLocaleLowerCase()
+        )
+          return false;
+        if (
+          codec &&
+          item.codec.toLocaleLowerCase() !== codec.toLocaleLowerCase()
+        )
+          return false;
+        if (
+          pathQuery &&
+          !item.virtualPaths.some((path) =>
+            path.toLocaleLowerCase().includes(pathQuery),
+          )
+        )
+          return false;
+        return true;
+      });
+    const items = mapped.slice(offset, offset + take);
+    const nextCursor =
+      offset + take < mapped.length
+        ? Buffer.from(String(offset + take)).toString("base64url")
+        : null;
+    return json(res, { items, nextCursor });
+  }
+
+  if (method === "GET" && pathname === "/api/library/integrity") {
+    const values = [...animations.values()];
+    const current = values[0];
+    const candidate = values[21] ?? values[1];
+    return json(res, [
+      {
+        tmdbId: current.animation?.tmdbId ?? "209867",
+        animationName: current.animation?.name ?? "葬送的芙莉莲",
+        season: 1,
+        expectedEpisodeCount: 28,
+        missingEpisodes: [25],
+        duplicateEpisodes: [
+          { episode: 28, releaseIds: [current.id, candidate.id] },
+        ],
+        unidentifiedReleaseCount: 1,
+        upgradeCandidates: [
+          {
+            currentReleaseId: current.id,
+            candidateReleaseId: candidate.id,
+            animationName: current.animation?.name ?? "葬送的芙莉莲",
+            season: 1,
+            episode: 28,
+            currentScore: 300,
+            candidateScore: 480,
+            scoreReasons: ["resolution:2160p:+400", "codec:AV1:+80"],
+            automatic: true,
+          },
+        ],
+      },
+    ]);
+  }
+
+  if (method === "POST" && pathname === "/api/library/upgrades/execute") {
+    const body = await readBody(req);
+    return json(res, {
+      isSuccess: true,
+      outcome: body.dryRun ? "ready" : "download_queued",
+      dryRun: !!body.dryRun,
+      requiresDownload: true,
+      operation: body.dryRun ? null : { id: randomUUID() },
+      validationErrors: [],
+    });
+  }
+
   if (method === "GET" && pathname === "/api/animationinfo") {
     const skip = parseInt(searchParams.get("skip") ?? "0", 10);
     const take = parseInt(searchParams.get("take") ?? "10", 10);
@@ -3017,6 +3318,13 @@ async function route(method, pathname, searchParams, req, res) {
             )
               ? body.mode
               : "ManualConfirm",
+            enableVersionUpgrade: !!body.enableVersionUpgrade,
+            minimumUpgradeScore: Number.isInteger(body.minimumUpgradeScore)
+              ? body.minimumUpgradeScore
+              : 25,
+            upgradeRollbackHours: Number.isInteger(body.upgradeRollbackHours)
+              ? body.upgradeRollbackHours
+              : 72,
             createdAt: existing?.createdAt ?? new Date().toISOString(),
             updatedAt: new Date().toISOString(),
           };
@@ -3162,6 +3470,95 @@ async function route(method, pathname, searchParams, req, res) {
 
   // --- Files ---
 
+  if (method === "POST" && pathname === "/api/transcoding/prepare") {
+    const sessionId = randomUUID();
+    const token = randomBytes(32).toString("hex");
+    const base = `/api/transcoding/sessions/${sessionId}`;
+    return json(res, {
+      sessionId,
+      state: "ready",
+      strategy: "remux",
+      isPlayable: true,
+      cacheHit: false,
+      progress: 1,
+      speed: 8.5,
+      queuePosition: null,
+      error: null,
+      videoCodec: "h264",
+      audioCodec: "aac",
+      statusUrl: `${base}?token=${token}`,
+      cancelUrl: `${base}?token=${token}`,
+      playbackUrl: `${base}/media.m3u8?token=${token}`,
+      subtitles: [],
+      unsupportedSubtitleCount: 0,
+    });
+  }
+
+  const transcodeSessionMatch = pathname.match(
+    /^\/api\/transcoding\/sessions\/([^/]+)\/([^/]+)(?:\/([^/]+))?$/,
+  );
+  if (method === "GET" && transcodeSessionMatch?.[2] === "media.m3u8") {
+    const sessionId = transcodeSessionMatch[1];
+    const token = searchParams.get("token") ?? "";
+    res.writeHead(200, {
+      "Content-Type": "application/vnd.apple.mpegurl",
+      "Cache-Control": "no-cache, no-store",
+    });
+    return res.end(
+      `#EXTM3U\n#EXT-X-VERSION:3\n#EXTINF:6,\n/api/transcoding/sessions/${sessionId}/segments/segment-000000.ts?token=${token}\n#EXT-X-ENDLIST\n`,
+    );
+  }
+  if (
+    method === "GET" &&
+    transcodeSessionMatch?.[2] === "segments" &&
+    transcodeSessionMatch?.[3]
+  ) {
+    res.writeHead(200, { "Content-Type": "video/mp2t" });
+    return res.end("Mock HLS segment");
+  }
+  const transcodeStatusMatch = pathname.match(
+    /^\/api\/transcoding\/sessions\/([^/]+)$/,
+  );
+  if (method === "GET" && transcodeStatusMatch) {
+    const sessionId = transcodeStatusMatch[1];
+    const token = searchParams.get("token") ?? "";
+    const base = `/api/transcoding/sessions/${sessionId}`;
+    return json(res, {
+      sessionId,
+      state: "ready",
+      strategy: "remux",
+      isPlayable: true,
+      cacheHit: true,
+      progress: 1,
+      speed: 8.5,
+      queuePosition: null,
+      error: null,
+      videoCodec: "h264",
+      audioCodec: "aac",
+      statusUrl: `${base}?token=${token}`,
+      cancelUrl: `${base}?token=${token}`,
+      playbackUrl: `${base}/media.m3u8?token=${token}`,
+      subtitles: [],
+      unsupportedSubtitleCount: 0,
+    });
+  }
+  if (method === "DELETE" && transcodeStatusMatch) return empty(res, 204);
+
+  if (method === "GET" && pathname === "/api/transcoding/metrics") {
+    return json(res, {
+      queuedJobs: 0,
+      activeJobs: 0,
+      completedJobs: 1,
+      failedJobs: 0,
+      canceledJobs: 0,
+      cacheHits: 1,
+      cacheBytes: 1048576,
+      averageFirstSegmentSeconds: 0.8,
+      averageTranscodeSpeed: 8.5,
+      failureRate: 0,
+    });
+  }
+
   if (method === "GET" && pathname === "/api/file/list") {
     const id = searchParams.get("id");
     const relativeDir = searchParams.get("relativeDir") ?? "";
@@ -3257,8 +3654,51 @@ async function route(method, pathname, searchParams, req, res) {
     },
   ];
 
+  const mockDurableJobs =
+    globalThis._mockDurableJobs ??
+    (globalThis._mockDurableJobs = [
+      {
+        id: randomUUID(),
+        type: "downloadCompletion",
+        status: "deadLetter",
+        stage: "mapFiles",
+        attemptCount: 8,
+        createdAt: new Date(Date.now() - 3_600_000).toISOString(),
+        updatedAt: new Date(Date.now() - 60_000).toISOString(),
+        nextAttemptAt: new Date(Date.now() - 60_000).toISOString(),
+        lastAttemptAt: new Date(Date.now() - 60_000).toISOString(),
+        completedAt: null,
+        lastError: "InvalidOperationException: No file mapping could be produced.",
+      },
+    ]);
+
   if (method === "GET" && pathname === "/api/tasks") {
     return json(res, MOCK_TASKS);
+  }
+
+  if (method === "GET" && pathname === "/api/jobs") {
+    const status = searchParams.get("status");
+    const items = status
+      ? mockDurableJobs.filter(
+          (job) => job.status.toLowerCase() === status.toLowerCase(),
+        )
+      : mockDurableJobs;
+    return json(res, { items, totalCount: items.length });
+  }
+
+  if (
+    method === "POST" &&
+    (pathname === "/api/jobs/retry" || pathname === "/api/jobs/resolve")
+  ) {
+    const body = await readBody(req);
+    const ids = new Set(Array.isArray(body.ids) ? body.ids : []);
+    let affectedCount = 0;
+    for (let index = mockDurableJobs.length - 1; index >= 0; index--) {
+      if (!ids.has(mockDurableJobs[index].id)) continue;
+      mockDurableJobs.splice(index, 1);
+      affectedCount++;
+    }
+    return json(res, { affectedCount });
   }
 
   // POST /api/tasks/:id/run

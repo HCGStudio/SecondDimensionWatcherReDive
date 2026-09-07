@@ -19,7 +19,7 @@
 - `downloads` — sdw-redive 和 qbittorrent **共享**，用于下载文件的读写
 - `pgdata` — PostgreSQL 数据持久化
 - `valkeydata` — Valkey 缓存数据持久化
-- `appdata` — 登录密码文件与运行时敏感配置的 Data Protection 密钥环
+- `appdata` — 登录密码、Data Protection 密钥环、HLS 转码缓存，以及插件 catalog、安装包、配置与隔离数据
 
 ## 快速开始
 
@@ -115,11 +115,17 @@ podman logs qbittorrent 2>&1 | grep "temporary password"
 | `ConnectionStrings__sdw` | PostgreSQL 连接字符串 | 必填 |
 | `JwtSecret` | JWT 签名密钥（>=32 字符） | 必填 |
 | `DataProtection__KeyRingPath` | 网页保存密钥/密码所用的持久化加密密钥环 | `/app/data/data-protection-keys` |
+| `PluginPlatform__RootPath` | 插件 catalog、包、配置与隔离数据的持久化目录 | `/app/data/plugins` |
 | `FileStore__Local` | 下载文件存储路径 | `/downloads` |
 | `MediaLibrary__ScanInterval` | 持续监控目录的轮询间隔 | `00:05:00` |
 | `MediaLibrary__SettlingPeriod` | 新文件写入完成后的稳定等待时间 | `00:00:30` |
 | `MediaLibrary__MissingGracePeriod` | 条目缺失后保留观看/审核记录的宽限期 | `1.00:00:00` |
 | `MediaLibrary__AllowedRoots__0`, `__1`, ... | 允许导入的服务端根目录白名单 | `/media` |
+| `Transcoding__CachePath` | 服务端 HLS 分片缓存（应挂载持久卷） | `/app/data/transcode-cache` |
+| `Transcoding__MaxConcurrentJobs` | 同时运行的 FFmpeg 任务数 | `1` |
+| `Transcoding__QueueCapacity` | 等待队列容量；满时返回 429 | `8` |
+| `Transcoding__MaxMemoryBytesPerJob` | 单个 FFmpeg 工作集上限 | `2147483648` |
+| `Transcoding__MaxCacheBytes` | HLS 缓存总上限 | `107374182400` |
 | `Torrent__Remote__Url` | qBittorrent API 地址 | `http://qbittorrent:8080` |
 | `Valkey__ConnectionString` | Valkey 连接字符串 | 空（使用内存缓存） |
 | `Authentication__RefreshTokenReuseGraceSeconds` | 并发 refresh 返回同一轮换结果的短宽限（秒） | `3` |
@@ -139,9 +145,14 @@ podman logs qbittorrent 2>&1 | grep "temporary password"
 | `AI__CodexAppServer__BearerToken` | app-server / 反向代理要求的 Bearer token | 空 |
 | `AI__CodexAppServer__PermissionProfile` | `:read-only` 或管理员定义的 permission profile id | `:read-only` |
 
+镜像已包含 FFmpeg。浏览器会继续优先直放兼容源；只有不兼容轨道才进入有界服务端队列，
+首个 HLS 分片生成后立即开始播放。`appdata` 必须留有足够空间，缓存会按 TTL/LRU 自动清理。
+硬件转码需要额外映射 GPU 设备/驱动并设置 `Transcoding__HardwareVideoEncoder`；硬件失败会
+自动回退 CPU。
+
 ### 网页运行时设置
 
-首次登录后可在「设置」中修改 AI/TMDB、qBittorrent、媒体库扫描、异常阈值和 NFS。网页值保存在 PostgreSQL，优先于上表的环境变量；敏感值加密后存储且不会通过 API 回显。`appdata` 卷中的 Data Protection 密钥环必须保留，否则重启后的应用无法解密已保存的密钥。
+首次登录后可在「设置」中修改 AI/TMDB、qBittorrent、媒体库扫描、异常阈值和 NFS。网页值保存在 PostgreSQL，优先于上表的环境变量；敏感值加密后存储且不会通过 API 回显。`appdata` 卷中的 Data Protection 密钥环必须保留，否则重启后的应用无法解密已保存的密钥。插件平台也必须位于持久卷中；随附 Compose 将 `PluginPlatform__RootPath` 设为 `/app/data/plugins`，因此重建容器不会丢失已安装包、catalog、配置或插件隔离数据。
 
 如果运行多个应用副本并让它们连接同一个 PostgreSQL 数据库，必须把 `DataProtection__KeyRingPath` 指向所有副本共享的同一持久化密钥环（且都使用内置 application name `SecondDimensionWatcherReDive`）。实例各自使用本地密钥环会导致其他副本无法解密数据库中的运行时密钥和密码。
 
@@ -218,6 +229,8 @@ podman-compose down -v
 ```
 
 ## 更新
+
+更新前建议先执行并验证一次快照；完整的定时、加密和灾难恢复流程见 [备份、恢复与逻辑数据迁移](backup-restore.md)。数据库备份不包含 `downloads` 或外部媒体目录，这些卷需要独立快照。
 
 ```bash
 # 拉取最新镜像
