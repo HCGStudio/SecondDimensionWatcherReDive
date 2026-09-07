@@ -30,7 +30,7 @@ internal sealed class MediaTimelineController(IMediaTimelineRepository repositor
     {
         if (!double.IsFinite(request.DurationSeconds) || request.Points.Any(x => x is null
             || !double.IsFinite(x.StartSeconds) || !double.IsFinite(x.EndSeconds)
-            || x.StartSeconds < 0 || x.StartSeconds >= request.DurationSeconds || x.EndSeconds > request.DurationSeconds
+            || x.StartSeconds < 0 || (x.Enabled && (x.StartSeconds >= request.DurationSeconds || x.EndSeconds > request.DurationSeconds))
             || x.EndSeconds < x.StartSeconds || x.Kind is not ("opening" or "ending" or "chapter")
             || (x.Kind != "chapter" && x.EndSeconds <= x.StartSeconds)
             || string.IsNullOrWhiteSpace(x.Name) || x.Name.Length > 128)) return BadRequest();

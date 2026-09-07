@@ -45,7 +45,7 @@ internal sealed class MediaTimelineRepository(Models.ApplicationContext context,
             var row = await write.Set<Models.MediaTimeline>().FirstOrDefaultAsync(x => x.Key == seasonKey, cancellationToken)
                       ?? throw new KeyNotFoundException();
             var data = ToData(row)!;
-            if (data.Points.Any(x => x.EndSeconds > durationSeconds || x.StartSeconds >= durationSeconds))
+            if (data.Points.Any(x => x.Enabled && (x.EndSeconds > durationSeconds || x.StartSeconds >= durationSeconds)))
                 throw new ArgumentException("Season points exceed this media duration");
             var binding = await write.Set<Models.MediaTimelineBinding>().FindAsync([mediaVersion], cancellationToken);
             if (binding is null) { binding = new Models.MediaTimelineBinding { MediaVersion = mediaVersion }; write.Add(binding); }

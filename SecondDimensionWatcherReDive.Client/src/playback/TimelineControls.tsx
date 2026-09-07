@@ -46,6 +46,7 @@ export const TimelineControls: React.FC<{
   autoSkip: boolean;
   onAutoSkipChange: (enabled: boolean) => void;
   onSkipEnding: (targetSeconds: number) => void;
+  onTimelineResolved: () => void;
   endingProgressGuardRef: React.RefObject<EndingProgressGuard | null>;
 }> = ({
   animationInfoId,
@@ -54,44 +55,58 @@ export const TimelineControls: React.FC<{
   autoSkip,
   onAutoSkipChange,
   onSkipEnding,
+  onTimelineResolved,
   endingProgressGuardRef,
 }) => {
   const { t } = useTranslation("player");
   const { canContentWrite, canPlaybackWrite } = useAccess();
   const { addToast } = useToast();
   const query = new URLSearchParams({ animationInfoId, path });
-  const { data, error, mutate } = useSWR<TimelineContext>(
-    `/api/playback/timeline?${query}`,
-    fetcher,
-  );
+  const { data, error, mutate, isLoading, isValidating } =
+    useSWR<TimelineContext>(`/api/playback/timeline?${query}`, fetcher, {
+      revalidateOnMount: true,
+      dedupingInterval: 0,
+    });
   const [clock, setClock] = React.useState({ time: 0, duration: 0 });
   const [editing, setEditing] = React.useState(false);
   const [scope, setScope] = React.useState<"episode" | "season">("episode");
   const [points, setPoints] = React.useState<Point[]>([]);
   const [busy, setBusy] = React.useState(false);
   const [validation, setValidation] = React.useState(false);
+  const resolvingTimeline = isLoading || isValidating || (!data && !error);
+  // Confirm the current physical media version before using cached ranges.
   const effective =
-    data?.episode ?? (data?.seasonAccepted ? data.seasonDefault : null);
+    resolvingTimeline || error
+      ? undefined
+      : (data?.episode ?? (data?.seasonAccepted ? data.seasonDefault : null));
+  const resolvingTimelineRef = React.useRef(resolvingTimeline);
+  resolvingTimelineRef.current = resolvingTimeline;
   const effectiveRef = React.useRef(effective);
   effectiveRef.current = effective;
   const autoSkipRef = React.useRef(autoSkip);
   autoSkipRef.current = autoSkip;
+  const timelineResolvedRef = React.useRef(onTimelineResolved);
+  timelineResolvedRef.current = onTimelineResolved;
+  React.useEffect(() => {
+    if (!resolvingTimeline) timelineResolvedRef.current();
+  }, [resolvingTimeline]);
   const skipEndingRef = React.useRef(onSkipEnding);
   skipEndingRef.current = onSkipEnding;
   React.useLayoutEffect(() => {
     const guard: EndingProgressGuard = (id, mediaPath, position, duration) =>
       id === animationInfoId &&
       mediaPath === path &&
-      Boolean(
-        effectiveRef.current?.points.some(
-          (point) =>
-            point.enabled &&
-            point.kind === "ending" &&
-            point.startSeconds <= position &&
-            position < point.endSeconds &&
-            point.endSeconds <= duration,
-        ),
-      );
+      (resolvingTimelineRef.current ||
+        Boolean(
+          effectiveRef.current?.points.some(
+            (point) =>
+              point.enabled &&
+              point.kind === "ending" &&
+              point.startSeconds <= position &&
+              position < point.endSeconds &&
+              point.endSeconds <= duration,
+          ),
+        ));
     endingProgressGuardRef.current = guard;
     return () => {
       if (endingProgressGuardRef.current === guard)
@@ -151,6 +166,7 @@ export const TimelineControls: React.FC<{
       point.endSeconds <= clock.duration,
   );
   const edit = (next: "episode" | "season") => {
+    if (resolvingTimeline || error) return;
     setScope(next);
     setPoints([
       ...(next === "season"
@@ -179,15 +195,16 @@ export const TimelineControls: React.FC<{
       ),
     );
   const save = () => {
-    if (!data || clock.duration <= 0) return;
+    if (!data || resolvingTimeline || error || clock.duration <= 0) return;
     const invalid = points.some(
       (point) =>
         !point.name.trim() ||
         !Number.isFinite(point.startSeconds) ||
         !Number.isFinite(point.endSeconds) ||
         point.startSeconds < 0 ||
-        point.startSeconds >= clock.duration ||
-        point.endSeconds > clock.duration ||
+        (point.enabled &&
+          (point.startSeconds >= clock.duration ||
+            point.endSeconds > clock.duration)) ||
         point.endSeconds < point.startSeconds ||
         (point.kind !== "chapter" && point.endSeconds === point.startSeconds),
     );
@@ -283,7 +300,9 @@ export const TimelineControls: React.FC<{
           <Button
             size="sm"
             variant="outline"
-            disabled={busy || clock.duration <= 0}
+            disabled={
+              busy || resolvingTimeline || Boolean(error) || clock.duration <= 0
+            }
             onClick={() => edit("episode")}
           >
             {t("timeline.editEpisode")}
@@ -292,7 +311,12 @@ export const TimelineControls: React.FC<{
             <Button
               size="sm"
               variant="outline"
-              disabled={busy || clock.duration <= 0}
+              disabled={
+                busy ||
+                resolvingTimeline ||
+                Boolean(error) ||
+                clock.duration <= 0
+              }
               onClick={() => edit("season")}
             >
               {t("timeline.editSeason")}
@@ -302,7 +326,12 @@ export const TimelineControls: React.FC<{
             <Button
               size="sm"
               variant="outline"
-              disabled={busy || clock.duration <= 0}
+              disabled={
+                busy ||
+                resolvingTimeline ||
+                Boolean(error) ||
+                clock.duration <= 0
+              }
               onClick={() =>
                 void act(() =>
                   fetcher("/api/playback/timeline/accept-season", {
@@ -325,7 +354,7 @@ export const TimelineControls: React.FC<{
             <Button
               size="sm"
               variant="outline"
-              disabled={busy}
+              disabled={busy || resolvingTimeline || Boolean(error)}
               onClick={() =>
                 void act(() =>
                   fetcher(
@@ -392,7 +421,7 @@ export const TimelineControls: React.FC<{
                     required
                     type="number"
                     min={0}
-                    max={clock.duration}
+                    max={point.enabled ? clock.duration : undefined}
                     step="0.1"
                     className="mt-1 block w-24 rounded border border-border bg-canvas p-2"
                     value={point.startSeconds}
@@ -429,7 +458,7 @@ export const TimelineControls: React.FC<{
                         required
                         type="number"
                         min={0}
-                        max={clock.duration}
+                        max={point.enabled ? clock.duration : undefined}
                         step="0.1"
                         className="mt-1 block w-24 rounded border border-border bg-canvas p-2"
                         value={point.endSeconds}
@@ -512,7 +541,11 @@ export const TimelineControls: React.FC<{
             ))}
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
-            <Button type="submit" size="sm" disabled={busy}>
+            <Button
+              type="submit"
+              size="sm"
+              disabled={busy || resolvingTimeline || Boolean(error)}
+            >
               {t("timeline.save")}
             </Button>
             <Button
@@ -529,7 +562,7 @@ export const TimelineControls: React.FC<{
                 type="button"
                 size="sm"
                 variant="outline"
-                disabled={busy}
+                disabled={busy || resolvingTimeline || Boolean(error)}
                 onClick={() =>
                   void act(() =>
                     fetcher(
