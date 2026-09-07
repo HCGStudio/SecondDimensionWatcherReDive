@@ -2,8 +2,8 @@ import React from "react";
 import { useTranslation } from "react-i18next";
 
 import { ChatMessageData, parseToolCalls } from "../../chat/types";
-import { useTypewriter } from "../../chat/useTypewriter";
 import { StreamingContentBlock } from "../../chat/useStreamingChat";
+import { useTypewriter } from "../../chat/useTypewriter";
 import { MarkdownContent } from "./MarkdownContent";
 import { ToolCallDisplay, ToolCallItem } from "./ToolCallDisplay";
 
@@ -42,7 +42,7 @@ export const AssistantGroup: React.FC<{
   return (
     <div className="flex w-full justify-start">
       <div className="max-w-[80%] rounded-md px-4 py-2.5 bg-surface border border-border-light text-foreground">
-        {assistantMessages.map((msg, i) => {
+        {assistantMessages.map((msg) => {
           const toolCalls = parseToolCalls(msg.toolCallsJson);
           const toolCallsWithResults = toolCalls.map((tc) => ({
             ...tc,
@@ -83,7 +83,12 @@ export const StreamingMessage: React.FC<StreamingMessageProps> = ({
     lastTextIdx >= 0 && contentBlocks[lastTextIdx].type === "text"
       ? contentBlocks[lastTextIdx].text
       : "";
-  const displayedText = useTypewriter(lastTextContent, isStreaming);
+  const displayedText = useTypewriter(
+    lastTextContent,
+    isStreaming,
+    1,
+    lastTextIdx,
+  );
 
   return (
     <div className="flex w-full justify-start">
@@ -114,7 +119,9 @@ export const StreamingMessage: React.FC<StreamingMessageProps> = ({
           return null;
         })}
         {isStreaming && contentBlocks.length === 0 && (
-          <div className="text-sm text-subtle animate-pulse">{t("thinking")}</div>
+          <div className="text-sm text-subtle animate-pulse">
+            {t("thinking")}
+          </div>
         )}
       </div>
     </div>

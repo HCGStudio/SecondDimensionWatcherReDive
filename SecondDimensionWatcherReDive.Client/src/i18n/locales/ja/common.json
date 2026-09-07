@@ -2,6 +2,7 @@
   "appName": "SDW Re:Dive",
   "nav": {
     "home": "ホーム",
+    "todo": "TODO センター",
     "downloading": "ダウンロード中",
     "downloaded": "ダウンロード済み",
     "files": "ファイル一覧",
@@ -17,6 +18,7 @@
     "account": "アカウント",
     "language": "言語",
     "logout": "ログアウト",
+    "logoutFailed": "ローカルではログアウトしましたが、リモートの更新トークン失効を確認できませんでした。",
     "login": "ログイン"
   },
   "languages": {
@@ -25,6 +27,7 @@
     "ja": "日本語"
   },
   "pagination": {
+    "label": "ページ送り",
     "first": "最初のページ",
     "prev": "前のページ",
     "next": "次のページ",
@@ -37,5 +40,15 @@
   },
   "actions": {
     "close": "閉じる"
+  },
+  "notifications": {
+    "label": "通知",
+    "dismiss": "通知を閉じる"
+  },
+  "images": {
+    "poster": "ポスター",
+    "unavailable": "画像を読み込めません",
+    "unavailableFor": "{{name}} の画像を読み込めません",
+    "retry": "{{name}} の画像を再読み込み"
   }
 }

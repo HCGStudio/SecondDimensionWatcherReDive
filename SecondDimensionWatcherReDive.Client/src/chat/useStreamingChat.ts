@@ -1,4 +1,4 @@
-import { useCallback, useReducer } from "react";
+import { useCallback, useEffect, useReducer, useRef } from "react";
 
 import { ChatAction } from "./types";
 
@@ -17,8 +17,19 @@ type StreamingContentBlock =
 interface StreamingState {
   isStreaming: boolean;
   contentBlocks: StreamingContentBlock[];
-  error: string | null;
+  error: ChatStreamErrorCode | null;
 }
+
+type ChatStreamErrorCode =
+  | "notAuthenticated"
+  | "invalidAuthentication"
+  | "unauthorized"
+  | "rateLimited"
+  | "serviceUnavailable"
+  | "requestFailed"
+  | "emptyResponse"
+  | "streamFailed"
+  | "connectionFailed";
 
 type StreamingAction =
   | { type: "start" }
@@ -28,7 +39,7 @@ type StreamingAction =
   | { type: "tool_result"; toolCallId: string; name: string; result: string }
   | { type: "approval_required"; toolCallId: string; action: ChatAction }
   | { type: "finished" }
-  | { type: "error"; message: string }
+  | { type: "error"; code: ChatStreamErrorCode }
   | { type: "reset" };
 
 function reducer(
@@ -111,7 +122,7 @@ function reducer(
       return { ...state, isStreaming: false };
 
     case "error":
-      return { ...state, isStreaming: false, error: action.message };
+      return { ...state, isStreaming: false, error: action.code };
 
     case "reset":
       return { isStreaming: false, contentBlocks: [], error: null };
@@ -129,6 +140,9 @@ const initialState: StreamingState = {
 
 export function useStreamingChat() {
   const [state, dispatch] = useReducer(reducer, initialState);
+  const abortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => () => abortRef.current?.abort(), []);
 
   const sendMessage = useCallback(
     async (conversationId: string, content: string, model?: string) => {
@@ -136,17 +150,29 @@ export function useStreamingChat() {
 
       const authStr = localStorage.getItem("auth");
       if (!authStr) {
-        dispatch({ type: "error", message: "Not authenticated" });
+        dispatch({ type: "error", code: "notAuthenticated" });
         return;
       }
 
       let token: string;
       try {
-        token = JSON.parse(authStr).token;
+        const auth: unknown = JSON.parse(authStr);
+        if (
+          !auth ||
+          typeof auth !== "object" ||
+          typeof (auth as { token?: unknown }).token !== "string"
+        ) {
+          throw new TypeError();
+        }
+        token = (auth as { token: string }).token;
       } catch {
-        dispatch({ type: "error", message: "Invalid auth token" });
+        dispatch({ type: "error", code: "invalidAuthentication" });
         return;
       }
+
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
 
       try {
         const response = await fetch(
@@ -158,21 +184,28 @@ export function useStreamingChat() {
               Authorization: `Bearer ${token}`,
             },
             body: JSON.stringify({ content, model: model ?? null }),
+            signal: controller.signal,
           },
         );
 
         if (!response.ok) {
-          const text = await response.text();
           dispatch({
             type: "error",
-            message: text || `HTTP ${response.status}`,
+            code:
+              response.status === 401
+                ? "unauthorized"
+                : response.status === 429
+                  ? "rateLimited"
+                  : response.status >= 500
+                    ? "serviceUnavailable"
+                    : "requestFailed",
           });
           return;
         }
 
         const reader = response.body?.getReader();
         if (!reader) {
-          dispatch({ type: "error", message: "No response body" });
+          dispatch({ type: "error", code: "emptyResponse" });
           return;
         }
 
@@ -233,7 +266,7 @@ export function useStreamingChat() {
                     dispatch({ type: "finished" });
                     break;
                   case "error":
-                    dispatch({ type: "error", message: data.message });
+                    dispatch({ type: "error", code: "streamFailed" });
                     break;
                 }
               } catch {
@@ -247,19 +280,26 @@ export function useStreamingChat() {
         if (!receivedFinished) {
           dispatch({ type: "finished" });
         }
-      } catch (err) {
+      } catch {
+        if (controller.signal.aborted) return;
         dispatch({
           type: "error",
-          message: err instanceof Error ? err.message : "Unknown error",
+          code: "connectionFailed",
         });
+      } finally {
+        if (abortRef.current === controller) abortRef.current = null;
       }
     },
     [],
   );
 
-  const reset = useCallback(() => dispatch({ type: "reset" }), []);
+  const reset = useCallback(() => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    dispatch({ type: "reset" });
+  }, []);
 
   return { ...state, sendMessage, reset };
 }
 
-export type { StreamingToolCall, StreamingContentBlock };
+export type { ChatStreamErrorCode, StreamingToolCall, StreamingContentBlock };

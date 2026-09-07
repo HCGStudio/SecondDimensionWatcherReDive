@@ -13,3 +13,7 @@ docs/
 SecondDimensionWatcherReDive.Client/dist/
 SecondDimensionWatcherReDive.Client/.parcel-cache/
 SecondDimensionWatcherReDive.Client/node_modules/
+SecondDimensionWatcherReDive.Client/.pnp.*
+SecondDimensionWatcherReDive.Client/.yarn/cache/
+SecondDimensionWatcherReDive.Client/.yarn/install-state.gz
+SecondDimensionWatcherReDive.Client/.yarn/unplugged/

@@ -61,6 +61,7 @@
     },
     "preview": "预览虚拟路径",
     "previewing": "正在生成预览",
+    "previewReady": "元数据与路径预览已生成",
     "refreshPreview": "重新生成预览",
     "apply": "确认并原子重映射",
     "applying": "正在应用"

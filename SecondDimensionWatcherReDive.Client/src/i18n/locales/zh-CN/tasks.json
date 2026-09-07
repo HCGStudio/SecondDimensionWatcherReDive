@@ -11,6 +11,9 @@
   "runNow": "立即运行",
   "running": "运行中",
   "idle": "空闲",
+  "announcements": {
+    "started": "任务「{{name}}」已开始"
+  },
   "empty": {
     "title": "暂无后台任务",
     "body": "没有已注册的定时任务"

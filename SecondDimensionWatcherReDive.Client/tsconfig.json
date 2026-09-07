@@ -3,6 +3,7 @@
     "target": "esnext",
     "module": "esnext",
     "lib": ["esnext", "dom"],
+    "types": ["node"],
     "allowJs": false,
     "jsx": "react-jsx",
     "noEmit": false,

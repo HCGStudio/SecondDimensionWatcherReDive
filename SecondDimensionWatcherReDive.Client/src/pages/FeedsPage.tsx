@@ -34,6 +34,7 @@ export const FeedsPage: React.FC = () => {
   const [url, setUrl] = React.useState("");
   const [name, setName] = React.useState("");
   const [selectedFeed, setSelectedFeed] = React.useState<IFeed | null>(null);
+  const policyTriggerRef = React.useRef<HTMLButtonElement | null>(null);
 
   const policiesByFeed = React.useMemo(() => {
     const map = new Map<string, ISubscriptionPolicy>();
@@ -72,7 +73,8 @@ export const FeedsPage: React.FC = () => {
     {
       field: "name",
       name: t("feeds:columns.name"),
-      render: (value: string | undefined) => value || "-",
+      render: (value: string | undefined, item) => value || item.url,
+      mobile: "primary",
     },
     {
       field: "url",
@@ -83,12 +85,20 @@ export const FeedsPage: React.FC = () => {
       field: "createdAt",
       name: t("feeds:columns.createdAt"),
       render: (value: string) => new Date(value).toLocaleString(),
+      mobile: "hidden",
     },
     {
       name: t("feeds:automation.columns.policy"),
       render: (_value: unknown, item: IFeed) => {
         if (!policies && !policiesError) {
           return <Spinner size={14} />;
+        }
+        if (policiesError) {
+          return (
+            <span className="text-xs text-error">
+              {t("feeds:automation.status.unavailable")}
+            </span>
+          );
         }
         const policy = policiesByFeed.get(item.id);
         if (!policy) {
@@ -123,7 +133,10 @@ export const FeedsPage: React.FC = () => {
             aria-label={t("feeds:automation.configureAria", {
               name: item.name || item.url,
             })}
-            onClick={() => setSelectedFeed(item)}
+            onClick={(event) => {
+              policyTriggerRef.current = event.currentTarget;
+              setSelectedFeed(item);
+            }}
           >
             <SlidersHorizontal size={15} />
             {t("feeds:automation.configure")}
@@ -150,9 +163,19 @@ export const FeedsPage: React.FC = () => {
       <h2 className="mb-4 font-serif text-xl font-medium text-foreground">
         {t("feeds:manualSubscribe")}
       </h2>
-      <div className="flex items-end gap-4">
+      <form
+        className="grid gap-4 sm:grid-cols-2 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_auto] lg:items-end"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void onAdd();
+        }}
+      >
         <FormRow label={t("feeds:urlLabel")} className="flex-1">
           <Input
+            type="url"
+            inputMode="url"
+            autoComplete="url"
+            required
             placeholder={t("feeds:urlPlaceholder")}
             value={url}
             onChange={(e) => setUrl(e.target.value)}
@@ -165,13 +188,13 @@ export const FeedsPage: React.FC = () => {
             onChange={(e) => setName(e.target.value)}
           />
         </FormRow>
-        <FormRow hasEmptyLabelSpace>
-          <Button onClick={onAdd}>
+        <FormRow hasEmptyLabelSpace className="sm:col-span-2 lg:col-span-1">
+          <Button type="submit" className="w-full lg:w-auto">
             <Plus size={16} />
             {t("feeds:add")}
           </Button>
         </FormRow>
-      </div>
+      </form>
       <div className="mt-8">
         <div className="mb-4 flex items-start gap-3">
           <div className="mt-0.5 rounded-md bg-brand/10 p-2 text-brand">
@@ -188,12 +211,28 @@ export const FeedsPage: React.FC = () => {
         </div>
         {error ? (
           <EmptyPrompt
+            role="alert"
             icon={<AlertTriangle size={48} />}
             title={<h2>{t("errors:loadFailed")}</h2>}
             body={<p>{t("feeds:loadFailed")}</p>}
           />
         ) : feeds && feeds.length > 0 ? (
-          <Table items={feeds} columns={columns} />
+          <>
+            {policiesError ? (
+              <p
+                role="alert"
+                className="mb-3 rounded-md border border-error/30 bg-error/10 px-3 py-2 text-sm text-error"
+              >
+                {t("feeds:automation.toast.loadFailed")}
+              </p>
+            ) : null}
+            <Table
+              items={feeds}
+              columns={columns}
+              label={t("feeds:automation.title")}
+              rowKey={(feed) => feed.id}
+            />
+          </>
         ) : feeds ? (
           <EmptyPrompt
             title={<h2>{t("feeds:empty.title")}</h2>}
@@ -210,6 +249,7 @@ export const FeedsPage: React.FC = () => {
           if (!open) setSelectedFeed(null);
         }}
         onPolicyChanged={() => mutatePolicies()}
+        restoreFocusRef={policyTriggerRef}
       />
     </PageTemplate>
   );
