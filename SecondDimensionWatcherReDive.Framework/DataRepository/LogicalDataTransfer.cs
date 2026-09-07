@@ -91,7 +91,7 @@ public sealed record LogicalPlaybackPreferences(
     string? AudioTrackLabel,
     bool AutoPlayNext,
     DateTimeOffset UpdatedAt,
-    bool AutoSkip = false);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool AutoSkip = false);
 
 public sealed record LogicalDataBundle(
     int FormatVersion,
