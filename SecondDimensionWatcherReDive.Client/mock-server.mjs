@@ -6,7 +6,7 @@ import { createServer } from "node:http";
 import { handleCompletion } from "./mock-completion.mjs";
 import { handleMetadataRules } from "./mock-metadata-rules.mjs";
 import { handleWatchlistPlayback } from "./mock-watchlist-playback.mjs";
-import { handleMultiSourceSubscriptions } from "./mock-multi-source.mjs";
+import { handleMultiSourceSubscriptions, removeMultiSourceFeed } from "./mock-multi-source.mjs";
 
 const PORT = parseInt(process.env.MOCK_PORT ?? "5097", 10);
 
@@ -3288,6 +3288,7 @@ async function route(method, pathname, searchParams, req, res) {
       const before = feeds.length;
       feeds = feeds.filter((f) => f.id !== m[1]);
       subscriptionPolicies.delete(m[1]);
+      if (feeds.length < before) removeMultiSourceFeed(m[1], animations);
       return empty(res, feeds.length < before ? 200 : 404);
     }
   }

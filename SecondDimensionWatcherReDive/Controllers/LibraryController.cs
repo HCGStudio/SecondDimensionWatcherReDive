@@ -109,7 +109,7 @@ internal sealed class LibraryController(
         if (candidate is null)
             return Conflict(new { message = "The requested release is no longer an available upgrade." });
 
-        var result = await upgradeCoordinator.ExecuteAsync(candidate, request.DryRun, cancellationToken);
+        var result = await upgradeCoordinator.ExecuteAsync(candidate, ReleaseUpgradeInvocation.Manual, request.DryRun, cancellationToken);
         var response = result.ToExternal();
         return result.IsSuccess ? Ok(response) : UnprocessableEntity(response);
     }

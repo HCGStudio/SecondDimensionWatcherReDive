@@ -215,6 +215,7 @@ public sealed partial class IncidentRetryService(
 
                         var result = await coordinator.ExecuteAsync(
                             candidate,
+                            ReleaseUpgradeInvocation.Manual,
                             dryRun: false,
                             cancellationToken);
                         if (result.Operation is { } replacement && replacement.Id != operation.Id)
