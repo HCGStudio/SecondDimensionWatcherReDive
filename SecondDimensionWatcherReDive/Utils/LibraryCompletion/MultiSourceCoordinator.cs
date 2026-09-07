@@ -11,11 +11,16 @@ public sealed class MultiSourceCoordinator(IMultiSourceSubscriptionRepository su
     public async Task<CompletionSubmissionResult?> ConfirmAsync(MultiSourceSubscription subscription,
         int episode, CancellationToken cancellationToken)
     {
-        if (subscription.Mode != "ManualConfirm") return null;
+        var currentSubscription = (await subscriptions.GetAllAsync(cancellationToken))
+            .FirstOrDefault(candidate => candidate.Id == subscription.Id);
+        if (currentSubscription?.Mode != "ManualConfirm") return null;
+        subscription = currentSubscription;
         await EvaluateAsync(subscription, cancellationToken);
         var decision = (await subscriptions.GetDecisionsAsync(subscription.Id, cancellationToken))
             .FirstOrDefault(x => x.Episode == episode && x.Outcome == "pending_confirmation");
-        if (decision?.SelectedReleaseId is not { } releaseId) return null;
+        if (decision?.SelectedReleaseId is not { } releaseId
+            || decision.SelectedSourceFeedId is not { } sourceFeedId
+            || !subscription.FeedIds.Contains(sourceFeedId)) return null;
         var result = await completion.SubmitAsync(new(subscription.TmdbId, subscription.Season,
             [new(episode, releaseId)]), cancellationToken);
         await EvaluateAsync(subscription, cancellationToken);
@@ -54,14 +59,19 @@ public sealed class MultiSourceCoordinator(IMultiSourceSubscriptionRepository su
                 selectedId = current.Id; outcome = "downloaded"; reason = "existing_release_retained";
                 if (subscription.Mode == "AutoDownload" && subscription.EnableVersionUpgrade && selected.Info != null)
                 {
-                    selected = eligible.OrderByDescending(x => x.Candidate.Score).ThenBy(x => subscription.FeedIds.ToList().IndexOf(x.Info.SourceFeedId!.Value)).First();
-                    var candidate = await upgrades.FindCandidateAsync(current.Id, selected.Info.Id, cancellationToken);
-                    if (candidate != null && candidate.CandidateScore - candidate.CurrentScore >= subscription.MinimumUpgradeScore)
+                    var retainFallbackSource = current.SourceFeedId is { } currentFeedId
+                        && subscription.FeedIds.Skip(1).Contains(currentFeedId);
+                    selected = eligible.Where(x => !retainFallbackSource || x.Info.SourceFeedId == current.SourceFeedId)
+                        .OrderByDescending(x => x.Candidate.Score)
+                        .ThenBy(x => subscription.FeedIds.ToList().IndexOf(x.Info.SourceFeedId!.Value)).FirstOrDefault();
+                    var candidate = selected.Info is null ? null
+                        : await upgrades.FindCandidateAsync(current.Id, selected.Info.Id, cancellationToken);
+                    if (candidate is { Automatic: true } && candidate.CandidateScore - candidate.CurrentScore >= subscription.MinimumUpgradeScore)
                     {
                         var result = await upgradeCoordinator.ExecuteAsync(candidate, false, cancellationToken);
-                        selectedId = selected.Info.Id; outcome = result.IsSuccess ? "upgrading" : "failed"; reason = result.Outcome;
+                        selectedId = candidate.CandidateReleaseId; outcome = result.IsSuccess ? "upgrading" : "failed"; reason = result.Outcome;
                     }
-                    else reason = "upgrade_threshold_not_met";
+                    else reason = selected.Info is null ? "existing_release_retained" : "upgrade_threshold_not_met";
                 }
             }
             else if (selected.Info == null)

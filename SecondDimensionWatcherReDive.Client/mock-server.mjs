@@ -746,6 +746,13 @@ let feeds = [
   },
 ];
 
+// Give demo releases stable source ownership; unassociated releases stay outside source orchestration.
+for (const release of animations.values()) {
+  release.sourceFeedId = release.isMediaLibraryImport ? null
+    : feeds.find((feed) => feed.name === release.animation?.name)?.id ?? null;
+  release.ingestedAt = release.publishTime;
+}
+
 // Per-feed subscription automation policies and historical releases.
 const POLICY_CREATED_AT = new Date(Date.now() - 86400_000).toISOString();
 const subscriptionPolicies = new Map([
