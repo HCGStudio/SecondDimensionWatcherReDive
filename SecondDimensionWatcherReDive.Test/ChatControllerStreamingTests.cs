@@ -30,6 +30,7 @@ public sealed class ChatControllerStreamingTests
                 "question",
                 false,
                 null,
+                Guid.NewGuid(),
                 channel.Writer,
                 CancellationToken.None)
             .WaitAsync(TimeSpan.FromSeconds(2));
@@ -63,6 +64,7 @@ public sealed class ChatControllerStreamingTests
                 "question",
                 false,
                 null,
+                Guid.NewGuid(),
                 CancellationToken.None)
             .GetAsyncEnumerator();
 
@@ -76,6 +78,9 @@ public sealed class ChatControllerStreamingTests
     private static ChatController CreateController(IChatRepository repository) =>
         new(
             repository,
+            Mock.Of<IChatActionRepository>(),
+            Mock.Of<IChatActionService>(),
+            Mock.Of<IChatRawToolExecutorFactory>(),
             Mock.Of<IServiceScopeFactory>(),
             Mock.Of<IServiceProvider>(),
             NullLogger<ChatController>.Instance);

@@ -178,6 +178,33 @@ public partial class TmdbTool
         }
     }
 
+    public async Task<int?> GetExpectedEpisodeCountAsync(
+        int tmdbId,
+        int seasonNumber,
+        CancellationToken cancellationToken)
+    {
+        var tmdbClient = GetClient();
+        if (tmdbClient is null || seasonNumber <= 0) return null;
+
+        try
+        {
+            var show = await tmdbClient.GetTvShowAsync(tmdbId, cancellationToken: cancellationToken);
+            var count = show?.Seasons?
+                .FirstOrDefault(season => season.SeasonNumber == seasonNumber)
+                ?.EpisodeCount;
+            return count is > 0 ? count : null;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            LogGetSeasonsFailed(_logger, ex, tmdbId);
+            return null;
+        }
+    }
+
     /// <summary>
     ///     Fetches localized name, original name, and overview for a TV show from TMDB,
     ///     using the server's current culture as the language.

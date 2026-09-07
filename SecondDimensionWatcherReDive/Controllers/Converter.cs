@@ -84,7 +84,10 @@ internal static class Converter
             record.ExcludedKeywords,
             record.Mode.ToString(),
             record.CreatedAt,
-            record.UpdatedAt);
+            record.UpdatedAt,
+            record.EnableVersionUpgrade,
+            record.MinimumUpgradeScore,
+            record.UpgradeRollbackHours);
 
     public static External.SubscriptionAutomationSimulationResult ToExternal(
         this Framework.Feed.SubscriptionAutomationSimulationResult result) =>
@@ -103,6 +106,85 @@ internal static class Converter
                         explanation.Actual,
                         explanation.Expected,
                         explanation.Message)).ToList())).ToList());
+
+    public static External.LibrarySearchItemResponse ToExternal(this LibrarySearchItem item) =>
+        new(item.AnimationInfoId,
+            item.Title,
+            item.AnimationName,
+            item.AnimationOriginalName,
+            item.TmdbId,
+            item.Season,
+            item.Episode,
+            item.SubtitleGroup,
+            item.Resolution,
+            item.Codec,
+            item.Languages,
+            item.IsDownloadTracked,
+            item.IsDownloadFinished,
+            item.IsMediaLibraryImport,
+            item.IsWatched,
+            item.PlaybackPositionSeconds,
+            item.VirtualPaths,
+            item.VirtualPathCount,
+            item.ReleaseScore,
+            item.ScoreReasons,
+            item.PublishedAt);
+
+    public static External.LibrarySearchResponse ToExternal(this LibrarySearchResult result) =>
+        new(result.Items.Select(item => item.ToExternal()).ToList(), result.NextCursor);
+
+    public static External.ReleaseUpgradeCandidateResponse ToExternal(
+        this ReleaseUpgradeCandidate candidate) =>
+        new(candidate.CurrentReleaseId,
+            candidate.CandidateReleaseId,
+            candidate.AnimationName,
+            candidate.Season,
+            candidate.Episode,
+            candidate.CurrentScore,
+            candidate.CandidateScore,
+            candidate.ScoreReasons,
+            candidate.Automatic);
+
+    public static External.LibraryIntegritySummaryResponse ToExternal(
+        this LibraryIntegritySummary summary) =>
+        new(summary.TmdbId,
+            summary.AnimationName,
+            summary.Season,
+            summary.ExpectedEpisodeCount,
+            summary.MissingEpisodes,
+            summary.DuplicateEpisodes.Select(duplicate => new External.EpisodeDuplicateResponse(
+                duplicate.Episode,
+                duplicate.ReleaseIds)).ToList(),
+            summary.UnidentifiedReleaseCount,
+            summary.UpgradeCandidates.Select(candidate => candidate.ToExternal()).ToList());
+
+    public static External.ReleaseUpgradeOperationResponse ToExternal(
+        this ReleaseUpgradeOperation operation) =>
+        new(operation.Id,
+            operation.CurrentReleaseId,
+            operation.CandidateReleaseId,
+            operation.Status.ToString(),
+            operation.CurrentScore,
+            operation.CandidateScore,
+            operation.CreatedAt,
+            operation.VerifiedAt,
+            operation.AppliedAt,
+            operation.RollbackUntil,
+            operation.CompletedAt,
+            operation.FailureSummary);
+
+    public static External.ReleaseUpgradeMutationResponse ToExternal(
+        this ReleaseUpgradeMutationResult result) =>
+        new(result.IsSuccess, result.Outcome, result.Operation?.ToExternal());
+
+    public static External.ReleaseUpgradeExecutionResponse ToExternal(
+        this Utils.ReleaseUpgrades.ReleaseUpgradeExecutionResult result) =>
+        new(result.IsSuccess,
+            result.Outcome,
+            result.DryRun,
+            result.RequiresDownload,
+            result.Operation?.ToExternal(),
+            result.ValidationErrors);
 
     public static External.WebDavTokenSummary ToExternal(this WebDavToken record) =>
         new(record.Id, record.Username, record.Description, record.CreatedAt);

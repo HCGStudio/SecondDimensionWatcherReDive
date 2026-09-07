@@ -40,12 +40,14 @@ using SecondDimensionWatcherReDive.Repositories;
 using SecondDimensionWatcherReDive.Chat;
 using SecondDimensionWatcherReDive.Plugin;
 using SecondDimensionWatcherReDive.Services;
+using SecondDimensionWatcherReDive.Services.Transcoding;
 using SecondDimensionWatcherReDive.MigrationTasks;
 using SecondDimensionWatcherReDive.Utils.Feed;
 using SecondDimensionWatcherReDive.Utils.FileDownload;
 using SecondDimensionWatcherReDive.Utils.FileStore;
 using SecondDimensionWatcherReDive.Utils.MetadataReview;
 using SecondDimensionWatcherReDive.Utils.Incidents;
+using SecondDimensionWatcherReDive.Utils.ReleaseUpgrades;
 using SecondDimensionWatcherReDive.Utils.Notifications;
 using SecondDimensionWatcherReDive.Utils.Http;
 using SecondDimensionWatcherReDive.Utils.Scraper;
@@ -108,6 +110,33 @@ builder.Services.PostConfigure<MediaLibraryOptions>(options =>
     var localStore = builder.Configuration["FileStore:Local"] ?? "./download";
     options.DownloadRoot = Path.GetFullPath(localStore);
 });
+builder.Services.AddOptions<TranscodingOptions>()
+    .Bind(builder.Configuration.GetSection(TranscodingOptions.SectionName))
+    .PostConfigure(options =>
+    {
+        if (string.IsNullOrWhiteSpace(options.CachePath))
+            options.CachePath = Path.Combine(
+                Path.GetDirectoryName(Path.GetFullPath(passwordFile))!,
+                "transcode-cache");
+        else
+            options.CachePath = Path.GetFullPath(options.CachePath);
+    })
+    .Validate(options => options.MaxConcurrentJobs > 0, "MaxConcurrentJobs must be positive.")
+    .Validate(options => options.QueueCapacity > 0, "QueueCapacity must be positive.")
+    .Validate(options => options.MaxThreadsPerJob > 0, "MaxThreadsPerJob must be positive.")
+    .Validate(options => options.MaxMemoryBytesPerJob > 0, "MaxMemoryBytesPerJob must be positive.")
+    .Validate(options => options.MaxDiskBytesPerJob > 0, "MaxDiskBytesPerJob must be positive.")
+    .Validate(options => options.MaxCacheBytes > 0, "MaxCacheBytes must be positive.")
+    .Validate(options => options.SegmentDurationSeconds is >= 2 and <= 30,
+        "SegmentDurationSeconds must be between 2 and 30.")
+    .Validate(options => options.VideoCrf is >= 0 and <= 51, "VideoCrf must be between 0 and 51.")
+    .Validate(options => !string.IsNullOrWhiteSpace(options.FfmpegPath), "FfmpegPath is required.")
+    .Validate(options => !string.IsNullOrWhiteSpace(options.FfprobePath), "FfprobePath is required.")
+    .Validate(options => options.JobTimeout > TimeSpan.Zero, "JobTimeout must be positive.")
+    .Validate(options => options.CacheTtl > TimeSpan.Zero, "CacheTtl must be positive.")
+    .Validate(options => options.CleanupInterval > TimeSpan.Zero, "CleanupInterval must be positive.")
+    .Validate(options => options.SessionTtl > TimeSpan.Zero, "SessionTtl must be positive.")
+    .ValidateOnStart();
 builder.Services.AddOptions<MigrationOptions>()
     .BindConfiguration(MigrationOptions.SectionName);
 
@@ -611,6 +640,13 @@ builder.Services.AddSingleton(Channel.CreateBounded<DownloadCompleteRequest>(
 // Persistent incident inbox and health probes.
 builder.Services.AddSingleton<IIncidentReporter, IncidentReporter>();
 builder.Services.AddSingleton<IIncidentDiskProbe, IncidentDiskProbe>();
+builder.Services.AddSingleton<TranscodingMetrics>();
+builder.Services.AddSingleton<FfmpegProcessRunner>();
+builder.Services.AddSingleton<IFfmpegProcessRunner>(sp =>
+    sp.GetRequiredService<FfmpegProcessRunner>());
+builder.Services.AddSingleton<HlsTranscodingService>();
+builder.Services.AddSingleton<IHlsTranscodingService>(sp =>
+    sp.GetRequiredService<HlsTranscodingService>());
 builder.Services.AddSingleton<INotificationPublisher, NotificationPublisher>();
 
 //Add hosting services
@@ -619,12 +655,14 @@ builder.Services.AddHostedService<DurableJobMetricsBackgroundService>();
 builder.Services.AddHostedService<FetchRemoteTorrentBackgroundService>();
 builder.Services.AddHostedService<UpdateDownloadStatusBackgroundService>();
 builder.Services.AddHostedService<IncidentReconciliationBackgroundService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<HlsTranscodingService>());
 builder.Services.AddHostedService<NotificationDeliveryBackgroundService>();
 builder.Services.AddSingleton<MediaLibraryScanQueue>();
 builder.Services.AddSingleton<IMediaLibraryScanQueue>(sp =>
     sp.GetRequiredService<MediaLibraryScanQueue>());
 builder.Services.AddHostedService<MediaLibraryScanBackgroundService>();
 builder.Services.AddScoped<IDownloadCompletionNotifier, DownloadCompletionNotifier>();
+builder.Services.AddHostedService<ReleaseUpgradeBackgroundService>();
 
 //Add scheduled tasks
 builder.Services.AddSingleton<IScheduledTaskLeaseManager, PostgresScheduledTaskLeaseManager>();
@@ -660,6 +698,7 @@ builder.Services.AddScoped<IMediaLibraryScanner, MediaLibraryScanner>();
 builder.Services.AddSingleton<ISubscriptionFeedReader, MikananiSubscriptionFeedReader>();
 builder.Services.AddSingleton<ISubscriptionReleaseMetadataExtractor, SubscriptionReleaseMetadataExtractor>();
 builder.Services.AddSingleton<ISubscriptionAutomationMatcher, SubscriptionAutomationMatcher>();
+builder.Services.AddSingleton<IReleaseScoringService, ReleaseScoringService>();
 builder.Services.AddScoped<ISubscriptionAutomationSimulationService, SubscriptionAutomationSimulationService>();
 builder.Services.AddTransient<IFeedService, MikananiFeedService>();
 
@@ -672,6 +711,7 @@ builder.Services.AddScoped<ISubscriptionAutomationPolicyRepository, Subscription
 builder.Services.AddScoped<ISeasonBangumiRepository, SeasonBangumiRepository>();
 builder.Services.AddScoped<IBangumiSubgroupRepository, BangumiSubgroupRepository>();
 builder.Services.AddScoped<IChatRepository, ChatRepository>();
+builder.Services.AddScoped<IChatActionRepository, ChatActionRepository>();
 builder.Services.AddScoped<IFileMappingRepository, FileMappingRepository>();
 builder.Services.AddScoped<IFileNameRegexRuleRepository, FileNameRegexRuleRepository>();
 builder.Services.AddScoped<IMetadataReviewRepository, MetadataReviewRepository>();
@@ -684,6 +724,8 @@ builder.Services.AddScoped<IMediaLibrarySourceRepository, MediaLibrarySourceRepo
 builder.Services.AddScoped<IDurableJobRepository, DurableJobRepository>();
 builder.Services.AddScoped<IScheduledTaskLeaseRepository, ScheduledTaskLeaseRepository>();
 builder.Services.AddScoped<IReadinessRepository, ReadinessRepository>();
+builder.Services.AddScoped<ILibrarySearchRepository, LibrarySearchRepository>();
+builder.Services.AddScoped<IReleaseUpgradeRepository, ReleaseUpgradeRepository>();
 builder.Services.AddScoped<INotificationOutboxRepository, NotificationOutboxRepository>();
 builder.Services.AddScoped<IWebPushSubscriptionRepository, WebPushSubscriptionRepository>();
 builder.Services.AddScoped<ITodoRepository, TodoRepository>();
@@ -692,6 +734,7 @@ builder.Services.AddScoped<AuthenticationStateInitializer>();
 builder.Services.AddSingleton<ISeasonScraper, MikananiSeasonScraper>();
 builder.Services.AddScoped<IMetadataReviewService, MetadataReviewService>();
 builder.Services.AddScoped<IIncidentRetryService, IncidentRetryService>();
+builder.Services.AddScoped<IReleaseUpgradeCoordinator, ReleaseUpgradeCoordinator>();
 
 //Add AI Inference
 // Register all engines even when initially unconfigured. Runtime settings can then enable or

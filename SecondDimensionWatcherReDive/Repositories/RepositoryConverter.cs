@@ -47,7 +47,20 @@ internal static class RepositoryConverter
             entity.DownloadAttemptId,
             entity.DownloadCancellationId,
             entity.MediaLibrarySourceId,
-            entity.MediaLibraryMissingSince);
+            entity.MediaLibraryMissingSince,
+            entity.ReleaseIdentity,
+            entity.FeedItemGuid,
+            entity.EnclosureId,
+            entity.TorrentInfoHash,
+            entity.ReleaseSubtitleGroup,
+            entity.ReleaseResolution,
+            entity.ReleaseCodec,
+            entity.ReleaseLanguages,
+            entity.ReleaseScore,
+            entity.ReleaseScoreReasonsJson,
+            entity.ExpectedEpisodeCount,
+            entity.IngestedAt,
+            entity.IsActiveRelease);
 
     public static DataRepo.Animation ToRecord(this Models.Animation entity) =>
         new(entity.Id,
@@ -103,7 +116,10 @@ internal static class RepositoryConverter
             entity.ExcludedKeywords,
             entity.Mode,
             entity.CreatedAt,
-            entity.UpdatedAt);
+            entity.UpdatedAt,
+            entity.EnableVersionUpgrade,
+            entity.MinimumUpgradeScore,
+            entity.UpgradeRollbackHours);
 
     public static DataRepo.WebDavToken ToRecord(this Models.WebDavToken entity) =>
         new(entity.Id,
@@ -168,7 +184,20 @@ internal static class RepositoryConverter
             DownloadAttemptId = record.DownloadAttemptId,
             DownloadCancellationId = record.DownloadCancellationId,
             MediaLibrarySourceId = record.MediaLibrarySourceId,
-            MediaLibraryMissingSince = record.MediaLibraryMissingSince
+            MediaLibraryMissingSince = record.MediaLibraryMissingSince,
+            ReleaseIdentity = record.ReleaseIdentity,
+            FeedItemGuid = record.FeedItemGuid,
+            EnclosureId = record.EnclosureId,
+            TorrentInfoHash = record.TorrentInfoHash,
+            ReleaseSubtitleGroup = record.ReleaseSubtitleGroup,
+            ReleaseResolution = record.ReleaseResolution,
+            ReleaseCodec = record.ReleaseCodec,
+            ReleaseLanguages = record.ReleaseLanguages?.ToArray() ?? [],
+            ReleaseScore = record.ReleaseScore,
+            ReleaseScoreReasonsJson = record.ReleaseScoreReasonsJson,
+            ExpectedEpisodeCount = record.ExpectedEpisodeCount,
+            IngestedAt = record.IngestedAt ?? DateTimeOffset.UtcNow,
+            IsActiveRelease = record.IsActiveRelease
         };
 
     public static Models.Animation ToEntity(this DataRepo.Animation record) =>
@@ -252,7 +281,10 @@ internal static class RepositoryConverter
             ExcludedKeywords = record.ExcludedKeywords.ToArray(),
             Mode = record.Mode,
             CreatedAt = record.CreatedAt,
-            UpdatedAt = record.UpdatedAt
+            UpdatedAt = record.UpdatedAt,
+            EnableVersionUpgrade = record.EnableVersionUpgrade,
+            MinimumUpgradeScore = record.MinimumUpgradeScore,
+            UpgradeRollbackHours = record.UpgradeRollbackHours
         };
 
     public static Models.WebDavToken ToEntity(this DataRepo.WebDavToken record) =>
@@ -326,6 +358,17 @@ internal static class RepositoryConverter
         entity.DownloadCancellationId = record.DownloadCancellationId;
         entity.MediaLibrarySourceId = record.MediaLibrarySourceId;
         entity.MediaLibraryMissingSince = record.MediaLibraryMissingSince;
+        entity.ReleaseIdentity = record.ReleaseIdentity;
+        entity.FeedItemGuid = record.FeedItemGuid;
+        entity.EnclosureId = record.EnclosureId;
+        entity.TorrentInfoHash = record.TorrentInfoHash;
+        entity.ReleaseSubtitleGroup = record.ReleaseSubtitleGroup;
+        entity.ReleaseResolution = record.ReleaseResolution;
+        entity.ReleaseCodec = record.ReleaseCodec;
+        entity.ReleaseLanguages = record.ReleaseLanguages?.ToArray() ?? [];
+        entity.ReleaseScore = record.ReleaseScore;
+        entity.ReleaseScoreReasonsJson = record.ReleaseScoreReasonsJson;
+        entity.ExpectedEpisodeCount = record.ExpectedEpisodeCount;
     }
 
     public static void ApplyTo(this DataRepo.SeasonBangumi record, Models.SeasonBangumi entity)
@@ -359,5 +402,8 @@ internal static class RepositoryConverter
         entity.Mode = record.Mode;
         entity.CreatedAt = record.CreatedAt;
         entity.UpdatedAt = record.UpdatedAt;
+        entity.EnableVersionUpgrade = record.EnableVersionUpgrade;
+        entity.MinimumUpgradeScore = record.MinimumUpgradeScore;
+        entity.UpgradeRollbackHours = record.UpgradeRollbackHours;
     }
 }

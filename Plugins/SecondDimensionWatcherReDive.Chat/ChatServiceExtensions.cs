@@ -14,6 +14,9 @@ public static class ChatServiceExtensions
         services.AddScoped<ManageTasksTool>();
         services.AddScoped<ManageDownloadsTool>();
         services.AddScoped<QueryFilesTool>();
+        services.AddScoped<IChatRawToolExecutorFactory, ChatRawToolExecutorFactory>();
+        services.AddScoped<IChatToolActionPlanner, ChatToolActionPlanner>();
+        services.AddScoped<IChatActionService, ChatActionService>();
         services.AddScoped<IConversationTitleGenerator, ConversationTitleGenerator>();
         return services;
     }

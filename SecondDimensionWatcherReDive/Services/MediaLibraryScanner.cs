@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Options;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Framework.FileDownload;
+using SecondDimensionWatcherReDive.Framework.Feed;
 using SecondDimensionWatcherReDive.Framework.FileStore;
 using SecondDimensionWatcherReDive.Utils.FileStore;
 
@@ -399,7 +400,11 @@ public partial class MediaLibraryScanner(
             AiRetryCount: 0,
             ReleaseSizeBytes: candidate.TotalSize,
             MetadataStatus: MetadataReviewStatus.Pending,
-            MediaLibrarySourceId: source.Id);
+            MediaLibrarySourceId: source.Id,
+            ReleaseIdentity: ReleaseIdentity.CreateMediaImport(
+                source.Id,
+                FileStores.LocalDiskStore,
+                candidate.FullPath));
     }
 
     private static string BuildDownloadUrl(Guid sourceId, string relativePath) =>

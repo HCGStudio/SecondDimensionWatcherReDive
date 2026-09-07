@@ -9,6 +9,7 @@ using SecondDimensionWatcherReDive.Plugin;
 using SecondDimensionWatcherReDive.Observability;
 using SecondDimensionWatcherReDive.Utils.FileStore;
 using SecondDimensionWatcherReDive.Utils.Incidents;
+using SecondDimensionWatcherReDive.Utils.ReleaseUpgrades;
 
 namespace SecondDimensionWatcherReDive.Services;
 
@@ -112,6 +113,9 @@ public partial class CompleteDownloadBackgroundService(
                 var mapper = serviceProvider.GetRequiredService<IFileMapper>();
                 if (!await mapper.MapDownloadAsync(payload.ItemId, effectCancellation.Token))
                     throw new InvalidOperationException("No file mapping could be produced.");
+
+                if (serviceProvider.GetService<IReleaseUpgradeCoordinator>() is { } upgradeCoordinator)
+                    await upgradeCoordinator.TryActivateCandidateAsync(payload.ItemId, effectCancellation.Token);
 
                 if (incidentReporter is not null)
                     await incidentReporter.ResolveAsync(

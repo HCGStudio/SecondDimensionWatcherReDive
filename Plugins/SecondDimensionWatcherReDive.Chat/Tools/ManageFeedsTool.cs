@@ -7,7 +7,8 @@ namespace SecondDimensionWatcherReDive.Chat.Tools;
 
 [Tool<ManageFeedsParams>(
     "manage_feeds",
-    "Manage RSS feed subscriptions. Supports listing all feeds, adding new feeds, and removing feeds.")]
+    "Manage RSS feed subscriptions. Supports listing all feeds, adding new feeds, and removing feeds.",
+    ToolRiskLevel.Destructive)]
 internal sealed partial class ManageFeedsTool(
     IFeedRepository feedRepository) : ITool
 {

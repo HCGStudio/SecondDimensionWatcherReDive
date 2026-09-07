@@ -1,5 +1,12 @@
 ﻿namespace SecondDimensionWatcherReDive.Framework.FileDownload;
 
+public enum DownloadTaskReconciliationOutcome
+{
+    Confirmed,
+    Rejected,
+    Unknown
+}
+
 /// <summary>
 ///     Provides a contract for performing various file download operations.
 /// </summary>
@@ -27,11 +34,20 @@ public interface IFileDownloadClient
     /// <param name="downloadUrl">URL from which to download the item.</param>
     /// <param name="cachedDownloadData">Cache data for the download.</param>
     /// <param name="additionalDownloadInfo">Additional information for the download.</param>
-    /// <returns>
-    ///     A task that represents the asynchronous operation. The task result contains a boolean that indicates if the
-    ///     download task was submitted successfully.
-    /// </returns>
+    /// <returns>Whether the download client accepted the task.</returns>
     public Task<bool> SubmitDownloadTaskAsync(
+        Guid itemId,
+        string downloadUrl,
+        byte[] cachedDownloadData,
+        string additionalDownloadInfo,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    ///     Ensures a previously persisted download submission exists remotely.
+    ///     Implementations must make this operation idempotent for the same item.
+    /// </summary>
+    /// <returns>The confirmed, rejected, or still-uncertain reconciliation outcome.</returns>
+    public Task<DownloadTaskReconciliationOutcome> EnsureDownloadTaskAsync(
         Guid itemId,
         string downloadUrl,
         byte[] cachedDownloadData,

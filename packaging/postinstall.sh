@@ -44,6 +44,8 @@ chown -R sdw-redive:sdw-redive /var/lib/sdw-redive
 # private directory also protects keys created by future application runs.
 install -d -m 0700 -o sdw-redive -g sdw-redive \
     /var/lib/sdw-redive/data-protection-keys
+install -d -m 0750 -o sdw-redive -g sdw-redive \
+    /var/lib/sdw-redive/transcode-cache
 if [ -f /var/lib/sdw-redive/password.json ]; then
     chown sdw-redive:sdw-redive /var/lib/sdw-redive/password.json
     chmod 0600 /var/lib/sdw-redive/password.json
