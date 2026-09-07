@@ -88,10 +88,10 @@ public partial class InferAnimationMetadata(
             var result = deterministic
                 ? MetadataRecognitionRuleService.Apply(rule!, item, null)
                 : rule is not null
-                    ? await inferenceEngine.InferForTmdbAsync(item.Title, item.Description, rule.TmdbId, cancellationToken)
+                    ? await inferenceEngine.InferForTmdbAsync(item.Title, item.Description, rule.TmdbId, rule.FixedSeason, cancellationToken)
                     : await inferenceEngine.InferAsync(item.Title, item.Description, cancellationToken);
             if (rule is not null && !deterministic && result is not null)
-                result = MetadataRecognitionRuleService.Apply(rule, item, result);
+                result = MetadataRecognitionRuleService.Apply(rule, item, result, preserveNormalizedCoordinates: true);
 
             if (result is null)
                 throw new InvalidOperationException("Inference returned no usable metadata result.");
@@ -136,6 +136,10 @@ public partial class InferAnimationMetadata(
                 var animation = await animationRepository
                     .FindByTmdbIdAsync(result.TmdbId, cancellationToken);
 
+                if (rule is not null && (animation is null || string.IsNullOrWhiteSpace(animation.Name) || animation.Name == result.TmdbId)
+                    && string.IsNullOrWhiteSpace(details?.Name))
+                    throw new MetadataRecognitionAmbiguousException(
+                        $"Rule '{rule.Name}' targets a TMDB series that could not be resolved. Review its target before applying it.");
                 if (animation == null)
                 {
                     animation = new Animation(
@@ -175,7 +179,8 @@ public partial class InferAnimationMetadata(
                     : MetadataReviewStatus.Identified,
                 MetadataLastError = null,
                 MetadataReviewedAt = null,
-                RecognitionRule = rule
+                RecognitionRule = rule,
+                RevalidateRecognitionRules = ruleRepository is not null
             };
             if (!await animationInfoRepository.TryUpdateAsync(
                     item,

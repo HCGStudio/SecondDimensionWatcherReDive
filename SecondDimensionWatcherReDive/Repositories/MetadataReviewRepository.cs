@@ -271,6 +271,9 @@ public class MetadataReviewRepository(
                         operationId,
                         animationInfo.Id);
 
+                if (await LibraryCompletionRepository.HasActiveClaimAsync(applyContext, animationInfo.Id, cancellationToken))
+                    return Failure(MetadataReviewMutationOutcome.Conflict, operationId, animationInfo.Id);
+
                 var appliedAt = DateTimeOffset.UtcNow;
                 if (operation.ExpiresAt <= appliedAt)
                 {
@@ -521,6 +524,8 @@ public class MetadataReviewRepository(
                                 animationInfo.Id),
                             idempotentCurrentMappings.Select(mapping => mapping.ToRecord()).ToList());
                 }
+                if (await LibraryCompletionRepository.HasActiveClaimAsync(undoContext, animationInfo.Id, cancellationToken))
+                    return Failure(MetadataReviewMutationOutcome.Conflict, operationId, animationInfo.Id);
                 if (operation.State != MetadataReviewOperationState.Applied
                     || !operation.AppliedVersion.HasValue
                     || animationInfo.CurrentMetadataReviewOperationId != operation.Id

@@ -179,7 +179,9 @@
       "ruleChanged": "规则已被其他操作修改，请重新加载并预览。",
       "ruleConflict": "规则匹配已改变或存在冲突，请重新预览。",
       "ruleAmbiguous": "匹配不明确，请调整规则或手动纠错。",
-      "ruleLimit": "最多支持 200 条规则，请编辑已有规则。"
+      "ruleLimit": "最多支持 200 条规则，请编辑已有规则。",
+      "tmdbNotFound": "无法解析此 TMDB 剧集，请检查目标 ID。",
+      "tmdbUnavailable": "TMDB 查询不可用，请配置访问或选择已识别的现有番剧。"
     }
   }
 }

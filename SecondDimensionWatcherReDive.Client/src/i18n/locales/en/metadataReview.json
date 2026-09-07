@@ -179,7 +179,9 @@
       "ruleChanged": "The rule changed. Reload and preview it again.",
       "ruleConflict": "Matching changed or conflicts with another rule. Preview again.",
       "ruleAmbiguous": "Matching is ambiguous. Adjust the rule or correct the item manually.",
-      "ruleLimit": "Up to 200 rules are supported. Edit an existing rule."
+      "ruleLimit": "Up to 200 rules are supported. Edit an existing rule.",
+      "tmdbNotFound": "The TMDB television series could not be resolved. Check the target ID.",
+      "tmdbUnavailable": "TMDB lookup is unavailable. Configure access or use an existing identified series."
     }
   }
 }
