@@ -361,6 +361,9 @@ public class MetadataReviewRepository(
                 await applyContext.TodoItemStates
                     .Where(state => state.Key == "metadata:" + animationInfo.Id)
                     .ExecuteDeleteAsync(cancellationToken);
+                if (animationInfoEntry.Property<Guid?>("AnimationId").CurrentValue != animation.Id ||
+                    animationInfo.Season != operation.ProposedSeason)
+                    animationInfo.ExpectedEpisodeCount = null;
                 animationInfo.Description = operation.ProposedDescription;
                 animationInfo.Animation = animation;
                 animationInfo.Group = group;
@@ -612,6 +615,9 @@ public class MetadataReviewRepository(
                     .Where(state => state.Key == "metadata:" + animationInfo.Id)
                     .ExecuteDeleteAsync(cancellationToken);
                 animationInfo.Description = operation.PreviousDescription;
+                if (undoContext.Entry(animationInfo).Property<Guid?>("AnimationId").CurrentValue != previousAnimation?.Id ||
+                    animationInfo.Season != operation.PreviousSeason)
+                    animationInfo.ExpectedEpisodeCount = null;
                 animationInfo.Animation = previousAnimation;
                 animationInfo.Group = previousGroup;
                 undoContext.Entry(animationInfo).Property<Guid?>("AnimationId").CurrentValue =
