@@ -5,7 +5,12 @@ const subscriptions = new Map();
 const decisions = new Map();
 const iso = (timestamp) => new Date(timestamp).toISOString();
 
-function evaluate(subscription, animations, downloadState) {
+function evaluate(
+  subscription,
+  animations,
+  downloadState,
+  retryFailures = false,
+) {
   const plan = planFor(animations, subscription.tmdbId, subscription.season);
   const prior = decisions.get(subscription.id) ?? [];
   const now = Date.now();
@@ -18,6 +23,10 @@ function evaluate(subscription, animations, downloadState) {
     );
     if (!linked.length) continue;
     const old = prior.find((decision) => decision.episode === episode.episode);
+    if (old?.outcome === "failed" && !retryFailures) {
+      result.push(old);
+      continue;
+    }
     const firstSeen = Math.max(
       new Date(subscription.createdAt).getTime(),
       Math.min(
@@ -105,6 +114,39 @@ function evaluate(subscription, animations, downloadState) {
   return result;
 }
 
+export function removeMultiSourceFeed(feedId, animations) {
+  for (const release of animations.values()) {
+    if (release.sourceFeedId === feedId) release.sourceFeedId = null;
+  }
+  for (const subscription of subscriptions.values()) {
+    if (!subscription.feedIds.includes(feedId)) continue;
+    subscription.feedIds = subscription.feedIds.filter((id) => id !== feedId);
+    subscription.updatedAt = iso(Date.now());
+    if (!subscription.feedIds.length) {
+      subscriptions.delete(subscription.id);
+      decisions.delete(subscription.id);
+      continue;
+    }
+    decisions.set(
+      subscription.id,
+      (decisions.get(subscription.id) ?? [])
+        .filter((decision) =>
+          [
+            "downloaded",
+            "downloading",
+            "mapping_pending",
+            "upgrading",
+          ].includes(decision.outcome),
+        )
+        .map((decision) => ({
+          ...decision,
+          selectedSourceFeedId:
+            animations.get(decision.selectedReleaseId)?.sourceFeedId ?? null,
+        })),
+    );
+  }
+}
+
 export async function handleMultiSourceSubscriptions({
   req,
   res,
@@ -187,7 +229,7 @@ export async function handleMultiSourceSubscriptions({
   const subscription = subscriptions.get(id);
   if (!subscription) return respond(null, 404);
   if (method === "POST" && match[2] === "evaluate")
-    return respond(evaluate(subscription, animations, downloadState));
+    return respond(evaluate(subscription, animations, downloadState, true));
   if (method === "POST" && match[3]) {
     if (subscription.mode !== "ManualConfirm") return respond(null, 409);
     const decision = evaluate(subscription, animations, downloadState).find(

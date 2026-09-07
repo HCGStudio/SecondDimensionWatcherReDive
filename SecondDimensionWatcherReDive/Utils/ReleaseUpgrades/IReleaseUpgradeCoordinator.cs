@@ -14,6 +14,7 @@ public interface IReleaseUpgradeCoordinator
 {
     Task<ReleaseUpgradeExecutionResult> ExecuteAsync(
         ReleaseUpgradeCandidate candidate,
+        ReleaseUpgradeInvocation invocation,
         bool dryRun,
         CancellationToken cancellationToken);
 

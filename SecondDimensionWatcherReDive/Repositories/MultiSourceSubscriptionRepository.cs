@@ -38,11 +38,7 @@ public sealed class MultiSourceSubscriptionRepository(Models.ApplicationContext 
             else if (entity.TmdbId != input.TmdbId || entity.Season != input.Season)
                 await write.Set<Models.MultiSourceEpisodeDecision>().Where(x => x.SubscriptionId == input.Id).ExecuteDeleteAsync(cancellationToken);
             else if (!entity.Sources.OrderBy(source => source.Priority).Select(source => source.FeedId).SequenceEqual(feedIds))
-                await write.Set<Models.MultiSourceEpisodeDecision>()
-                    .Where(decision => decision.SubscriptionId == input.Id
-                        && decision.Outcome != "downloaded" && decision.Outcome != "downloading"
-                        && decision.Outcome != "mapping_pending" && decision.Outcome != "upgrading")
-                    .ExecuteDeleteAsync(cancellationToken);
+                await ClearPendingDecisionsAsync(write, input.Id, cancellationToken);
             entity.Name = input.Name; entity.TmdbId = input.TmdbId; entity.Season = input.Season;
             entity.WaitMinutes = input.WaitMinutes; entity.Mode = input.Mode;
             entity.SubtitleGroups = input.SubtitleGroups.ToArray(); entity.Resolutions = input.Resolutions.ToArray();
@@ -97,19 +93,46 @@ public sealed class MultiSourceSubscriptionRepository(Models.ApplicationContext 
         }).ToList();
     }
 
-    public async Task<MultiSourceEpisodeDecision> SaveDecisionAsync(MultiSourceEpisodeDecision decision, CancellationToken cancellationToken)
-    {
-        // A single atomic upsert retains the first observed release time across replicas/restarts.
-        await context.Database.ExecuteSqlInterpolatedAsync($"""
-            INSERT INTO "MultiSourceEpisodeDecisions" ("SubscriptionId", "Episode", "WaitStartedAt", "WaitUntil", "SelectedReleaseId", "Outcome", "Reason", "UpdatedAt")
-            VALUES ({decision.SubscriptionId}, {decision.Episode}, {decision.WaitStartedAt}, {decision.WaitUntil}, {decision.SelectedReleaseId}, {decision.Outcome}, {decision.Reason}, {decision.UpdatedAt})
-            ON CONFLICT ("SubscriptionId", "Episode") DO UPDATE SET
-                "WaitStartedAt" = LEAST("MultiSourceEpisodeDecisions"."WaitStartedAt", EXCLUDED."WaitStartedAt"),
-                "WaitUntil" = EXCLUDED."WaitUntil", "SelectedReleaseId" = EXCLUDED."SelectedReleaseId",
-                "Outcome" = EXCLUDED."Outcome", "Reason" = EXCLUDED."Reason", "UpdatedAt" = EXCLUDED."UpdatedAt"
-            """, cancellationToken);
-        return (await GetDecisionsAsync(decision.SubscriptionId, cancellationToken)).Single(x => x.Episode == decision.Episode);
-    }
+    public async Task<MultiSourceEpisodeDecision?> SaveDecisionAsync(MultiSourceEpisodeDecision decision, CancellationToken cancellationToken) =>
+        await context.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
+        {
+            await using var write = new Models.ApplicationContext(options);
+            await using var transaction = await write.Database.BeginTransactionAsync(cancellationToken);
+            await MappingTransactionLock.AcquireAsync(write, cancellationToken);
+            var subscription = await write.Set<Models.MultiSourceSubscription>().AsNoTracking()
+                .Include(value => value.Sources).SingleOrDefaultAsync(value => value.Id == decision.SubscriptionId, cancellationToken);
+            if (subscription is null || subscription.Sources.Count == 0) return null;
+            if (decision.SelectedReleaseId is { } selectedId)
+            {
+                var selected = await write.AnimationInfo.AsNoTracking().Include(value => value.Animation)
+                    .SingleOrDefaultAsync(value => value.Id == selectedId, cancellationToken);
+                var active = decision.Outcome is "downloaded" or "downloading" or "mapping_pending" or "upgrading";
+                if (selected?.Animation?.TmdbId != subscription.TmdbId || selected.Season != subscription.Season
+                    || selected.Episode != decision.Episode
+                    || !active && !subscription.Sources.Any(source => source.FeedId == selected.SourceFeedId))
+                    return null;
+            }
+            // Source changes and decision writes share the same transaction lock, so stale
+            // evaluations cannot restore pending actions for a feed that has been removed.
+            await write.Database.ExecuteSqlInterpolatedAsync($"""
+                INSERT INTO "MultiSourceEpisodeDecisions" ("SubscriptionId", "Episode", "WaitStartedAt", "WaitUntil", "SelectedReleaseId", "Outcome", "Reason", "UpdatedAt")
+                VALUES ({decision.SubscriptionId}, {decision.Episode}, {decision.WaitStartedAt}, {decision.WaitUntil}, {decision.SelectedReleaseId}, {decision.Outcome}, {decision.Reason}, {decision.UpdatedAt})
+                ON CONFLICT ("SubscriptionId", "Episode") DO UPDATE SET
+                    "WaitStartedAt" = LEAST("MultiSourceEpisodeDecisions"."WaitStartedAt", EXCLUDED."WaitStartedAt"),
+                    "WaitUntil" = EXCLUDED."WaitUntil", "SelectedReleaseId" = EXCLUDED."SelectedReleaseId",
+                    "Outcome" = EXCLUDED."Outcome", "Reason" = EXCLUDED."Reason", "UpdatedAt" = EXCLUDED."UpdatedAt"
+                """, cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return decision;
+        });
+
+    internal static Task<int> ClearPendingDecisionsAsync(Models.ApplicationContext write, Guid subscriptionId,
+        CancellationToken cancellationToken) =>
+        write.Set<Models.MultiSourceEpisodeDecision>()
+            .Where(decision => decision.SubscriptionId == subscriptionId
+                && decision.Outcome != "downloaded" && decision.Outcome != "downloading"
+                && decision.Outcome != "mapping_pending" && decision.Outcome != "upgrading")
+            .ExecuteDeleteAsync(cancellationToken);
 
     internal static MultiSourceSubscription ToRecord(Models.MultiSourceSubscription x) => new(x.Id, x.Name, x.TmdbId, x.Season,
         x.Sources.OrderBy(y => y.Priority).Select(y => y.FeedId).ToList(), x.WaitMinutes, x.Mode, x.SubtitleGroups, x.Resolutions,

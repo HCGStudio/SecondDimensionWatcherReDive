@@ -42,7 +42,7 @@ internal sealed class MultiSourceSubscriptionsController(IMultiSourceSubscriptio
     {
         var subscription = (await repository.GetAllAsync(cancellationToken)).FirstOrDefault(x => x.Id == id);
         if (subscription == null) return NotFound();
-        await coordinator.EvaluateAsync(subscription, cancellationToken);
+        await coordinator.EvaluateAsync(subscription, cancellationToken, retryFailures: true);
         return Ok(await repository.GetDecisionsAsync(id, cancellationToken));
     }
     [HttpPost("{id:guid}/episodes/{episode:int}/confirm"), Authorize(Policy = AccessPolicies.ContentWrite)]
