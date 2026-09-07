@@ -654,7 +654,8 @@ public sealed class CodexAppServerEngineTests
         public IReadOnlyList<ToolDefinition> ToolDefinitions { get; } =
         [
             new("lookup", "Look up a value", JsonSerializer.Deserialize<JsonElement>(
-                """{"type":"object","properties":{"query":{"type":"string"}},"required":["query"]}"""))
+                """{"type":"object","properties":{"query":{"type":"string"}},"required":["query"]}"""),
+                ToolRiskLevel.ReadOnly)
         ];
 
         public List<ToolCall> Calls { get; } = [];

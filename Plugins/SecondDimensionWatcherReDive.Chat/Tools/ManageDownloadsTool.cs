@@ -8,7 +8,8 @@ namespace SecondDimensionWatcherReDive.Chat.Tools;
 
 [Tool<ManageDownloadsParams>(
     "manage_downloads",
-    "Control download tasks. Start, pause, resume, or cancel downloads for a specified animation.")]
+    "Control download tasks. Start, pause, resume, or cancel downloads for a specified animation.",
+    ToolRiskLevel.Destructive)]
 internal sealed partial class ManageDownloadsTool(
     IAnimationInfoRepository animationInfoRepository,
     IFileMappingRepository fileMappingRepository,
@@ -97,7 +98,9 @@ internal sealed partial class ManageDownloadsTool(
     {
         var success = await client.PauseDownloadTaskAsync(info.Id, info.DownloadUrl,
             info.CachedDownloadData, info.AdditionalDownloadInfo, cancellationToken);
-        return new ToolSuccessResult<bool>(success);
+        return success
+            ? new ToolSuccessResult<bool>(true)
+            : new ToolFailureResult("Download client failed to pause the task");
     }
 
     private async Task<IToolResult> ResumeDownloadAsync(
@@ -105,7 +108,9 @@ internal sealed partial class ManageDownloadsTool(
     {
         var success = await client.ResumeDownloadTaskAsync(info.Id, info.DownloadUrl,
             info.CachedDownloadData, info.AdditionalDownloadInfo, cancellationToken);
-        return new ToolSuccessResult<bool>(success);
+        return success
+            ? new ToolSuccessResult<bool>(true)
+            : new ToolFailureResult("Download client failed to resume the task");
     }
 
     private async Task<IToolResult> CancelDownloadAsync(
@@ -133,7 +138,7 @@ internal sealed partial class ManageDownloadsTool(
 
         if (!result.IsSuccess)
         {
-            return new ToolSuccessResult<bool>(false);
+            return new ToolFailureResult("Download client failed to cancel the task");
         }
 
         using var finalizeCancellation = CreateDownloadSagaTokenSource();
