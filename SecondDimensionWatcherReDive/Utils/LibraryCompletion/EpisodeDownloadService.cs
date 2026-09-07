@@ -7,7 +7,15 @@ public sealed class EpisodeDownloadService(IAnimationInfoRepository releases, IF
     ILibraryCompletionRepository completion, IFileDownloadClientProvider clients,
     ILogger<EpisodeDownloadService> logger)
 {
-    public async Task<CompletionSubmissionResult> SubmitAsync(AnimationInfo info, CancellationToken cancellationToken)
+    public Task<CompletionSubmissionResult> SubmitAsync(AnimationInfo info, CancellationToken cancellationToken) =>
+        SubmitCoreAsync(info, null, cancellationToken);
+
+    public Task<CompletionSubmissionResult> SubmitAutomaticAsync(AnimationInfo info,
+        MultiSourceSubscription subscription, CancellationToken cancellationToken) =>
+        SubmitCoreAsync(info, subscription, cancellationToken);
+
+    private async Task<CompletionSubmissionResult> SubmitCoreAsync(AnimationInfo info,
+        MultiSourceSubscription? automaticSubscription, CancellationToken cancellationToken)
     {
         var episode = info.Episode!.Value;
         var tmdbId = info.Animation!.TmdbId;
@@ -23,7 +31,7 @@ public sealed class EpisodeDownloadService(IAnimationInfoRepository releases, IF
         {
             client = clients.GetRequiredClient(info.DownloadType);
             var started = await releases.TryStartClaimedEpisodeDownloadAsync(info, claim, attempt, lease,
-                TimeSpan.FromMinutes(3), DateTimeOffset.UtcNow, cancellationToken);
+                TimeSpan.FromMinutes(3), DateTimeOffset.UtcNow, automaticSubscription, cancellationToken);
             if (started == null) return new(episode, info.Id, "state_changed", false);
             using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             budget.CancelAfter(TimeSpan.FromSeconds(90));

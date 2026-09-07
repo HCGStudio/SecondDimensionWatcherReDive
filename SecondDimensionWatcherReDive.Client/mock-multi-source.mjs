@@ -9,6 +9,7 @@ function evaluate(
   subscription,
   animations,
   downloadState,
+  evaluateRelease,
   retryFailures = false,
 ) {
   const plan = planFor(animations, subscription.tmdbId, subscription.season);
@@ -40,7 +41,12 @@ function evaluate(
     const waitUntil =
       new Date(started).getTime() + subscription.waitMinutes * 60000;
     const eligible = linked
-      .filter((candidate) => candidate.eligible)
+      .filter(
+        (candidate) =>
+          candidate.eligible &&
+          evaluateRelease(animations.get(candidate.releaseId), subscription)
+            .matched,
+      )
       .sort(
         (left, right) =>
           subscription.feedIds.indexOf(
@@ -157,6 +163,7 @@ export async function handleMultiSourceSubscriptions({
   animations,
   downloadState,
   feeds,
+  evaluateRelease,
 }) {
   const respond = (data, status = 200) => {
     json(res, data, status);
@@ -218,7 +225,7 @@ export async function handleMultiSourceSubscriptions({
     )
       decisions.delete(id);
     subscriptions.set(id, subscription);
-    evaluate(subscription, animations, downloadState);
+    evaluate(subscription, animations, downloadState, evaluateRelease);
     return respond(subscription);
   }
   if (method === "DELETE" && !match[2]) {
@@ -229,10 +236,17 @@ export async function handleMultiSourceSubscriptions({
   const subscription = subscriptions.get(id);
   if (!subscription) return respond(null, 404);
   if (method === "POST" && match[2] === "evaluate")
-    return respond(evaluate(subscription, animations, downloadState, true));
+    return respond(
+      evaluate(subscription, animations, downloadState, evaluateRelease, true),
+    );
   if (method === "POST" && match[3]) {
     if (subscription.mode !== "ManualConfirm") return respond(null, 409);
-    const decision = evaluate(subscription, animations, downloadState).find(
+    const decision = evaluate(
+      subscription,
+      animations,
+      downloadState,
+      evaluateRelease,
+    ).find(
       (x) =>
         x.episode === Number(match[3]) && x.outcome === "pending_confirmation",
     );
@@ -244,7 +258,7 @@ export async function handleMultiSourceSubscriptions({
       subscription.season,
       [{ episode: decision.episode, releaseId: decision.selectedReleaseId }],
     )[0];
-    evaluate(subscription, animations, downloadState);
+    evaluate(subscription, animations, downloadState, evaluateRelease);
     return respond(result);
   }
   return false;
