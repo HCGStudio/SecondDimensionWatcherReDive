@@ -18,7 +18,10 @@ public sealed record PendingDownloadSubmission(
     Guid DownloadAttemptId,
     Guid SubmissionLeaseId);
 
-public sealed record StandaloneAutomationDecision(AnimationInfo Info, SubscriptionAutomationMode Mode);
+public sealed record StandaloneAutomationDecision(AnimationInfo Info, SubscriptionAutomationPolicy Policy)
+{
+    public SubscriptionAutomationMode Mode => Policy.Mode;
+}
 
 public interface IAnimationInfoRepository
 {
@@ -119,7 +122,7 @@ public interface IAnimationInfoRepository
         Guid id, CancellationToken cancellationToken);
 
     Task CompleteStandaloneAutomationAsync(
-        Guid id, long expectedStateVersion, CancellationToken cancellationToken);
+        Guid id, long expectedStateVersion, SubscriptionAutomationPolicy expectedPolicy, CancellationToken cancellationToken);
 
     Task<DownloadSubmissionLease?> TryStartDownloadAsync(
         Guid id,
