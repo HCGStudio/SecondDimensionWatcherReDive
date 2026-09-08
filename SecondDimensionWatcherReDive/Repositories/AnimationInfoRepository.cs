@@ -937,7 +937,9 @@ public class AnimationInfoRepository(
                 : JsonSerializer.Serialize(evaluation.Explanations, new JsonSerializerOptions(JsonSerializerDefaults.Web));
             // Matching is not a failed attempt. Keep durable work until the start
             // transaction authorizes tracking, or a later refresh sees the changed policy.
-            var pending = mode == SubscriptionAutomationMode.AutoDownload || mode is not null && entity.StandaloneAutomationPending;
+            var pending = mode == SubscriptionAutomationMode.AutoDownload
+                || (mode is SubscriptionAutomationMode.NotifyOnly or SubscriptionAutomationMode.ManualConfirm
+                    && entity.StandaloneAutomationPending);
             if (entity.AutomationDisposition != disposition || entity.AutomationExplanationJson != explanation
                 || entity.StandaloneAutomationPending != pending)
                 entity.StateVersion = checked(entity.StateVersion + 1);

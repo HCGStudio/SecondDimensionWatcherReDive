@@ -315,7 +315,7 @@ internal partial class SyncFeed(
                         scope.ServiceProvider, cancellationToken);
                     // Automatic tracking consumes the marker in its transaction. Notification
                     // acknowledgement rechecks both the release revision and evaluated policy.
-                    if (applied && decision.Mode != SubscriptionAutomationMode.AutoDownload)
+                    if (applied && decision.Mode is SubscriptionAutomationMode.NotifyOnly or SubscriptionAutomationMode.ManualConfirm)
                         await pending.CompleteStandaloneAutomationAsync(id, decision.Info.StateVersion,
                             decision.Policy, cancellationToken);
                 }
