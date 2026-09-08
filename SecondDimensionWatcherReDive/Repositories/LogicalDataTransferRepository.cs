@@ -218,11 +218,11 @@ internal sealed class LogicalDataTransferWorker(
 
         var statistics = new ImportStatistics();
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+        // All category combinations use the same order, including legacy imports
+        // that write feeds before applying metadata corrections later in the transaction.
+        await MappingTransactionLock.AcquireAsync(context, cancellationToken);
         if (bundle.Categories.HasFlag(LogicalDataCategory.RecognitionRules) && bundle.RecognitionRules?.Count > 0)
         {
-            // Use metadata inference's lock order. Rule edits and inference commits
-            // must not observe a partially imported set or overwrite its revisions.
-            await MappingTransactionLock.AcquireAsync(context, cancellationToken);
             // Source URLs must continue to identify live target feeds until commit.
             await context.Database.ExecuteSqlRawAsync(
                 "LOCK TABLE \"Feeds\" IN SHARE ROW EXCLUSIVE MODE", cancellationToken);
@@ -487,10 +487,7 @@ internal sealed class LogicalDataTransferWorker(
             bundle.MetadataCorrections.Count == 0)
             return;
 
-        // Use the same lock order as metadata review and FileMappingRepository so a
-        // correction cannot race another virtual-path transition.
-        await MappingTransactionLock.AcquireAsync(context, cancellationToken);
-
+        // The enclosing import already holds the global mapping transaction lock.
         var downloadUrls = bundle.MetadataCorrections.Select(item => item.ReleaseDownloadUrl).Distinct().ToArray();
         var candidateIds = await context.AnimationInfo.AsNoTracking()
             .Where(info => downloadUrls.Contains(info.DownloadUrl))
