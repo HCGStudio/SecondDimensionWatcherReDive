@@ -12,6 +12,10 @@ function evaluate(
   evaluateRelease,
   retryFailures = false,
 ) {
+  // Evaluation is synchronous; only the currently stored snapshot can publish
+  // decisions or trigger downloads for this subscription.
+  if (subscriptions.get(subscription.id) !== subscription)
+    return decisions.get(subscription.id) ?? [];
   const plan = planFor(animations, subscription.tmdbId, subscription.season);
   const prior = decisions.get(subscription.id) ?? [];
   const now = Date.now();
@@ -214,13 +218,17 @@ export async function handleMultiSourceSubscriptions({
       )
     )
       return respond({ message: "Season or source already linked" }, 409);
+    const previous = subscriptions.get(id);
+    const retargeted =
+      previous &&
+      (previous.tmdbId !== body.tmdbId || previous.season !== body.season);
+    const savedAt = iso(Date.now());
     const subscription = {
       ...body,
       id,
-      createdAt: subscriptions.get(id)?.createdAt ?? iso(Date.now()),
-      updatedAt: iso(Date.now()),
+      createdAt: retargeted ? savedAt : (previous?.createdAt ?? savedAt),
+      updatedAt: savedAt,
     };
-    const previous = subscriptions.get(id);
     if (
       previous &&
       (previous.tmdbId !== subscription.tmdbId ||
