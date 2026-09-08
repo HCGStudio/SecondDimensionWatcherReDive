@@ -6,8 +6,8 @@ public sealed class PluginPlatformOptions
     public const long MaximumAllowedPackageBytes = 64L * 1024 * 1024;
     public const long MaximumUploadRequestBytes = MaximumAllowedPackageBytes + 1024 * 1024;
 
-    internal static string GetDefaultRootPath(string passwordFile)
-        => Path.Combine(Path.GetDirectoryName(Path.GetFullPath(passwordFile))!, "plugins");
+    internal static string GetDefaultRootPath(string stateDirectory)
+        => Path.Combine(Path.GetFullPath(stateDirectory), "plugins");
 
     public string RootPath { get; set; } = string.Empty;
     public bool AllowUnsignedLocalPackages { get; set; }

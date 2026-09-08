@@ -20,11 +20,11 @@ detect_arch() {
     esac
 }
 
-# Map arch for deb/rpm/pacman filenames (amd64/arm64)
+# Map runtime identifiers to release asset architecture labels.
 pkg_arch() {
     case "$1" in
         x64)  echo "amd64" ;;
-        arm64) echo "arm64" ;;
+        arm64) echo "aarch64" ;;
     esac
 }
 
@@ -233,6 +233,10 @@ configure_ai() {
 
 install_system_package() {
     local arch distro parch assets url
+    local existing_config=false
+    if [ -f /etc/sdw-redive/appsettings.yml ]; then
+        existing_config=true
+    fi
 
     arch=$(detect_arch)
     if [ "$arch" = "unsupported" ]; then
@@ -265,13 +269,13 @@ install_system_package() {
     # Find matching package
     case "$distro" in
         deb)
-            url=$(find_asset "$assets" "\.deb" | grep -i "$parch" | head -1)
+            url=$(find_asset "$assets" "sdw-redive_.*_${parch}\.deb" || true)
             ;;
         rpm)
-            url=$(find_asset "$assets" "\.rpm" | grep -i "$parch" | head -1)
+            url=$(find_asset "$assets" "sdw-redive-.*\.${parch}\.rpm" || true)
             ;;
         pacman)
-            url=$(find_asset "$assets" "\.pkg\.tar\.zst" | grep -i "$parch" | head -1)
+            url=$(find_asset "$assets" "sdw-redive-.*-${parch}\.pkg\.tar\.zst" || true)
             ;;
     esac
 
@@ -297,8 +301,11 @@ install_system_package() {
     echo
     echo "包安装完成。配置文件: /etc/sdw-redive/appsettings.yml"
 
-    # Guide through essential config
-    configure_system_config "/etc/sdw-redive/appsettings.yml"
+    # Existing installations keep their settings; migration only handles
+    # breaking changes, and optional features remain configurable in the UI.
+    if [ "$existing_config" = false ]; then
+        configure_system_config "/etc/sdw-redive/appsettings.yml"
+    fi
     secure_system_secrets "/etc/sdw-redive/appsettings.yml"
 
     echo
@@ -314,13 +321,18 @@ install_system_package() {
 # ============================================================
 
 install_tarball() {
-    local arch assets url
+    local arch parch assets url
+    local existing_config=false
+    if [ -f /etc/sdw-redive/appsettings.yml ]; then
+        existing_config=true
+    fi
 
     arch=$(detect_arch)
     if [ "$arch" = "unsupported" ]; then
         echo "Error: 不支持的架构 $(uname -m)。"
         exit 1
     fi
+    parch=$(pkg_arch "$arch")
 
     echo
     echo "正在获取发布信息..."
@@ -335,9 +347,9 @@ install_tarball() {
         exit 1
     fi
 
-    url=$(find_asset "$assets" "linux-${arch}\.tar\.gz")
+    url=$(find_asset "$assets" "sdw-redive_.*_linux-${parch}\.tar\.gz" || true)
     if [ -z "${url:-}" ]; then
-        echo "Error: 未找到 linux-${arch} tar.gz 包。"
+        echo "Error: 未找到 linux-${parch} tar.gz 包。"
         exit 1
     fi
 
@@ -350,6 +362,9 @@ install_tarball() {
     sudo mkdir -p /usr/lib/sdw-redive
     sudo tar -xzf "/tmp/$filename" -C /usr/lib/sdw-redive
     rm -f "/tmp/$filename"
+    sudo mkdir -p /usr/local/bin
+    sudo ln -sfn /usr/lib/sdw-redive/sdw-cli /usr/local/bin/sdw-cli
+    sudo ln -sfn /usr/lib/sdw-redive/sdw-cli /usr/local/bin/sdw-migrate
 
     # Config file
     sudo mkdir -p /etc/sdw-redive
@@ -375,6 +390,11 @@ install_tarball() {
     sudo chown -R sdw-redive:sdw-redive /var/lib/sdw-redive
     secure_system_secrets "/etc/sdw-redive/appsettings.yml"
 
+    if ! sudo /usr/local/bin/sdw-migrate --config /etc/sdw-redive/appsettings.yml --working-directory /usr/lib/sdw-redive --non-interactive; then
+        echo "配置升级失败或需要确认破坏性变更。请运行 sudo sdw-migrate --config /etc/sdw-redive/appsettings.yml --working-directory /usr/lib/sdw-redive，完成后重新运行安装脚本。" >&2
+        exit 1
+    fi
+
     # Generate JwtSecret if placeholder present
     if grep -q '<Please fill this with a 32 length random string>' /etc/sdw-redive/appsettings.yml 2>/dev/null; then
         local jwt
@@ -386,7 +406,9 @@ install_tarball() {
     echo
     echo "tar.gz 安装完成。配置文件: /etc/sdw-redive/appsettings.yml"
 
-    configure_system_config "/etc/sdw-redive/appsettings.yml"
+    if [ "$existing_config" = false ]; then
+        configure_system_config "/etc/sdw-redive/appsettings.yml"
+    fi
     secure_system_secrets "/etc/sdw-redive/appsettings.yml"
 
     echo

@@ -35,10 +35,10 @@ if grep -q '<Please fill this with a 32 length random string>' "$CONFIG" 2>/dev/
     sed -i "s|<Please fill this with a 32 length random string>|${JWT_SECRET}|" "$CONFIG"
 fi
 
-# Migrate legacy Inference:* config to AI:* structure (upgrade from <2.2)
-MIGRATE="/usr/lib/sdw-redive/migrate-config.sh"
-if [ -x "$MIGRATE" ]; then
-    "$MIGRATE" "$CONFIG" || true
+# Package upgrades cannot prompt for breaking configuration choices.
+if ! /usr/bin/sdw-migrate --config "$CONFIG" --working-directory /usr/lib/sdw-redive --non-interactive; then
+    echo "Configuration upgrade failed or requires a decision. Run sudo sdw-migrate --config $CONFIG --working-directory /usr/lib/sdw-redive, then retry the package installation." >&2
+    exit 1
 fi
 
 # Ensure data directory ownership

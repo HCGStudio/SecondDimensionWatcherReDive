@@ -36,10 +36,10 @@ public sealed class PluginControllerTests
     }
 
     [TestMethod]
-    public void PluginPlatform_WhenRootIsMissing_FallsBackBesideThePasswordFile()
+    public void PluginPlatform_WhenRootIsMissing_FallsBackInsideTheStateDirectory()
     {
-        var passwordFile = Path.Combine(Path.GetTempPath(), "sdw-app-data", "password.json");
-        var defaultRoot = PluginPlatformOptions.GetDefaultRootPath(passwordFile);
+        var stateDirectory = Path.Combine(Path.GetTempPath(), "sdw-app-data");
+        var defaultRoot = PluginPlatformOptions.GetDefaultRootPath(stateDirectory);
         var configuration = new ConfigurationBuilder().AddInMemoryCollection().Build();
         var services = new ServiceCollection();
         services.AddPluginPlatform(configuration, defaultRoot);

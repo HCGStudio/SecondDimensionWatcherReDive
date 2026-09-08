@@ -15,15 +15,22 @@ WORKDIR /src
 COPY SecondDimensionWatcherReDive.slnx .
 COPY VERSION .
 COPY SecondDimensionWatcherReDive.Framework/ SecondDimensionWatcherReDive.Framework/
+COPY SecondDimensionWatcherReDive.ConfigMigration/ SecondDimensionWatcherReDive.ConfigMigration/
+COPY SecondDimensionWatcherReDive.CLI/ SecondDimensionWatcherReDive.CLI/
 COPY SecondDimensionWatcherReDive/ SecondDimensionWatcherReDive/
 COPY Plugins/ Plugins/
 COPY Share/ Share/
 COPY --from=frontend-build /app/dist SecondDimensionWatcherReDive/wwwroot/
 RUN dotnet restore SecondDimensionWatcherReDive/SecondDimensionWatcherReDive.csproj
+RUN dotnet restore SecondDimensionWatcherReDive.CLI/SecondDimensionWatcherReDive.CLI.csproj
 RUN effective_version="${VERSION:-$(tr -d '[:space:]' < VERSION)}" \
     && dotnet publish SecondDimensionWatcherReDive/SecondDimensionWatcherReDive.csproj \
         -c Release -o /app --no-restore \
         /p:Version="${effective_version}" \
+    && dotnet publish SecondDimensionWatcherReDive.CLI/SecondDimensionWatcherReDive.CLI.csproj \
+        -c Release -o /app --no-restore \
+        /p:Version="${effective_version}" \
+    && ln -s sdw-cli /app/sdw-migrate \
     && printf '%s\n' "${effective_version}" > /app/VERSION
 
 # Stage 3: Runtime
@@ -44,7 +51,9 @@ RUN apt-get update \
 COPY --from=backend-build /app .
 COPY deployments/sdw-backup /usr/local/bin/sdw-backup
 RUN mkdir -p /usr/lib/sdw-redive \
-    && install -m 0644 /app/VERSION /usr/lib/sdw-redive/VERSION
+    && install -m 0644 /app/VERSION /usr/lib/sdw-redive/VERSION \
+    && ln -s /app/sdw-cli /usr/local/bin/sdw-cli \
+    && ln -s /app/sdw-cli /usr/local/bin/sdw-migrate
 EXPOSE 8080
 # Optional: read-only NFSv4 export (set Nfs:Enabled=true to activate; publish port at run time).
 EXPOSE 2049

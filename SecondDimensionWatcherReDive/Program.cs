@@ -62,6 +62,20 @@ if (PluginWorkerHost.IsWorkerInvocation(args))
 }
 
 var builder = WebApplication.CreateBuilder(args);
+try
+{
+    await ConfigurationVersionStartup.PrepareAsync(builder, CancellationToken.None);
+}
+catch (Exception exception) when (exception is SecondDimensionWatcherReDive.ConfigMigration.ConfigMigrationException
+                                  or IOException or UnauthorizedAccessException)
+{
+    var reason = exception is SecondDimensionWatcherReDive.ConfigMigration.ConfigMigrationException
+        ? exception.Message
+        : "The configuration could not be read or upgraded. Check file and directory permissions.";
+    Console.Error.WriteLine($"Configuration upgrade failed: {reason}");
+    Environment.ExitCode = 1;
+    return;
+}
 
 builder.Host.UseSystemd();
 
@@ -87,19 +101,16 @@ builder.Services.AddControllers()
     .AddWebDav();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
-if (builder.Configuration["Config"] is { } configPath)
-    builder.Configuration.AddYamlFile(configPath, optional: false, reloadOnChange: true);
-var passwordFile = builder.Configuration["PasswordFile"] ?? "password.json";
-builder.Configuration.AddJsonFile(passwordFile, optional: true, reloadOnChange: true);
+var stateDirectory = Path.GetFullPath(builder.Configuration["StateDirectory"] ?? ".");
 // Runtime settings are the highest-priority configuration source. The provider is populated
 // from PostgreSQL after EF migrations and before hosted services start.
 var runtimeSettingsProvider = builder.Configuration.AddRuntimeSettingsConfigurationProvider();
 
-// Persist the key ring beside the password file by default so runtime secrets remain
+// Persist the key ring in the state directory by default so runtime secrets remain
 // decryptable after restarts and container upgrades. Deployments may select another path.
 var dataProtectionKeyRingPath = builder.Configuration["DataProtection:KeyRingPath"]
                                 ?? Path.Combine(
-                                    Path.GetDirectoryName(Path.GetFullPath(passwordFile))!,
+                                    stateDirectory,
                                     "data-protection-keys");
 Directory.CreateDirectory(dataProtectionKeyRingPath);
 if (!OperatingSystem.IsWindows())
@@ -112,7 +123,7 @@ builder.Services.AddDataProtection()
 builder.Services.AddApplicationRuntimeSettings(runtimeSettingsProvider);
 builder.Services.AddPluginPlatform(
     builder.Configuration,
-    PluginPlatformOptions.GetDefaultRootPath(passwordFile));
+    PluginPlatformOptions.GetDefaultRootPath(stateDirectory));
 
 builder.Services.Configure<MediaLibraryOptions>(
     builder.Configuration.GetSection(MediaLibraryOptions.SectionName));
@@ -127,7 +138,7 @@ builder.Services.AddOptions<TranscodingOptions>()
     {
         if (string.IsNullOrWhiteSpace(options.CachePath))
             options.CachePath = Path.Combine(
-                Path.GetDirectoryName(Path.GetFullPath(passwordFile))!,
+                stateDirectory,
                 "transcode-cache");
         else
             options.CachePath = Path.GetFullPath(options.CachePath);

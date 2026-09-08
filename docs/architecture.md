@@ -9,6 +9,8 @@ This is an anime/animation download management system (二次元观测器 Re:Div
 ### Solution Projects
 
 - **SecondDimensionWatcherReDive** — Main ASP.NET Core web API. Internal controllers (`Controllers/`), external API DTOs (`Controllers/External/`), EF Core repository implementations (`Repositories/`), EF entity models (`Models/`), background services, download/feed implementations, SPA hosting.
+- **SecondDimensionWatcherReDive.CLI** — Multicall command-line executable (`sdw-cli`) using the System.CommandLine 3.0 preview. Packaged `sdw-migrate` links dispatch to the configuration migration command; direct invocation also supports `sdw-cli migrate`.
+- **SecondDimensionWatcherReDive.ConfigMigration** — Versioned configuration migration implementation shared by the host and CLI. Owns JSON/YAML documents, migration planning and file persistence; Framework exposes only migration interfaces and records. Source-generated registration discovers implementations at compile time; the runner orders and validates the `Up` chain by version.
 - **SecondDimensionWatcherReDive.Framework** — Shared abstractions: domain records and repository interfaces (`DataRepository/`), plugin interfaces, file download/storage, feeds, scheduled tasks, inference. Also defines core AI tool contracts (`AI/`): `ITool` (static abstract `Definition` + `ExecuteAsync`), `IToolResult` (`object? Result` + `bool IsSuccess`), `ToolDefinition` (with `Create<TParams>` JSON Schema generation), and the `[Tool<TParam>]` attribute (`Attributes/`) consumed by the source generator.
 - **SecondDimensionWatcherReDive.Test** — MSTest unit tests with Moq. Covers controllers, services, scheduled tasks, plugin events, feed parsing, auth.
 - **SecondDimensionWatcherReDive.IntegrationTest** — MSTest integration tests via `Microsoft.AspNetCore.Mvc.Testing` (`WebDavWebApplicationFactory` boots the real app with fake repositories/file store from `Helpers/Fakes.cs` and seeded `TestData/WebDavMappingFixtures`). Covers WebDAV end-to-end (`Methods/` — OPTIONS, PROPFIND, GET/HEAD, advanced semantics, third-party `WebDav.Client` library compatibility), Basic-auth flow (`Auth/`), and the `/api/vfs` REST surface (`Vfs/` — stat/list/read/auth). `WebDavXmlAssertions` helps assert MultiStatus payloads.
@@ -234,8 +236,10 @@ Features: 25 anime entries with TMDB poster paths and mixed download states, gro
 ## Key Configuration (appsettings.example.json)
 
 - `ConnectionStrings:sdw` — PostgreSQL connection string
+- `Version` — Configuration schema version, currently `2.3.0`, independent of the application version. Missing versions are treated as `2.2.0` and migrated before services start.
+- `StateDirectory` — Persistent application state root. Defaults to the working directory; packaged and container installs set it explicitly. Default key-ring, plugin and transcode-cache paths are children of this directory.
 - `JwtSecret` — Required JWT signing key
-- `Password:Value` — BCrypt hash of the JWT login password. When empty, `/api/auth/register` is open and writes the first user's hash to the path in `PasswordFile` (default `password.json`); once set, `/api/auth/login` BCrypt-verifies against this value. Unrelated to WebDAV.
+- `Authentication:BootstrapPasswordHash` — Optional BCrypt hash retained by configuration migration and atomically imported into the authentication-state repository on startup. Database credentials remain authoritative. Fresh installs register their administrator in the web UI; the host does not load `PasswordFile`, `password.json` or `Password:Value`.
 - `Torrent:Remote:Url` — qBittorrent API endpoint
 - `FileStore:Local` — Download directory path
 - `MikananiFeeds` — RSS feed URL array (static feeds)
@@ -243,7 +247,7 @@ Features: 25 anime entries with TMDB poster paths and mixed download states, gro
 - `AI:Provider` — "OpenAI" or "Anthropic" (defaults to OpenAI if omitted)
 - `AI:OpenAI:ApiKey` — OpenAI API key (leave empty to disable AI inference)
 - `AI:OpenAI:BaseUrl` — OpenAI-compatible API endpoint (default: `https://api.openai.com/v1`; supports Ollama, vLLM, etc.)
-- `AI:OpenAI:ApiMode` — wire protocol: `Responses` for official OpenAI, or `ChatCompletions` for Ollama/vLLM/legacy compatible endpoints. Missing values default to `ChatCompletions` for backward compatibility
+- `AI:OpenAI:ApiMode` — wire protocol: `Responses` (default) for official OpenAI, or explicit `ChatCompletions` for Ollama/vLLM and other compatible endpoints. Migration writes the old implicit `ChatCompletions` value explicitly to preserve existing deployments.
 - `AI:OpenAI:Model` — Model name (e.g., "gpt-4o-mini")
 - `AI:OpenAI:MaxTokens` — Max response tokens (default: 1024)
 - `AI:Anthropic:ApiKey` — Anthropic API key
@@ -258,4 +262,4 @@ Features: 25 anime entries with TMDB poster paths and mixed download states, gro
 
 EF Core migrations run automatically on application startup.
 
-Config migration: Users upgrading from pre-v2.2 (where AI config lived under `Inference:`) can run `deployments/migrate-config.sh` to automatically migrate to the new `AI:` config structure. For package installs, `postinstall.sh` runs this automatically.
+Config migrations run before application services and separately from EF Core/database migrations. Each registered `Up` identifies its source/target version and whether the document needs user intervention. The host only runs a fully silent chain; unresolved breaking choices or migration failures abort startup. `sdw-migrate --config PATH` handles interactive choices; `--non-interactive` uses the same silent policy as startup/package installation. Ordinary new features keep their defaults and are configured later through Settings. See [Configuration migrations](configuration-migrations.md) for the CLI and schema-authoring workflow.

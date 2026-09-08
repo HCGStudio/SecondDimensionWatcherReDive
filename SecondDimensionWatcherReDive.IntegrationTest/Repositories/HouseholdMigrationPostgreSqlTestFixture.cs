@@ -392,7 +392,7 @@ internal sealed class HouseholdMigrationPostgreSqlTestFixture(string connectionS
                                           newPrincipal, repository, cancellationToken);
 
         var auth = CreateAuthController(
-            configuration, validationParameters, repository, issuer);
+            validationParameters, repository, issuer);
         var oldReplay = await auth.Refresh(
             new Controllers.External.AuthRequest(
                 initial.AccessToken, initial.RefreshToken),
@@ -437,7 +437,6 @@ internal sealed class HouseholdMigrationPostgreSqlTestFixture(string connectionS
             var refreshRepository = new IdentityRepository(refreshContext);
             var refreshIssuer = new SessionTokenIssuer(configuration, refreshRepository);
             var refreshController = CreateAuthController(
-                configuration,
                 validationParameters,
                 refreshRepository,
                 refreshIssuer);
@@ -475,7 +474,7 @@ internal sealed class HouseholdMigrationPostgreSqlTestFixture(string connectionS
             var repository = new IdentityRepository(registerContext);
             var issuer = new SessionTokenIssuer(configuration, repository);
             var controller = CreateAuthController(
-                configuration, validationParameters, repository, issuer);
+                validationParameters, repository, issuer);
             return await controller.Register(
                 new Controllers.External.LoginData(
                     "concurrent-password",
@@ -690,11 +689,9 @@ internal sealed class HouseholdMigrationPostgreSqlTestFixture(string connectionS
     };
 
     private static AuthController CreateAuthController(
-        IConfiguration configuration,
         TokenValidationParameters validationParameters,
         IIdentityRepository repository,
         SessionTokenIssuer issuer) => new(
-        configuration,
         validationParameters,
         repository,
         issuer,

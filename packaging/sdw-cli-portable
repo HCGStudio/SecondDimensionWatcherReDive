@@ -1,0 +1,10 @@
+#!/bin/sh
+set -eu
+
+# The portable archive has no platform-specific apphost. Keep the same applet
+# names by translating the invoked symlink to a command before launching .NET.
+cli_directory=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+case "${0##*/}" in
+    sdw-migrate) set -- migrate "$@" ;;
+esac
+exec dotnet "$cli_directory/sdw-cli.dll" "$@"
