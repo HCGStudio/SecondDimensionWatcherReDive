@@ -10,6 +10,9 @@ public sealed record MetadataRecognitionHit(
     Guid Id, Guid RuleId, string RuleName, long RuleRevision,
     Guid AnimationInfoId, string Title, long ItemRevision, DateTimeOffset AppliedAt);
 
+public sealed class MetadataRecognitionRuleLimitException()
+    : InvalidOperationException($"Up to {LogicalDataTransferLimits.MaximumRecognitionRules} recognition rules are supported.");
+
 public interface IMetadataRecognitionRuleRepository
 {
     Task<IReadOnlyList<MetadataRecognitionRule>> ListAsync(CancellationToken cancellationToken);
