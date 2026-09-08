@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using SecondDimensionWatcherReDive.Models;
@@ -11,9 +12,11 @@ using SecondDimensionWatcherReDive.Models;
 namespace SecondDimensionWatcherReDive.Migrations
 {
     [DbContext(typeof(ApplicationContext))]
-    partial class ApplicationContextModelSnapshot : ModelSnapshot
+    [Migration("20260907145617_AddProfileWatchlist")]
+    partial class AddProfileWatchlist
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1364,12 +1367,6 @@ namespace SecondDimensionWatcherReDive.Migrations
                     b.Property<int?>("ProposedSeason")
                         .HasColumnType("integer");
 
-                    b.Property<Guid?>("RecognitionRuleId")
-                        .HasColumnType("uuid");
-
-                    b.Property<long?>("RecognitionRuleRevision")
-                        .HasColumnType("bigint");
-
                     b.Property<int>("State")
                         .HasColumnType("integer");
 
@@ -1923,27 +1920,6 @@ namespace SecondDimensionWatcherReDive.Migrations
                     b.HasKey("Key");
 
                     b.ToTable("TodoItemStates");
-                });
-
-            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.TranscodeCacheReader", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("DirectoryPath")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<DateTimeOffset>("LeaseUntil")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("DirectoryPath");
-
-                    b.HasIndex("LeaseUntil");
-
-                    b.ToTable("TranscodeCacheReaders", (string)null);
                 });
 
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.TranscodeCapacityReservation", b =>

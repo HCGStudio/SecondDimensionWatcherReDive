@@ -12,6 +12,7 @@ import enPlayer from "./locales/en/player.json";
 import enSeason from "./locales/en/season.json";
 import enTasks from "./locales/en/tasks.json";
 import enTodos from "./locales/en/todos.json";
+import enWatchlist from "./locales/en/watchlist.json";
 import jaAccounts from "./locales/ja/accounts.json";
 import jaAnimation from "./locales/ja/animation.json";
 import jaAuth from "./locales/ja/auth.json";
@@ -26,6 +27,7 @@ import jaPlayer from "./locales/ja/player.json";
 import jaSeason from "./locales/ja/season.json";
 import jaTasks from "./locales/ja/tasks.json";
 import jaTodos from "./locales/ja/todos.json";
+import jaWatchlist from "./locales/ja/watchlist.json";
 import zhCnAccounts from "./locales/zh-CN/accounts.json";
 import zhCnAnimation from "./locales/zh-CN/animation.json";
 import zhCnAuth from "./locales/zh-CN/auth.json";
@@ -40,10 +42,12 @@ import zhCnPlayer from "./locales/zh-CN/player.json";
 import zhCnSeason from "./locales/zh-CN/season.json";
 import zhCnTasks from "./locales/zh-CN/tasks.json";
 import zhCnTodos from "./locales/zh-CN/todos.json";
+import zhCnWatchlist from "./locales/zh-CN/watchlist.json";
 
 export const resources = {
   "zh-cn": {
     common: zhCnCommon,
+    watchlist: zhCnWatchlist,
     accounts: zhCnAccounts,
     auth: zhCnAuth,
     errors: zhCnErrors,
@@ -63,6 +67,7 @@ export const resources = {
   },
   en: {
     common: enCommon,
+    watchlist: enWatchlist,
     accounts: enAccounts,
     auth: enAuth,
     errors: enErrors,
@@ -85,6 +90,7 @@ export const resources = {
   },
   ja: {
     common: jaCommon,
+    watchlist: jaWatchlist,
     accounts: jaAccounts,
     auth: jaAuth,
     errors: jaErrors,

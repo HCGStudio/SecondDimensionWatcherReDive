@@ -58,6 +58,11 @@ const createNavItems = (
 ): NavItem[] =>
   [
     { icon: <Home size={16} />, labelKey: "nav.home", path: "/" },
+    {
+      icon: <Clapperboard size={16} />,
+      labelKey: "nav.watchlist",
+      path: "/watchlist",
+    },
     { icon: <Search size={16} />, labelKey: "nav.search", path: "/search" },
     {
       icon: <BellRing size={16} />,
@@ -134,7 +139,7 @@ const NavLink: React.FC<NavLinkProps> = ({ icon, label, path, badge }) => {
       to={path}
       aria-current={isActive ? "page" : undefined}
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus:outline-hidden focus:ring-2 focus:ring-focus",
+        "inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus:outline-hidden focus:ring-2 focus:ring-focus",
         isActive
           ? "bg-canvas text-foreground"
           : "text-muted hover:text-foreground hover:bg-canvas",
@@ -161,7 +166,7 @@ const MobileNavMenu: React.FC<{ items: NavItem[] }> = ({ items }) => {
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          className="inline-flex items-center justify-center rounded-md p-1.5 text-muted transition-colors hover:bg-canvas hover:text-foreground focus:outline-hidden focus:ring-2 focus:ring-focus xl:hidden"
+          className="inline-flex items-center justify-center rounded-md p-1.5 text-muted transition-colors hover:bg-canvas hover:text-foreground focus:outline-hidden focus:ring-2 focus:ring-focus 2xl:hidden"
           aria-label={t("nav.menu")}
         >
           <Menu size={18} />
@@ -335,16 +340,16 @@ export const AppHeader: React.FC = () => {
   return (
     <header className="sticky top-0 z-30 border-b border-border bg-surface/95 backdrop-blur">
       <nav className="flex h-14 items-center justify-between gap-2 px-4 sm:px-6">
-        <div className="flex min-w-0 items-center gap-2 xl:gap-4">
+        <div className="flex min-w-0 flex-1 items-center gap-2 2xl:gap-4">
           <MobileNavMenu items={items} />
           <Link
             to="/"
-            className="flex min-w-0 items-center gap-2 rounded-md font-serif text-lg font-medium text-foreground focus:outline-hidden focus:ring-2 focus:ring-focus"
+            className="flex min-w-0 shrink-0 items-center gap-2 rounded-md font-serif text-lg font-medium text-foreground focus:outline-hidden focus:ring-2 focus:ring-focus"
           >
             <Clapperboard size={20} className="shrink-0" />
             <span className="truncate">{t("appName")}</span>
           </Link>
-          <div className="hidden xl:flex items-center gap-0.5">
+          <div className="hidden min-w-0 items-center gap-0.5 overflow-x-auto 2xl:flex">
             {items.map((item) => (
               <NavLink
                 key={item.path}
@@ -356,7 +361,7 @@ export const AppHeader: React.FC = () => {
             ))}
           </div>
         </div>
-        <div className="ml-auto flex min-w-0 items-center gap-2">
+        <div className="ml-auto flex shrink-0 items-center gap-2">
           {status ? (
             <form
               className="hidden w-44 sm:block 2xl:w-56"

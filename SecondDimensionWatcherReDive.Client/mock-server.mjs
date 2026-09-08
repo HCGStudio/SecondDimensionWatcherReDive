@@ -1346,8 +1346,7 @@ const FILE_TREE = {
   ],
 };
 
-// Playback state is user-scoped in the real API. The mock server has one user,
-// so a composite animation/path key is sufficient for cross-page persistence.
+// Playback state is stored per household profile, matching the personal watchlist.
 const playbackProgress = new Map();
 let playbackPreferences = {
   subtitleLanguage: "zh",
@@ -1357,6 +1356,8 @@ let playbackPreferences = {
   autoPlayNext: true,
   updatedAt: new Date().toISOString(),
 };
+
+const progressByProfile = new Map([[mockProfiles[0].id, playbackProgress]]);
 
 function playbackKey(animationInfoId, path) {
   return `${animationInfoId}:${path}`;
@@ -1704,6 +1705,9 @@ function currentMockTodos() {
 // ---------------------------------------------------------------------------
 
 async function route(method, pathname, searchParams, req, res) {
+  const profileId = mockSessionFor(req).profileId;
+  const playbackProgress = progressByProfile.get(profileId) ?? new Map();
+  progressByProfile.set(profileId, playbackProgress);
   console.log(
     `${method} ${pathname}${searchParams.toString() ? "?" + searchParams : ""}`,
   );
@@ -2220,8 +2224,9 @@ async function route(method, pathname, searchParams, req, res) {
     return empty(res, 204);
   }
 
-  if (await handleWatchlistPlayback({ req, res, method, pathname, searchParams, json, empty,
-    profileId: mockSessionFor(req).profileId, session: mockSessionFor(req), liveSessions: mockAccessSessions, vfsResolve })) return;
+  if (await handleWatchlistPlayback({ req, res, method, pathname, searchParams, json, empty, readBody,
+    animations, seasonBangumis: SEASON_BANGUMIS, profileId, session: mockSessionFor(req), liveSessions: mockAccessSessions,
+    vfsResolve, playbackProgress, playbackKey, playablePaths })) return;
 
   // --- Playback continuity ---
 

@@ -833,6 +833,7 @@ builder.Services.AddScoped<IMetadataReviewService, MetadataReviewService>();
 builder.Services.AddScoped<IMetadataRecognitionRuleRepository, MetadataRecognitionRuleRepository>();
 builder.Services.AddScoped<MetadataRecognitionRuleService>();
 builder.Services.AddSingleton<MetadataRecognitionRuleSupport>();
+builder.Services.AddScoped<IWatchlistRepository, WatchlistRepository>();
 builder.Services.AddScoped<IIncidentRetryService, IncidentRetryService>();
 builder.Services.AddScoped<IReleaseUpgradeCoordinator, ReleaseUpgradeCoordinator>();
 
