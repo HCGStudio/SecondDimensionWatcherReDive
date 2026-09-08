@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using SecondDimensionWatcherReDive.Models;
@@ -11,9 +12,11 @@ using SecondDimensionWatcherReDive.Models;
 namespace SecondDimensionWatcherReDive.Migrations
 {
     [DbContext(typeof(ApplicationContext))]
-    partial class ApplicationContextModelSnapshot : ModelSnapshot
+    [Migration("20260908002244_BindEpisodeTimelinesToMappings")]
+    partial class BindEpisodeTimelinesToMappings
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -299,9 +302,6 @@ namespace SecondDimensionWatcherReDive.Migrations
                     b.Property<Guid?>("SourceFeedId")
                         .HasColumnType("uuid");
 
-                    b.Property<bool>("StandaloneAutomationPending")
-                        .HasColumnType("boolean");
-
                     b.Property<long>("StateVersion")
                         .IsConcurrencyToken()
                         .HasColumnType("bigint");
@@ -323,10 +323,6 @@ namespace SecondDimensionWatcherReDive.Migrations
                         .IsUnique();
 
                     b.HasIndex("GroupId");
-
-                    b.HasIndex("Id")
-                        .HasDatabaseName("IX_AnimationInfo_StandaloneAutomationPending")
-                        .HasFilter("\"StandaloneAutomationPending\" = TRUE");
 
                     b.HasIndex("MediaLibrarySourceId");
 

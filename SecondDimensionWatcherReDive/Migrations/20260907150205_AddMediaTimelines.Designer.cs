@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using SecondDimensionWatcherReDive.Models;
@@ -11,9 +12,11 @@ using SecondDimensionWatcherReDive.Models;
 namespace SecondDimensionWatcherReDive.Migrations
 {
     [DbContext(typeof(ApplicationContext))]
-    partial class ApplicationContextModelSnapshot : ModelSnapshot
+    [Migration("20260907150205_AddMediaTimelines")]
+    partial class AddMediaTimelines
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -299,9 +302,6 @@ namespace SecondDimensionWatcherReDive.Migrations
                     b.Property<Guid?>("SourceFeedId")
                         .HasColumnType("uuid");
 
-                    b.Property<bool>("StandaloneAutomationPending")
-                        .HasColumnType("boolean");
-
                     b.Property<long>("StateVersion")
                         .IsConcurrencyToken()
                         .HasColumnType("bigint");
@@ -323,10 +323,6 @@ namespace SecondDimensionWatcherReDive.Migrations
                         .IsUnique();
 
                     b.HasIndex("GroupId");
-
-                    b.HasIndex("Id")
-                        .HasDatabaseName("IX_AnimationInfo_StandaloneAutomationPending")
-                        .HasFilter("\"StandaloneAutomationPending\" = TRUE");
 
                     b.HasIndex("MediaLibrarySourceId");
 
@@ -1146,9 +1142,6 @@ namespace SecondDimensionWatcherReDive.Migrations
                     b.Property<double>("DurationSeconds")
                         .HasColumnType("double precision");
 
-                    b.Property<Guid?>("MappingId")
-                        .HasColumnType("uuid");
-
                     b.Property<string>("PointsJson")
                         .IsRequired()
                         .HasColumnType("jsonb");
@@ -1157,8 +1150,6 @@ namespace SecondDimensionWatcherReDive.Migrations
                         .HasColumnType("timestamp with time zone");
 
                     b.HasKey("Key");
-
-                    b.HasIndex("MappingId");
 
                     b.ToTable("MediaTimelines", (string)null);
                 });
@@ -1425,12 +1416,6 @@ namespace SecondDimensionWatcherReDive.Migrations
 
                     b.Property<int?>("ProposedSeason")
                         .HasColumnType("integer");
-
-                    b.Property<Guid?>("RecognitionRuleId")
-                        .HasColumnType("uuid");
-
-                    b.Property<long?>("RecognitionRuleRevision")
-                        .HasColumnType("bigint");
 
                     b.Property<int>("State")
                         .HasColumnType("integer");
@@ -2116,27 +2101,6 @@ namespace SecondDimensionWatcherReDive.Migrations
                     b.ToTable("TodoItemStates");
                 });
 
-            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.TranscodeCacheReader", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("DirectoryPath")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<DateTimeOffset>("LeaseUntil")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("DirectoryPath");
-
-                    b.HasIndex("LeaseUntil");
-
-                    b.ToTable("TranscodeCacheReaders", (string)null);
-                });
-
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.TranscodeCapacityReservation", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2515,14 +2479,6 @@ namespace SecondDimensionWatcherReDive.Migrations
                     b.Navigation("ActiveProfile");
 
                     b.Navigation("User");
-                });
-
-            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.MediaTimeline", b =>
-                {
-                    b.HasOne("SecondDimensionWatcherReDive.Models.FileMapping", null)
-                        .WithMany()
-                        .HasForeignKey("MappingId")
-                        .OnDelete(DeleteBehavior.Cascade);
                 });
 
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.MediaTimelineBinding", b =>

@@ -81,5 +81,38 @@
     "autoPlay": "自动播放下一集",
     "autoPlayHint": "本集播放结束后，打开并播放下一集已下载内容",
     "autoplayBlocked": "下一集已就绪，请点击播放开始"
+  },
+  "timeline": {
+    "title": "片头片尾与章节",
+    "versionHint": "时间点绑定当前媒体版本。片尾跳过会保存位置，但不会因此标记已看完；自然播放结束仍按自动下一集偏好处理。",
+    "autoSkip": "自动跳过片头和片尾（个人偏好）",
+    "episodeActive": "正在使用单集覆盖",
+    "seasonActive": "正在使用已确认的季默认",
+    "editEpisode": "编辑单集时间点",
+    "editSeason": "编辑本季默认",
+    "acceptSeason": "确认用于当前视频",
+    "deleteEpisode": "删除单集覆盖",
+    "confirmHint": "请先核对本版本的时间点，再复用季默认：",
+    "failed": "时间点操作失败，请重试或刷新媒体版本。",
+    "kinds": {
+      "opening": "片头",
+      "ending": "片尾",
+      "chapter": "章节"
+    },
+    "skip": {
+      "opening": "跳过片头",
+      "ending": "跳过片尾"
+    },
+    "name": "名称",
+    "start": "开始（秒）",
+    "end": "结束（秒）",
+    "setNow": "取当前时间",
+    "enabled": "启用",
+    "remove": "删除",
+    "invalid": "时间点必须位于视频时长内；片头片尾需有有效长度，启用区间不可重复或重叠。",
+    "add": "添加{{kind}}",
+    "save": "保存时间点",
+    "cancel": "取消",
+    "deleteSeason": "删除季默认"
   }
 }

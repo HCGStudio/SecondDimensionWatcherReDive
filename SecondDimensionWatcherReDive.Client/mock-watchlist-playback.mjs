@@ -1,7 +1,9 @@
-// Development data for personal watchlists and native downloads.
-import { randomBytes, randomUUID } from "node:crypto";
+// Development data for personal watchlists, shared timestamps and native downloads.
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 
 const lists = new Map();
+const timelines = new Map();
+const accepted = new Map();
 const grants = new Map();
 const sessions = new Map();
 const statuses = new Set([
@@ -137,6 +139,100 @@ export async function handleWatchlistPlayback(context) {
   }
   if (pathname.startsWith("/api/watchlist/") && method === "DELETE")
     return done(list.delete(pathname.split("/").pop()) ? 204 : 404);
+
+  if (pathname.startsWith("/api/playback/timeline")) {
+    const body = ["PUT", "POST"].includes(method)
+      ? await readBody(req)
+      : Object.fromEntries(searchParams);
+    const animation = animations.get(body.animationInfoId);
+    if (!animation?.isDownloadFinished || !playablePaths().includes(body.path))
+      return done(404);
+    const mediaVersion = createHash("sha256")
+      .update(`${animation.id}:${body.path}`)
+      .digest("hex");
+    const seasonKey =
+      animation.animation && animation.group?.name && animation.season != null
+        ? JSON.stringify([
+            "season",
+            animation.animation.tmdbId,
+            animation.group.name,
+            animation.season,
+          ])
+        : null;
+    const episodeKey = `media:${mediaVersion}`;
+    const season = timelines.get(seasonKey) ?? null;
+    if (method === "GET")
+      return reply({
+        mediaVersion,
+        seasonKey,
+        episode: timelines.get(episodeKey) ?? null,
+        seasonDefault: season,
+        seasonAccepted: Boolean(
+          season && accepted.get(mediaVersion) === season.updatedAt,
+        ),
+      });
+    if (body.mediaVersion !== mediaVersion) return done(409);
+    const duration = Number(body.durationSeconds);
+    if (method === "POST") {
+      if (
+        !season ||
+        !Number.isFinite(duration) ||
+        duration <= 0 ||
+        season.points.some(
+          (x) =>
+            x.enabled &&
+            (x.endSeconds > duration || x.startSeconds >= duration),
+        )
+      )
+        return done(400);
+      accepted.set(mediaVersion, season.updatedAt);
+      return done();
+    }
+    const defaultScope =
+      body.seasonDefault === true || body.seasonDefault === "true";
+    const key = defaultScope ? seasonKey : episodeKey;
+    if (!key) return done(400);
+    if (method === "DELETE") {
+      timelines.delete(key);
+      return done();
+    }
+    if (method === "PUT") {
+      const points = body.points;
+      if (
+        !Number.isFinite(duration) ||
+        duration <= 0 ||
+        !Array.isArray(points) ||
+        points.length > 200 ||
+        points.some(
+          (x) =>
+            !x?.name?.trim() ||
+            !["opening", "ending", "chapter"].includes(x.kind) ||
+            !Number.isFinite(x.startSeconds) ||
+            !Number.isFinite(x.endSeconds) ||
+            x.startSeconds < 0 ||
+            (x.enabled &&
+              (x.startSeconds >= duration || x.endSeconds > duration)) ||
+            x.endSeconds < x.startSeconds ||
+            (x.kind !== "chapter" && x.startSeconds === x.endSeconds),
+        )
+      )
+        return done(400);
+      const enabled = points
+        .filter((x) => x.enabled && x.kind !== "chapter")
+        .sort((a, b) => a.startSeconds - b.startSeconds);
+      if (
+        new Set(enabled.map((x) => x.kind)).size !== enabled.length ||
+        enabled.some(
+          (x, i) => i > 0 && enabled[i - 1].endSeconds > x.startSeconds,
+        )
+      )
+        return done(400);
+      const updatedAt = new Date().toISOString();
+      timelines.set(key, { key, durationSeconds: duration, points, updatedAt });
+      if (defaultScope) accepted.set(mediaVersion, updatedAt);
+      return done();
+    }
+  }
 
   if (pathname === "/api/vfs/download-link" && method === "POST") {
     const path = searchParams.get("path");
