@@ -41,9 +41,6 @@ public sealed class MultiSourceCoordinator(IMultiSourceSubscriptionRepository su
         {
             var now = DateTimeOffset.UtcNow;
             var old = previous.GetValueOrDefault(group.Key);
-            // Failed decisions are terminal for background evaluation, including while a failed
-            // submission is still being compensated. Only an explicit user retry reopens them.
-            if (old?.Outcome == "failed" && !retryFailures) continue;
             var firstSeen = group.Min(x => x.IngestedAt ?? x.PublishTime);
             if (firstSeen < subscription.CreatedAt) firstSeen = subscription.CreatedAt;
             var started = old?.WaitStartedAt ?? firstSeen;
@@ -51,9 +48,12 @@ public sealed class MultiSourceCoordinator(IMultiSourceSubscriptionRepository su
             var eligible = group.Select(x => (Info: x, Candidate: completion.Candidate(x, subscription.ToPolicy(x.SourceFeedId!.Value))))
                 .Where(x => x.Candidate.Eligible).OrderBy(x => subscription.FeedIds.ToList().IndexOf(x.Info.SourceFeedId!.Value))
                 .ThenByDescending(x => x.Candidate.Score).ThenByDescending(x => x.Info.PublishTime).ThenBy(x => x.Info.Id).ToList();
-            var current = all.FirstOrDefault(x => x.Episode == group.Key && x.IsDownloadFinished && mapped.Contains(x.Id));
-            var downloading = all.FirstOrDefault(x => x.Episode == group.Key && x.IsDownloadTracked && !x.IsDownloadFinished);
-            var pendingMappings = all.Where(x => x.Episode == group.Key && x.IsDownloadFinished && !mapped.Contains(x.Id));
+            var current = all.FirstOrDefault(x => x.Episode == group.Key && x.IsDownloadFinished
+                && x.DownloadCancellationId is null && mapped.Contains(x.Id));
+            var tracked = all.Where(x => x.Episode == group.Key && x.IsDownloadTracked && !x.IsDownloadFinished).ToList();
+            var downloading = tracked.FirstOrDefault(x => x.DownloadCancellationId is null);
+            var pendingMappings = all.Where(x => x.Episode == group.Key && x.IsDownloadFinished
+                && x.DownloadCancellationId is null && !mapped.Contains(x.Id));
             var activeUpgrade = false;
             if (downloading is null)
             {
@@ -67,6 +67,15 @@ public sealed class MultiSourceCoordinator(IMultiSourceSubscriptionRepository su
                     break;
                 }
             }
+            // An older compensated attempt must not mask another workflow's live
+            // download or playable release, but still blocks a fresh automatic start.
+            if (downloading is null && current is null)
+                downloading = tracked.FirstOrDefault(x => x.DownloadCancellationId is not null);
+            // A later manual or independent acquisition supersedes an old failure.
+            // Keep failed submissions terminal only while there is no live acquisition;
+            // an attempt still being compensated does not authorize an automatic retry.
+            if (old?.Outcome == "failed" && !retryFailures && current is null
+                && (downloading is null || downloading.DownloadCancellationId is not null)) continue;
             var selected = eligible.FirstOrDefault();
             var outcome = "waiting";
             var reason = "waiting_for_primary";
