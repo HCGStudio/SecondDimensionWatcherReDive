@@ -9,7 +9,7 @@ public sealed class MultiSourceCoordinator(IMultiSourceSubscriptionRepository su
     INotificationPublisher notifications)
 {
     public async Task<CompletionSubmissionResult?> ConfirmAsync(MultiSourceSubscription subscription,
-        int episode, CancellationToken cancellationToken)
+        int episode, Guid expectedReleaseId, CancellationToken cancellationToken)
     {
         var currentSubscription = (await subscriptions.GetAllAsync(cancellationToken))
             .FirstOrDefault(candidate => candidate.Id == subscription.Id);
@@ -19,10 +19,11 @@ public sealed class MultiSourceCoordinator(IMultiSourceSubscriptionRepository su
         var decision = (await subscriptions.GetDecisionsAsync(subscription.Id, cancellationToken))
             .FirstOrDefault(x => x.Episode == episode && x.Outcome == "pending_confirmation");
         if (decision?.SelectedReleaseId is not { } releaseId
+            || releaseId != expectedReleaseId
             || decision.SelectedSourceFeedId is not { } sourceFeedId
             || !subscription.FeedIds.Contains(sourceFeedId)) return null;
         var result = await completion.SubmitConfirmedAsync(new(subscription.TmdbId, subscription.Season,
-            [new(episode, releaseId)]), subscription, cancellationToken);
+            [new(episode, expectedReleaseId)]), subscription, cancellationToken);
         await EvaluateAsync(subscription, cancellationToken);
         return result.Single();
     }
