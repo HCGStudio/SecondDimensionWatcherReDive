@@ -184,6 +184,51 @@ public sealed class MultiSourceSubscriptionRepository(Models.ApplicationContext 
         }).ToList();
     }
 
+    public Task<bool> PruneUnavailableDecisionsAsync(MultiSourceSubscription expectedSubscription,
+        CancellationToken cancellationToken) =>
+        context.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
+        {
+            await using var write = new Models.ApplicationContext(options);
+            await using var transaction = await write.Database.BeginTransactionAsync(cancellationToken);
+            await MappingTransactionLock.AcquireAsync(write, cancellationToken);
+            var subscription = await write.Set<Models.MultiSourceSubscription>().AsNoTracking()
+                .Include(value => value.Sources)
+                .SingleOrDefaultAsync(value => value.Id == expectedSubscription.Id, cancellationToken);
+            if (subscription is null || !MatchesSnapshot(subscription, expectedSubscription)) return false;
+
+            // Keep terminal failures and records owned by active download/upgrade
+            // workflows. Only unfinished choices can become orphaned confirmations.
+            var pending = write.Set<Models.MultiSourceEpisodeDecision>().Where(decision =>
+                decision.SubscriptionId == subscription.Id &&
+                (decision.Outcome == "waiting" || decision.Outcome == "ready" ||
+                 decision.Outcome == "unavailable" || decision.Outcome == "notified" ||
+                 decision.Outcome == "pending_confirmation"));
+            var episodes = await pending.Select(decision => decision.Episode).ToArrayAsync(cancellationToken);
+            if (episodes.Length > 0)
+            {
+                var feedIds = subscription.Sources.Select(source => source.FeedId).ToArray();
+                var reliableEpisodes = new HashSet<int>();
+                // Re-read membership and reliability under the same lock as metadata
+                // changes and SaveDecision; never delete from the coordinator's old list.
+                await foreach (var release in write.AnimationInfo.AsNoTracking().Where(info =>
+                                   info.Animation != null && info.Animation.TmdbId == subscription.TmdbId &&
+                                   info.Season == subscription.Season && info.Episode != null &&
+                                   episodes.Contains(info.Episode.Value) && info.MediaLibraryMissingSince == null &&
+                                   !info.IsRetiredRelease && info.SourceFeedId != null &&
+                                   feedIds.Contains(info.SourceFeedId.Value))
+                               .Select(info => new { info.Season, info.Episode, info.MetadataStatus, info.Title })
+                               .AsAsyncEnumerable().WithCancellation(cancellationToken))
+                    if (LibraryCompletionService.IsReliable(release.Season, release.Episode, release.MetadataStatus, release.Title))
+                        reliableEpisodes.Add(release.Episode!.Value);
+                var unavailable = episodes.Where(episode => !reliableEpisodes.Contains(episode)).ToArray();
+                if (unavailable.Length > 0)
+                    await pending.Where(decision => unavailable.Contains(decision.Episode))
+                        .ExecuteDeleteAsync(cancellationToken);
+            }
+            await transaction.CommitAsync(cancellationToken);
+            return true;
+        });
+
     public async Task<MultiSourceEpisodeDecision?> SaveDecisionAsync(MultiSourceEpisodeDecision decision,
         MultiSourceSubscription expectedSubscription, CancellationToken cancellationToken) =>
         await context.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
