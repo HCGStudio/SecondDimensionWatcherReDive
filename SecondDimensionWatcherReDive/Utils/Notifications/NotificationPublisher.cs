@@ -14,8 +14,15 @@ public sealed partial class NotificationPublisher(
     private const int MaxDeduplicationKeyLength = 256;
     private const int MaxPayloadBytes = 64 * 1024;
 
-    public async Task<bool> PublishAsync(
+    public Task<bool> PublishAsync(NotificationEvent notificationEvent, CancellationToken cancellationToken) =>
+        PublishCoreAsync(notificationEvent, ensureAllTargets: false, cancellationToken);
+
+    public Task<bool> EnsurePublishedAsync(NotificationEvent notificationEvent, CancellationToken cancellationToken) =>
+        PublishCoreAsync(notificationEvent, ensureAllTargets: true, cancellationToken);
+
+    private async Task<bool> PublishCoreAsync(
         NotificationEvent notificationEvent,
+        bool ensureAllTargets,
         CancellationToken cancellationToken)
     {
         var webhookEnabled = configuration.GetValue<bool>("Notifications:Webhook:Enabled");
@@ -46,10 +53,13 @@ public sealed partial class NotificationPublisher(
                           ?? DeriveEventId(notificationEvent.Type, baseDeduplicationKey);
 
             var enqueued = false;
+            var allPersisted = true;
+            var hasTargets = false;
 
             if (webhookEnabled)
             {
-                enqueued |= await TryEnqueueChannelAsync(
+                hasTargets = true;
+                var persisted = await TryEnqueueChannelAsync(
                     async () =>
                     {
                         await using var webhookScope = scopeFactory.CreateAsyncScope();
@@ -78,15 +88,18 @@ public sealed partial class NotificationPublisher(
                                 null,
                                 null,
                                 null),
+                            ensureAllTargets,
                             cancellationToken);
                     },
                     notificationEvent.Type,
                     cancellationToken);
+                enqueued |= persisted;
+                allPersisted &= persisted;
             }
 
             if (webPushEnabled)
             {
-                enqueued |= await TryEnqueueChannelAsync(
+                var persisted = await TryEnqueueChannelAsync(
                     async () =>
                     {
                         await using var webPushScope = scopeFactory.CreateAsyncScope();
@@ -96,14 +109,16 @@ public sealed partial class NotificationPublisher(
                             .GetRequiredService<IWebPushSubscriptionRepository>();
                         var subscriptions = await subscriptionRepository
                             .GetAllAsync(cancellationToken);
+                        hasTargets |= subscriptions.Count > 0;
                         var any = false;
+                        var all = true;
                         foreach (var subscription in subscriptions)
                         {
                             var targetDeduplicationKey = NormalizeTargetDeduplicationKey(
                                 baseDeduplicationKey,
                                 NotificationChannel.WebPush,
                                 subscription.Id);
-                            any |= await EnqueueTargetAsync(
+                            var targetPersisted = await EnqueueTargetAsync(
                                 outbox,
                                 new NotificationOutboxMessage(
                                     Guid.NewGuid(),
@@ -123,17 +138,22 @@ public sealed partial class NotificationPublisher(
                                     null,
                                     null,
                                     null),
+                                ensureAllTargets,
                                 cancellationToken);
+                            any |= targetPersisted;
+                            all &= targetPersisted;
                         }
-                        return any;
+                        return ensureAllTargets ? all : any;
                     },
                     notificationEvent.Type,
                     cancellationToken);
+                enqueued |= persisted;
+                allPersisted &= persisted;
             }
 
             if (!enqueued)
                 LogDuplicateSkipped(logger, notificationEvent.Type);
-            return enqueued;
+            return ensureAllTargets ? hasTargets && allPersisted : enqueued;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -150,8 +170,14 @@ public sealed partial class NotificationPublisher(
     private static async Task<bool> EnqueueTargetAsync(
         INotificationOutboxRepository repository,
         NotificationOutboxMessage message,
-        CancellationToken cancellationToken) =>
-        await repository.EnqueueAsync(message, cancellationToken);
+        bool ensureExisting,
+        CancellationToken cancellationToken)
+    {
+        if (await repository.EnqueueAsync(message, cancellationToken)) return true;
+        // The legacy PublishAsync reports only new inserts. Restoration also
+        // accepts the exact target's existing entry, but never an unrelated failure.
+        return ensureExisting && await repository.ContainsDeduplicationKeyAsync(message.DeduplicationKey, cancellationToken);
+    }
 
     private async Task<bool> TryEnqueueChannelAsync(
         Func<Task<bool>> enqueue,

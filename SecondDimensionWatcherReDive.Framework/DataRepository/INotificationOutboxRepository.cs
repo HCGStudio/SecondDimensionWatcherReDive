@@ -41,6 +41,10 @@ public interface INotificationOutboxRepository
         NotificationOutboxMessage message,
         CancellationToken cancellationToken);
 
+    Task<bool> ContainsDeduplicationKeyAsync(
+        string deduplicationKey,
+        CancellationToken cancellationToken);
+
     Task<IReadOnlyList<NotificationOutboxMessage>> ClaimDueAsync(
         TimeSpan leaseDuration,
         int take,
