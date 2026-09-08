@@ -26,6 +26,7 @@ public interface IMultiSourceSubscriptionRepository
     Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken);
     Task<IReadOnlyList<MultiSourceFeedStatus>> GetSourceStatusAsync(Guid id, CancellationToken cancellationToken);
     Task<IReadOnlyList<MultiSourceEpisodeDecision>> GetDecisionsAsync(Guid id, CancellationToken cancellationToken);
+    Task<bool> PruneUnavailableDecisionsAsync(MultiSourceSubscription expectedSubscription, CancellationToken cancellationToken);
     Task<MultiSourceEpisodeDecision?> SaveDecisionAsync(MultiSourceEpisodeDecision decision,
         MultiSourceSubscription expectedSubscription, CancellationToken cancellationToken);
 }
