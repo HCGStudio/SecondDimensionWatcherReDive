@@ -1,4 +1,6 @@
 using System.Text.RegularExpressions;
+using System.Globalization;
+using System.Text;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Framework.Feed;
 using SecondDimensionWatcherReDive.Framework.FileDownload;
@@ -19,6 +21,39 @@ public sealed partial class LibraryCompletionService(ILibraryCompletionRepositor
 
     [GeneratedRegex(@"(?i)(?:\b(?:batch|complete|全集)\b|合集|全\s*\d+\s*[集話话]|(?:\[|\s)\d{1,3}\s*[-~～]\s*\d{1,3}(?:\]|\s))")]
     private static partial Regex BatchTitle();
+
+    internal static string PostgreSqlBatchTitlePattern { get; } = BuildPostgreSqlBatchTitlePattern();
+
+    private static string BuildPostgreSqlBatchTitlePattern()
+    {
+        // PostgreSQL \b is a backspace, and its locale-dependent word/digit/space
+        // classes differ from .NET. Match the same BMP character categories under
+        // COLLATE "C"; .NET regexes treat supplementary characters as UTF-16 units.
+        // .NET boundary word characters also include U+200C/U+200D:
+        // https://github.com/dotnet/runtime/blob/v10.0.0/src/libraries/System.Text.RegularExpressions/src/System/Text/RegularExpressions/RegexCharClass.cs
+        var word = CharacterClass(character => char.IsLetterOrDigit(character)
+            || char.GetUnicodeCategory(character) is UnicodeCategory.NonSpacingMark or UnicodeCategory.ConnectorPunctuation
+            || character is '\u200c' or '\u200d');
+        var digit = CharacterClass(char.IsDigit);
+        var space = CharacterClass(char.IsWhiteSpace);
+        // The ASCII keywords have no locale-sensitive extra case-fold equivalents.
+        return $@"(?:(?<!{word})(?:[bB][aA][tT][cC][hH]|[cC][oO][mM][pP][lL][eE][tT][eE]|全集)(?!{word})|合集|全{space}*{digit}+{space}*[集話话]|(?:\[|{space}){digit}{{1,3}}{space}*[-~～]{space}*{digit}{{1,3}}(?:\]|{space}))";
+    }
+
+    private static string CharacterClass(Func<char, bool> contains)
+    {
+        var result = new StringBuilder("[");
+        for (var value = 0; value <= char.MaxValue; value++)
+        {
+            if (!contains((char)value)) continue;
+            var start = value;
+            while (value < char.MaxValue && contains((char)(value + 1))) value++;
+            result.Append(@"\u").Append(start.ToString("X4", CultureInfo.InvariantCulture));
+            if (value != start)
+                result.Append(@"-\u").Append(value.ToString("X4", CultureInfo.InvariantCulture));
+        }
+        return result.Append(']').ToString();
+    }
 
     public async Task<EpisodeCompletionPlan> GetPlanAsync(string tmdbId, int season, CancellationToken cancellationToken)
     {
