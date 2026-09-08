@@ -12,10 +12,19 @@ public sealed class EpisodeDownloadService(IAnimationInfoRepository releases, IF
 
     public Task<CompletionSubmissionResult> SubmitAutomaticAsync(AnimationInfo info,
         MultiSourceSubscription subscription, CancellationToken cancellationToken) =>
-        SubmitCoreAsync(info, subscription, cancellationToken);
+        SubmitForSubscriptionAsync(info, subscription, "AutoDownload", cancellationToken);
+
+    public Task<CompletionSubmissionResult> SubmitConfirmedAsync(AnimationInfo info,
+        MultiSourceSubscription subscription, CancellationToken cancellationToken) =>
+        SubmitForSubscriptionAsync(info, subscription, "ManualConfirm", cancellationToken);
+
+    private Task<CompletionSubmissionResult> SubmitForSubscriptionAsync(AnimationInfo info,
+        MultiSourceSubscription subscription, string requiredMode, CancellationToken cancellationToken) =>
+        subscription.Mode == requiredMode ? SubmitCoreAsync(info, subscription, cancellationToken) :
+            Task.FromResult(new CompletionSubmissionResult(info.Episode ?? 0, info.Id, "state_changed", false));
 
     private async Task<CompletionSubmissionResult> SubmitCoreAsync(AnimationInfo info,
-        MultiSourceSubscription? automaticSubscription, CancellationToken cancellationToken)
+        MultiSourceSubscription? expectedSubscription, CancellationToken cancellationToken)
     {
         var episode = info.Episode!.Value;
         var tmdbId = info.Animation!.TmdbId;
@@ -34,7 +43,7 @@ public sealed class EpisodeDownloadService(IAnimationInfoRepository releases, IF
         {
             client = clients.GetRequiredClient(info.DownloadType);
             var started = await releases.TryStartClaimedEpisodeDownloadAsync(info, claim, attempt, lease,
-                TimeSpan.FromMinutes(3), DateTimeOffset.UtcNow, automaticSubscription, cancellationToken);
+                TimeSpan.FromMinutes(3), DateTimeOffset.UtcNow, expectedSubscription, cancellationToken);
             if (started == null) return new(episode, info.Id, "state_changed", false);
             using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             budget.CancelAfter(TimeSpan.FromSeconds(90));

@@ -75,8 +75,15 @@ public sealed partial class LibraryCompletionService(ILibraryCompletionRepositor
             score.Reasons.Concat(evaluation?.Explanations.Where(x => !x.Passed).Select(x => x.Message) ?? []).ToList(), reason == null, reason);
     }
 
-    public async Task<IReadOnlyList<CompletionSubmissionResult>> SubmitAsync(CompletionSubmissionRequest request,
-        CancellationToken cancellationToken)
+    public Task<IReadOnlyList<CompletionSubmissionResult>> SubmitAsync(CompletionSubmissionRequest request,
+        CancellationToken cancellationToken) => SubmitCoreAsync(request, null, cancellationToken);
+
+    public Task<IReadOnlyList<CompletionSubmissionResult>> SubmitConfirmedAsync(CompletionSubmissionRequest request,
+        MultiSourceSubscription subscription, CancellationToken cancellationToken) =>
+        SubmitCoreAsync(request, subscription, cancellationToken);
+
+    private async Task<IReadOnlyList<CompletionSubmissionResult>> SubmitCoreAsync(CompletionSubmissionRequest request,
+        MultiSourceSubscription? confirmationSubscription, CancellationToken cancellationToken)
     {
         var results = new List<CompletionSubmissionResult>();
         foreach (var selection in request.Selections)
@@ -99,7 +106,8 @@ public sealed partial class LibraryCompletionService(ILibraryCompletionRepositor
                 var info = (await repository.GetSeasonReleasesAsync(request.TmdbId, request.Season, cancellationToken))
                     .FirstOrDefault(x => x.Id == selection.ReleaseId && x.Episode == selection.Episode);
                 results.Add(info == null ? new(selection.Episode, selection.ReleaseId, "candidate_unavailable", false) :
-                    await downloads.SubmitAsync(info, cancellationToken));
+                    confirmationSubscription is null ? await downloads.SubmitAsync(info, cancellationToken) :
+                    await downloads.SubmitConfirmedAsync(info, confirmationSubscription, cancellationToken));
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
             catch (Exception)

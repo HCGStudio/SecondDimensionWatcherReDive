@@ -21,8 +21,8 @@ public sealed class MultiSourceCoordinator(IMultiSourceSubscriptionRepository su
         if (decision?.SelectedReleaseId is not { } releaseId
             || decision.SelectedSourceFeedId is not { } sourceFeedId
             || !subscription.FeedIds.Contains(sourceFeedId)) return null;
-        var result = await completion.SubmitAsync(new(subscription.TmdbId, subscription.Season,
-            [new(episode, releaseId)]), cancellationToken);
+        var result = await completion.SubmitConfirmedAsync(new(subscription.TmdbId, subscription.Season,
+            [new(episode, releaseId)]), subscription, cancellationToken);
         await EvaluateAsync(subscription, cancellationToken);
         return result.Single();
     }

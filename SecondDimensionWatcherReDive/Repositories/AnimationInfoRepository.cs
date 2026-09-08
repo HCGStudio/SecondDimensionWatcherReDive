@@ -948,14 +948,14 @@ public class AnimationInfoRepository(
         Guid submissionLeaseId,
         TimeSpan submissionLeaseDuration,
         DateTimeOffset startedAt,
-        MultiSourceSubscription? automaticSubscription,
+        MultiSourceSubscription? expectedSubscription,
         CancellationToken cancellationToken)
     {
         if (submissionLeaseDuration <= TimeSpan.Zero || submissionLeaseDuration > TimeSpan.FromMinutes(30))
             throw new ArgumentOutOfRangeException(nameof(submissionLeaseDuration));
         var result = await TryStartDownloadCoreAsync(expected.Id, null, downloadAttemptId,
             submissionLeaseId, submissionLeaseDuration, startedAt,
-            SubscriptionAutomationDisposition.AutoDownloadQueued, cancellationToken, expected, claimId, automaticSubscription);
+            SubscriptionAutomationDisposition.AutoDownloadQueued, cancellationToken, expected, claimId, expectedSubscription);
         return result.IsSuccess && result.SubmissionLeaseUntil is { } leaseUntil
             ? new DownloadSubmissionLease(submissionLeaseId, leaseUntil)
             : null;
@@ -1075,7 +1075,7 @@ public class AnimationInfoRepository(
         CancellationToken cancellationToken,
         AnimationInfo? expectedEpisode = null,
         Guid? episodeClaimId = null,
-        MultiSourceSubscription? automaticSubscription = null,
+        MultiSourceSubscription? expectedSubscription = null,
         bool requireStandaloneFeed = false)
     {
         var strategy = context.Database.CreateExecutionStrategy();
@@ -1165,15 +1165,16 @@ public class AnimationInfoRepository(
                 acquisition.ExpiresAt = claimNow.AddMinutes(5);
             }
 
-            if (automaticSubscription is not null)
+            if (expectedSubscription is not null)
             {
                 // Subscription saves/deletes and feed unlinking take the same
-                // transaction lock, making this the automatic-download decision.
+                // transaction lock for both automatic starts and explicit confirmations.
                 var currentSubscription = await writeContext.Set<Models.MultiSourceSubscription>()
                     .AsNoTracking().Include(subscription => subscription.Sources)
-                    .SingleOrDefaultAsync(subscription => subscription.Id == automaticSubscription.Id, cancellationToken);
+                    .SingleOrDefaultAsync(subscription => subscription.Id == expectedSubscription.Id, cancellationToken);
                 if (currentSubscription is null
-                    || !MultiSourceSubscriptionRepository.MatchesAutomaticSnapshot(currentSubscription, automaticSubscription)
+                    || expectedSubscription.Mode is not ("AutoDownload" or "ManualConfirm")
+                    || !MultiSourceSubscriptionRepository.MatchesSnapshot(currentSubscription, expectedSubscription)
                     || entity.Animation?.TmdbId != currentSubscription.TmdbId
                     || entity.Season != currentSubscription.Season
                     || !currentSubscription.Sources.Any(source => source.FeedId == entity.SourceFeedId))

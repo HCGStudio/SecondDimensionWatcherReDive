@@ -134,11 +134,11 @@ curl --fail http://127.0.0.1:5097/api/auth/allowRegister
 
 ## 逻辑 JSON 导出与导入
 
-JWT 管理员可按类别迁移非秘密业务数据：`feeds`、`automation-policies`、`filename-rules`、`recognition-rules`、`metadata-corrections`、`playback`，或 `all`。`recognition-rules` 是长期元数据识别规则，独立于下载后逐文件匹配的 `filename-rules`；`all` 包含两者。当前通过这些 API 操作，设置页没有独立的逻辑迁移入口。
+JWT 管理员可按类别迁移非秘密业务数据：`feeds`、`automation-policies`、`multi-source-subscriptions`、`filename-rules`、`recognition-rules`、`metadata-corrections`、`playback`，或 `all`。`recognition-rules` 是长期元数据识别规则，独立于下载后逐文件匹配的 `filename-rules`；`multi-source-subscriptions` 是番剧级多来源配置，独立于单个 Feed 的 `automation-policies`；`all` 包含这些类别。当前通过这些 API 操作，设置页没有独立的逻辑迁移入口。
 
 ```bash
 curl --fail -H "Authorization: Bearer $TOKEN" \
-  'https://sdw.example/api/data-transfer/export?categories=feeds,automation-policies,recognition-rules,playback' \
+  'https://sdw.example/api/data-transfer/export?categories=feeds,automation-policies,multi-source-subscriptions,recognition-rules,playback' \
   -o logical-export.json
 
 jq '. + {conflictStrategy:"skip"}' logical-export.json > logical-import.json
@@ -147,14 +147,18 @@ curl --fail -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json
   https://sdw.example/api/data-transfer/import
 ```
 
-新导出使用格式 2，仍可导入格式 1。格式 1 使用原字段顺序、原类别枚举名称及原数据结构计算 SHA-256，旧 `All` 只表示当时的五个类别，不包含识别规则；新增类别不会改变旧备份的校验结果。格式 2 包含独立的 `RecognitionRules` 数组，未选择该类别时为空。
+新导出使用格式 3，仍可导入格式 1 和 2。旧格式分别使用原字段顺序、原类别枚举名称及原数据结构计算 SHA-256：格式 1 的 `All` 只表示当时的五个类别；格式 2 的 `All` 额外包含识别规则，但不包含多来源订阅。新增类别不会改变旧备份的校验结果。格式 3 包含独立的 `RecognitionRules` 和 `MultiSourceSubscriptions` 数组，未选择对应类别时为空。
 
 导出在一个 repeatable-read 快照内读取所有类别；普通类别限制为每类 10,000 条，识别规则沿用全站最多 200 条的限制，完整导入请求不超过 10 MiB，因此不会生成自身无法重新导入的文件。envelope 内的 SHA-256 在任何写入前验证。`skip` 可安全重复导入；`overwrite` 更新稳定键冲突项；`fail` 在首个冲突处返回 409，事务不会提交。生产 Npgsql 重试的每个 attempt 都使用全新 scope、DbContext 和 mapper 状态。人工修正对应的 release 若仍有活动中的集数下载认领，`skip` 会计入冲突并跳过该项；`fail` 和 `overwrite` 返回 409 并回滚，待提交结束后可重新导入。
 
 订阅以 URL、文件名规则以 TMDB id + pattern、人工修正以 release URL + title + publish time、播放进度以虚拟路径匹配。目标实例缺少对应 release 或虚拟文件时会明确计入 skipped，不会制造指向不存在媒体的记录。人工修正不会覆盖目标中已有同 TMDB Animation 的全局名称、原名或海报，也不会改动共享该 Animation 的其他 release；物理路径由目标实例的映射预览与事务性替换流程处理。
 
+多来源订阅以规范化 TMDB id + 季号匹配，保留名称、来源顺序、等待时限、自动化模式、所有过滤条件及版本升级策略。来源按优先级导出为 Feed URL，并映射到目标实例的 Feed ID；可同时选择 `feeds` 导入依赖。任何来源缺失都会跳过整个订阅，不缩短来源列表或改变回退顺序。相同配置重复导入直接 skipped；同番剧/季的配置不同则按 `skip` 计冲突、`fail` 返回 409 并回滚、`overwrite` 保留目标订阅 ID 并更新配置。来源已被其他番剧/季订阅占用时，`skip` 计冲突，`fail` 和 `overwrite` 均返回 409，不自动抢占其他订阅的来源；需要先解除目标实例上的冲突关联。
+
+多来源导入沿用普通保存的映射事务锁与来源绑定流程，Feed 导入、所有权变更、过期独立待办清理和已移除来源的独立自动化恢复在同一事务提交。新增订阅的等待起点采用本地导入时间；不迁移源实例的订阅 ID、决策、下载尝试或通知历史，也不删除媒体。每个订阅最多 20 个来源，其余名称、季号、等待时限、过滤列表和升级参数与普通保存 API 使用相同数值限制。
+
 长期识别规则以稳定的规则 ID 识别冲突，保留名称、启用状态、标题正则、字幕组范围、TMDB 目标、固定季号、集号偏移和字幕组别名。来源以 Feed URL 导出，并映射到目标实例的 Feed ID；可同时选择 `feeds` 导入依赖。缺少目标 Feed，或原来源已被删除而无法导出 URL 时，会明确计入 skipped，绝不把来源限定规则变成全局规则。原来源缺失以 `SourceFeedMissing` 标记保留在备份中。规则配置相同的重复导入直接 skipped；同 ID 配置不同则按 `skip` 计冲突并保留本地值、`fail` 返回 409 并回滚整个导入、`overwrite` 更新该规则。合并后超过 200 条会返回冲突并回滚。普通规则创建与逻辑导入共享事务锁，数量检查和写入在同一锁内完成，并发创建也不能突破 200 条上限。
 
-识别规则导入只恢复配置，不导入命中历史或源实例的 `CreatedFromItemId`。新增及覆盖规则从目标实例当前导入时刻生效，覆盖时递增本地 revision；不会重设已有条目的识别状态，也不会静默应用于此前收录的资源。历史应用仍须通过原有逐项预览及确认流程。导入核验作用域、正则和数值约束。禁用规则可离线导入；启用规则还须向 TMDB 确认电视系列及固定季号存在，确认系列不存在或固定季缺失时返回 422，TMDB 暂不可用或未返回所需季目录时返回 503。这些远端校验在开启导入事务和获取映射/表锁之前完成，失败时不写入任何导入数据。
+识别规则导入只恢复配置，不导入命中历史或源实例的 `CreatedFromItemId`。新增及覆盖规则从目标实例当前导入时刻生效，覆盖时递增本地 revision；不会重设已有条目的识别状态，也不会静默应用于此前收录的资源。历史应用仍须通过原有逐项预览及确认流程。导入核验作用域、正则和数值约束。禁用规则可离线导入；仅实际将新增或覆盖的启用规则才须向 TMDB 确认电视系列及固定季号存在；相同配置、`skip` 冲突和缺少来源的规则不触发远端校验，也不会因此阻止其他类别导入。对于待写入的启用规则，确认系列不存在或固定季缺失时返回 422，TMDB 暂不可用或未返回所需季目录时返回 503。这些远端校验在开启导入事务和获取映射/表锁之前完成，失败时不写入任何导入数据。最终事务锁内会重新判断实际写入项；若并发变化使此前跳过的规则需要写入，而其目标尚未校验，则返回 409 并回滚，重新导入后再于锁外校验。
 
 逻辑导出不含 JWT、登录密码、WebDAV token、Data Protection key、AI/qBittorrent 凭据、聊天内容或媒体文件。跨 major 格式、不匹配校验和、未知类别、非法数值与超大类别会在事务开始前拒绝。
