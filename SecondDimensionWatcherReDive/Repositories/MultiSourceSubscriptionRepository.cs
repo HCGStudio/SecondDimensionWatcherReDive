@@ -247,7 +247,10 @@ public sealed class MultiSourceSubscriptionRepository(Models.ApplicationContext 
                 var active = decision.Outcome is "downloaded" or "downloading" or "mapping_pending" or "upgrading";
                 if (selected?.Animation?.TmdbId != subscription.TmdbId || selected.Season != subscription.Season
                     || selected.Episode != decision.Episode
-                    || !active && !subscription.Sources.Any(source => source.FeedId == selected.SourceFeedId))
+                    || !active && (!subscription.Sources.Any(source => source.FeedId == selected.SourceFeedId)
+                        || selected.MediaLibraryMissingSince is not null || selected.IsRetiredRelease
+                        || !LibraryCompletionService.IsReliable(selected.Season, selected.Episode,
+                            selected.MetadataStatus, selected.Title)))
                     return null;
             }
             // All policy/target changes and decision writes share this lock.
