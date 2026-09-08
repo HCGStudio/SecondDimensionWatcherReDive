@@ -30,6 +30,9 @@ public sealed class MultiSourceCoordinator(IMultiSourceSubscriptionRepository su
     public async Task EvaluateAsync(MultiSourceSubscription subscription, CancellationToken cancellationToken,
         bool retryFailures = false)
     {
+        // An episode can disappear entirely from the reliable groups after a
+        // correction or inference retry, so clean its old decision before looping.
+        if (!await subscriptions.PruneUnavailableDecisionsAsync(subscription, cancellationToken)) return;
         var all = await releases.GetSeasonReleasesAsync(subscription.TmdbId, subscription.Season, cancellationToken);
         var mapped = await releases.GetMappedReleaseIdsAsync(subscription.TmdbId, subscription.Season, cancellationToken);
         var previous = (await subscriptions.GetDecisionsAsync(subscription.Id, cancellationToken)).ToDictionary(x => x.Episode);
