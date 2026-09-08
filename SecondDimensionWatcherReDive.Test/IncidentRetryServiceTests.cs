@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Moq;
+using SecondDimensionWatcherReDive.AI.Abstractions;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Framework.FileDownload;
 using SecondDimensionWatcherReDive.Framework.Tasks;
@@ -70,7 +71,8 @@ public sealed class IncidentRetryServiceTests
             scopeFactory,
             [],
             Mock.Of<IIncidentDiskProbe>(),
-            Mock.Of<ILogger<IncidentRetryService>>());
+            Mock.Of<ILogger<IncidentRetryService>>(),
+            Mock.Of<IAIEngineStatus>());
 
         var result = await service.RetryAsync(incident.Id, CancellationToken.None);
 
@@ -175,7 +177,8 @@ public sealed class IncidentRetryServiceTests
                 (typeof(IFileDownloadClientProvider), provider.Object)),
             [],
             Mock.Of<IIncidentDiskProbe>(),
-            Mock.Of<ILogger<IncidentRetryService>>());
+            Mock.Of<ILogger<IncidentRetryService>>(),
+            Mock.Of<IAIEngineStatus>());
 
         var result = await service.RetryAsync(incident.Id, CancellationToken.None);
 
@@ -231,7 +234,8 @@ public sealed class IncidentRetryServiceTests
             CreateScopeFactory(),
             tasks,
             Mock.Of<IIncidentDiskProbe>(),
-            Mock.Of<ILogger<IncidentRetryService>>());
+            Mock.Of<ILogger<IncidentRetryService>>(),
+            Mock.Of<IAIEngineStatus>());
     }
 
     private static IServiceScopeFactory CreateScopeFactory(
