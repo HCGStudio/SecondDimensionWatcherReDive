@@ -108,9 +108,12 @@ public sealed class MetadataRecognitionRuleService(
         if (!tmdbTool.IsConfigured)
             throw new MetadataReviewUnavailableException("tmdbUnavailable",
                 "TMDB lookup is unavailable because no API key is configured.");
-        var details = await tmdbTool.GetLocalizedDetailsAsync(tmdbId, cancellationToken);
-        if (details is null || string.IsNullOrWhiteSpace(details.Name))
-            throw Invalid("tmdbNotFound", "The TMDB television series could not be resolved.");
+        var lookup = await tmdbTool.LookupLocalizedDetailsAsync(tmdbId, cancellationToken);
+        if (lookup.Status == TmdbTool.TmdbDetailsLookupStatus.NotFound)
+            throw Invalid("tmdbNotFound", "The TMDB television series does not exist.");
+        if (lookup.Status != TmdbTool.TmdbDetailsLookupStatus.Found || string.IsNullOrWhiteSpace(lookup.Details?.Name))
+            throw new MetadataReviewUnavailableException("tmdbUnavailable",
+                "TMDB could not validate the target right now. Retry when the lookup is available.");
     }
 
     public async Task<MetadataRecognitionRule> SaveAsync(MetadataRecognitionRuleDraft draft,

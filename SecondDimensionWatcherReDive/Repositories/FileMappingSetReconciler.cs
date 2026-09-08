@@ -60,6 +60,7 @@ internal static class FileMappingSetReconciler
             identityPaths,
             cancellationToken);
         var reconciled = new List<Models.FileMapping>(desiredMappings.Count);
+        var changedMappingIds = new List<Guid>();
         var hasRemovals = false;
 
         foreach (var existing in existingMappings)
@@ -71,10 +72,28 @@ internal static class FileMappingSetReconciler
                 continue;
             }
 
+            if (existing.AnimationInfoId != desired.AnimationInfoId ||
+                existing.PhysicalPath != desired.PhysicalPath || existing.FileStore != desired.FileStore)
+            {
+                // This mapping id survives reconciliation, but its old physical
+                // media versions are no longer addressable through that mapping.
+                changedMappingIds.Add(existing.Id);
+            }
+
             existing.AnimationInfoId = desired.AnimationInfoId;
             existing.PhysicalPath = desired.PhysicalPath;
             existing.FileStore = desired.FileStore;
             reconciled.Add(existing);
+        }
+
+        if (changedMappingIds.Count > 0)
+        {
+            await context.Set<Models.MediaTimeline>()
+                .Where(row => row.MappingId.HasValue && changedMappingIds.Contains(row.MappingId.Value))
+                .ExecuteDeleteAsync(cancellationToken);
+            await context.Set<Models.MediaTimelineBinding>()
+                .Where(binding => changedMappingIds.Contains(binding.MappingId))
+                .ExecuteDeleteAsync(cancellationToken);
         }
 
         // Apply removals before additions. Some valid remaps replace a file with

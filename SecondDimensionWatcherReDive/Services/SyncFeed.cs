@@ -254,9 +254,14 @@ internal partial class SyncFeed(
                 return;
             }
 
-            if (notificationPublisher is not null && multiSource == null)
+            // Source membership can change while fetching/parsing the torrent.
+            // Reconcile the persisted item under the ownership/policy locks so
+            // unlinking restores all standalone modes for this first ingestion.
+            var standaloneMode = await animationInfoRepository.RefreshStandaloneAutomationAsync(
+                info.Id, cancellationToken);
+            if (notificationPublisher is not null)
             {
-                if (policy?.Mode == SubscriptionAutomationMode.NotifyOnly)
+                if (standaloneMode == SubscriptionAutomationMode.NotifyOnly)
                 {
                     await notificationPublisher.PublishAsync(new NotificationEvent(
                         NotificationEventType.ReleaseMatched,
@@ -265,7 +270,7 @@ internal partial class SyncFeed(
                         info.Title,
                         $"/todo?focus=automation:{info.Id}"), cancellationToken);
                 }
-                else if (policy?.Mode == SubscriptionAutomationMode.ManualConfirm)
+                else if (standaloneMode == SubscriptionAutomationMode.ManualConfirm)
                 {
                     await notificationPublisher.PublishAsync(new NotificationEvent(
                         NotificationEventType.DownloadPendingConfirmation,
@@ -282,7 +287,7 @@ internal partial class SyncFeed(
                     CreateDownloadIncidentSourceId(request.DownloadUrl),
                     cancellationToken);
 
-            if (policy?.Mode == SubscriptionAutomationMode.AutoDownload && multiSource == null)
+            if (standaloneMode == SubscriptionAutomationMode.AutoDownload)
             {
                 var started = await QueueAutomaticDownloadAsync(
                     info,

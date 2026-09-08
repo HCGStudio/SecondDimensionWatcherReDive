@@ -6,6 +6,7 @@ namespace SecondDimensionWatcherReDive.Models;
 public sealed class MediaTimeline
 {
     public string Key { get; set; } = string.Empty;
+    public Guid? MappingId { get; set; }
     public double DurationSeconds { get; set; }
     public string PointsJson { get; set; } = "[]";
     public DateTimeOffset UpdatedAt { get; set; }
@@ -25,6 +26,7 @@ internal sealed class MediaTimelineConfiguration : IEntityTypeConfiguration<Medi
         builder.ToTable("MediaTimelines"); builder.HasKey(x => x.Key);
         builder.Property(x => x.Key).HasMaxLength(192);
         builder.Property(x => x.PointsJson).HasColumnType("jsonb");
+        builder.HasOne<FileMapping>().WithMany().HasForeignKey(x => x.MappingId).OnDelete(DeleteBehavior.Cascade);
     }
 }
 internal sealed class MediaTimelineBindingConfiguration : IEntityTypeConfiguration<MediaTimelineBinding>

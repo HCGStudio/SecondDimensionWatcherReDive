@@ -14,7 +14,7 @@ public enum MediaTimelineMutationOutcome
 
 public interface IMediaTimelineRepository
 {
-    Task<MediaTimelineContext> GetAsync(string mediaVersion, string? seasonKey, CancellationToken cancellationToken);
+    Task<MediaTimelineContext?> GetAsync(string mediaVersion, FileMapping expectedMapping, string? seasonKey, CancellationToken cancellationToken);
     Task<MediaTimelineMutationOutcome> SaveAsync(string mediaVersion, FileMapping expectedMapping, string? seasonKey, bool seasonDefault, double durationSeconds,
         IReadOnlyList<MediaTimelinePoint> points, CancellationToken cancellationToken);
     Task<MediaTimelineMutationOutcome> AcceptSeasonAsync(string mediaVersion, FileMapping expectedMapping, string seasonKey, double durationSeconds, CancellationToken cancellationToken);

@@ -4,6 +4,7 @@ using System.Data;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
+using SecondDimensionWatcherReDive.Framework.Feed;
 using SecondDimensionWatcherReDive.Framework.FileDownload;
 using SecondDimensionWatcherReDive.Utils.MetadataReview;
 
@@ -11,7 +12,8 @@ namespace SecondDimensionWatcherReDive.Repositories;
 
 public class AnimationInfoRepository(
     Models.ApplicationContext context,
-    DbContextOptions<Models.ApplicationContext> contextOptions) : IAnimationInfoRepository
+    DbContextOptions<Models.ApplicationContext> contextOptions,
+    ISubscriptionAutomationMatcher automationMatcher) : IAnimationInfoRepository
 {
     public async Task<PagedResult<AnimationInfo>> GetPagedAsync(int skip, int take, CancellationToken cancellationToken)
     {
@@ -830,6 +832,57 @@ public class AnimationInfoRepository(
         });
     }
 
+    public async Task<SubscriptionAutomationMode?> RefreshStandaloneAutomationAsync(
+        Guid id,
+        CancellationToken cancellationToken) =>
+        await context.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
+        {
+            await using var writeContext = new Models.ApplicationContext(contextOptions);
+            await using var transaction = await writeContext.Database.BeginTransactionAsync(cancellationToken);
+            await MappingTransactionLock.AcquireAsync(writeContext, cancellationToken);
+            var entity = await MappingTransactionLock.LockAnimationInfoAsync(writeContext, id, cancellationToken);
+            if (entity is null || entity.IsDownloadTracked || entity.IsDownloadFinished
+                || entity.DownloadCancellationId is not null)
+                return (SubscriptionAutomationMode?)null;
+
+            SubscriptionAutomationMode? mode = null;
+            SubscriptionAutomationEvaluation? evaluation = null;
+            if (entity.SourceFeedId is { } feedId
+                && !await writeContext.Set<Models.MultiSourceFeed>()
+                    .AnyAsync(source => source.FeedId == feedId, cancellationToken))
+            {
+                // Linking/unlinking uses the mapping lock; policy edits are ordered
+                // by this row lock. Authorize the restored mode after ingestion.
+                var policy = await writeContext.SubscriptionAutomationPolicies
+                    .FromSqlInterpolated($"SELECT * FROM \"SubscriptionAutomationPolicies\" WHERE \"FeedId\" = {feedId} FOR SHARE")
+                    .AsNoTracking().SingleOrDefaultAsync(cancellationToken);
+                if (policy is not null)
+                {
+                    evaluation = automationMatcher.Evaluate(policy.ToRecord(), new AnimationAddRequest(
+                        entity.PublishTime, entity.Title, entity.Description, entity.DownloadUrl, entity.DownloadType,
+                        entity.AdditionalDownloadInfo, entity.SourceFeedId, entity.ReleaseSizeBytes));
+                    if (evaluation.Matched) mode = policy.Mode;
+                }
+            }
+
+            SubscriptionAutomationDisposition? disposition = mode switch
+            {
+                SubscriptionAutomationMode.NotifyOnly => SubscriptionAutomationDisposition.Notified,
+                SubscriptionAutomationMode.ManualConfirm => SubscriptionAutomationDisposition.PendingConfirmation,
+                SubscriptionAutomationMode.AutoDownload => SubscriptionAutomationDisposition.AutoDownloadFailed,
+                _ => null
+            };
+            await ResetTodoStateForTransitionAsync(writeContext, entity, entity.MetadataStatus,
+                disposition, cancellationToken);
+            entity.AutomationDisposition = disposition;
+            entity.AutomationExplanationJson = evaluation is null ? null
+                : JsonSerializer.Serialize(evaluation.Explanations, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+            entity.StateVersion = checked(entity.StateVersion + 1);
+            await writeContext.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return mode;
+        });
+
     public async Task<DownloadSubmissionLease?> TryStartDownloadAsync(
         Guid id,
         Guid downloadAttemptId,
@@ -1009,13 +1062,26 @@ public class AnimationInfoRepository(
             if (entity is null)
                 return new DownloadStartResult(false, null);
 
-            // Ordinary automatic ingestion yields to source orchestration if
-            // the feed was linked after SyncFeed took its policy snapshot.
+            // Ordinary automatic ingestion must still have an unlinked source
+            // and a matching current policy when its tracked attempt is committed.
             // Manual starts and claimed episode submissions do not use this gate.
-            if (requireStandaloneFeed && entity.SourceFeedId is { } feedId
-                && await writeContext.Set<Models.MultiSourceFeed>()
-                    .AnyAsync(source => source.FeedId == feedId, cancellationToken))
-                return new DownloadStartResult(false, null);
+            if (requireStandaloneFeed)
+            {
+                if (entity.SourceFeedId is not { } feedId
+                    || await writeContext.Set<Models.MultiSourceFeed>()
+                        .AnyAsync(source => source.FeedId == feedId, cancellationToken))
+                    return new DownloadStartResult(false, null);
+                // Policy updates do not take the mapping lock. This row lock
+                // orders changes/removal against the automatic start transaction.
+                var policy = await writeContext.SubscriptionAutomationPolicies
+                    .FromSqlInterpolated($"SELECT * FROM \"SubscriptionAutomationPolicies\" WHERE \"FeedId\" = {feedId} FOR SHARE")
+                    .AsNoTracking().SingleOrDefaultAsync(cancellationToken);
+                if (policy?.Mode != SubscriptionAutomationMode.AutoDownload
+                    || !automationMatcher.Evaluate(policy.ToRecord(), new AnimationAddRequest(
+                        entity.PublishTime, entity.Title, entity.Description, entity.DownloadUrl, entity.DownloadType,
+                        entity.AdditionalDownloadInfo, entity.SourceFeedId, entity.ReleaseSizeBytes)).Matched)
+                    return new DownloadStartResult(false, null);
+            }
 
             await writeContext.Entry(entity).Reference(info => info.Animation).LoadAsync(cancellationToken);
             if (expectedEpisode is null && entity.Animation is not null
