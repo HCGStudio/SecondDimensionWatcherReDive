@@ -21,6 +21,7 @@ import { Button } from "../components/ui/Button";
 import { EmptyPrompt } from "../components/ui/EmptyPrompt";
 import { Pagination } from "../components/ui/Pagination";
 import { Spinner } from "../components/ui/Spinner";
+import "../i18n/metadataReviewResources";
 import { cn } from "../lib/cn";
 import { MetadataRulesPanel } from "../metadataReview/MetadataRulesPanel";
 import {

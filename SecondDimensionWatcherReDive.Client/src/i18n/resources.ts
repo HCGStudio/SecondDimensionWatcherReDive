@@ -7,7 +7,6 @@ import enFeeds from "./locales/en/feeds.json";
 import enFiles from "./locales/en/files.json";
 import enIncidents from "./locales/en/incidents.json";
 import enLibrary from "./locales/en/library.json";
-import enMetadataReview from "./locales/en/metadataReview.json";
 import enPlayer from "./locales/en/player.json";
 import enSeason from "./locales/en/season.json";
 import enTasks from "./locales/en/tasks.json";
@@ -22,7 +21,6 @@ import jaFeeds from "./locales/ja/feeds.json";
 import jaFiles from "./locales/ja/files.json";
 import jaIncidents from "./locales/ja/incidents.json";
 import jaLibrary from "./locales/ja/library.json";
-import jaMetadataReview from "./locales/ja/metadataReview.json";
 import jaPlayer from "./locales/ja/player.json";
 import jaSeason from "./locales/ja/season.json";
 import jaTasks from "./locales/ja/tasks.json";
@@ -37,7 +35,6 @@ import zhCnFeeds from "./locales/zh-CN/feeds.json";
 import zhCnFiles from "./locales/zh-CN/files.json";
 import zhCnIncidents from "./locales/zh-CN/incidents.json";
 import zhCnLibrary from "./locales/zh-CN/library.json";
-import zhCnMetadataReview from "./locales/zh-CN/metadataReview.json";
 import zhCnPlayer from "./locales/zh-CN/player.json";
 import zhCnSeason from "./locales/zh-CN/season.json";
 import zhCnTasks from "./locales/zh-CN/tasks.json";
@@ -53,7 +50,6 @@ export const resources = {
     errors: zhCnErrors,
     animation: zhCnAnimation,
     files: zhCnFiles,
-    metadataReview: zhCnMetadataReview,
     feeds: zhCnFeeds,
     incidents: zhCnIncidents,
     library: zhCnLibrary,
@@ -73,7 +69,6 @@ export const resources = {
     errors: enErrors,
     animation: enAnimation,
     files: enFiles,
-    metadataReview: enMetadataReview,
     feeds: enFeeds,
     incidents: enIncidents,
     library: enLibrary,
@@ -96,7 +91,6 @@ export const resources = {
     errors: jaErrors,
     animation: jaAnimation,
     files: jaFiles,
-    metadataReview: jaMetadataReview,
     feeds: jaFeeds,
     incidents: jaIncidents,
     library: jaLibrary,
