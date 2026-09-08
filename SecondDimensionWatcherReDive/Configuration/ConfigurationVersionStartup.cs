@@ -41,12 +41,14 @@ internal static class ConfigurationVersionStartup
                 var values = ReadProvider(provider).ToDictionary(
                     pair => pair.Key, pair => pair.Value, StringComparer.OrdinalIgnoreCase);
                 IReadOnlyDictionary<string, string?> migrated = values;
-                if (source is EnvironmentVariablesConfigurationSource or CommandLineConfigurationSource
+                if (source is EnvironmentVariablesConfigurationSource { Prefix: null or "" } or CommandLineConfigurationSource
                     || source is JsonConfigurationSource { Path: { } jsonPath }
                     && !Path.GetFileName(jsonPath).StartsWith("appsettings", StringComparison.OrdinalIgnoreCase))
                 {
-                    // User secrets stay in their global file. Environment and command-line
-                    // settings likewise receive only the changed keys at their own priority.
+                    // Only the unprefixed application environment participates. Host sources
+                    // strip DOTNET_/ASPNETCORE_ and can expose runtime versions as "Version".
+                    // User secrets, environment and command-line settings receive only the
+                    // changed keys at their own priority, without rewriting their source.
                     if (ConfigMigrationRunner.ContainsMigrationSettings(values))
                     {
                         migrated = await runner.MigrateSettingsAsync(values, workingDirectory,
