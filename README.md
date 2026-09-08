@@ -105,12 +105,12 @@ bash <(curl -fsSL https://raw.githubusercontent.com/HCGStudio/SecondDimensionWat
 
 | 配置项 | 说明 |
 |--------|------|
-| `Version` | 配置结构版本，当前为 `2.3.0`；与应用版本独立，缺省按 `2.2.0` 迁移 |
+| `Version` | 配置结构版本，当前为 `2.3.0`；与应用版本独立，缺省按 `2.2.0` 迁移；环境覆盖使用 `SDW_CONFIG_VERSION` |
 | `StateDirectory` | 持久状态目录；密钥环、插件和转码缓存的默认路径位于此目录下 |
 | `ConnectionStrings:sdw` | PostgreSQL 连接字符串 |
 | `Migration:BackupExecutable` / `BackupArguments` / `BackupTimeout` / `RequireBackup` | schema/data migration 前的可选备份钩子与强制策略；详见[迁移运维手册](docs/migrations.md) |
 | `JwtSecret` | JWT 签名密钥 |
-| `Authentication:BootstrapPasswordHash` | 配置迁移保留的初始 BCrypt 哈希；启动时原子导入 PostgreSQL，之后以数据库为准。新安装通过网页注册，无需设置此项 |
+| `Authentication:BootstrapPasswordHash` | 原内联配置迁移保留的初始 BCrypt 哈希；启动时原子导入 PostgreSQL，之后以数据库为准。新安装通过网页注册，无需设置此项 |
 | `DataProtection:KeyRingPath` | 网页保存的 API key/密码所用加密密钥环；必须位于持久化目录 |
 | `Torrent:Remote:Url` | qBittorrent API 地址 |
 | `FileStore:Local` | 下载文件存储根目录 |
@@ -118,6 +118,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/HCGStudio/SecondDimensionWat
 | `Torrent:Polling` / `DownloadCompletion:Workers` | 自适应轮询周期/分批/退避；完成处理默认 2 个独立 worker |
 | `MediaLibrary:AllowedRoots` / `ScanInterval` / `SettlingPeriod` / `MissingGracePeriod` | 必须显式配置的导入根目录白名单、监控间隔、文件写入稳定等待时间与缺失记录保留期 |
 | `MikananiFeeds` | RSS 源 URL 数组 |
+| `Authentication:BootstrapCredentialsFile` | 受保护凭据 JSON 的路径；启动仅把其中的哈希读入内存，不复制到主配置。迁移旧密码文件时自动保留该引用 |
 | `TmdbApiKey` | TMDB API 密钥 |
 | `AI:Engine` | `BuiltIn` 或 `CodexAppServer`（默认 `BuiltIn`） |
 | `AI:Provider` | 内置引擎使用的 `OpenAI` 或 `Anthropic`（默认 `OpenAI`） |
@@ -154,7 +155,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/HCGStudio/SecondDimensionWat
 
 ### 家庭账户、档案与设备访问
 
-首次安装由注册页创建管理员和默认档案；旧实例的密码哈希会先经配置迁移写入 `Authentication:BootstrapPasswordHash`，再于启动时导入数据库。已有密码时注册入口保持关闭，使用用户名 `admin` 和原密码首次登录即可完成家庭账户迁移。主程序不再读取旧 `Password` 配置或 `password.json` 文件。右上角档案菜单可即时切换档案，「账户与档案」页可管理名称、头像、可选 PIN、家庭用户和登录会话。档案切换会轮换访问/刷新令牌，并清除浏览器中上一档案的播放、聊天等缓存；多个标签页通过 Web Locks 与浏览器消息同步轮换结果。
+首次安装由注册页创建管理员和默认档案；旧内联密码经迁移转为 `Authentication:BootstrapPasswordHash`，受保护密码文件则只保留 `Authentication:BootstrapCredentialsFile` 引用，启动时读取哈希并导入数据库。已有密码时注册入口保持关闭，使用用户名 `admin` 和原密码首次登录即可完成家庭账户迁移。主程序不再隐式读取旧 `Password` 配置或 `password.json`；显式凭据文件引用需要继续保留原受保护文件。右上角档案菜单可即时切换档案，「账户与档案」页可管理名称、头像、可选 PIN、家庭用户和登录会话。档案切换会轮换访问/刷新令牌，并清除浏览器中上一档案的播放、聊天等缓存；多个标签页通过 Web Locks 与浏览器消息同步轮换结果。
 
 角色权限由服务端强制执行：Admin 可管理全局设置、用户、任务、元数据和设备凭据；Member 可管理订阅、下载任务和播放状态，但删除已下载文件仍需近期管理员验证；Viewer 仅可浏览和播放。敏感管理操作在超过近期验证窗口后会要求再次输入账户密码，无需退出登录。
 

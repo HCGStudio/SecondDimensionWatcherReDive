@@ -1218,6 +1218,16 @@ public class AnimationInfoRepository(
                     || entity.Season != currentSubscription.Season
                     || !currentSubscription.Sources.Any(source => source.FeedId == entity.SourceFeedId))
                     return new DownloadStartResult(false, null);
+                // A confirmation authorizes the release displayed to the user. Decision
+                // writes share this lock, so a newer selection cannot win between the
+                // coordinator's comparison and the first tracked transition.
+                if (expectedSubscription.Mode == "ManualConfirm"
+                    && !(entity.IsDownloadTracked && entity.DownloadAttemptId == downloadAttemptId)
+                    && !await writeContext.Set<Models.MultiSourceEpisodeDecision>().AnyAsync(decision =>
+                        decision.SubscriptionId == expectedSubscription.Id && decision.Episode == entity.Episode
+                        && decision.Outcome == "pending_confirmation" && decision.SelectedReleaseId == entity.Id,
+                        cancellationToken))
+                    return new DownloadStartResult(false, null);
             }
 
             var databaseNow = await writeContext.Database

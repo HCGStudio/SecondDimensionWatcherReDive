@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using SecondDimensionWatcherReDive.Controllers.External;
 using SecondDimensionWatcherReDive.Framework.Authorization;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Utils.LibraryCompletion;
@@ -48,12 +49,14 @@ internal sealed class MultiSourceSubscriptionsController(IMultiSourceSubscriptio
         return Ok(await repository.GetDecisionsAsync(id, cancellationToken));
     }
     [HttpPost("{id:guid}/episodes/{episode:int}/confirm"), Authorize(Policy = AccessPolicies.ContentWrite)]
-    public async Task<IActionResult> ConfirmAsync(Guid id, int episode, CancellationToken cancellationToken)
+    public async Task<IActionResult> ConfirmAsync(Guid id, int episode, MultiSourceConfirmationRequest input,
+        CancellationToken cancellationToken)
     {
+        if (input.ReleaseId == Guid.Empty) return BadRequest();
         var subscription = (await repository.GetAllAsync(cancellationToken)).FirstOrDefault(x => x.Id == id);
         if (subscription == null) return NotFound();
-        var result = await coordinator.ConfirmAsync(subscription, episode, cancellationToken);
-        return result == null ? Conflict() : Ok(result);
+        var result = await coordinator.ConfirmAsync(subscription, episode, input.ReleaseId, cancellationToken);
+        return result == null || result.Outcome == "state_changed" ? Conflict(result) : Ok(result);
     }
     private static bool ValidList(IReadOnlyList<string>? values) => values is { Count: <= 50 } && values.All(x => x is { Length: > 0 and <= 200 } && !string.IsNullOrWhiteSpace(x));
 }

@@ -8,13 +8,15 @@ namespace SecondDimensionWatcherReDive.Configuration;
 
 internal static class ConfigurationVersionStartup
 {
+    private const string EnvironmentSchemaVersion = "SDW_CONFIG_VERSION";
+
     internal static async Task PrepareAsync(WebApplicationBuilder builder, CancellationToken cancellationToken)
     {
         var configuration = builder.Configuration;
         var runner = new ConfigMigrationRunner();
         var workingDirectory = Directory.GetCurrentDirectory();
         var contentRoot = builder.Environment.ContentRootPath;
-        var legacyPasswordFile = ResolveLegacyPasswordFile(ReadApplicationConfiguration(configuration), contentRoot);
+        var legacyPasswordFile = ResolveLegacyPasswordFile(configuration, contentRoot);
         var inherited = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
         var sawApplicationFile = false;
         // Process original sources in priority order. An overlay's own Version determines its
@@ -41,15 +43,15 @@ internal static class ConfigurationVersionStartup
                     provider.Load();
                 }
 
-                var values = ReadProvider(provider).ToDictionary(
+                var values = ReadApplicationProvider(source, provider).ToDictionary(
                     pair => pair.Key, pair => pair.Value, StringComparer.OrdinalIgnoreCase);
                 IReadOnlyDictionary<string, string?> migrated = values;
                 if (source is EnvironmentVariablesConfigurationSource { Prefix: null or "" } or CommandLineConfigurationSource
                     || source is JsonConfigurationSource { Path: { } jsonPath }
                     && !Path.GetFileName(jsonPath).StartsWith("appsettings", StringComparison.OrdinalIgnoreCase))
                 {
-                    // Only the unprefixed application environment participates. Host sources
-                    // strip DOTNET_/ASPNETCORE_ and can expose runtime versions as "Version".
+                    // The environment uses SDW_CONFIG_VERSION for schema metadata;
+                    // generic VERSION and stripped hosting versions are unrelated.
                     // User secrets, environment and command-line settings receive only the
                     // changed keys at their own priority, without rewriting their source.
                     if (ConfigMigrationRunner.ContainsMigrationSettings(values))
@@ -92,9 +94,13 @@ internal static class ConfigurationVersionStartup
         var current = ReadApplicationConfiguration(configuration);
         var effective = await runner.MigrateSettingsAsync(current, workingDirectory, cancellationToken,
             new ConfigMigrationOptions(ContentRootDirectory: contentRoot, LegacyPasswordFile: legacyPasswordFile));
-        var finalChanges = ChangedValues(current, effective);
-        if (finalChanges.Length > 0)
-            configuration.AddInMemoryCollection(finalChanges);
+        var finalChanges = ChangedValues(current, effective).ToDictionary(
+            pair => pair.Key, pair => pair.Value, StringComparer.OrdinalIgnoreCase);
+        // Expose the actual schema version to the application even when an
+        // unrelated VERSION environment variable shadows the file provider.
+        finalChanges["Version"] = effective["Version"];
+        configuration.AddInMemoryCollection(finalChanges);
+        LoadBootstrapCredentials(configuration, contentRoot);
     }
 
     private static Dictionary<string, string?> ReadApplicationConfiguration(ConfigurationManager configuration)
@@ -107,15 +113,23 @@ internal static class ConfigurationVersionStartup
         foreach (var (source, provider) in configuration.Sources.Zip(((IConfigurationRoot)configuration).Providers))
         {
             if (source is EnvironmentVariablesConfigurationSource { Prefix: { Length: > 0 } }) continue;
-            foreach (var pair in ReadProvider(provider)) values[pair.Key] = pair.Value;
+            foreach (var pair in ReadApplicationProvider(source, provider)) values[pair.Key] = pair.Value;
         }
         return values;
     }
 
-    private static string ResolveLegacyPasswordFile(IReadOnlyDictionary<string, string?> configuration, string contentRoot)
+    private static string ResolveLegacyPasswordFile(ConfigurationManager configuration, string contentRoot)
     {
-        var passwordFile = configuration.GetValueOrDefault("PasswordFile") ?? "password.json";
-        if (configuration.GetValueOrDefault("Config") is not { } configPath) return passwordFile;
+        var passwordFile = "password.json";
+        // These keys name the same credential authority across schema versions.
+        // Follow source priority so a higher legacy PasswordFile can supersede a
+        // lower canonical reference, while a reference wins within its own source.
+        foreach (var (source, provider) in configuration.Sources.Zip(((IConfigurationRoot)configuration).Providers))
+        {
+            if (source is EnvironmentVariablesConfigurationSource { Prefix: { Length: > 0 } }) continue;
+            ApplyProvider(provider);
+        }
+        if (ReadApplicationConfiguration(configuration).GetValueOrDefault("Config") is not { } configPath) return passwordFile;
         // Before migration removes PasswordFile from individual layers, resolve
         // the value the old host selected after appending its external document.
         var path = Path.GetFullPath(configPath, contentRoot);
@@ -126,15 +140,59 @@ internal static class ConfigurationVersionStartup
             external.AddYamlFile(path, optional: false);
         var document = external.Build();
         using var lifetime = document as IDisposable;
-        foreach (var provider in document.Providers.Reverse())
-            if (provider.TryGet("PasswordFile", out var value)) return value ?? "password.json";
+        foreach (var provider in document.Providers) ApplyProvider(provider);
         return passwordFile;
+
+        void ApplyProvider(IConfigurationProvider provider)
+        {
+            if (provider.TryGet("PasswordFile", out var value)) passwordFile = value ?? "password.json";
+            if (provider.TryGet("Authentication:BootstrapCredentialsFile", out var credentials)
+                && !string.IsNullOrWhiteSpace(credentials)) passwordFile = credentials;
+        }
+    }
+
+    private static void LoadBootstrapCredentials(ConfigurationManager configuration, string contentRoot)
+    {
+        if (configuration["Authentication:BootstrapCredentialsFile"] is not { } credentialsPath
+            || string.IsNullOrWhiteSpace(credentialsPath)) return;
+
+        var path = Path.GetFullPath(credentialsPath, contentRoot);
+        try
+        {
+            var credentials = new ConfigurationBuilder().AddJsonFile(path, optional: false).Build();
+            using var lifetime = credentials as IDisposable;
+            var hash = credentials["Authentication:BootstrapPasswordHash"] ?? credentials["Password:Value"];
+            if (string.IsNullOrWhiteSpace(hash))
+                throw new ConfigMigrationException("The bootstrap credentials file does not contain a password hash.");
+            // This protected file was the final credential authority in legacy
+            // deployments. Import only its hash, and only into the in-memory layer.
+            configuration.AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Authentication:BootstrapPasswordHash"] = hash
+            });
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or FormatException or InvalidDataException)
+        {
+            throw new ConfigMigrationException($"Cannot read bootstrap credentials file '{path}'. Check its JSON format and access permissions.");
+        }
     }
 
     private static KeyValuePair<string, string?>[] ChangedValues(
         IReadOnlyDictionary<string, string?> original,
         IReadOnlyDictionary<string, string?> migrated) =>
         migrated.Where(pair => !original.TryGetValue(pair.Key, out var value) || value != pair.Value).ToArray();
+
+    private static IEnumerable<KeyValuePair<string, string?>> ReadApplicationProvider(
+        IConfigurationSource source, IConfigurationProvider provider)
+    {
+        if (source is not EnvironmentVariablesConfigurationSource { Prefix: null or "" })
+            return ReadProvider(provider);
+
+        return ReadProvider(provider)
+            .Where(pair => !pair.Key.Equals("Version", StringComparison.OrdinalIgnoreCase))
+            .Select(pair => pair.Key.Equals(EnvironmentSchemaVersion, StringComparison.OrdinalIgnoreCase)
+                ? new KeyValuePair<string, string?>("Version", pair.Value) : pair);
+    }
 
     private static IEnumerable<KeyValuePair<string, string?>> ReadProvider(IConfigurationProvider provider, string? parent = null)
     {
