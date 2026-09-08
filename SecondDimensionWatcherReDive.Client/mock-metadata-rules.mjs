@@ -148,8 +148,9 @@ function draftRule(body, id, context) {
   )
     fail("tmdbNotFound", "The TMDB series is not in the mock catalog.");
   if (!disablingOnly && body.fixedSeason != null) {
-    const seasons = context.metadataCatalog.get(String(Number(body.tmdbId)))
-      .seasonNumbers;
+    const seasons = context.metadataCatalog.get(
+      String(Number(body.tmdbId)),
+    ).seasonNumbers;
     if (!Array.isArray(seasons))
       fail(
         "tmdbUnavailable",
