@@ -4,6 +4,7 @@ using Npgsql;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Framework.Feed;
 using SecondDimensionWatcherReDive.Utils.FileStore;
+using SecondDimensionWatcherReDive.Utils.LibraryCompletion;
 
 namespace SecondDimensionWatcherReDive.Repositories;
 
@@ -294,6 +295,10 @@ public sealed partial class ReleaseUpgradeRepository(
             // may have changed since the candidate list was read.
             if (invocation != ReleaseUpgradeInvocation.Manual)
             {
+                // Retrying inference keeps old coordinates while marking metadata
+                // pending. Recheck the completion predicate under the release locks.
+                if (!LibraryCompletionService.IsReliable(next.Season, next.Episode, next.MetadataStatus, next.Title))
+                    return null;
                 var owners = await writeContext.Set<Models.MultiSourceSubscription>().AsNoTracking()
                     .Include(subscription => subscription.Sources)
                     .Where(subscription => subscription.Sources.Any(source =>
