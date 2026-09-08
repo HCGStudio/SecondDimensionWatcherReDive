@@ -17,7 +17,7 @@ internal sealed class MoveInferenceToAi : IConfigMigration
         var provider = Provider(context);
         var mappings = Mappings(provider);
         return mappings.Where(pair => ConfigTree.Get(config, pair.Source) is { } source
-                && ConfigTree.Get(config, pair.Target) is { } target && !Equivalent(source, target))
+                && ConfigTree.Get(config, pair.Target) is { } target && !Equivalent(pair.Target, source, target))
             .Select(pair => new ConfigMigrationChoice(pair.Target,
                 $"Both '{pair.Source}' and '{pair.Target}' are set differently. Choose which setting to retain.",
                 [new("current", "Keep the AI setting"), new("legacy", "Use the old Inference setting")]))
@@ -62,6 +62,7 @@ internal sealed class MoveInferenceToAi : IConfigMigration
         foreach (var key in LegacyKeys.Skip(1)) yield return ($"Inference:{key}", $"AI:{provider}:{key}");
     }
 
-    private static bool Equivalent(JsonNode left, JsonNode right) => JsonNode.DeepEquals(left, right)
-        || (left is JsonValue && right is JsonValue && left.ToString() == right.ToString());
+    private static bool Equivalent(string targetPath, JsonNode left, JsonNode right) => JsonNode.DeepEquals(left, right)
+        || (left is JsonValue && right is JsonValue && string.Equals(left.ToString(), right.ToString(),
+            targetPath == "AI:Provider" ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal));
 }
