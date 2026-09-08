@@ -47,6 +47,20 @@ public class FeedRepository(Models.ApplicationContext context,
                 .SingleOrDefaultAsync(value => value.Sources.Any(source => source.FeedId == feed.Id), cancellationToken);
             if (subscription is not null)
             {
+                // A compensated multi-source failure must not become an orphaned
+                // standalone Todo when the feed FK is nulled by deletion. The
+                // completed cancellation id is retained only for idempotency.
+                var failed = write.AnimationInfo.Where(info => info.SourceFeedId == feed.Id
+                    && !info.IsDownloadTracked && !info.IsDownloadFinished
+                    && info.AutomationDisposition == SubscriptionAutomationDisposition.AutoDownloadFailed);
+                var todoKeys = failed.Select(info => "automation:" + info.Id.ToString());
+                await write.TodoItemStates.Where(state => todoKeys.Contains(state.Key))
+                    .ExecuteDeleteAsync(cancellationToken);
+                await failed.ExecuteUpdateAsync(setters => setters
+                    .SetProperty(info => info.AutomationDisposition, (SubscriptionAutomationDisposition?)null)
+                    .SetProperty(info => info.AutomationExplanationJson, (string?)null)
+                    .SetProperty(info => info.StandaloneAutomationPending, false)
+                    .SetProperty(info => info.StateVersion, info => info.StateVersion + 1), cancellationToken);
                 if (subscription.Sources.Count == 1)
                     write.Remove(subscription);
                 else
