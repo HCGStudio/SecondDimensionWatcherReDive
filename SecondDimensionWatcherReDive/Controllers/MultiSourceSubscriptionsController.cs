@@ -14,10 +14,12 @@ internal sealed class MultiSourceSubscriptionsController(IMultiSourceSubscriptio
     [HttpGet]
     public async Task<IActionResult> ListAsync(CancellationToken cancellationToken)
     {
-        var result = new List<MultiSourceSubscriptionStatus>();
-        foreach (var subscription in await repository.GetAllAsync(cancellationToken))
-            result.Add(new(subscription, await repository.GetSourceStatusAsync(subscription.Id, cancellationToken),
-                await repository.GetDecisionsAsync(subscription.Id, cancellationToken)));
+        var subscriptions = await repository.GetAllAsync(cancellationToken);
+        var ids = subscriptions.Select(subscription => subscription.Id).ToArray();
+        var sources = await repository.GetSourceStatusesAsync(ids, cancellationToken);
+        var decisions = await repository.GetDecisionsAsync(ids, cancellationToken);
+        var result = subscriptions.Select(subscription => new MultiSourceSubscriptionStatus(subscription,
+            sources.GetValueOrDefault(subscription.Id) ?? [], decisions.GetValueOrDefault(subscription.Id) ?? [])).ToList();
         return Ok(result);
     }
     [HttpPut("{id:guid}"), Authorize(Policy = AccessPolicies.ContentWrite)]
