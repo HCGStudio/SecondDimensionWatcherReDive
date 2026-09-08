@@ -172,7 +172,7 @@ export const MetadataRulesPanel: React.FC<{
   }
 
   async function saveRule() {
-    if (!draft) return;
+    if (!draft || !preview || busy) return;
     setBusy(true);
     setError(null);
     try {
@@ -181,6 +181,9 @@ export const MetadataRulesPanel: React.FC<{
         draft,
         editingId ? "PUT" : "POST",
       );
+      version.current++;
+      setPreview(null);
+      setHistory(null);
       setEditingId(saved.id);
       setDraft({ ...saved, expectedRevision: saved.revision });
       setSavedNotice(true);
