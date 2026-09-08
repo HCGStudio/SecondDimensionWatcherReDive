@@ -219,21 +219,7 @@ internal sealed class LogicalDataTransferWorker(
             bundle.FormatVersion == LogicalDataTransferFormat.CurrentVersion && bundle.RecognitionRules is null)
             throw new ArgumentException("Logical data categories do not match the format version.", nameof(bundle));
 
-        // Enabling imported rules must pass the same remote series/season checks
-        // as rule creation. Resolve targets before any transaction or table lock;
-        // disabled rules can be restored while TMDB is unavailable.
-        if (bundle.Categories.HasFlag(LogicalDataCategory.RecognitionRules) && bundle.RecognitionRules is { } rules)
-        {
-            foreach (var target in rules.Where(rule => rule.Enabled && !rule.SourceFeedMissing)
-                         .Select(rule => (Id: int.Parse(rule.TmdbId, NumberStyles.None, CultureInfo.InvariantCulture),
-                             rule.FixedSeason)).Distinct())
-            {
-                if (tmdbTool is null)
-                    throw new MetadataReviewUnavailableException("tmdbUnavailable", "TMDB lookup is unavailable.");
-                await MetadataRecognitionRuleService.ValidateRemoteTargetAsync(
-                    tmdbTool, target.Id, target.FixedSeason, cancellationToken);
-            }
-        }
+        var validatedRuleTargets = await ValidateRecognitionRuleImportsAsync(bundle, conflictStrategy, cancellationToken);
 
         var statistics = new ImportStatistics();
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
@@ -257,7 +243,7 @@ internal sealed class LogicalDataTransferWorker(
         await ImportFeedsAsync(bundle, conflictStrategy, feedsByUrl, usedFeedIds, statistics, cancellationToken);
         await ImportPoliciesAsync(bundle, conflictStrategy, feedsByUrl, statistics, cancellationToken);
         await ImportRulesAsync(bundle, conflictStrategy, statistics, cancellationToken);
-        await ImportRecognitionRulesAsync(bundle, conflictStrategy, feedsByUrl, statistics, cancellationToken);
+        await ImportRecognitionRulesAsync(bundle, conflictStrategy, feedsByUrl, validatedRuleTargets, statistics, cancellationToken);
         // Mapping previews can consume filename rules and animation rows imported in
         // this bundle. Flush them inside the transaction before planning corrections.
         await context.SaveChangesAsync(cancellationToken);
@@ -414,10 +400,62 @@ internal sealed class LogicalDataTransferWorker(
         }
     }
 
+    private async Task<IReadOnlySet<(int TmdbId, int? FixedSeason)>> ValidateRecognitionRuleImportsAsync(
+        LogicalDataBundle bundle, LogicalImportConflictStrategy strategy, CancellationToken cancellationToken)
+    {
+        var targets = new HashSet<(int TmdbId, int? FixedSeason)>();
+        if (!bundle.Categories.HasFlag(LogicalDataCategory.RecognitionRules) || bundle.RecognitionRules is not { Count: > 0 })
+            return targets;
+
+        // Plan only actual changes against read-only current state, before taking any
+        // import locks. A source supplied by this bundle will exist after feed import.
+        var feeds = await context.Feeds.AsNoTracking()
+            .ToDictionaryAsync(feed => feed.Url, feed => feed.Id, StringComparer.Ordinal, cancellationToken);
+        var importedFeedUrls = bundle.Categories.HasFlag(LogicalDataCategory.Feeds)
+            ? bundle.Feeds.Select(feed => feed.Url).ToHashSet(StringComparer.Ordinal)
+            : [];
+        var rules = await context.Set<Models.MetadataRecognitionRule>().AsNoTracking()
+            .ToDictionaryAsync(rule => rule.Id, cancellationToken);
+        foreach (var imported in bundle.RecognitionRules)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (imported.SourceFeedMissing) continue;
+            Guid? sourceFeedId = null;
+            var newSource = false;
+            if (imported.SourceFeedUrl is { } url)
+            {
+                if (feeds.TryGetValue(url, out var feedId)) sourceFeedId = feedId;
+                else if (importedFeedUrls.Contains(url)) newSource = true;
+                else continue;
+            }
+            if (rules.TryGetValue(imported.Id, out var existing))
+            {
+                if (!newSource && MatchesRecognitionRule(existing, imported, sourceFeedId)) continue;
+                if (strategy == LogicalImportConflictStrategy.Skip) continue;
+                if (strategy == LogicalImportConflictStrategy.Fail)
+                    throw new LogicalDataImportConflictException($"Import conflict at recognition-rule:{imported.Id}.");
+            }
+            if (imported.Enabled)
+                targets.Add((int.Parse(imported.TmdbId, NumberStyles.None, CultureInfo.InvariantCulture), imported.FixedSeason));
+        }
+
+        // Idempotent rules, skipped conflicts and missing-source rules need no
+        // remote lookup and must not prevent unrelated categories from importing.
+        foreach (var target in targets)
+        {
+            if (tmdbTool is null)
+                throw new MetadataReviewUnavailableException("tmdbUnavailable", "TMDB lookup is unavailable.");
+            await MetadataRecognitionRuleService.ValidateRemoteTargetAsync(
+                tmdbTool, target.TmdbId, target.FixedSeason, cancellationToken);
+        }
+        return targets;
+    }
+
     private async Task ImportRecognitionRulesAsync(
         LogicalDataBundle bundle,
         LogicalImportConflictStrategy strategy,
         IReadOnlyDictionary<string, Models.Feed> feedsByUrl,
+        IReadOnlySet<(int TmdbId, int? FixedSeason)> validatedTargets,
         ImportStatistics statistics,
         CancellationToken cancellationToken)
     {
@@ -448,11 +486,7 @@ internal sealed class LogicalDataTransferWorker(
 
             if (existing.TryGetValue(imported.Id, out var entity))
             {
-                if (entity.Name == name && entity.Enabled == imported.Enabled &&
-                    entity.SourceFeedId == sourceFeedId && entity.TitlePattern == titlePattern &&
-                    entity.SubtitleGroup == subtitleGroup && entity.TmdbId == tmdbId &&
-                    entity.FixedSeason == imported.FixedSeason && entity.EpisodeOffset == imported.EpisodeOffset &&
-                    entity.CanonicalGroupName == canonicalGroup)
+                if (MatchesRecognitionRule(entity, imported, sourceFeedId))
                 {
                     statistics.Skip();
                     continue;
@@ -478,6 +512,13 @@ internal sealed class LogicalDataTransferWorker(
                 statistics.Add();
             }
 
+            // Replan from the locked, current rows. If a previously skipped rule
+            // now needs writing, the caller must retry to validate its target outside
+            // the transaction instead of silently enabling unchecked configuration.
+            if (imported.Enabled && !validatedTargets.Contains((
+                    int.Parse(imported.TmdbId, NumberStyles.None, CultureInfo.InvariantCulture), imported.FixedSeason)))
+                throw new LogicalDataImportConflictException(
+                    $"Recognition rule import changed during validation:{imported.Id}. Retry the import.");
             entity.Name = name;
             entity.Enabled = imported.Enabled;
             entity.SourceFeedId = sourceFeedId;
@@ -493,6 +534,16 @@ internal sealed class LogicalDataTransferWorker(
             entity.EffectiveFrom = DateTimeOffset.UtcNow;
         }
     }
+
+    private static bool MatchesRecognitionRule(Models.MetadataRecognitionRule existing,
+        LogicalRecognitionRule imported, Guid? sourceFeedId) =>
+        existing.Name == imported.Name.Trim() && existing.Enabled == imported.Enabled &&
+        existing.SourceFeedId == sourceFeedId && existing.TitlePattern == Normalize(imported.TitlePattern) &&
+        existing.SubtitleGroup == Normalize(imported.SubtitleGroup) &&
+        existing.TmdbId == int.Parse(imported.TmdbId, NumberStyles.None, CultureInfo.InvariantCulture)
+            .ToString(CultureInfo.InvariantCulture) &&
+        existing.FixedSeason == imported.FixedSeason && existing.EpisodeOffset == imported.EpisodeOffset &&
+        existing.CanonicalGroupName == Normalize(imported.CanonicalGroupName);
 
     private static string? Normalize(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
