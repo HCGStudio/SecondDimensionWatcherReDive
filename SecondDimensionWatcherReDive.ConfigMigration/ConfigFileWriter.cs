@@ -13,16 +13,13 @@ internal static class ConfigFileWriter
         var suffix = $"{DateTime.UtcNow:yyyyMMddHHmmssfff}-{Guid.NewGuid():N}";
         var temporary = $"{path}.{suffix}.tmp";
         var backup = $"{path}.{suffix}.bak";
-        // Cooperating CLI/startup writers lock the same persistent sidecar inode. Do not
-        // unlink this file on release: another process may already be waiting on it.
-        var lockOptions = new FileStreamOptions
+        FileSecurity? windowsSecurity = null;
+        if (OperatingSystem.IsWindows())
         {
-            Mode = FileMode.OpenOrCreate,
-            Access = FileAccess.ReadWrite,
-            Share = FileShare.None
-        };
-        if (!OperatingSystem.IsWindows()) lockOptions.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
-        using var migrationLock = new FileStream(path + ".migration.lock", lockOptions);
+            windowsSecurity = new FileInfo(path).GetAccessControl(AccessControlSections.Access);
+            windowsSecurity.SetAccessRuleProtection(isProtected: true, preserveInheritance: true);
+        }
+        using var migrationLock = OpenMigrationLock(path, windowsSecurity);
         if (!(await File.ReadAllBytesAsync(path, cancellationToken)).AsSpan().SequenceEqual(original))
             throw new ConfigMigrationException("Configuration changed during migration. No migration was written; retry with the new file.");
         var options = new FileStreamOptions
@@ -33,14 +30,6 @@ internal static class ConfigFileWriter
             Options = FileOptions.Asynchronous
         };
         if (!OperatingSystem.IsWindows()) options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
-        FileSecurity? windowsSecurity = null;
-        if (OperatingSystem.IsWindows())
-        {
-            windowsSecurity = new FileInfo(path).GetAccessControl(AccessControlSections.Access);
-            // Preserve the effective DACL at creation time, before either file contains
-            // secrets. Do not inherit broader permissions from the containing directory.
-            windowsSecurity.SetAccessRuleProtection(isProtected: true, preserveInheritance: true);
-        }
         try
         {
             await using (var stream = CreateOutput(temporary, options, windowsSecurity))
@@ -74,6 +63,56 @@ internal static class ConfigFileWriter
         finally
         {
             if (File.Exists(temporary)) File.Delete(temporary);
+        }
+    }
+
+    private static FileStream OpenMigrationLock(string path, FileSecurity? windowsSecurity)
+    {
+        // Keep one stable inode for cooperating writers, but do not leave an
+        // administrator-only sidecar beside a configuration owned by the service.
+        var lockPath = path + ".migration.lock";
+        if (OperatingSystem.IsWindows())
+            return new FileInfo(lockPath).Create(FileMode.OpenOrCreate,
+                FileSystemRights.Read | FileSystemRights.Write, FileShare.None, 4096,
+                FileOptions.None, windowsSecurity ?? throw new IOException("Cannot preserve migration lock access control."));
+
+        FileStream migrationLock;
+        try
+        {
+            migrationLock = new FileStream(lockPath, new FileStreamOptions
+            {
+                Mode = FileMode.CreateNew,
+                Access = FileAccess.ReadWrite,
+                Share = FileShare.None,
+                UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite
+            });
+        }
+        catch (IOException) when (File.Exists(lockPath))
+        {
+            // Existing compatible locks need no chmod/chown privilege. In
+            // particular, an ACL-authorized account may use an inode it does not own.
+            return new FileStream(lockPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+        }
+        try
+        {
+            if (OperatingSystem.IsLinux())
+            {
+                PreserveOwner(path, migrationLock.SafeFileHandle);
+                PreservePosixAccessAcl(path, migrationLock.SafeFileHandle);
+            }
+            // The inode carries no secrets and is never executable. Its owner can
+            // always reacquire it; other accounts still need configuration write access.
+            var readWrite = UnixFileMode.UserRead | UnixFileMode.UserWrite |
+                UnixFileMode.GroupRead | UnixFileMode.GroupWrite |
+                UnixFileMode.OtherRead | UnixFileMode.OtherWrite;
+            File.SetUnixFileMode(lockPath, (File.GetUnixFileMode(path) & readWrite) |
+                UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            return migrationLock;
+        }
+        catch
+        {
+            migrationLock.Dispose();
+            throw;
         }
     }
 

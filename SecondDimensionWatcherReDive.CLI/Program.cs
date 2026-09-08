@@ -76,20 +76,38 @@ internal static class Program
             Description = "Original application content root for credential files (default: --working-directory).",
             HelpName = "DIR"
         };
+        var inheritConfig = new Option<string[]>("--inherit-config")
+        {
+            Description = "Complete lower-priority configuration files or snapshots, repeated in low-to-high priority order; read-only.",
+            HelpName = "PATH",
+            Arity = ArgumentArity.OneOrMore,
+            AllowMultipleArgumentsPerToken = false
+        };
+        var standalone = new Option<bool>("--standalone")
+        {
+            Description = "Declare that the target file has no inherited configuration. Cannot be combined with --inherit-config."
+        };
 
         command.Options.Add(config);
         command.Options.Add(nonInteractive);
         command.Options.Add(workingDirectory);
         command.Options.Add(contentRoot);
+        command.Options.Add(inheritConfig);
+        command.Options.Add(standalone);
         command.SetAction(async (parseResult, cancellationToken) =>
         {
             var silent = parseResult.GetValue(nonInteractive) || Console.IsInputRedirected;
+            var inheritedFiles = parseResult.GetValue(inheritConfig) ?? [];
+            if (parseResult.GetValue(standalone) && inheritedFiles.Length > 0)
+                throw new ConfigMigrationException("--standalone and --inherit-config cannot be combined.");
             var result = await new ConfigMigrationRunner().MigrateFileAsync(
                 parseResult.GetValue(config)!,
                 parseResult.GetValue(workingDirectory)!,
                 silent ? null : ChooseAsync,
                 cancellationToken, new ConfigMigrationOptions(
-                    ContentRootDirectory: parseResult.GetValue(contentRoot)));
+                    ContentRootDirectory: parseResult.GetValue(contentRoot),
+                    InheritedConfigurationFiles: inheritedFiles,
+                    RequireExplicitInheritance: !parseResult.GetValue(standalone)));
 
             if (result.AppliedMigrations.Count == 0)
                 Console.WriteLine($"Configuration is already at version {result.ToVersion}.");

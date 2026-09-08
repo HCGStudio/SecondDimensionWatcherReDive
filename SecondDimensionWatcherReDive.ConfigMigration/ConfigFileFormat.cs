@@ -42,12 +42,9 @@ internal static class ConfigFileFormat
         return writer.ToString();
     }
 
-    private static bool IsYaml(string path) => Path.GetExtension(path).ToLowerInvariant() switch
-    {
-        ".yml" or ".yaml" => true,
-        ".json" => false,
-        _ => throw new ConfigMigrationException("Configuration must use a .json, .yml or .yaml extension.")
-    };
+    // External Config historically used the YAML provider regardless of suffix,
+    // including mounted secrets with no extension. Only explicit .json selects JSON.
+    private static bool IsYaml(string path) => !Path.GetExtension(path).Equals(".json", StringComparison.OrdinalIgnoreCase);
 
     private static JsonNode? ReadYaml(YamlNode node, int depth)
     {

@@ -36,8 +36,14 @@ if grep -q '<Please fill this with a 32 length random string>' "$CONFIG" 2>/dev/
 fi
 
 # Package upgrades cannot prompt for breaking configuration choices.
-if ! /usr/bin/sdw-migrate --config "$CONFIG" --working-directory /usr/lib/sdw-redive --non-interactive; then
-    echo "Configuration upgrade failed or requires a decision. Run sudo sdw-migrate --config $CONFIG --working-directory /usr/lib/sdw-redive, then retry the package installation." >&2
+# These are the standard lower-priority files used by the packaged Production host.
+migration_context=(--inherit-config /usr/lib/sdw-redive/appsettings.json)
+if [ -f /usr/lib/sdw-redive/appsettings.Production.json ]; then
+    migration_context+=(--inherit-config /usr/lib/sdw-redive/appsettings.Production.json)
+fi
+if ! /usr/bin/sdw-migrate --config "$CONFIG" --working-directory /usr/lib/sdw-redive \
+    "${migration_context[@]}" --non-interactive; then
+    echo "Configuration upgrade failed or requires a decision. Run sudo sdw-migrate --config $CONFIG --working-directory /usr/lib/sdw-redive ${migration_context[*]} in a terminal, adding any custom lower-priority configuration snapshots, then retry the package installation." >&2
     exit 1
 fi
 

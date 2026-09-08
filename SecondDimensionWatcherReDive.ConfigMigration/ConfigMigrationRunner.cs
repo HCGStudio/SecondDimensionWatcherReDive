@@ -6,13 +6,22 @@ namespace SecondDimensionWatcherReDive.ConfigMigration;
 public sealed class ConfigMigrationRunner
 {
     public static Version BaselineVersion { get; } = new(2, 2, 0);
-    private static readonly HashSet<string> MigrationRoots = new(StringComparer.OrdinalIgnoreCase)
+    private static readonly HashSet<string> MigrationPaths = new(StringComparer.OrdinalIgnoreCase)
     {
-        "Version", "AI", "Inference", "Password", "PasswordFile", "StateDirectory", "Authentication"
+        "Version", "PasswordFile", "Password:Value", "StateDirectory", "Authentication:BootstrapPasswordHash",
+        "AI:Engine", "AI:Provider",
+        "AI:OpenAI:ApiKey", "AI:OpenAI:BaseUrl", "AI:OpenAI:ApiMode", "AI:OpenAI:Model", "AI:OpenAI:MaxTokens",
+        "AI:Anthropic:ApiKey", "AI:Anthropic:BaseUrl", "AI:Anthropic:Model", "AI:Anthropic:MaxTokens", "AI:Anthropic:ApiVersion",
+        "AI:CodexAppServer:Endpoint", "AI:CodexAppServer:Model", "AI:CodexAppServer:PermissionProfile",
+        "AI:CodexAppServer:TimeoutSeconds", "AI:CodexAppServer:Token",
+        "Inference:Provider", "Inference:ApiKey", "Inference:BaseUrl", "Inference:Model", "Inference:MaxTokens",
+        "Inference:RateLimitDelayMs"
     };
+    private static readonly HashSet<string> MigrationSections = new(StringComparer.OrdinalIgnoreCase)
+        { "AI", "Inference", "Password", "Authentication" };
 
     public static bool ContainsMigrationSettings(IEnumerable<KeyValuePair<string, string?>> settings) =>
-        settings.Any(pair => MigrationRoots.Contains(pair.Key.Split(':')[0]));
+        settings.Any(pair => MigrationPaths.Contains(pair.Key));
     private readonly IReadOnlyList<IConfigMigration> migrations;
     public Version CurrentVersion { get; }
 
@@ -42,8 +51,13 @@ public sealed class ConfigMigrationRunner
         {
             var original = await File.ReadAllBytesAsync(path, cancellationToken);
             var document = ConfigFileFormat.Read(System.Text.Encoding.UTF8.GetString(original).TrimStart('\uFEFF'), formatPath);
-            var (updated, result) = await MigrateAsync(document, workingDirectory, chooseAsync, cancellationToken, options);
+            var (effectiveOptions, inheritedSources) = await ResolveFileInheritanceAsync(
+                document, path, workingDirectory, options, cancellationToken);
+            var (updated, result) = await MigrateAsync(document, workingDirectory, chooseAsync, cancellationToken, effectiveOptions);
             if (result.AppliedMigrations.Count == 0) return result;
+            foreach (var source in inheritedSources)
+                if (!(await File.ReadAllBytesAsync(source.Path, cancellationToken)).AsSpan().SequenceEqual(source.Content))
+                    throw new ConfigMigrationException("Inherited configuration changed during migration. No migration was written; retry with the current context.");
             var backup = await ConfigFileWriter.ReplaceAsync(path, original,
                 ConfigFileFormat.Write(updated, formatPath), cancellationToken);
             return result with { BackupPath = backup };
@@ -54,13 +68,82 @@ public sealed class ConfigMigrationRunner
         }
     }
 
+    private async Task<(ConfigMigrationOptions? Options, IReadOnlyList<(string Path, byte[] Content)> Sources)>
+        ResolveFileInheritanceAsync(JsonObject target, string targetPath, string workingDirectory,
+            ConfigMigrationOptions? options, CancellationToken cancellationToken)
+    {
+        var versionText = ConfigTree.Text(target, "Version");
+        var version = versionText is null ? BaselineVersion : ParseVersion(versionText);
+        // Current files do not run any Up or write data, so no inheritance declaration
+        // is needed for a no-op. Unsupported versions retain their normal diagnostics.
+        if (version >= CurrentVersion || version < BaselineVersion) return (options, []);
+        var files = options?.InheritedConfigurationFiles ?? [];
+        if (files.Count == 0)
+        {
+            if (options?.RequireExplicitInheritance == true)
+                throw new ConfigMigrationException("Migrating a legacy file requires its complete lower-priority context via --inherit-config, or --standalone when the file has no inherited configuration.");
+            return (options, []);
+        }
+
+        var sources = new List<(string Path, byte[] Content, JsonObject Document)>();
+        var paths = new HashSet<string>(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal)
+            { targetPath };
+        foreach (var file in files)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var path = Path.GetFullPath(file);
+            var formatPath = path;
+            if (new FileInfo(path).ResolveLinkTarget(returnFinalTarget: true) is { } linked) path = linked.FullName;
+            if (!paths.Add(path))
+                throw new ConfigMigrationException("Inherited configuration files must be distinct and cannot include the target file.");
+            var content = await File.ReadAllBytesAsync(path, cancellationToken);
+            var document = ConfigFileFormat.Read(System.Text.Encoding.UTF8.GetString(content).TrimStart('\uFEFF'), formatPath);
+            sources.Add((path, content, document));
+        }
+
+        var passwordFile = options?.LegacyPasswordFile ?? "password.json";
+        // The old password file followed the entire configuration chain. Select it
+        // before migrating any layer, while every original PasswordFile still exists.
+        foreach (var document in sources.Select(source => source.Document).Append(target))
+            if (document.ContainsKey("PasswordFile"))
+                passwordFile = ConfigTree.Text(document, "PasswordFile") ?? "password.json";
+
+        var inherited = options?.InheritedSettings?.ToDictionary(pair => pair.Key, pair => pair.Value,
+            StringComparer.OrdinalIgnoreCase) ?? new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        foreach (var source in sources)
+        {
+            JsonObject updated;
+            try
+            {
+                (updated, _) = await MigrateAsync(source.Document, workingDirectory, null, cancellationToken,
+                    new ConfigMigrationOptions(inherited, IsOverlay: inherited.Count > 0,
+                        ContentRootDirectory: options?.ContentRootDirectory, LegacyPasswordFile: passwordFile));
+            }
+            catch (ConfigMigrationException exception)
+            {
+                throw new ConfigMigrationException($"Inherited configuration '{source.Path}' cannot be migrated silently. Migrate that layer with its own context first. {exception.Message}");
+            }
+            foreach (var pair in ConfigTree.Flatten(source.Document)) inherited[pair.Key] = null;
+            foreach (var pair in ConfigTree.Flatten(updated)) inherited[pair.Key] = pair.Value;
+        }
+        return ((options ?? new ConfigMigrationOptions()) with
+        {
+            InheritedSettings = inherited,
+            IsOverlay = true,
+            LegacyPasswordFile = passwordFile
+        }, sources.Select(source => (source.Path, source.Content)).ToArray());
+    }
+
     /// <summary>Upgrade the complete effective configuration in memory, including environment overrides.</summary>
     public async Task<IReadOnlyDictionary<string, string?>> MigrateSettingsAsync(
         IEnumerable<KeyValuePair<string, string?>> settings, string workingDirectory,
         CancellationToken cancellationToken, ConfigMigrationOptions? options = null)
     {
         var document = ConfigTree.Object();
-        var entries = settings.ToArray();
+        // IConfiguration can contain an unrelated scalar such as PASSWORD or AI
+        // alongside real section descendants. It is not an application setting;
+        // leave it in the original provider rather than migrate or clear it.
+        var entries = settings.Where(pair => !MigrationSections.Contains(pair.Key)).ToArray();
         foreach (var pair in entries.Where(pair => pair.Value is not null).OrderBy(pair => pair.Key.Count(c => c == ':')))
             ConfigTree.Set(document, pair.Key, JsonValue.Create(pair.Value));
         var (updated, _) = await MigrateAsync(document, workingDirectory, null, cancellationToken, options);

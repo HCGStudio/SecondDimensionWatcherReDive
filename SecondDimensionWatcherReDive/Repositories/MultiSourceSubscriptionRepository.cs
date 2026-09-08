@@ -118,11 +118,12 @@ public sealed class MultiSourceSubscriptionRepository(Models.ApplicationContext 
         if (feedIds.Length == 0) return;
         var pending = write.AnimationInfo.Where(info => info.SourceFeedId != null && feedIds.Contains(info.SourceFeedId.Value)
             && !info.IsDownloadTracked && !info.IsDownloadFinished && !info.IsRetiredRelease
-            && info.DownloadCancellationId == null
-            && (info.AutomationDisposition == null
+            && info.DownloadAttemptId == null
+            && ((info.AutomationDisposition == null && info.DownloadCancellationId == null)
                 || info.AutomationDisposition == SubscriptionAutomationDisposition.AutoDownloadFailed));
         // Fully compensated failures belong to the old shared policy. Hide their
         // obsolete Todo immediately, then let restoration apply the current feed policy.
+        // A finalized failure's retained cancellation id remains an idempotency tombstone.
         var todoKeys = pending.Select(info => "automation:" + info.Id.ToString());
         await write.TodoItemStates.Where(state => todoKeys.Contains(state.Key)).ExecuteDeleteAsync(cancellationToken);
         await pending.ExecuteUpdateAsync(setters => setters
@@ -153,38 +154,68 @@ public sealed class MultiSourceSubscriptionRepository(Models.ApplicationContext 
         && current.MinimumUpgradeScore == expected.MinimumUpgradeScore
         && current.UpgradeRollbackHours == expected.UpgradeRollbackHours;
 
-    public async Task<IReadOnlyList<MultiSourceFeedStatus>> GetSourceStatusAsync(Guid id, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<MultiSourceFeedStatus>> GetSourceStatusAsync(Guid id, CancellationToken cancellationToken) =>
+        (await GetSourceStatusesAsync([id], cancellationToken)).GetValueOrDefault(id) ?? [];
+
+    public async Task<IReadOnlyDictionary<Guid, IReadOnlyList<MultiSourceFeedStatus>>> GetSourceStatusesAsync(
+        IReadOnlyCollection<Guid> subscriptionIds, CancellationToken cancellationToken)
     {
-        var sources = await context.Set<Models.MultiSourceFeed>().AsNoTracking().Where(x => x.SubscriptionId == id).OrderBy(x => x.Priority).ToListAsync(cancellationToken);
-        var result = new List<MultiSourceFeedStatus>();
-        foreach (var source in sources)
-        {
-            var feed = await context.Feeds.AsNoTracking().FirstOrDefaultAsync(x => x.Id == source.FeedId, cancellationToken);
-            var query = context.AnimationInfo.AsNoTracking().Where(x => x.SourceFeedId == source.FeedId);
-            var latest = await query.OrderByDescending(x => x.PublishTime).Select(x => new { x.Title, x.PublishTime }).FirstOrDefaultAsync(cancellationToken);
-            var unidentifiedCount = 0;
-            await foreach (var release in query.Select(x => new { x.Season, x.Episode, x.MetadataStatus, x.Title })
-                .AsAsyncEnumerable().WithCancellation(cancellationToken))
-                if (!LibraryCompletionService.IsReliable(release.Season, release.Episode, release.MetadataStatus, release.Title))
-                    unidentifiedCount++;
-            result.Add(new(source.FeedId, feed?.Name ?? feed?.Url ?? "", source.Priority, latest?.PublishTime, latest?.Title,
-                unidentifiedCount));
-        }
-        return result;
+        var ids = subscriptionIds.Distinct().ToArray();
+        if (ids.Length == 0) return new Dictionary<Guid, IReadOnlyList<MultiSourceFeedStatus>>();
+        var rows = await context.Database.SqlQuery<SourceStatusRow>($"""
+            WITH selected_sources AS (
+                SELECT "SubscriptionId", "FeedId", "Priority"
+                FROM "MultiSourceFeeds" WHERE "SubscriptionId" = ANY({ids})
+            ), latest AS (
+                SELECT DISTINCT ON (release."SourceFeedId")
+                    release."SourceFeedId", release."PublishTime", release."Title",
+                    (COUNT(*) FILTER (WHERE release."Season" IS NULL OR release."Season" <= 0
+                        OR release."Episode" IS NULL OR release."Episode" <= 0
+                        OR release."MetadataStatus" NOT IN ({(int)MetadataReviewStatus.Identified}, {(int)MetadataReviewStatus.Reviewed})
+                        OR release."Title" COLLATE "C" ~ {LibraryCompletionService.PostgreSqlBatchTitlePattern})
+                        OVER (PARTITION BY release."SourceFeedId"))::integer AS "UnidentifiedCount"
+                FROM "AnimationInfo" AS release
+                WHERE release."SourceFeedId" IN (SELECT "FeedId" FROM selected_sources)
+                ORDER BY release."SourceFeedId", release."PublishTime" DESC, release."Id" DESC
+            )
+            SELECT source."SubscriptionId", source."FeedId", COALESCE(feed."Name", feed."Url", '') AS "Name",
+                source."Priority", latest."PublishTime" AS "LatestPublishedAt", latest."Title" AS "LatestTitle",
+                COALESCE(latest."UnidentifiedCount", 0) AS "UnidentifiedCount"
+            FROM selected_sources AS source
+            LEFT JOIN "Feeds" AS feed ON feed."Id" = source."FeedId"
+            LEFT JOIN latest ON latest."SourceFeedId" = source."FeedId"
+            ORDER BY source."SubscriptionId", source."Priority", source."FeedId"
+            """).ToListAsync(cancellationToken);
+        return rows.GroupBy(row => row.SubscriptionId).ToDictionary(group => group.Key,
+            group => (IReadOnlyList<MultiSourceFeedStatus>)group.Select(row => new MultiSourceFeedStatus(
+                row.FeedId, row.Name, row.Priority, row.LatestPublishedAt, row.LatestTitle, row.UnidentifiedCount)).ToList());
     }
-    public async Task<IReadOnlyList<MultiSourceEpisodeDecision>> GetDecisionsAsync(Guid id, CancellationToken cancellationToken)
+
+    public async Task<IReadOnlyList<MultiSourceEpisodeDecision>> GetDecisionsAsync(Guid id, CancellationToken cancellationToken) =>
+        (await GetDecisionsAsync([id], cancellationToken)).GetValueOrDefault(id) ?? [];
+
+    public async Task<IReadOnlyDictionary<Guid, IReadOnlyList<MultiSourceEpisodeDecision>>> GetDecisionsAsync(
+        IReadOnlyCollection<Guid> subscriptionIds, CancellationToken cancellationToken)
     {
-        var decisions = await context.Set<Models.MultiSourceEpisodeDecision>().AsNoTracking().Where(x => x.SubscriptionId == id)
-            .OrderBy(x => x.Episode).ToListAsync(cancellationToken);
-        var releaseIds = decisions.Where(x => x.SelectedReleaseId != null).Select(x => x.SelectedReleaseId!.Value).ToArray();
-        var selected = await context.AnimationInfo.AsNoTracking().Where(x => releaseIds.Contains(x.Id))
-            .Select(x => new { x.Id, x.Title, x.SourceFeedId }).ToDictionaryAsync(x => x.Id, cancellationToken);
-        return decisions.Select(x =>
-        {
-            var info = x.SelectedReleaseId is { } releaseId ? selected.GetValueOrDefault(releaseId) : null;
-            return ToDecision(x) with { SelectedTitle = info?.Title, SelectedSourceFeedId = info?.SourceFeedId };
-        }).ToList();
+        var ids = subscriptionIds.Distinct().ToArray();
+        if (ids.Length == 0) return new Dictionary<Guid, IReadOnlyList<MultiSourceEpisodeDecision>>();
+        var decisions = await (from decision in context.Set<Models.MultiSourceEpisodeDecision>().AsNoTracking()
+                               join release in context.AnimationInfo.AsNoTracking()
+                                   on decision.SelectedReleaseId equals (Guid?)release.Id into releases
+                               from release in releases.DefaultIfEmpty()
+                               where ids.Contains(decision.SubscriptionId)
+                               orderby decision.SubscriptionId, decision.Episode
+                               select new MultiSourceEpisodeDecision(decision.SubscriptionId, decision.Episode,
+                                   decision.WaitStartedAt, decision.WaitUntil, decision.SelectedReleaseId,
+                                   decision.Outcome, decision.Reason, decision.UpdatedAt,
+                                   release == null ? null : release.Title,
+                                   release == null ? null : release.SourceFeedId)).ToListAsync(cancellationToken);
+        return decisions.GroupBy(decision => decision.SubscriptionId).ToDictionary(group => group.Key,
+            group => (IReadOnlyList<MultiSourceEpisodeDecision>)group.ToList());
     }
+
+    private sealed record SourceStatusRow(Guid SubscriptionId, Guid FeedId, string Name, int Priority,
+        DateTimeOffset? LatestPublishedAt, string? LatestTitle, int UnidentifiedCount);
 
     public Task<bool> PruneUnavailableDecisionsAsync(MultiSourceSubscription expectedSubscription,
         CancellationToken cancellationToken) =>
@@ -292,6 +323,4 @@ public sealed class MultiSourceSubscriptionRepository(Models.ApplicationContext 
         x.Sources.OrderBy(y => y.Priority).Select(y => y.FeedId).ToList(), x.WaitMinutes, x.Mode, x.SubtitleGroups, x.Resolutions,
         x.Codecs, x.Languages, x.MinSizeBytes, x.MaxSizeBytes, x.ExcludedKeywords, x.EnableVersionUpgrade,
         x.MinimumUpgradeScore, x.UpgradeRollbackHours, x.CreatedAt, x.UpdatedAt);
-    private static MultiSourceEpisodeDecision ToDecision(Models.MultiSourceEpisodeDecision x) => new(x.SubscriptionId,
-        x.Episode, x.WaitStartedAt, x.WaitUntil, x.SelectedReleaseId, x.Outcome, x.Reason, x.UpdatedAt);
 }

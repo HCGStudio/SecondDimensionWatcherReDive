@@ -5,4 +5,6 @@ public sealed record ConfigMigrationOptions(
     IReadOnlyDictionary<string, string?>? InheritedSettings = null,
     bool IsOverlay = false,
     string? ContentRootDirectory = null,
-    string? LegacyPasswordFile = null);
+    string? LegacyPasswordFile = null,
+    IReadOnlyList<string>? InheritedConfigurationFiles = null,
+    bool RequireExplicitInheritance = false);
