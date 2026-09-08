@@ -34,6 +34,10 @@ import { EmptyPrompt } from "../components/ui/EmptyPrompt";
 import { Spinner } from "../components/ui/Spinner";
 import { generatePlaybackLink } from "../file/utils";
 import {
+  type EndingProgressGuard,
+  TimelineControls,
+} from "../playback/TimelineControls";
+import {
   savePlaybackPreferences,
   savePlaybackProgress,
   setPlaybackWatched,
@@ -287,6 +291,11 @@ export const PlayerPage: React.FC = () => {
   const contextRef = React.useRef(playbackContext);
   const preferencesRef = React.useRef(playbackContext?.preferences);
   const lastSyncedTimeRef = React.useRef(-1);
+  const skippedEndingRef = React.useRef<{
+    targetSeconds: number;
+    seeked: boolean;
+  } | null>(null);
+  const endingProgressGuardRef = React.useRef<EndingProgressGuard | null>(null);
   const initialSeekAppliedRef = React.useRef(false);
   const subtitleSelectionInitializedRef = React.useRef(false);
   const audioSelectionInitializedRef = React.useRef(false);
@@ -361,6 +370,7 @@ export const PlayerPage: React.FC = () => {
     setLinkError(null);
     lastSyncedTimeRef.current = -1;
     initialSeekAppliedRef.current = false;
+    skippedEndingRef.current = null;
     subtitleSelectionInitializedRef.current = false;
     audioSelectionInitializedRef.current = false;
   }, [animationId, file]);
@@ -712,11 +722,31 @@ export const PlayerPage: React.FC = () => {
       }
       lastSyncedTimeRef.current = positionSeconds;
 
+      const endingSkip = skippedEndingRef.current;
+      if (
+        endingSkip &&
+        Math.abs(positionSeconds - endingSkip.targetSeconds) > 0.25 &&
+        (endingSkip.seeked || positionSeconds > endingSkip.targetSeconds)
+      ) {
+        // Playback advancing beyond the jump, or a later rewind, resumes normal
+        // watched detection. Writes at the seek target (including ended) stay suppressed.
+        skippedEndingRef.current = null;
+      }
       const request = {
         animationInfoId: context.media.animationInfoId,
         path: context.media.path,
         positionSeconds,
         durationSeconds,
+        suppressWatched:
+          skippedEndingRef.current !== null ||
+          Boolean(
+            endingProgressGuardRef.current?.(
+              context.media.animationInfoId,
+              context.media.path,
+              positionSeconds,
+              durationSeconds,
+            ),
+          ),
       };
       const mediaKey = `${context.media.animationInfoId}\u0000${context.media.path}`;
       if (keepalive) {
@@ -908,6 +938,7 @@ export const PlayerPage: React.FC = () => {
     const onSeeked = () => {
       if (captionsRenderer) captionsRenderer.currentTime = art.currentTime;
       persistCurrentProgressRef.current(true);
+      if (skippedEndingRef.current) skippedEndingRef.current.seeked = true;
     };
     const onEnded = () => {
       persistCurrentProgressRef.current(true);
@@ -1263,6 +1294,22 @@ export const PlayerPage: React.FC = () => {
           <div className="overflow-hidden rounded-2xl border border-border bg-dark-deep shadow-whisper">
             <div ref={playerContainerRef} className="aspect-video w-full" />
           </div>
+
+          <TimelineControls
+            key={activeMediaKey}
+            animationInfoId={playbackContext.media.animationInfoId}
+            path={playbackContext.media.path}
+            playerRef={artRef}
+            endingProgressGuardRef={endingProgressGuardRef}
+            onTimelineResolved={() => persistCurrentProgressRef.current(true)}
+            autoSkip={preferences?.autoSkip ?? false}
+            onAutoSkipChange={(enabled) =>
+              void updatePreferences({ autoSkip: enabled })
+            }
+            onSkipEnding={(targetSeconds) => {
+              skippedEndingRef.current = { targetSeconds, seeked: false };
+            }}
+          />
 
           <section className="mt-4 rounded-xl border border-border bg-surface p-4 shadow-ring">
             <div className="flex flex-wrap items-center justify-between gap-3">

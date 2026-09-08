@@ -710,7 +710,7 @@ builder.Services.AddSingleton(Channel.CreateBounded<FileDownloadStatus>(
 builder.Services.AddSingleton(Channel.CreateBounded<DownloadCompleteRequest>(
     new BoundedChannelOptions(128)
     {
-        SingleReader = true,
+        SingleReader = false,
         SingleWriter = true,
         FullMode = BoundedChannelFullMode.DropOldest
     }));
@@ -731,6 +731,7 @@ builder.Services.AddSingleton<INotificationPublisher, NotificationPublisher>();
 builder.Services.AddHostedService<CompleteDownloadBackgroundService>();
 builder.Services.AddHostedService<DurableJobMetricsBackgroundService>();
 builder.Services.AddHostedService<FetchRemoteTorrentBackgroundService>();
+builder.Services.AddHostedService<DownloadCapacityBackgroundService>();
 builder.Services.AddHostedService<UpdateDownloadStatusBackgroundService>();
 builder.Services.AddHostedService<IncidentReconciliationBackgroundService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<HlsTranscodingService>());
@@ -763,7 +764,20 @@ builder.Services.AddSingleton<MigrationTaskRunner>();
 builder.Services.AddScoped<MigrationAdministrationService>();
 
 //Add download and store
-builder.Services.AddScoped<IFileDownloadClient, RemoteTorrentDownloadClient>();
+builder.Services.AddScoped<RemoteTorrentDownloadClient>();
+builder.Services.AddScoped<IFileDownloadClient>(sp => sp.GetRequiredService<RemoteTorrentDownloadClient>());
+builder.Services.AddScoped<IDownloadCapacityRepository, DownloadCapacityRepository>();
+// Budget transactions span explicit admission steps and remote reconciliation.
+// Retry at the supervised saga boundary; EF must not replay individual queries
+// inside a user-owned transaction or repeat an external effect implicitly.
+builder.Services.AddKeyedScoped<ApplicationContext>("capacity", (sp, _) =>
+    new ApplicationContext(new DbContextOptionsBuilder<ApplicationContext>()
+        .UseNpgsql(sp.GetRequiredService<IConfiguration>().GetConnectionString("sdw"))
+        .Options));
+builder.Services.AddScoped<DownloadCapacityService>();
+builder.Services.AddScoped<ITranscodeCapacityRepository, TranscodeCapacityRepository>();
+builder.Services.AddScoped<TranscodeCapacityService>();
+builder.Services.AddScoped<ITranscodeCapacityBudget>(sp => sp.GetRequiredService<TranscodeCapacityService>());
 builder.Services.AddScoped<IFileStore, LocalFileStore>();
 
 builder.Services.AddScoped<IFileDownloadClientProvider, FileDownloadClientProvider>();
@@ -808,6 +822,7 @@ builder.Services.AddScoped<IScheduledTaskLeaseRepository, ScheduledTaskLeaseRepo
 builder.Services.AddScoped<IReadinessRepository, ReadinessRepository>();
 builder.Services.AddScoped<ILibrarySearchRepository, LibrarySearchRepository>();
 SecondDimensionWatcherReDive.Utils.LibraryCompletion.LibraryCompletionExtensions.AddLibraryCompletion(builder.Services);
+SecondDimensionWatcherReDive.Utils.LibraryCompletion.LibraryCompletionExtensions.AddMultiSourceSubscriptions(builder.Services);
 builder.Services.AddScoped<IReleaseUpgradeRepository, ReleaseUpgradeRepository>();
 builder.Services.AddScoped<INotificationOutboxRepository, NotificationOutboxRepository>();
 builder.Services.AddScoped<IWebPushSubscriptionRepository, WebPushSubscriptionRepository>();
@@ -816,13 +831,18 @@ builder.Services.AddScoped<IAuthenticationStateRepository, AuthenticationStateRe
 builder.Services.AddScoped<AuthenticationStateInitializer>();
 builder.Services.AddSingleton<ISeasonScraper, MikananiSeasonScraper>();
 builder.Services.AddScoped<IMetadataReviewService, MetadataReviewService>();
+builder.Services.AddScoped<IMetadataRecognitionRuleRepository, MetadataRecognitionRuleRepository>();
+builder.Services.AddScoped<MetadataRecognitionRuleService>();
+builder.Services.AddSingleton<MetadataRecognitionRuleSupport>();
+builder.Services.AddScoped<IWatchlistRepository, WatchlistRepository>();
+builder.Services.AddScoped<IMediaTimelineRepository, MediaTimelineRepository>();
 builder.Services.AddScoped<IIncidentRetryService, IncidentRetryService>();
 builder.Services.AddScoped<IReleaseUpgradeCoordinator, ReleaseUpgradeCoordinator>();
 
 //Add AI Inference
 // Register all engines even when initially unconfigured. Runtime settings can then enable or
-// switch an engine without rebuilding the service graph; the scheduled task reports disabled
-// until the selected engine has the required endpoint/credential.
+// switch an engine without rebuilding the service graph. Deterministic rules keep the
+// scheduled task available without AI; other items wait until the engine is configured.
 builder.Services.AddAIInference(builder.Configuration);
 builder.Services.AddSingleton<InferAnimationMetadata>();
 builder.Services.AddSingleton<IScheduledTask>(sp => sp.GetRequiredService<InferAnimationMetadata>());

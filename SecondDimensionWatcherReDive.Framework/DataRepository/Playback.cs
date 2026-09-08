@@ -18,7 +18,8 @@ public sealed record PlaybackPreferences(
     string? AudioLanguage,
     string? AudioTrackLabel,
     bool AutoPlayNext,
-    DateTimeOffset UpdatedAt);
+    DateTimeOffset UpdatedAt,
+    bool AutoSkip = false);
 
 /// <summary>
 /// A playable video mapping together with the metadata needed by playback clients.

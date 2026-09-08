@@ -23,7 +23,8 @@
       "library": "Your library",
       "watching": "Following",
       "management": "Manage workspace"
-    }
+    },
+    "watchlist": "Watchlist"
   },
   "user": {
     "account": "Account",

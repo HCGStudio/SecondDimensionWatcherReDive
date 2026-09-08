@@ -57,6 +57,8 @@ public sealed record DownloadCompletionJobPayload(
 
 public interface IDurableJobRepository
 {
+    Task<DateTimeOffset?> GetNextPendingAttemptAtAsync(CancellationToken cancellationToken);
+
     Task<IReadOnlyList<DurableJob>> ClaimDueAsync(
         string workerId,
         DateTimeOffset now,
@@ -77,6 +79,14 @@ public interface IDurableJobRepository
         string workerId,
         DateTimeOffset now,
         DateTimeOffset leaseUntil,
+        CancellationToken cancellationToken);
+
+    Task<bool> DeferAsync(
+        Guid id,
+        string workerId,
+        DurableJobStage expectedStage,
+        DateTimeOffset now,
+        DateTimeOffset nextAttemptAt,
         CancellationToken cancellationToken);
 
     Task MarkFailedAsync(

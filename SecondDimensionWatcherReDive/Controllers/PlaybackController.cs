@@ -131,7 +131,7 @@ internal sealed partial class PlaybackController(
         var position = duration > 0
             ? Math.Min(request.PositionSeconds, duration)
             : request.PositionSeconds;
-        var markWatched = duration > 0 && position / duration >= WatchedThreshold;
+        var markWatched = !request.SuppressWatched && duration > 0 && position / duration >= WatchedThreshold;
         PlaybackProgress progress;
         try
         {
@@ -205,7 +205,8 @@ internal sealed partial class PlaybackController(
             NormalizePreference(request.AudioLanguage),
             NormalizePreference(request.AudioTrackLabel),
             request.AutoPlayNext,
-            DateTimeOffset.UtcNow);
+            DateTimeOffset.UtcNow,
+            request.AutoSkip);
         var saved = await playbackRepository.UpsertPreferencesAsync(preferences, cancellationToken);
         return Ok(ToPreferencesResponse(saved));
     }
@@ -356,7 +357,8 @@ internal sealed partial class PlaybackController(
             preferences.AudioLanguage,
             preferences.AudioTrackLabel,
             preferences.AutoPlayNext,
-            preferences.UpdatedAt == DateTimeOffset.UnixEpoch ? null : preferences.UpdatedAt);
+            preferences.UpdatedAt == DateTimeOffset.UnixEpoch ? null : preferences.UpdatedAt,
+            preferences.AutoSkip);
 
     private static bool TryNormalizeRelativePath(string? raw, out string normalized)
     {

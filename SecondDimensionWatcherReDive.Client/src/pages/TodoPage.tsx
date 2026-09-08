@@ -112,7 +112,7 @@ export const TodoPage: React.FC = () => {
       if (!item.resourceId || busy) return;
       setBusy(true);
       try {
-        await submitDownload(item.resourceId);
+        await submitDownload(item.resourceId, true);
         await updateTodoState([item.key], "markRead");
         await mutate();
         addToast({ title: t("todos:toast.downloadStarted"), color: "success" });

@@ -29,7 +29,11 @@ public sealed record MetadataReviewCorrection(
     string? TmdbId,
     int? Season,
     int? Episode,
-    string? GroupName);
+    string? GroupName)
+{
+    public Guid? RecognitionRuleId { get; init; }
+    public long? RecognitionRuleRevision { get; init; }
+}
 
 public sealed record MetadataReviewResolvedMetadata(
     string TmdbId,
@@ -192,7 +196,11 @@ public sealed partial class MetadataReviewService(
                 groupName,
                 now,
                 expiresAt,
-                proposedMappings),
+                proposedMappings)
+            {
+                RecognitionRuleId = correction.RecognitionRuleId,
+                RecognitionRuleRevision = correction.RecognitionRuleRevision
+            },
             cancellationToken);
 
         return new MetadataReviewPreviewResult(

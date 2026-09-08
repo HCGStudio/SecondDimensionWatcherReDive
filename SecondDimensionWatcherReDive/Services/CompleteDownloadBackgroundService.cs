@@ -23,24 +23,33 @@ public partial class CompleteDownloadBackgroundService(
     IServiceScopeFactory scopeFactory,
     ILogger<CompleteDownloadBackgroundService> logger,
     IIncidentReporter? incidentReporter = null,
-    RuntimeTelemetry? telemetry = null)
+    RuntimeTelemetry? telemetry = null,
+    IConfiguration? configuration = null)
     : BackgroundService
 {
     internal const int MaxAttempts = 8;
     internal static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(10);
     internal static readonly TimeSpan LeaseDuration = TimeSpan.FromMinutes(2);
     internal static readonly TimeSpan LeaseRenewInterval = TimeSpan.FromSeconds(30);
+    internal static readonly TimeSpan PluginDeferralDelay = TimeSpan.FromSeconds(3);
 
     private readonly string _workerId = $"{Environment.MachineName}:{Environment.ProcessId}:{Guid.NewGuid():N}";
+    // Existing plugins need not opt into cross-task concurrency. Mapping and
+    // notifications can proceed while this instance serializes plugin callbacks.
+    private readonly SemaphoreSlim _pluginGate = new(1, 1);
 
-    protected override async Task ExecuteAsync(CancellationToken cancellationToken)
+    protected override Task ExecuteAsync(CancellationToken cancellationToken) =>
+        Task.WhenAll(Enumerable.Range(0, Math.Clamp(configuration?.GetValue<int?>("DownloadCompletion:Workers") ?? 2, 1, 16))
+            .Select(index => RunWorkerAsync($"{_workerId}:{index}", cancellationToken)));
+
+    private async Task RunWorkerAsync(string workerId, CancellationToken cancellationToken)
     {
         while (!cancellationToken.IsCancellationRequested)
         {
             var processed = 0;
             try
             {
-                processed = await ProcessDueJobsAsync(cancellationToken);
+                processed = await ProcessDueJobsAsync(cancellationToken, workerId);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -59,20 +68,28 @@ public partial class CompleteDownloadBackgroundService(
         }
     }
 
-    internal async Task<int> ProcessDueJobsAsync(CancellationToken cancellationToken)
+    internal async Task<int> ProcessDueJobsAsync(CancellationToken cancellationToken, string? workerId = null)
     {
         await using var scope = scopeFactory.CreateAsyncScope();
         var repository = scope.ServiceProvider.GetRequiredService<IDurableJobRepository>();
         var now = DateTimeOffset.UtcNow;
+        var claimWorkerId = workerId ?? _workerId;
         var jobs = await repository.ClaimDueAsync(
-            _workerId,
+            claimWorkerId,
             now,
             now + LeaseDuration,
             1,
             cancellationToken);
 
         foreach (var job in jobs)
-            await ProcessClaimedJobAsync(scope.ServiceProvider, repository, job, cancellationToken);
+        {
+            // The returned row may already have expired in transit. Never adopt
+            // an owner from the row as this worker's identity.
+            if (job.LeaseOwner != claimWorkerId || job.Status != DurableJobStatus.Processing
+                || job.LeaseExpiresAt is null || job.LeaseExpiresAt <= DateTimeOffset.UtcNow)
+                continue;
+            await ProcessClaimedJobAsync(scope.ServiceProvider, repository, job, cancellationToken, claimWorkerId);
+        }
 
         return jobs.Count;
     }
@@ -81,9 +98,12 @@ public partial class CompleteDownloadBackgroundService(
         IServiceProvider serviceProvider,
         IDurableJobRepository repository,
         DurableJob job,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? claimedWorkerId = null)
     {
         var startedAt = Stopwatch.GetTimestamp();
+        var workerId = claimedWorkerId ?? _workerId;
+        telemetry?.RecordJobQueueWait(job.Type, DateTimeOffset.UtcNow - job.NextAttemptAt);
         var currentStage = job.Stage;
         using var activity = RuntimeTelemetry.StartDurableJob(job);
         using var renewalCancellation = CancellationTokenSource.CreateLinkedTokenSource(
@@ -94,6 +114,7 @@ public partial class CompleteDownloadBackgroundService(
             leaseLost.Token);
         var renewalTask = RenewJobLeaseAsync(
             job.Id,
+            workerId,
             leaseLost,
             renewalCancellation.Token);
         Guid? itemId = null;
@@ -124,7 +145,7 @@ public partial class CompleteDownloadBackgroundService(
                         effectCancellation.Token);
 
                 await AdvanceAsync(
-                    repository, job.Id, stage, DurableJobStage.Notify, effectCancellation.Token);
+                    repository, job.Id, workerId, stage, DurableJobStage.Notify, effectCancellation.Token);
                 stage = DurableJobStage.Notify;
                 currentStage = stage;
             }
@@ -134,24 +155,46 @@ public partial class CompleteDownloadBackgroundService(
                 var notifier = serviceProvider.GetRequiredService<IDownloadCompletionNotifier>();
                 await notifier.NotifyAsync(job.Id, payload, effectCancellation.Token);
                 await AdvanceAsync(
-                    repository, job.Id, stage, DurableJobStage.InvokePlugins, effectCancellation.Token);
+                    repository, job.Id, workerId, stage, DurableJobStage.InvokePlugins, effectCancellation.Token);
                 stage = DurableJobStage.InvokePlugins;
                 currentStage = stage;
             }
 
             if (stage == DurableJobStage.InvokePlugins)
             {
-                var eventTrigger = serviceProvider
-                    .GetRequiredService<IPluginEventTrigger<FileDownloadCompleteParam>>();
-                await eventTrigger.InvokeAsync(
-                    new FileDownloadCompleteParam(
-                        payload.ItemId,
-                        payload.StorePath,
-                        payload.FileStore,
-                        job.Id),
-                    effectCancellation.Token);
+                if (!await _pluginGate.WaitAsync(0, effectCancellation.Token))
+                {
+                    var deferredAt = DateTimeOffset.UtcNow;
+                    if (await repository.DeferAsync(job.Id, workerId, stage,
+                            deferredAt, deferredAt + PluginDeferralDelay, effectCancellation.Token))
+                    {
+                        activity?.SetTag("job.deferred", true);
+                        activity?.SetStatus(ActivityStatusCode.Ok);
+                        telemetry?.RecordJobDeferred(job.Type, stage);
+                        // Wake idle workers so they recompute their wait against
+                        // the newly persisted retry time.
+                        downloadCompleteRequest.Writer.TryWrite(new DownloadCompleteRequest(
+                            payload.ItemId, payload.StorePath, payload.FileStore, payload.DownloadAttemptId));
+                    }
+                    else
+                    {
+                        LogJobLeaseLost(logger, job.Id);
+                    }
+                    // Preserve InvokePlugins without consuming a failure attempt.
+                    // This worker can immediately map/notify another download.
+                    return;
+                }
+                try
+                {
+                    var eventTrigger = serviceProvider
+                        .GetRequiredService<IPluginEventTrigger<FileDownloadCompleteParam>>();
+                    await eventTrigger.InvokeAsync(
+                        new FileDownloadCompleteParam(payload.ItemId, payload.StorePath, payload.FileStore, job.Id),
+                        effectCancellation.Token);
+                }
+                finally { _pluginGate.Release(); }
                 await AdvanceAsync(
-                    repository, job.Id, stage, DurableJobStage.Done, effectCancellation.Token);
+                    repository, job.Id, workerId, stage, DurableJobStage.Done, effectCancellation.Token);
             }
 
             LogJobCompleted(logger, job.Id, payload.ItemId);
@@ -183,7 +226,7 @@ public partial class CompleteDownloadBackgroundService(
 
             await repository.MarkFailedAsync(
                 job.Id,
-                _workerId,
+                workerId,
                 attemptCount,
                 attemptedAt,
                 retryAt,
@@ -221,6 +264,7 @@ public partial class CompleteDownloadBackgroundService(
 
     private async Task RenewJobLeaseAsync(
         Guid jobId,
+        string workerId,
         CancellationTokenSource leaseLost,
         CancellationToken cancellationToken)
     {
@@ -234,7 +278,7 @@ public partial class CompleteDownloadBackgroundService(
                 var repository = scope.ServiceProvider.GetRequiredService<IDurableJobRepository>();
                 if (await repository.RenewLeaseAsync(
                         jobId,
-                        _workerId,
+                        workerId,
                         now,
                         now + LeaseDuration,
                         cancellationToken))
@@ -257,13 +301,14 @@ public partial class CompleteDownloadBackgroundService(
     private async Task AdvanceAsync(
         IDurableJobRepository repository,
         Guid jobId,
+        string workerId,
         DurableJobStage expectedStage,
         DurableJobStage nextStage,
         CancellationToken cancellationToken)
     {
         var advanced = await repository.AdvanceStageAsync(
             jobId,
-            _workerId,
+            workerId,
             expectedStage,
             nextStage,
             DateTimeOffset.UtcNow,
@@ -274,10 +319,28 @@ public partial class CompleteDownloadBackgroundService(
 
     private async Task WaitForWakeOrPollAsync(CancellationToken cancellationToken)
     {
+        var delay = PollInterval;
+        try
+        {
+            await using var scope = scopeFactory.CreateAsyncScope();
+            var repository = scope.ServiceProvider.GetRequiredService<IDurableJobRepository>();
+            if (await repository.GetNextPendingAttemptAtAsync(cancellationToken) is { } nextAttemptAt)
+            {
+                var untilDue = nextAttemptAt - DateTimeOffset.UtcNow;
+                delay = untilDue <= TimeSpan.Zero ? TimeSpan.Zero :
+                    untilDue < PollInterval ? untilDue : PollInterval;
+            }
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        {
+            // A scheduling lookup failure retains the normal polling fallback.
+            LogPollFailed(logger, exception);
+        }
+
         var reader = downloadCompleteRequest.Reader;
         using var waitCancellation = CancellationTokenSource.CreateLinkedTokenSource(
             cancellationToken);
-        waitCancellation.CancelAfter(PollInterval);
+        waitCancellation.CancelAfter(delay);
         try
         {
             await reader.WaitToReadAsync(waitCancellation.Token);

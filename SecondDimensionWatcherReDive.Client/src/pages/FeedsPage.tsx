@@ -18,6 +18,7 @@ import { Table, type TableColumn } from "../components/ui/Table";
 import { IFeed } from "../feed/IFeed";
 import { useFeeds } from "../feed/hooks";
 import { addFeed, removeFeed } from "../feed/utils";
+import { MultiSourceSubscriptions } from "../multiSource/MultiSourceSubscriptions";
 import { SeasonDiscovery } from "../season/SeasonDiscovery";
 import { useSubscriptionPolicies } from "../subscriptionPolicy/hooks";
 import { ISubscriptionPolicy } from "../subscriptionPolicy/types";
@@ -162,6 +163,7 @@ export const FeedsPage: React.FC = () => {
   return (
     <PageTemplate>
       <SeasonDiscovery />
+      <MultiSourceSubscriptions feeds={feeds ?? []} />
       <hr className="my-8 border-border-light" />
       <h2 className="mb-4 font-sans text-xl font-medium text-foreground">
         {t("feeds:manualSubscribe")}

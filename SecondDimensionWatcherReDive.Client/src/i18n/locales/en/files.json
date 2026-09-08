@@ -27,7 +27,9 @@
       "loadFailed": "Could not load this directory. Please try again."
     },
     "download": {
-      "failed": "Download failed — please try again"
+      "failed": "Download failed — please try again",
+      "starting": "Starting download",
+      "handedOff": "Handed to your browser. Check progress or cancel in the download manager."
     }
   },
   "webdav": {

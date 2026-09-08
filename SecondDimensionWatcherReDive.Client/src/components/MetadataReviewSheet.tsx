@@ -126,7 +126,7 @@ interface PreviewPanelProps {
   onApply: () => void;
 }
 
-const PreviewPanel: React.FC<PreviewPanelProps> = ({
+export const PreviewPanel: React.FC<PreviewPanelProps> = ({
   preview,
   applying,
   onApply,

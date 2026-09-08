@@ -23,7 +23,8 @@
       "library": "我的媒体",
       "watching": "追番管理",
       "management": "工作区管理"
-    }
+    },
+    "watchlist": "追番清单"
   },
   "user": {
     "account": "账户",

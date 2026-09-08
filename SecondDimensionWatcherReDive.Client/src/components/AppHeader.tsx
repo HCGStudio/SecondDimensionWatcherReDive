@@ -7,6 +7,7 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  Clapperboard,
   Cog,
   Download,
   FileSearch,
@@ -68,6 +69,12 @@ const createNavItems = (
       labelKey: "nav.home",
       path: "/",
       group: "library",
+    },
+    {
+      icon: <Clapperboard size={17} />,
+      labelKey: "nav.watchlist",
+      path: "/watchlist",
+      group: "watching",
     },
     {
       icon: <Search size={17} />,

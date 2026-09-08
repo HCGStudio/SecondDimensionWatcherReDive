@@ -10,7 +10,8 @@ namespace SecondDimensionWatcherReDive.Repositories;
 public sealed partial class ReleaseUpgradeRepository(
     Models.ApplicationContext context,
     DbContextOptions<Models.ApplicationContext> contextOptions,
-    IReleaseScoringService releaseScoringService) : IReleaseUpgradeRepository
+    IReleaseScoringService releaseScoringService,
+    ISubscriptionAutomationMatcher automationMatcher) : IReleaseUpgradeRepository
 {
     private sealed record CandidateRow(
         Guid CurrentReleaseId,
@@ -123,9 +124,31 @@ public sealed partial class ReleaseUpgradeRepository(
     }
 
     private async Task<Dictionary<Guid, SubscriptionAutomationPolicy>> ReadPoliciesAsync(
-        CancellationToken cancellationToken) =>
-        (await context.SubscriptionAutomationPolicies.AsNoTracking().ToListAsync(cancellationToken))
-        .ToDictionary(policy => policy.FeedId, policy => policy.ToRecord());
+        CancellationToken cancellationToken)
+    {
+        var result = (await context.SubscriptionAutomationPolicies.AsNoTracking().ToListAsync(cancellationToken))
+            .ToDictionary(policy => policy.FeedId, policy => policy.ToRecord());
+        foreach (var entity in await context.Set<Models.MultiSourceSubscription>().AsNoTracking().Include(x => x.Sources).ToListAsync(cancellationToken))
+        {
+            var subscription = MultiSourceSubscriptionRepository.ToRecord(entity);
+            foreach (var feedId in subscription.FeedIds) result[feedId] = subscription.ToPolicy(feedId);
+        }
+        return result;
+    }
+
+    private static async Task<SubscriptionAutomationPolicy?> ReadEffectivePolicyAsync(
+        Models.ApplicationContext sourceContext, Guid? sourceFeedId, CancellationToken cancellationToken)
+    {
+        if (sourceFeedId is not { } feedId) return null;
+        var shared = await sourceContext.Set<Models.MultiSourceSubscription>().AsNoTracking().Include(x => x.Sources)
+            .FirstOrDefaultAsync(x => x.Sources.Any(y => y.FeedId == feedId), cancellationToken);
+        if (shared != null) return MultiSourceSubscriptionRepository.ToRecord(shared).ToPolicy(feedId);
+        // Standalone policy writes do not take the mapping lock; hold this row
+        // through the upgrade transaction so eligibility cannot change mid-start.
+        return (await sourceContext.SubscriptionAutomationPolicies
+            .FromSqlInterpolated($"SELECT * FROM \"SubscriptionAutomationPolicies\" WHERE \"FeedId\" = {feedId} FOR SHARE")
+            .AsNoTracking().SingleOrDefaultAsync(cancellationToken))?.ToRecord();
+    }
 
     private ReleaseUpgradeCandidate? EvaluateCandidate(
         CandidateRow row,
@@ -165,10 +188,15 @@ public sealed partial class ReleaseUpgradeRepository(
         if (candidateReleaseId is { } candidateId)
             eligibleCandidates = eligibleCandidates.Where(release => release.Id == candidateId);
         if (automaticOnly)
+        {
+            currentReleases = currentReleases.Where(current =>
+                !context.Set<Models.MultiSourceFeed>().Any(source => source.FeedId == current.SourceFeedId));
             eligibleCandidates = eligibleCandidates.Where(candidate =>
                 candidate.ReleaseScoreReasonsJson != null &&
+                !context.Set<Models.MultiSourceFeed>().Any(source => source.FeedId == candidate.SourceFeedId) &&
                 context.SubscriptionAutomationPolicies.Any(policy =>
                     policy.FeedId == candidate.SourceFeedId && policy.EnableVersionUpgrade));
+        }
 
         // Project only scoring metadata, and stream one incumbent at a time so
         // large libraries do not load torrent payloads or retain every pair.
@@ -223,6 +251,7 @@ public sealed partial class ReleaseUpgradeRepository(
 
     public async Task<ReleaseUpgradeOperation?> TryBeginAsync(
         ReleaseUpgradeCandidate candidate,
+        ReleaseUpgradeInvocation invocation,
         DateTimeOffset createdAt,
         CancellationToken cancellationToken)
     {
@@ -263,11 +292,33 @@ public sealed partial class ReleaseUpgradeRepository(
 
             // Re-evaluate after claiming the release rows. A policy or release
             // may have changed since the candidate list was read.
-            var policyEntity = next.SourceFeedId is { } feedId
-                ? await writeContext.SubscriptionAutomationPolicies.AsNoTracking()
-                    .SingleOrDefaultAsync(policy => policy.FeedId == feedId, cancellationToken)
-                : null;
-            var policy = policyEntity?.ToRecord();
+            if (invocation != ReleaseUpgradeInvocation.Manual)
+            {
+                var owners = await writeContext.Set<Models.MultiSourceSubscription>().AsNoTracking()
+                    .Include(subscription => subscription.Sources)
+                    .Where(subscription => subscription.Sources.Any(source =>
+                        source.FeedId == current.SourceFeedId || source.FeedId == next.SourceFeedId))
+                    .ToListAsync(cancellationToken);
+                if (invocation == ReleaseUpgradeInvocation.AutomaticFeed && owners.Count > 0)
+                    return null;
+                if (invocation == ReleaseUpgradeInvocation.AutomaticMultiSource)
+                {
+                    var owner = owners.SingleOrDefault(subscription =>
+                        subscription.Sources.Any(source => source.FeedId == next.SourceFeedId));
+                    if (owner is null || owner.Mode != "AutoDownload"
+                        || owner.TmdbId != current.Animation.TmdbId || owner.Season != current.Season
+                        || owners.Any(subscription => subscription.Id != owner.Id)
+                        || owner.Sources.Any(source => source.FeedId == current.SourceFeedId && source.Priority > 0)
+                           && next.SourceFeedId != current.SourceFeedId)
+                        return null;
+                }
+            }
+            var policy = await ReadEffectivePolicyAsync(writeContext, next.SourceFeedId, cancellationToken);
+            if (invocation != ReleaseUpgradeInvocation.Manual
+                && (policy is null || !automationMatcher.Evaluate(policy, new AnimationAddRequest(
+                    next.PublishTime, next.Title, next.Description, next.DownloadUrl, next.DownloadType,
+                    next.AdditionalDownloadInfo, next.SourceFeedId, next.ReleaseSizeBytes)).Matched))
+                return null;
             var currentScore = releaseScoringService.Score(new SubscriptionReleaseMetadata(
                 current.ReleaseSubtitleGroup, current.ReleaseResolution, current.ReleaseCodec,
                 current.ReleaseLanguages, current.ReleaseSizeBytes), policy);
@@ -275,7 +326,7 @@ public sealed partial class ReleaseUpgradeRepository(
                 next.ReleaseSubtitleGroup, next.ReleaseResolution, next.ReleaseCodec,
                 next.ReleaseLanguages, next.ReleaseSizeBytes), policy);
             if (candidateScore.Value <= currentScore.Value ||
-                (candidate.Automatic &&
+                (invocation != ReleaseUpgradeInvocation.Manual &&
                  (current.ReleaseScoreReasonsJson is null || next.ReleaseScoreReasonsJson is null ||
                   policy is not { EnableVersionUpgrade: true } ||
                   candidateScore.Value - currentScore.Value < policy.MinimumUpgradeScore)))
@@ -773,11 +824,7 @@ public sealed partial class ReleaseUpgradeRepository(
                 candidate.IsActiveRelease)
                 return new ReleaseUpgradeMutationResult(false, "release_changed", operation.ToRecord());
 
-            var policyEntity = candidate.SourceFeedId is { } feedId
-                ? await writeContext.SubscriptionAutomationPolicies.AsNoTracking()
-                    .SingleOrDefaultAsync(policy => policy.FeedId == feedId, cancellationToken)
-                : null;
-            var policy = policyEntity?.ToRecord();
+            var policy = await ReadEffectivePolicyAsync(writeContext, candidate.SourceFeedId, cancellationToken);
             var currentScore = releaseScoringService.Score(new SubscriptionReleaseMetadata(
                 current.ReleaseSubtitleGroup, current.ReleaseResolution, current.ReleaseCodec,
                 current.ReleaseLanguages, current.ReleaseSizeBytes), policy);

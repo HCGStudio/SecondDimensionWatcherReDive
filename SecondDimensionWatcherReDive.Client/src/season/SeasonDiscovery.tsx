@@ -24,6 +24,7 @@ import {
 } from "../components/ui/Sheet";
 import { Spinner } from "../components/ui/Spinner";
 import { useFeeds } from "../feed/hooks";
+import { WatchlistButton } from "../watchlist/WatchlistButton";
 import { useBangumiSubgroups, useSeasonBangumis } from "./hooks";
 import { ISeasonBangumi, SeasonOption } from "./types";
 import { refreshSeason, subscribeBangumi } from "./utils";
@@ -326,6 +327,12 @@ export const SeasonDiscovery: React.FC = () => {
                       <p className="line-clamp-2 text-sm font-medium leading-snug text-foreground">
                         {bangumi.title}
                       </p>
+                      <div className="my-2">
+                        <WatchlistButton
+                          mikanId={bangumi.mikanId}
+                          title={bangumi.title}
+                        />
+                      </div>
                       <div className="flex flex-col gap-2 min-[420px]:flex-row">
                         {canContentWrite ? (
                           <Button

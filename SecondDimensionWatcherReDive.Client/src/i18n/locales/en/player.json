@@ -93,5 +93,38 @@
     "autoPlay": "Automatically play the next episode",
     "autoPlayHint": "When playback ends, open and start the next downloaded episode",
     "autoplayBlocked": "The next episode is ready — press play to start"
+  },
+  "timeline": {
+    "title": "Opening, ending and chapters",
+    "versionHint": "Timestamps belong to this media version. Skipping the ending saves position without marking the episode watched; natural playback end still respects autoplay next.",
+    "autoSkip": "Automatically skip opening and ending (personal preference)",
+    "episodeActive": "Using episode override",
+    "seasonActive": "Using confirmed season defaults",
+    "editEpisode": "Edit episode timestamps",
+    "editSeason": "Edit season defaults",
+    "acceptSeason": "Confirm for this video",
+    "deleteEpisode": "Delete episode override",
+    "confirmHint": "Check these timestamps for this version before reusing season defaults:",
+    "failed": "Could not update timestamps. Retry or refresh this media version.",
+    "kinds": {
+      "opening": "Opening",
+      "ending": "Ending",
+      "chapter": "Chapter"
+    },
+    "skip": {
+      "opening": "Skip opening",
+      "ending": "Skip ending"
+    },
+    "name": "Name",
+    "start": "Start (seconds)",
+    "end": "End (seconds)",
+    "setNow": "Use current time",
+    "enabled": "Enabled",
+    "remove": "Remove",
+    "invalid": "Timestamps must fit the video. Opening and ending must have positive length, with no duplicate or overlapping enabled ranges.",
+    "add": "Add {{kind}}",
+    "save": "Save timestamps",
+    "cancel": "Cancel",
+    "deleteSeason": "Delete season defaults"
   }
 }

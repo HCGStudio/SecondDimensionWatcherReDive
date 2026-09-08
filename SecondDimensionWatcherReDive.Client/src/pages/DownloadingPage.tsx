@@ -6,6 +6,7 @@ import { AlertTriangle, Download } from "lucide-react";
 
 import { useDownloadingAnimations } from "../animation/hooks";
 import { AnimationInfo } from "../components/AnimationInfo";
+import { DownloadCapacityQueue } from "../components/DownloadCapacityQueue";
 import { EmptyPrompt } from "../components/ui/EmptyPrompt";
 import { Pagination } from "../components/ui/Pagination";
 import { Spinner } from "../components/ui/Spinner";
@@ -58,6 +59,8 @@ export const DownloadingPage: React.FC = () => {
           ) : null}
         </div>
       </header>
+
+      <DownloadCapacityQueue />
 
       <section className="overflow-hidden rounded-xl border border-border bg-surface">
         {error ? (

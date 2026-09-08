@@ -23,10 +23,14 @@ import {
   loadSettingsPage,
   loadTasksPage,
   loadTodoPage,
+  loadWatchlistPage,
 } from "./routes/pageLoaders";
 
 const AccountPage = React.lazy(async () => ({
   default: (await loadAccountPage()).AccountPage,
+}));
+const WatchlistPage = React.lazy(async () => ({
+  default: (await loadWatchlistPage()).WatchlistPage,
 }));
 const ChatPage = React.lazy(async () => ({
   default: (await loadChatPage()).ChatPage,
@@ -75,6 +79,15 @@ const TodoPage = React.lazy(async () => ({
 }));
 
 const router = createBrowserRouter([
+  {
+    path: "/watchlist",
+    element: (
+      <ProtectedRoute>
+        <WatchlistPage />
+      </ProtectedRoute>
+    ),
+    errorElement: <ErrorPage />,
+  },
   {
     path: "/",
     element: (

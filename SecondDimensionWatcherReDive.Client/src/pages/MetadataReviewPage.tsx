@@ -22,6 +22,7 @@ import { EmptyPrompt } from "../components/ui/EmptyPrompt";
 import { Pagination } from "../components/ui/Pagination";
 import { Spinner } from "../components/ui/Spinner";
 import { cn } from "../lib/cn";
+import { MetadataRulesPanel } from "../metadataReview/MetadataRulesPanel";
 import {
   METADATA_REVIEW_PAGE_SIZE,
   metadataReviewErrorStatus,
@@ -288,12 +289,14 @@ interface RecentOperationsProps {
   operations: MetadataReviewOperation[];
   undoing: Set<string>;
   onUndo: (operation: MetadataReviewOperation) => void;
+  onCreateRule: (itemId: string) => void;
 }
 
 const RecentOperations: React.FC<RecentOperationsProps> = ({
   operations,
   undoing,
   onUndo,
+  onCreateRule,
 }) => {
   const { t } = useTranslation("metadataReview");
 
@@ -334,20 +337,31 @@ const RecentOperations: React.FC<RecentOperationsProps> = ({
                     </span>
                   </p>
                 </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="shrink-0 self-start sm:self-auto"
-                  disabled={!operation.canUndo || busy}
-                  onClick={() => onUndo(operation)}
-                >
-                  {busy ? <Spinner size={14} /> : <RotateCcw size={14} />}
-                  {busy
-                    ? t("recent.undoing")
-                    : operation.canUndo
-                      ? t("recent.undo")
-                      : t("recent.unavailable")}
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                  {operation.canUndo && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => onCreateRule(operation.itemId)}
+                    >
+                      {t("rules.fromCorrection")}
+                    </Button>
+                  )}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0 self-start sm:self-auto"
+                    disabled={!operation.canUndo || busy}
+                    onClick={() => onUndo(operation)}
+                  >
+                    {busy ? <Spinner size={14} /> : <RotateCcw size={14} />}
+                    {busy
+                      ? t("recent.undoing")
+                      : operation.canUndo
+                        ? t("recent.undo")
+                        : t("recent.unavailable")}
+                  </Button>
+                </div>
               </li>
             );
           })}
@@ -379,6 +393,13 @@ export const MetadataReviewPage: React.FC = () => {
   const reviewTriggerRef = React.useRef<HTMLButtonElement | null>(null);
   const queueHeadingRef = React.useRef<HTMLHeadingElement | null>(null);
   const [undoing, setUndoing] = React.useState<Set<string>>(new Set());
+  const [ruleSourceItemId, setRuleSourceItemId] = React.useState<string | null>(
+    null,
+  );
+  const consumeRuleSource = React.useCallback(
+    () => setRuleSourceItemId(null),
+    [],
+  );
 
   const updateLocation = React.useCallback(
     (nextStatus: MetadataReviewStatus, nextPage: number) => {
@@ -497,6 +518,13 @@ export const MetadataReviewPage: React.FC = () => {
         operations={data?.recentOperations ?? []}
         undoing={undoing}
         onUndo={handleUndo}
+        onCreateRule={setRuleSourceItemId}
+      />
+
+      <MetadataRulesPanel
+        sourceItemId={ruleSourceItemId}
+        onSourceConsumed={consumeRuleSource}
+        onHistoryApplied={mutate}
       />
 
       <section

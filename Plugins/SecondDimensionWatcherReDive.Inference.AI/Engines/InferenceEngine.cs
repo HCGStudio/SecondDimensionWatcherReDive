@@ -113,8 +113,21 @@ public sealed partial class InferenceEngine(
     private static readonly SemaphoreSlim RateLimitSemaphore = new(1, 1);
     private static DateTime _lastCallTime = DateTime.MinValue;
 
-    public async Task<InferenceResult?> InferAsync(string title, string description,
-        CancellationToken cancellationToken)
+    public Task<InferenceResult?> InferAsync(string title, string description,
+        CancellationToken cancellationToken) =>
+        InferWithTargetAsync(title, description, null, null, cancellationToken);
+
+    public Task<InferenceResult?> InferForTmdbAsync(string title, string description, string tmdbId,
+        int? targetSeason, CancellationToken cancellationToken)
+    {
+        if (!int.TryParse(tmdbId, out var id) || id <= 0)
+            throw new ArgumentException("TMDB ID must be a positive integer.", nameof(tmdbId));
+        if (targetSeason is < 0) throw new ArgumentOutOfRangeException(nameof(targetSeason));
+        return InferWithTargetAsync(title, description, tmdbId, targetSeason, cancellationToken);
+    }
+
+    private async Task<InferenceResult?> InferWithTargetAsync(string title, string description,
+        string? tmdbId, int? targetSeason, CancellationToken cancellationToken)
     {
         LogStartingInference(logger, title);
 
@@ -130,7 +143,7 @@ public sealed partial class InferenceEngine(
                 await Task.Delay(delay, cancellationToken);
             }
 
-            var result = await InferCoreAsync(title, description, cancellationToken);
+            var result = await InferCoreAsync(title, description, tmdbId, targetSeason, cancellationToken);
             _lastCallTime = DateTime.UtcNow;
 
             if (result != null)
@@ -195,19 +208,40 @@ public sealed partial class InferenceEngine(
     }
 
     private async Task<InferenceResult?> InferCoreAsync(
-        string title, string description, CancellationToken cancellationToken)
+        string title, string description, string? tmdbId, int? targetSeason, CancellationToken cancellationToken)
     {
+        var systemPrompt = tmdbId is null ? SystemPrompt : SystemPrompt + $"""
+
+            The series has already been selected by a user recognition rule: TMDB ID {tmdbId}.
+            Skip step 4. Do not search for or substitute another series. Call get_tmdb_seasons
+            for this exact ID and normalize the title's season/episode against that series only.
+            If needed, call get_tmdb_season_episodes with this same ID. The output tmdb_id must
+            be "{tmdbId}". Return null coordinates with low confidence if mapping is uncertain.
+            """;
+        if (targetSeason is { } season)
+            systemPrompt += $"""
+
+                The user also fixed the target TMDB season to {season}. This is an authoritative
+                destination, not a raw title season label. Call get_tmdb_season_episodes for this
+                season of TMDB {tmdbId}, and map the original title's numbering into that season.
+                Always return season={season}. If the episode cannot be mapped unambiguously into
+                this season, return episode=null and low confidence; never copy an incompatible
+                absolute episode number or switch to another season.
+                """;
         var messages = new List<IMessage>
         {
-            new SystemMessage(SystemPrompt),
+            new SystemMessage(systemPrompt),
             new UserMessage($"Title: {title}\nDescription: {description}")
         };
 
-        var toolExecutor = new ToolExecutorBuilder(serviceProvider)
-            .AddTool<SearchTmdbTool>()
+        var toolBuilder = new ToolExecutorBuilder(serviceProvider)
             .AddTool<GetTmdbSeasonsTool>()
-            .AddTool<GetTmdbSeasonEpisodesTool>()
-            .Build();
+            .AddTool<GetTmdbSeasonEpisodesTool>();
+        if (tmdbId is null) toolBuilder.AddTool<SearchTmdbTool>();
+        var toolExecutor = toolBuilder.Build();
+        if (tmdbId is not null)
+            toolExecutor = new TargetedTmdbToolExecutor(toolExecutor,
+                int.Parse(tmdbId, System.Globalization.CultureInfo.InvariantCulture), targetSeason);
 
         var chatOptions = new ChatOptions
         {
@@ -231,7 +265,12 @@ public sealed partial class InferenceEngine(
             }
         }
 
-        return ParseInferenceResult(fullText.Length > 0 ? fullText.ToString() : null);
+        var result = ParseInferenceResult(fullText.Length > 0 ? fullText.ToString() : null);
+        if (tmdbId is not null && result is not null && result.TmdbId != tmdbId)
+            throw new InvalidOperationException("Inference returned coordinates for a different TMDB series.");
+        if (targetSeason is not null && result is not null && result.Season != targetSeason)
+            throw new InvalidOperationException("Inference returned coordinates outside the rule's target season.");
+        return result;
     }
 
     private async Task<IReadOnlyList<FileNameInferenceResult>> InferFileNamesCoreAsync(

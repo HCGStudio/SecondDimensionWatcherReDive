@@ -1,7 +1,10 @@
 import fetcher from "../auth/httpClient";
 
-export const submitDownload = async (id: string) => {
-  return await fetcher(`/api/animationinfo/download/${id}`, { method: "POST" });
+export const submitDownload = async (id: string, fromAutomation = false) => {
+  return await fetcher(
+    `/api/animationinfo/download/${id}${fromAutomation ? "?fromAutomation=true" : ""}`,
+    { method: "POST" },
+  );
 };
 
 export const resumeDownload = async (id: string) => {

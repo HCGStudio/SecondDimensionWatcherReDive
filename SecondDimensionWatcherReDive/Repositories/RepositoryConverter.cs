@@ -151,7 +151,8 @@ internal static class RepositoryConverter
             entity.AudioLanguage,
             entity.AudioTrackLabel,
             entity.AutoPlayNext,
-            entity.UpdatedAt);
+            entity.UpdatedAt,
+            entity.AutoSkip);
 
     // Record -> Entity
 
@@ -330,6 +331,7 @@ internal static class RepositoryConverter
             AudioLanguage = record.AudioLanguage,
             AudioTrackLabel = record.AudioTrackLabel,
             AutoPlayNext = record.AutoPlayNext,
+            AutoSkip = record.AutoSkip,
             UpdatedAt = record.UpdatedAt
         };
 
