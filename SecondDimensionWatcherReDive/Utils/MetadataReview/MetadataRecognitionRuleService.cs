@@ -90,7 +90,7 @@ public sealed class MetadataRecognitionRuleService(
             if (draft.SourceFeedId is { } sourceId
                 && await feedRepository.FindByIdAsync(sourceId, cancellationToken) is null)
                 throw Invalid("ruleSource", "The subscription source no longer exists.");
-            await ValidateTargetAsync(tmdbId, cancellationToken);
+            await ValidateTargetAsync(tmdbId, draft.FixedSeason, cancellationToken);
         }
         var now = DateTimeOffset.UtcNow;
         return new MetadataRecognitionRule(id ?? Guid.NewGuid(), name, draft.Enabled,
@@ -100,11 +100,14 @@ public sealed class MetadataRecognitionRuleService(
             current?.CreatedAt ?? now, now);
     }
 
-    private async Task ValidateTargetAsync(int tmdbId, CancellationToken cancellationToken)
+    private async Task ValidateTargetAsync(int tmdbId, int? fixedSeason, CancellationToken cancellationToken)
     {
         var id = tmdbId.ToString(CultureInfo.InvariantCulture);
         var existing = await animationRepository.FindByTmdbIdAsync(id, cancellationToken);
-        if (existing is not null && !string.IsNullOrWhiteSpace(existing.Name) && existing.Name != id) return;
+        // The local title establishes the series identity, but it does not retain
+        // TMDB's season catalog and cannot authorize a fixed destination season.
+        if (fixedSeason is null && existing is not null
+            && !string.IsNullOrWhiteSpace(existing.Name) && existing.Name != id) return;
         if (!tmdbTool.IsConfigured)
             throw new MetadataReviewUnavailableException("tmdbUnavailable",
                 "TMDB lookup is unavailable because no API key is configured.");
@@ -114,6 +117,14 @@ public sealed class MetadataRecognitionRuleService(
         if (lookup.Status != TmdbTool.TmdbDetailsLookupStatus.Found || string.IsNullOrWhiteSpace(lookup.Details?.Name))
             throw new MetadataReviewUnavailableException("tmdbUnavailable",
                 "TMDB could not validate the target right now. Retry when the lookup is available.");
+        if (fixedSeason is { } season)
+        {
+            if (lookup.SeasonNumbers is null)
+                throw new MetadataReviewUnavailableException("tmdbUnavailable",
+                    "TMDB did not return the target's season catalog. Retry when the lookup is available.");
+            if (!lookup.SeasonNumbers.Contains(season))
+                throw Invalid("ruleSeasonNotFound", "The fixed season does not exist in the target TMDB television series.");
+        }
     }
 
     public async Task<MetadataRecognitionRule> SaveAsync(MetadataRecognitionRuleDraft draft,

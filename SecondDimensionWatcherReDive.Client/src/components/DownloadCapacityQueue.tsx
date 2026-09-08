@@ -10,12 +10,33 @@ interface CapacityEntry {
   itemId: string;
   title: string;
   expectedBytes: number | null;
-  remainingBytes: number;
   state: string;
   paused: boolean;
-  reason: string;
-  createdAt: string;
+  reasonCode: string;
 }
+
+const capacityStates = new Set([
+  "Waiting",
+  "Reserved",
+  "Submitted",
+  "Failed",
+  "Unknown",
+]);
+const capacityReasons = new Set([
+  "assessingCapacity",
+  "queuedForSubmission",
+  "waitingForCapacity",
+  "unknownSize",
+  "storageUnavailable",
+  "downloaderUnavailable",
+  "resubmitting",
+  "preparingSubmission",
+  "submissionUncertain",
+  "downloading",
+  "reconciling",
+  "submissionRejected",
+  "unknown",
+]);
 
 export const DownloadCapacityQueue: React.FC = () => {
   const { t } = useTranslation("animation");
@@ -27,7 +48,16 @@ export const DownloadCapacityQueue: React.FC = () => {
   );
   const [busy, setBusy] = React.useState<string | null>(null);
   const [failure, setFailure] = React.useState<string | null>(null);
-  const waiting = data?.filter((entry) => entry.state !== "Submitted") ?? [];
+  const waiting =
+    data
+      ?.map((entry) => ({
+        ...entry,
+        state: capacityStates.has(entry.state) ? entry.state : "Unknown",
+        reasonCode: capacityReasons.has(entry.reasonCode)
+          ? entry.reasonCode
+          : "unknown",
+      }))
+      .filter((entry) => entry.state !== "Submitted" || entry.paused) ?? [];
   const control = async (
     entry: CapacityEntry,
     action: "cancel" | "pause" | "resume",
@@ -78,8 +108,19 @@ export const DownloadCapacityQueue: React.FC = () => {
                   })}
             </p>
             <p className="mt-1 break-words text-sm text-muted">
-              {entry.reason}
+              {t(`capacity.reasons.${entry.reasonCode}`)}
             </p>
+            {entry.paused && (
+              <p className="mt-1 text-sm text-muted">
+                {t(
+                  entry.state === "Waiting"
+                    ? "capacity.pausedHints.waiting"
+                    : entry.state === "Reserved" || entry.state === "Submitted"
+                      ? "capacity.pausedHints.reserved"
+                      : "capacity.pausedHints.other",
+                )}
+              </p>
+            )}
             {canContentWrite && (
               <div className="mt-2 flex gap-2">
                 <Button

@@ -181,7 +181,8 @@
       "ruleAmbiguous": "匹配不明确，请调整规则或手动纠错。",
       "ruleLimit": "最多支持 200 条规则，请编辑已有规则。",
       "tmdbNotFound": "无法解析此 TMDB 剧集，请检查目标 ID。",
-      "tmdbUnavailable": "TMDB 查询不可用，请配置访问或选择已识别的现有番剧。"
+      "ruleSeasonNotFound": "固定季不存在于目标 TMDB 剧集中；第 0 季仅限该剧的特别篇。",
+      "tmdbUnavailable": "TMDB 查询不可用，请配置访问后重试。固定季需要读取目标剧集的季信息。"
     }
   }
 }

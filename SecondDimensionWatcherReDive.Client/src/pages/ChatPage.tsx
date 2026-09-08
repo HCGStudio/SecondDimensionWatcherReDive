@@ -23,6 +23,7 @@ import { Button } from "../components/ui/Button";
 import { EmptyPrompt } from "../components/ui/EmptyPrompt";
 import { Sheet, SheetContent, SheetTitle } from "../components/ui/Sheet";
 import { Spinner } from "../components/ui/Spinner";
+import "../i18n/chatResources";
 
 export const ChatPage: React.FC = () => {
   const { t } = useTranslation("chat");
