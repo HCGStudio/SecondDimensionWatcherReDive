@@ -67,14 +67,20 @@ internal static class Program
         };
         var workingDirectory = new Option<string>("--working-directory")
         {
-            Description = "Original application working directory for resolving legacy relative paths.",
+            Description = "Original process working directory for resolving legacy state paths.",
             HelpName = "DIR",
             DefaultValueFactory = _ => Environment.CurrentDirectory
+        };
+        var contentRoot = new Option<string?>("--content-root")
+        {
+            Description = "Original application content root for credential files (default: --working-directory).",
+            HelpName = "DIR"
         };
 
         command.Options.Add(config);
         command.Options.Add(nonInteractive);
         command.Options.Add(workingDirectory);
+        command.Options.Add(contentRoot);
         command.SetAction(async (parseResult, cancellationToken) =>
         {
             var silent = parseResult.GetValue(nonInteractive) || Console.IsInputRedirected;
@@ -82,7 +88,8 @@ internal static class Program
                 parseResult.GetValue(config)!,
                 parseResult.GetValue(workingDirectory)!,
                 silent ? null : ChooseAsync,
-                cancellationToken);
+                cancellationToken, new ConfigMigrationOptions(
+                    ContentRootDirectory: parseResult.GetValue(contentRoot)));
 
             if (result.AppliedMigrations.Count == 0)
                 Console.WriteLine($"Configuration is already at version {result.ToVersion}.");

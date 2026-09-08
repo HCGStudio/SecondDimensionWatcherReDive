@@ -82,7 +82,10 @@ public sealed class ConfigMigrationRunner
             throw new ConfigMigrationException($"Configuration version {version} predates the supported baseline {BaselineVersion}.");
         var originalVersion = version;
         var updated = (JsonObject)document.DeepClone();
-        var context = new ConfigMigrationContext(updated, Path.GetFullPath(workingDirectory), options?.InheritedSettings, options?.IsOverlay ?? false);
+        var originalDirectory = Path.GetFullPath(workingDirectory);
+        var context = new ConfigMigrationContext(updated, originalDirectory, options?.InheritedSettings,
+            options?.IsOverlay ?? false, options?.ContentRootDirectory is { } contentRoot
+                ? Path.GetFullPath(contentRoot, originalDirectory) : null, options?.LegacyPasswordFile);
         var applied = new List<ConfigMigrationDefinition>();
         while (version < CurrentVersion)
         {

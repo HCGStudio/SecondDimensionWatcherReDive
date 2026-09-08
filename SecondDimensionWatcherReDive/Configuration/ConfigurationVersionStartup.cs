@@ -13,6 +13,8 @@ internal static class ConfigurationVersionStartup
         var configuration = builder.Configuration;
         var runner = new ConfigMigrationRunner();
         var workingDirectory = Directory.GetCurrentDirectory();
+        var contentRoot = builder.Environment.ContentRootPath;
+        var legacyPasswordFile = ResolveLegacyPasswordFile(configuration, contentRoot);
         var inherited = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
         var sawApplicationFile = false;
         // Process original sources in priority order. An overlay's own Version determines its
@@ -33,7 +35,7 @@ internal static class ConfigurationVersionStartup
                                ?? Path.GetFullPath(sourcePath, builder.Environment.ContentRootPath);
                     if (!File.Exists(path) && json.Optional) continue;
                     var result = await runner.MigrateFileAsync(path, workingDirectory, null,
-                        cancellationToken, new ConfigMigrationOptions(inherited, isOverlay));
+                        cancellationToken, new ConfigMigrationOptions(inherited, isOverlay, contentRoot, legacyPasswordFile));
                     Report(path, result);
                     provider.Load();
                 }
@@ -52,7 +54,8 @@ internal static class ConfigurationVersionStartup
                     if (ConfigMigrationRunner.ContainsMigrationSettings(values))
                     {
                         migrated = await runner.MigrateSettingsAsync(values, workingDirectory,
-                            cancellationToken, new ConfigMigrationOptions(inherited, IsOverlay: true));
+                            cancellationToken, new ConfigMigrationOptions(inherited, IsOverlay: true,
+                                ContentRootDirectory: contentRoot, LegacyPasswordFile: legacyPasswordFile));
                         var changes = ChangedValues(values, migrated);
                         if (changes.Length > 0)
                             configuration.Sources.Insert(configuration.Sources.IndexOf(source) + 1,
@@ -76,7 +79,8 @@ internal static class ConfigurationVersionStartup
         {
             var path = Path.GetFullPath(configPath, builder.Environment.ContentRootPath);
             var result = await runner.MigrateFileAsync(path, workingDirectory, null,
-                cancellationToken, new ConfigMigrationOptions(inherited));
+                cancellationToken, new ConfigMigrationOptions(inherited,
+                    ContentRootDirectory: contentRoot, LegacyPasswordFile: legacyPasswordFile));
             Report(path, result);
             if (Path.GetExtension(path).Equals(".json", StringComparison.OrdinalIgnoreCase))
                 configuration.AddJsonFile(path, optional: false, reloadOnChange: true);
@@ -86,10 +90,30 @@ internal static class ConfigurationVersionStartup
 
         var current = configuration.AsEnumerable().ToDictionary(
             pair => pair.Key, pair => pair.Value, StringComparer.OrdinalIgnoreCase);
-        var effective = await runner.MigrateSettingsAsync(current, workingDirectory, cancellationToken);
+        var effective = await runner.MigrateSettingsAsync(current, workingDirectory, cancellationToken,
+            new ConfigMigrationOptions(ContentRootDirectory: contentRoot, LegacyPasswordFile: legacyPasswordFile));
         var finalChanges = ChangedValues(current, effective);
         if (finalChanges.Length > 0)
             configuration.AddInMemoryCollection(finalChanges);
+    }
+
+    private static string ResolveLegacyPasswordFile(IConfiguration configuration, string contentRoot)
+    {
+        var passwordFile = configuration["PasswordFile"] ?? "password.json";
+        if (configuration["Config"] is not { } configPath) return passwordFile;
+        // Before migration removes PasswordFile from individual layers, resolve
+        // the value the old host selected after appending its external document.
+        var path = Path.GetFullPath(configPath, contentRoot);
+        var external = new ConfigurationBuilder().SetBasePath(contentRoot);
+        if (Path.GetExtension(path).Equals(".json", StringComparison.OrdinalIgnoreCase))
+            external.AddJsonFile(path, optional: false);
+        else
+            external.AddYamlFile(path, optional: false);
+        var document = external.Build();
+        using var lifetime = document as IDisposable;
+        foreach (var provider in document.Providers.Reverse())
+            if (provider.TryGet("PasswordFile", out var value)) return value ?? "password.json";
+        return passwordFile;
     }
 
     private static KeyValuePair<string, string?>[] ChangedValues(
