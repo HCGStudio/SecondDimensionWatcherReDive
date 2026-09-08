@@ -117,6 +117,7 @@ namespace SecondDimensionWatcherReDive.Controllers.External;
 [JsonSerializable(typeof(PluginOperationError))]
 [JsonSerializable(typeof(LogicalDataBundle))]
 [JsonSerializable(typeof(LogicalDataBundleV1))]
+[JsonSerializable(typeof(LogicalDataBundleV2))]
 [JsonSerializable(typeof(LogicalDataExportEnvelope))]
 [JsonSerializable(typeof(LogicalDataImportRequest))]
 [JsonSerializable(typeof(LogicalImportResult))]
