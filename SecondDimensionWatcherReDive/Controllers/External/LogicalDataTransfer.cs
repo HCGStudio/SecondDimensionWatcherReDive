@@ -9,9 +9,9 @@ internal sealed record LogicalDataExportEnvelope(
     string Sha256);
 
 internal sealed record LogicalDataImportRequest(
-    [property: Required] LogicalDataBundle? Data,
-    [property: Required] string? Sha256,
-    [property: Required] LogicalImportConflictStrategy? ConflictStrategy);
+    [Required] LogicalDataBundle? Data,
+    [Required] string? Sha256,
+    [Required] LogicalImportConflictStrategy? ConflictStrategy);
 
 // Keep the original property order, enum names and payload shape for format-1
 // checksum canonicalization. Playback preferences use their shared type so its
