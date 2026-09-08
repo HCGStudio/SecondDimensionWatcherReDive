@@ -80,9 +80,9 @@ public partial class InferAnimationMetadata(
             var deterministic = rule is not null && MetadataRecognitionRuleService.CanResolveWithoutAi(rule, item);
             if (!deterministic && aiEngineStatus?.IsConfigured == false)
             {
-                if (rule is not null)
-                    throw new MetadataRecognitionAmbiguousException(
-                        $"Rule '{rule.Name}' needs season/episode inference. Configure AI or add explicit title captures.");
+                // Missing AI configuration is temporary availability, not rule
+                // ambiguity. Keep the item pending without consuming a retry so
+                // the next scheduled pass can use a newly configured engine.
                 return;
             }
             var result = deterministic

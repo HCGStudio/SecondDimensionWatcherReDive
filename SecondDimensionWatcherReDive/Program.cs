@@ -841,8 +841,8 @@ builder.Services.AddScoped<IReleaseUpgradeCoordinator, ReleaseUpgradeCoordinator
 
 //Add AI Inference
 // Register all engines even when initially unconfigured. Runtime settings can then enable or
-// switch an engine without rebuilding the service graph; the scheduled task reports disabled
-// until the selected engine has the required endpoint/credential.
+// switch an engine without rebuilding the service graph. Deterministic rules keep the
+// scheduled task available without AI; other items wait until the engine is configured.
 builder.Services.AddAIInference(builder.Configuration);
 builder.Services.AddSingleton<InferAnimationMetadata>();
 builder.Services.AddSingleton<IScheduledTask>(sp => sp.GetRequiredService<InferAnimationMetadata>());

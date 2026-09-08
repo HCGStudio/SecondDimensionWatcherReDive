@@ -179,7 +179,9 @@ export async function handleWatchlistPlayback(context) {
         !Number.isFinite(duration) ||
         duration <= 0 ||
         season.points.some(
-          (x) => x.endSeconds > duration || x.startSeconds >= duration,
+          (x) =>
+            x.enabled &&
+            (x.endSeconds > duration || x.startSeconds >= duration),
         )
       )
         return done(400);
@@ -208,8 +210,8 @@ export async function handleWatchlistPlayback(context) {
             !Number.isFinite(x.startSeconds) ||
             !Number.isFinite(x.endSeconds) ||
             x.startSeconds < 0 ||
-            x.startSeconds >= duration ||
-            x.endSeconds > duration ||
+            (x.enabled &&
+              (x.startSeconds >= duration || x.endSeconds > duration)) ||
             x.endSeconds < x.startSeconds ||
             (x.kind !== "chapter" && x.startSeconds === x.endSeconds),
         )
