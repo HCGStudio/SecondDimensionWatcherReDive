@@ -71,7 +71,11 @@ public sealed record MetadataReviewPreviewDraft(
     string? ProposedGroupName,
     DateTimeOffset CreatedAt,
     DateTimeOffset ExpiresAt,
-    IReadOnlyList<FileMapping> ProposedMappings);
+    IReadOnlyList<FileMapping> ProposedMappings)
+{
+    public Guid? RecognitionRuleId { get; init; }
+    public long? RecognitionRuleRevision { get; init; }
+}
 
 public sealed record MetadataReviewMutationResult(
     MetadataReviewMutationOutcome Outcome,

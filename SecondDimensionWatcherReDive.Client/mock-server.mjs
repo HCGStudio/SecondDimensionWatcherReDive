@@ -4,6 +4,7 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { handleCompletion } from "./mock-completion.mjs";
+import { handleMetadataRules, isMetadataRulePreviewCurrent } from "./mock-metadata-rules.mjs";
 
 const PORT = parseInt(process.env.MOCK_PORT ?? "5097", 10);
 
@@ -458,6 +459,15 @@ const metadataCatalog = new Map(
       name: entry.animeName,
       originalName: entry.originalName ?? null,
       posterPath: entry.posterPath ?? null,
+      // The offline catalog only advertises seasons represented by seeded releases.
+      seasonNumbers: [
+        ...new Set(
+          ANIME_TITLES.filter(
+            (candidate) =>
+              candidate.tmdbId === entry.tmdbId && candidate.season != null,
+          ).map((candidate) => candidate.season),
+        ),
+      ],
     },
   ]),
 );
@@ -2580,7 +2590,8 @@ async function route(method, pathname, searchParams, req, res) {
       }
       if (
         Date.parse(preview.expiresAt) <= Date.now() ||
-        preview.baseRevision !== item.revision
+        preview.baseRevision !== item.revision ||
+        !isMetadataRulePreviewCurrent(preview, item, animations.get(item.id), feeds)
       ) {
         metadataReviewPreviews.delete(preview.previewId);
         return json(res, { error: "Preview is stale." }, 409);
@@ -2705,6 +2716,9 @@ async function route(method, pathname, searchParams, req, res) {
   }
 
   if (await handleCompletion({ req, res, method, pathname, searchParams, json, readBody, animations, downloadState })) return;
+  if (await handleMetadataRules({ req, res, method, pathname, searchParams, json, readBody,
+    animations, feeds, metadataReviewItems, metadataReviewPreviews, metadataCatalog,
+    mockMappedFiles, buildMetadataPathChanges })) return;
 
   // --- Animation Info ---
 

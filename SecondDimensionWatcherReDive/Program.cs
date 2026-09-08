@@ -816,13 +816,16 @@ builder.Services.AddScoped<IAuthenticationStateRepository, AuthenticationStateRe
 builder.Services.AddScoped<AuthenticationStateInitializer>();
 builder.Services.AddSingleton<ISeasonScraper, MikananiSeasonScraper>();
 builder.Services.AddScoped<IMetadataReviewService, MetadataReviewService>();
+builder.Services.AddScoped<IMetadataRecognitionRuleRepository, MetadataRecognitionRuleRepository>();
+builder.Services.AddScoped<MetadataRecognitionRuleService>();
+builder.Services.AddSingleton<MetadataRecognitionRuleSupport>();
 builder.Services.AddScoped<IIncidentRetryService, IncidentRetryService>();
 builder.Services.AddScoped<IReleaseUpgradeCoordinator, ReleaseUpgradeCoordinator>();
 
 //Add AI Inference
 // Register all engines even when initially unconfigured. Runtime settings can then enable or
-// switch an engine without rebuilding the service graph; the scheduled task reports disabled
-// until the selected engine has the required endpoint/credential.
+// switch an engine without rebuilding the service graph. Deterministic rules keep the
+// scheduled task available without AI; other items wait until the engine is configured.
 builder.Services.AddAIInference(builder.Configuration);
 builder.Services.AddSingleton<InferAnimationMetadata>();
 builder.Services.AddSingleton<IScheduledTask>(sp => sp.GetRequiredService<InferAnimationMetadata>());

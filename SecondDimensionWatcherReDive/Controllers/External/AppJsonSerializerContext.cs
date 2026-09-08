@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
+using SecondDimensionWatcherReDive.Utils.MetadataReview;
 
 namespace SecondDimensionWatcherReDive.Controllers.External;
 
@@ -14,6 +15,15 @@ namespace SecondDimensionWatcherReDive.Controllers.External;
 [JsonSerializable(typeof(CompletionSubmissionRequest))]
 [JsonSerializable(typeof(List<CompletionSubmissionResult>))]
 [JsonSerializable(typeof(CompletionSubmissionResult))]
+[JsonSerializable(typeof(IReadOnlyList<MetadataRecognitionRule>))]
+[JsonSerializable(typeof(List<MetadataRecognitionRule>))]
+[JsonSerializable(typeof(List<MetadataRecognitionHit>))]
+[JsonSerializable(typeof(MetadataRecognitionRule))]
+[JsonSerializable(typeof(IReadOnlyList<MetadataRecognitionHit>))]
+[JsonSerializable(typeof(MetadataRecognitionRuleDraft))]
+[JsonSerializable(typeof(MetadataRecognitionRulePreview))]
+[JsonSerializable(typeof(MetadataRecognitionRuleSeed))]
+[JsonSerializable(typeof(MetadataRecognitionHistoryRequest))]
 [JsonSerializable(typeof(List<Feed>))]
 [JsonSerializable(typeof(IReadOnlyList<Feed>))]
 [JsonSerializable(typeof(Feed))]
@@ -100,6 +110,7 @@ namespace SecondDimensionWatcherReDive.Controllers.External;
 [JsonSerializable(typeof(RemotePluginInstallRequest))]
 [JsonSerializable(typeof(PluginOperationError))]
 [JsonSerializable(typeof(LogicalDataBundle))]
+[JsonSerializable(typeof(LogicalDataBundleV1))]
 [JsonSerializable(typeof(LogicalDataExportEnvelope))]
 [JsonSerializable(typeof(LogicalDataImportRequest))]
 [JsonSerializable(typeof(LogicalImportResult))]
