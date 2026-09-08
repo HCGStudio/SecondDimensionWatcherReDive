@@ -93,7 +93,7 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = ({
       {groups.length === 0 && !isStreaming && !pendingUserMessage && (
         <div className="flex items-center justify-center h-full text-subtle">
           <div className="text-center">
-            <p className="font-serif text-lg text-muted">{t("emptyTitle")}</p>
+            <p className="font-sans text-lg text-muted">{t("emptyTitle")}</p>
             <p className="text-sm mt-1">{t("emptyHelp")}</p>
           </div>
         </div>
@@ -113,7 +113,7 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = ({
           (m) => m.role === "user" && m.content === pendingUserMessage,
         ) && (
           <div className="flex w-full justify-end">
-            <div className="max-w-[80%] rounded-md px-4 py-2.5 bg-canvas text-foreground">
+            <div className="max-w-[80%] rounded-md px-4 py-2.5 bg-surface-muted text-foreground">
               <div className="text-sm leading-relaxed whitespace-pre-wrap">
                 {pendingUserMessage}
               </div>

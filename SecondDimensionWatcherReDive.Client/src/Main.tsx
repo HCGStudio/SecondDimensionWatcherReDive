@@ -252,7 +252,7 @@ export const Main: React.FC = () => {
   useAuthSynchronization();
   const { t } = useTranslation();
   React.useEffect(() => {
-    document.title = `${t("appName")} Re:Dive`;
+    document.title = t("appTitle");
   }, [t]);
   return (
     <RouteLoadingBoundary>

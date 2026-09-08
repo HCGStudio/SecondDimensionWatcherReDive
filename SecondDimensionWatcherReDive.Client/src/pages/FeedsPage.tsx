@@ -165,7 +165,7 @@ export const FeedsPage: React.FC = () => {
       <SeasonDiscovery />
       <MultiSourceSubscriptions feeds={feeds ?? []} />
       <hr className="my-8 border-border-light" />
-      <h2 className="mb-4 font-serif text-xl font-medium text-foreground">
+      <h2 className="mb-4 font-sans text-xl font-medium text-foreground">
         {t("feeds:manualSubscribe")}
       </h2>
       {canContentWrite ? (
@@ -208,7 +208,7 @@ export const FeedsPage: React.FC = () => {
             <SlidersHorizontal size={18} />
           </div>
           <div>
-            <h2 className="font-serif text-xl font-medium text-foreground">
+            <h2 className="font-sans text-xl font-medium text-foreground">
               {t("feeds:automation.title")}
             </h2>
             <p className="mt-1 max-w-3xl text-sm leading-body text-muted">

@@ -150,7 +150,7 @@ export const ResilientPoster: React.FC<ResilientPosterProps> = ({
     <div
       ref={containerRef}
       className={cn(
-        "relative isolate flex shrink-0 items-center justify-center overflow-hidden bg-canvas text-subtle",
+        "relative isolate flex shrink-0 items-center justify-center overflow-hidden bg-surface-muted text-subtle",
         className,
       )}
       aria-busy={state === "loading" || undefined}
@@ -192,7 +192,7 @@ export const ResilientPoster: React.FC<ResilientPosterProps> = ({
           aria-label={t("images.retry", { name: alt || t("images.poster") })}
           title={t("images.retry", { name: alt || t("images.poster") })}
           onClick={retry}
-          className="absolute inset-0 flex items-center justify-center rounded-[inherit] bg-canvas/90 text-muted transition-colors hover:text-foreground focus:outline-hidden focus:ring-2 focus:ring-inset focus:ring-focus"
+          className="absolute inset-0 flex items-center justify-center rounded-[inherit] bg-surface-muted/90 text-muted transition-colors hover:text-foreground focus:outline-hidden focus:ring-2 focus:ring-inset focus:ring-focus"
         >
           <RefreshCw size={20} aria-hidden="true" />
         </button>

@@ -18,7 +18,7 @@ export const MarkdownContent: React.FC<MarkdownContentProps> = ({
       className={cn(
         "prose prose-sm max-w-none",
         "prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-li:my-0",
-        "prose-pre:bg-canvas prose-pre:border prose-pre:border-border-light prose-pre:text-foreground",
+        "prose-pre:bg-surface-muted prose-pre:border prose-pre:border-border-light prose-pre:text-foreground",
         "prose-code:font-mono prose-code:text-sm",
         className,
       )}

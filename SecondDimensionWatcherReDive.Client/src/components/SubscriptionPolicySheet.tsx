@@ -380,7 +380,7 @@ export const SubscriptionPolicySheet: React.FC<
                   />
                 </div>
 
-                <div className="mt-5 rounded-lg border border-border-light bg-canvas/60 p-4">
+                <div className="mt-5 rounded-lg border border-border-light bg-surface-muted/60 p-4">
                   <div className="grid gap-4 sm:grid-cols-2">
                     <SizeInput
                       id="policy-min-size"
@@ -445,7 +445,7 @@ export const SubscriptionPolicySheet: React.FC<
                   title={t("automation.upgrades.title")}
                   description={t("automation.upgrades.description")}
                 />
-                <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-canvas/60 p-4">
+                <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-surface-muted/60 p-4">
                   <input
                     type="checkbox"
                     checked={draft.enableVersionUpgrade}
@@ -553,7 +553,7 @@ export const SubscriptionPolicySheet: React.FC<
                 {simulation ? (
                   <SimulationResults result={simulation} />
                 ) : (
-                  <div className="mt-4 rounded-lg border border-dashed border-border bg-canvas/50 px-5 py-8 text-center">
+                  <div className="mt-4 rounded-lg border border-dashed border-border bg-surface-muted/50 px-5 py-8 text-center">
                     <FlaskConical
                       size={24}
                       className="mx-auto text-warm-silver"
@@ -629,9 +629,7 @@ const SectionHeading: React.FC<SectionHeadingProps> = ({
       {number}
     </span>
     <div>
-      <h3 className="font-serif text-lg font-medium text-foreground">
-        {title}
-      </h3>
+      <h3 className="font-sans text-lg font-medium text-foreground">{title}</h3>
       <p className="mt-1 max-w-xl text-sm leading-body text-muted">
         {description}
       </p>
@@ -695,7 +693,7 @@ const TagField: React.FC<TagFieldProps> = ({
         {values.map((value) => (
           <span
             key={value}
-            className="inline-flex items-center gap-1 rounded-md bg-canvas px-2 py-1 text-xs text-foreground shadow-ring"
+            className="inline-flex items-center gap-1 rounded-md bg-surface-muted px-2 py-1 text-xs text-foreground shadow-ring"
           >
             {value}
             <button
@@ -748,7 +746,7 @@ const TagField: React.FC<TagFieldProps> = ({
               <button
                 type="button"
                 key={suggestion}
-                className="rounded-md border border-border-light px-2 py-1 text-xs text-muted transition-colors hover:border-border hover:bg-canvas hover:text-foreground focus:outline-hidden focus:ring-2 focus:ring-focus"
+                className="rounded-md border border-border-light px-2 py-1 text-xs text-muted transition-colors hover:border-border hover:bg-tint hover:text-foreground focus:outline-hidden focus:ring-2 focus:ring-focus"
                 onClick={() => addValues(suggestion)}
               >
                 + {suggestion}
@@ -816,7 +814,7 @@ const SimulationResults: React.FC<{
 
   return (
     <div className="mt-4">
-      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-lg border border-border bg-canvas/60 px-4 py-3">
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-lg border border-border bg-surface-muted/60 px-4 py-3">
         <p
           className="text-sm font-medium text-foreground"
           role="status"
@@ -889,7 +887,7 @@ const SimulationResults: React.FC<{
                   </p>
                 </div>
               </div>
-              <div className="border-t border-border-light bg-canvas/40 px-4 py-3">
+              <div className="border-t border-border-light bg-surface-muted/40 px-4 py-3">
                 <p className="mb-2 text-xs font-medium uppercase tracking-wide text-subtle">
                   {t("automation.simulation.explanationTitle")}
                 </p>

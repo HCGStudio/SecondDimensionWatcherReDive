@@ -1,7 +1,7 @@
 {
   "appName": "SDW Re:Dive",
   "nav": {
-    "home": "Home",
+    "home": "Workbench",
     "search": "Search",
     "searchPlaceholder": "Search library…",
     "todo": "To-do center",
@@ -15,6 +15,15 @@
     "chat": "AI Chat",
     "settings": "Settings",
     "menu": "Open menu",
+    "navigation": "Main navigation",
+    "yourSpace": "Your media space",
+    "episodes": "Episodes",
+    "player": "Now playing",
+    "groups": {
+      "library": "Your library",
+      "watching": "Following",
+      "management": "Manage workspace"
+    },
     "watchlist": "Watchlist"
   },
   "user": {
@@ -24,7 +33,12 @@
     "language": "Language",
     "logout": "Sign out",
     "logoutFailed": "Signed out locally, but remote refresh-token revocation could not be confirmed.",
-    "login": "Sign in"
+    "login": "Sign in",
+    "roles": {
+      "Admin": "Administrator",
+      "Member": "Member",
+      "Viewer": "Viewer"
+    }
   },
   "languages": {
     "zh-CN": "中文（简体）",
@@ -55,5 +69,6 @@
     "unavailable": "Image unavailable",
     "unavailableFor": "Image unavailable for {{name}}",
     "retry": "Retry image for {{name}}"
-  }
+  },
+  "appTitle": "Second Dimension Re:Dive"
 }

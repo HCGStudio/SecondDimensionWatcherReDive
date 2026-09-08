@@ -14,14 +14,15 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
 }
 
 const variantClasses: Record<ButtonVariant, string> = {
-  solid: "text-surface shadow-ring-brand",
-  outline: "border border-border bg-transparent hover:bg-canvas",
-  ghost: "bg-transparent hover:underline",
-  icon: "bg-transparent hover:bg-canvas",
+  solid: "text-white",
+  outline:
+    "border border-border bg-surface hover:border-brand/30 hover:bg-tint",
+  ghost: "bg-transparent hover:bg-tint",
+  icon: "bg-transparent hover:bg-tint",
 };
 
 const solidColorClasses: Record<ButtonColor, string> = {
-  default: "bg-brand hover:bg-accent shadow-ring-brand",
+  default: "bg-brand hover:bg-accent",
   danger: "bg-error hover:opacity-90 shadow-ring-error",
   warning: "bg-warning hover:opacity-90 shadow-ring-warning",
   success: "bg-success hover:opacity-90 shadow-ring-success",

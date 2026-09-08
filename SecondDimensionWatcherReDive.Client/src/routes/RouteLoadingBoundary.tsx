@@ -37,7 +37,7 @@ const RouteLoadingFailure: React.FC = () => {
         role="alert"
       >
         <AlertTriangle className="mx-auto text-warning" size={44} />
-        <h1 className="mt-4 font-serif text-2xl font-medium text-foreground">
+        <h1 className="mt-4 font-sans text-2xl font-medium text-foreground">
           {t("routeLoadFailed")}
         </h1>
         <p className="mt-2 text-sm text-muted">{t("routeLoadFailedDetail")}</p>

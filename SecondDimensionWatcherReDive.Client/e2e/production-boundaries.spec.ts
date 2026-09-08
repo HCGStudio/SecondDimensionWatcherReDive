@@ -127,7 +127,9 @@ test.describe("production boundary journeys", () => {
         .getByRole("button", { name: "Sign in" })
         .click();
     }
-    await expect(page.getByRole("heading", { name: "Anime" })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Pick up a good story." }),
+    ).toBeVisible();
 
     await page.evaluate(() => localStorage.removeItem("auth"));
     await page.goto("/login");
@@ -141,7 +143,9 @@ test.describe("production boundary journeys", () => {
       .getByRole("main")
       .getByRole("button", { name: "Sign in" })
       .click();
-    await expect(page.getByRole("heading", { name: "Anime" })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Pick up a good story." }),
+    ).toBeVisible();
   });
 
   test("pauses downloads, browses VFS files, and updates watched state", async ({

@@ -114,7 +114,7 @@ const BreadcrumbButton: React.FC<BreadcrumbButtonProps> = ({
       "inline-flex items-center gap-1.5 rounded-md px-2 py-1 transition-colors",
       active
         ? "cursor-default text-foreground font-medium"
-        : "text-muted hover:text-foreground hover:bg-canvas",
+        : "text-muted hover:text-foreground hover:bg-tint",
     )}
   >
     {children}
@@ -131,7 +131,7 @@ const DirectoryRow: React.FC<DirectoryRowProps> = ({ entry, onOpen }) => {
     <button
       type="button"
       onClick={onOpen}
-      className="group flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-canvas focus:outline-hidden focus-visible:bg-canvas"
+      className="group flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-tint focus:outline-hidden focus-visible:bg-tint"
     >
       <span className="text-muted group-hover:text-brand">
         <Folder size={18} />
@@ -238,7 +238,7 @@ export const FilesPage: React.FC = () => {
   return (
     <PageTemplate>
       <header className="mb-6">
-        <h2 className="font-serif text-xl font-medium leading-heading text-foreground">
+        <h2 className="font-sans text-xl font-medium leading-heading text-foreground">
           {t("files:vfs.title")}
         </h2>
         <p className="mt-2 max-w-2xl text-sm leading-body text-muted">

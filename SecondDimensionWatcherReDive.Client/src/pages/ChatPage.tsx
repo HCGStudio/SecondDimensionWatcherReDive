@@ -155,7 +155,7 @@ export const ChatPage: React.FC = () => {
     return (
       <div className="min-h-screen bg-canvas">
         <AppHeader />
-        <main className="mx-auto max-w-5xl px-6 py-8">
+        <main id="main-content" className="px-6 py-8 lg:ml-[216px]">
           <EmptyPrompt
             icon={<MessageSquare size={48} className="text-subtle" />}
             title={t("aiNotConfigured")}
@@ -175,21 +175,24 @@ export const ChatPage: React.FC = () => {
   }
 
   return (
-    <div className="flex h-screen flex-col bg-canvas">
+    <div className="flex h-dvh flex-col bg-canvas">
       <AppHeader />
-      <div className="flex min-h-0 flex-1 overflow-hidden">
+      <div
+        id="main-content"
+        className="flex min-h-0 flex-1 overflow-hidden lg:ml-[216px]"
+      >
         <ChatSidebar
           conversations={conversations ?? []}
           selectedId={selectedConvId}
           onSelect={handleSelectConversation}
           onCreate={handleCreateConversation}
           onDelete={handleDeleteConversation}
-          className="hidden md:flex"
+          className="hidden xl:flex"
         />
         <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
           <SheetContent
             side="left"
-            className="w-[min(20rem,calc(100vw-2rem))] max-w-none p-0 md:hidden"
+            className="w-[min(20rem,calc(100vw-2rem))] max-w-none p-0 xl:hidden"
             onCloseAutoFocus={(event) => {
               event.preventDefault();
               sidebarTriggerRef.current?.focus();
@@ -213,7 +216,7 @@ export const ChatPage: React.FC = () => {
               <Button
                 variant="icon"
                 size="sm"
-                className="shrink-0 md:hidden"
+                className="shrink-0 xl:hidden"
                 ref={sidebarTriggerRef}
                 aria-label={t("openConversations")}
                 aria-expanded={sidebarOpen}
@@ -260,7 +263,7 @@ export const ChatPage: React.FC = () => {
             <div className="flex flex-1 items-center justify-center">
               <div className="text-center">
                 <MessageSquare size={48} className="mx-auto mb-4 text-subtle" />
-                <h1 className="font-serif text-lg text-muted">
+                <h1 className="font-sans text-lg text-muted">
                   {t("selectOrCreate")}
                 </h1>
                 <p className="text-sm text-subtle mt-1">{t("createHint")}</p>

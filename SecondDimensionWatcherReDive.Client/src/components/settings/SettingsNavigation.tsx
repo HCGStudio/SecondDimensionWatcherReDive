@@ -48,7 +48,7 @@ export const SettingsNavigation: React.FC<SettingsNavigationProps> = ({
   const { t } = useTranslation("settings");
   return (
     <>
-      <div className="lg:hidden">
+      <div className="xl:hidden">
         <label
           htmlFor="settings-section"
           className="mb-1.5 block text-sm font-medium text-foreground"
@@ -71,7 +71,7 @@ export const SettingsNavigation: React.FC<SettingsNavigationProps> = ({
       </div>
 
       <nav
-        className="sticky top-20 hidden space-y-1 lg:block"
+        className="sticky top-24 hidden space-y-1 xl:block"
         aria-label={t("system.navigation.label")}
       >
         {settingsSectionIds.map((section) => (
@@ -83,8 +83,8 @@ export const SettingsNavigation: React.FC<SettingsNavigationProps> = ({
             className={cn(
               "flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm transition-colors focus:outline-hidden focus:ring-2 focus:ring-focus",
               section === active
-                ? "bg-surface font-medium text-foreground shadow-ring"
-                : "text-muted hover:bg-surface/60 hover:text-foreground",
+                ? "bg-tint font-medium text-accent"
+                : "text-muted hover:bg-surface-muted hover:text-foreground",
             )}
           >
             <span className={section === active ? "text-brand" : "text-subtle"}>

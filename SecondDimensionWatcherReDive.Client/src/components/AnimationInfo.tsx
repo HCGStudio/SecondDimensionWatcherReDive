@@ -78,11 +78,19 @@ const DownloadProgress: React.FC<{ id: string }> = ({ id }) => {
   const color = colorByState[status.state] ?? "success";
 
   return (
-    <div className="mt-2.5 flex items-center gap-3">
-      <div className="min-w-0 flex-1">
-        <Progress color={color} value={status.progress * 100} max={100} />
+    <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+      <div className="flex min-w-32 flex-1 items-center gap-3">
+        <Progress
+          color={color}
+          value={status.progress * 100}
+          max={100}
+          className="h-1.5"
+        />
+        <span className="w-10 shrink-0 text-right font-mono text-xs font-medium tabular-nums text-foreground">
+          {Math.round(status.progress * 100)}%
+        </span>
       </div>
-      <div className="flex shrink-0 items-center gap-2.5 text-xs text-subtle">
+      <div className="flex flex-wrap items-center gap-3 text-xs tabular-nums text-muted">
         <span className="inline-flex items-center gap-1">
           <ArrowDownNarrowWide size={12} />
           {formatBytes(status.speed)}
@@ -284,7 +292,7 @@ const ActionButtons: React.FC<{ value: IAnimationInfo }> = ({ value }) => {
 
   return (
     <>
-      <div className="flex shrink-0 items-center gap-1">
+      <div className="flex shrink-0 flex-wrap items-center gap-1.5">
         {/* Primary action: icon-only button */}
         {!value.isDownloadTracked && canContentWrite ? (
           <Button
@@ -310,6 +318,7 @@ const ActionButtons: React.FC<{ value: IAnimationInfo }> = ({ value }) => {
                 variant="outline"
                 className="px-2 py-2"
                 title={t("actions.pause")}
+                aria-label={t("actions.pause")}
                 onClick={() =>
                   pauseDownload(value.id).catch(() =>
                     addToast({
@@ -328,6 +337,7 @@ const ActionButtons: React.FC<{ value: IAnimationInfo }> = ({ value }) => {
                 variant="outline"
                 className="px-2 py-2"
                 title={t("actions.resume")}
+                aria-label={t("actions.resume")}
                 onClick={() =>
                   resumeDownload(value.id).catch(() =>
                     addToast({
@@ -372,6 +382,7 @@ const ActionButtons: React.FC<{ value: IAnimationInfo }> = ({ value }) => {
               variant="outline"
               className="px-2 py-2"
               title={t("actions.browse")}
+              aria-label={t("actions.browse")}
               disabled={isReidentifyingFiles}
               onClick={() => setIsSheetOpen(true)}
             >
@@ -527,28 +538,28 @@ export const AnimationInfo: React.FC<IAnimationInfoProps> = ({
     : publishTime.toLocaleDateString(i18n.resolvedLanguage);
 
   return (
-    <div className="border-t border-border py-4 first:border-t-0">
-      {/* Row 1: tag + title + actions */}
-      <div className="flex items-start justify-between gap-3">
+    <article className="border-t border-border-light bg-surface px-4 py-4 transition-colors first:border-t-0 hover:bg-tint/40 sm:px-5">
+      <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:gap-5">
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {tag ? (
-              <span className="shrink-0 rounded bg-accent/10 px-1.5 py-0.5 font-mono text-xs text-accent">
+              <span className="shrink-0 rounded-md bg-tint px-2 py-1 font-mono text-[11px] font-medium text-brand">
                 {tag}
               </span>
             ) : null}
-            <h3 className="font-serif text-base font-medium leading-heading text-foreground break-words">
-              {value.title}
-            </h3>
             {value.automationDisposition ? (
               <AutomationDispositionBadge
                 disposition={value.automationDisposition}
               />
             ) : null}
           </div>
+          <h3
+            className={`${tag || value.automationDisposition ? "mt-2 " : ""}break-words font-sans text-sm font-semibold leading-6 text-foreground`}
+          >
+            {value.title}
+          </h3>
 
-          {/* Row 2: metadata */}
-          <div className="mt-1 flex items-center gap-1.5 text-xs leading-body text-subtle">
+          <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs leading-body text-muted">
             {value.group ? (
               <>
                 <span>{value.group.name}</span>
@@ -571,9 +582,8 @@ export const AnimationInfo: React.FC<IAnimationInfoProps> = ({
             ) : null}
           </div>
 
-          {/* Row 3: description (collapsed to 1 line) */}
           {value.description ? (
-            <p className="mt-1 line-clamp-3 text-sm leading-body text-muted">
+            <p className="mt-2 line-clamp-3 text-xs leading-5 text-subtle">
               {value.description}
             </p>
           ) : null}
@@ -582,8 +592,7 @@ export const AnimationInfo: React.FC<IAnimationInfoProps> = ({
         <ActionButtons value={value} />
       </div>
 
-      {/* Row 4: download progress (only when downloading) */}
       {isDownloading ? <DownloadProgress id={value.id} /> : null}
-    </div>
+    </article>
   );
 };

@@ -89,7 +89,7 @@ const PathDiff: React.FC<PathDiffProps> = ({ changes }) => {
   }
 
   return (
-    <ul className="divide-y divide-border-light overflow-hidden rounded-lg border border-border bg-canvas/50">
+    <ul className="divide-y divide-border-light overflow-hidden rounded-lg border border-border bg-surface-muted/50">
       {changes.map((change, index) => (
         <li key={`${change.fileName}-${index}`} className="p-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -150,7 +150,7 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
     <section className="mt-6 border-t border-border pt-5">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <h3 className="font-serif text-base font-medium text-foreground">
+          <h3 className="font-sans text-base font-medium text-foreground">
             {t("preview.title")}
           </h3>
           <p className="mt-1 text-xs text-subtle">
@@ -173,7 +173,7 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
         )}
       </div>
 
-      <div className="mt-4 rounded-lg border border-border bg-canvas/50 p-4">
+      <div className="mt-4 rounded-lg border border-border bg-surface-muted/50 p-4">
         <h4 className="text-xs font-medium uppercase tracking-wide text-subtle">
           {t("preview.resolvedMetadata")}
         </h4>
@@ -387,7 +387,7 @@ export const MetadataReviewSheet: React.FC<MetadataReviewSheetProps> = ({
         <SheetBody>
           {item ? (
             <>
-              <div className="rounded-lg border border-border-light bg-canvas/60 p-4">
+              <div className="rounded-lg border border-border-light bg-surface-muted/60 p-4">
                 <div className="flex items-center gap-2 text-sm font-medium text-foreground">
                   <FileText size={15} className="text-muted" />
                   {t("editor.currentMetadata")}

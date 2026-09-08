@@ -2,9 +2,45 @@
 @config "../tailwind.config.js";
 
 @layer base {
+  html {
+    color-scheme: light;
+    scrollbar-gutter: stable;
+  }
   body {
     @apply bg-canvas text-foreground font-sans antialiased;
     line-height: 1.6;
+    font-size: 14px;
+    margin: 0;
+  }
+  ::selection {
+    background: #cce2d5;
+    color: #173f2f;
+  }
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+  }
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]) {
+    cursor: pointer;
+  }
+  :focus-visible {
+    outline: 2px solid #337b5f;
+    outline-offset: 3px;
+  }
+  button,
+  a,
+  input,
+  select,
+  textarea {
+    -webkit-tap-highlight-color: transparent;
   }
   *,
   ::after,

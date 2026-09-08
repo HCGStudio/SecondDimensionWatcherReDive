@@ -29,7 +29,7 @@ export const EmptyPrompt: React.FC<EmptyPromptProps> = ({
       )}
     >
       {icon ? <div className="mb-4 text-subtle">{icon}</div> : null}
-      <div className="font-serif text-xl font-medium leading-heading text-foreground">
+      <div className="font-sans text-xl font-medium leading-heading text-foreground">
         {title}
       </div>
       {body ? (

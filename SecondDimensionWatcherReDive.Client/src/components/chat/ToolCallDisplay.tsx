@@ -57,7 +57,7 @@ export const ToolCallItem: React.FC<{
   const contentId = React.useId();
 
   return (
-    <div className="rounded-md border border-border-light bg-canvas text-sm">
+    <div className="rounded-md border border-border-light bg-surface-muted text-sm">
       <button
         type="button"
         aria-expanded={expanded}
@@ -83,7 +83,7 @@ export const ToolCallItem: React.FC<{
               <div className="text-xs text-subtle mb-1">
                 {t("tool.arguments")}
               </div>
-              <pre className="text-xs font-mono bg-canvas rounded p-2 overflow-x-auto whitespace-pre-wrap break-all">
+              <pre className="text-xs font-mono bg-surface-muted rounded p-2 overflow-x-auto whitespace-pre-wrap break-all">
                 {formatJson(toolCall.arguments)}
               </pre>
             </div>
@@ -91,7 +91,7 @@ export const ToolCallItem: React.FC<{
           {"result" in toolCall && toolCall.result && (
             <div>
               <div className="text-xs text-subtle mb-1">{t("tool.result")}</div>
-              <pre className="text-xs font-mono bg-canvas rounded p-2 overflow-x-auto whitespace-pre-wrap break-all max-h-48 overflow-y-auto">
+              <pre className="text-xs font-mono bg-surface-muted rounded p-2 overflow-x-auto whitespace-pre-wrap break-all max-h-48 overflow-y-auto">
                 {formatJson(toolCall.result)}
               </pre>
             </div>
@@ -222,7 +222,7 @@ const ApprovalCard: React.FC<{
               : t("approval.notReversible")}
           </div>
         </div>
-        <span className="ml-auto shrink-0 rounded-full bg-canvas px-2 py-0.5 text-[11px] text-muted">
+        <span className="ml-auto shrink-0 rounded-full bg-surface-muted px-2 py-0.5 text-[11px] text-muted">
           {t(`approval.states.${effectiveState}`)}
         </span>
       </div>
@@ -265,7 +265,7 @@ const ApprovalCard: React.FC<{
         </div>
       )}
       {action.toolResult && (
-        <pre className="max-h-32 overflow-auto whitespace-pre-wrap break-all rounded bg-canvas p-2 text-xs font-mono">
+        <pre className="max-h-32 overflow-auto whitespace-pre-wrap break-all rounded bg-surface-muted p-2 text-xs font-mono">
           {formatJson(action.toolResult)}
         </pre>
       )}

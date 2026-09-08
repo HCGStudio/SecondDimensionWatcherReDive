@@ -40,7 +40,7 @@ export const DropdownMenuItem = React.forwardRef<
       "flex cursor-pointer select-none items-center gap-2 px-3 py-1.5 text-sm font-sans outline-hidden transition-colors data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
       color === "danger"
         ? "text-error hover:bg-error/10 focus:bg-error/10"
-        : "text-foreground hover:bg-canvas focus:bg-canvas",
+        : "text-foreground hover:bg-tint focus:bg-tint",
       className,
     )}
     {...props}
@@ -55,7 +55,7 @@ export const DropdownMenuRadioItem = React.forwardRef<
   <DropdownMenuPrimitive.RadioItem
     ref={ref}
     className={cn(
-      "flex cursor-pointer select-none items-center gap-2 px-3 py-1.5 text-sm font-sans text-foreground outline-hidden transition-colors hover:bg-canvas focus:bg-canvas data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+      "flex cursor-pointer select-none items-center gap-2 px-3 py-1.5 text-sm font-sans text-foreground outline-hidden transition-colors hover:bg-tint focus:bg-tint data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
       className,
     )}
     {...props}

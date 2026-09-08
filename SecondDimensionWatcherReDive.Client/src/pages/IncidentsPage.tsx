@@ -68,7 +68,9 @@ const IncidentCard: React.FC<{
         <div
           className={cn(
             "mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg",
-            isResolved ? "bg-success/10 text-success" : "bg-canvas text-muted",
+            isResolved
+              ? "bg-success/10 text-success"
+              : "bg-surface-muted text-muted",
           )}
         >
           {isResolved ? <CheckCircle2 size={18} /> : typeIcons[incident.type]}
@@ -77,7 +79,7 @@ const IncidentCard: React.FC<{
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <h3 className="font-serif text-base font-medium leading-heading text-foreground">
+                <h3 className="font-sans text-base font-medium leading-heading text-foreground">
                   {incident.title}
                 </h3>
                 <span
@@ -88,7 +90,7 @@ const IncidentCard: React.FC<{
                 >
                   {t(`severity.${incident.severity}`)}
                 </span>
-                <span className="rounded-full bg-canvas px-2 py-0.5 text-[11px] text-muted">
+                <span className="rounded-full bg-surface-muted px-2 py-0.5 text-[11px] text-muted">
                   {t(`types.${incident.type}`)}
                 </span>
               </div>
@@ -260,7 +262,7 @@ export const IncidentsPage: React.FC = () => {
         <div>
           <div className="flex items-center gap-2">
             <Inbox size={22} className="text-accent" />
-            <h2 className="font-serif text-xl font-medium text-foreground">
+            <h2 className="font-sans text-xl font-medium text-foreground">
               {t("incidents:title")}
             </h2>
           </div>
@@ -291,7 +293,7 @@ export const IncidentsPage: React.FC = () => {
               "rounded-full px-3 py-1.5 text-xs font-medium transition-colors",
               type == null
                 ? "bg-brand text-surface"
-                : "bg-canvas text-muted hover:text-foreground",
+                : "bg-surface-muted text-muted hover:text-foreground",
             )}
           >
             {t("incidents:filters.all")}
@@ -307,7 +309,7 @@ export const IncidentsPage: React.FC = () => {
                 "rounded-full px-3 py-1.5 text-xs font-medium transition-colors",
                 type === incidentType
                   ? "bg-brand text-surface"
-                  : "bg-canvas text-muted hover:text-foreground",
+                  : "bg-surface-muted text-muted hover:text-foreground",
               )}
             >
               {t(`incidents:types.${incidentType}`)}

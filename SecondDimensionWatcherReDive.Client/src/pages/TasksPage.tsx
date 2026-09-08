@@ -247,7 +247,7 @@ export const TasksPage: React.FC = () => {
       >
         {taskAnnouncement}
       </span>
-      <h2 className="mb-6 font-serif text-xl font-medium text-foreground">
+      <h2 className="mb-6 font-sans text-xl font-medium text-foreground">
         {t("tasks:title")}
       </h2>
       {error ? (
@@ -275,7 +275,7 @@ export const TasksPage: React.FC = () => {
         />
       )}
 
-      <h2 className="mb-2 mt-10 font-serif text-xl font-medium text-foreground">
+      <h2 className="mb-2 mt-10 font-sans text-xl font-medium text-foreground">
         {t("tasks:deadLetters.title")}
       </h2>
       <p className="mb-5 text-sm text-muted">

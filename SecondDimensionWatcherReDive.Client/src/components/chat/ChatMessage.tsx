@@ -12,7 +12,7 @@ export const UserBubble: React.FC<{ message: ChatMessageData }> = ({
   message,
 }) => (
   <div className="flex w-full justify-end">
-    <div className="max-w-[80%] rounded-md px-4 py-2.5 bg-canvas text-foreground">
+    <div className="max-w-[80%] rounded-md px-4 py-2.5 bg-surface-muted text-foreground">
       <div className="text-sm leading-relaxed whitespace-pre-wrap">
         {message.content}
       </div>

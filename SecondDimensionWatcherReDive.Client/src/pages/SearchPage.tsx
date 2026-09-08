@@ -128,7 +128,7 @@ export const SearchPage: React.FC = () => {
         <p className="font-mono text-xs uppercase tracking-[0.18em] text-brand">
           {t("eyebrow")}
         </p>
-        <h1 className="mt-2 font-serif text-3xl font-medium text-foreground">
+        <h1 className="mt-2 font-sans text-3xl font-medium text-foreground">
           {t("title")}
         </h1>
         <p className="mt-2 text-sm leading-body text-muted">
@@ -250,7 +250,7 @@ export const SearchPage: React.FC = () => {
 
       <section className="mt-8">
         <div className="mb-3 flex items-end justify-between gap-3">
-          <h2 className="font-serif text-xl font-medium text-foreground">
+          <h2 className="font-sans text-xl font-medium text-foreground">
             {t("results.title")}
           </h2>
           {data ? (
@@ -288,7 +288,7 @@ export const SearchPage: React.FC = () => {
                         {new Date(item.publishedAt).toLocaleDateString()}
                       </span>
                     </div>
-                    <h3 className="mt-2 font-serif text-lg font-medium text-foreground">
+                    <h3 className="mt-2 font-sans text-lg font-medium text-foreground">
                       {item.animationName ?? item.title}
                     </h3>
                     {item.animationOriginalName ? (
@@ -307,7 +307,7 @@ export const SearchPage: React.FC = () => {
                         .map((value) => (
                           <span
                             key={value}
-                            className="rounded bg-canvas px-2 py-1"
+                            className="rounded bg-surface-muted px-2 py-1"
                           >
                             {value}
                           </span>
@@ -375,7 +375,7 @@ export const SearchPage: React.FC = () => {
       <section className="mt-12">
         <div className="mb-4 flex items-end justify-between gap-3">
           <div>
-            <h2 className="font-serif text-xl font-medium text-foreground">
+            <h2 className="font-sans text-xl font-medium text-foreground">
               {t("integrity.title")}
             </h2>
             <p className="mt-1 text-sm text-muted">
@@ -408,7 +408,7 @@ export const SearchPage: React.FC = () => {
               >
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <h3 className="font-serif text-lg font-medium text-foreground">
+                    <h3 className="font-sans text-lg font-medium text-foreground">
                       {item.animationName}
                     </h3>
                     <p className="text-xs text-subtle">
@@ -459,7 +459,7 @@ export const SearchPage: React.FC = () => {
                 {item.upgradeCandidates.map((candidate) => (
                   <div
                     key={candidate.candidateReleaseId}
-                    className="mt-4 rounded-lg border border-border-light bg-canvas/50 p-3"
+                    className="mt-4 rounded-lg border border-border-light bg-surface-muted/50 p-3"
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div>
@@ -574,7 +574,7 @@ const Metric: React.FC<{ label: string; value: string }> = ({
   label,
   value,
 }) => (
-  <div className="rounded-lg bg-canvas px-2 py-3">
+  <div className="rounded-lg bg-surface-muted px-2 py-3">
     <dt className="text-xs text-subtle">{label}</dt>
     <dd className="mt-1 break-words font-mono text-sm text-foreground">
       {value}
