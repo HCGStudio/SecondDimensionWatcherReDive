@@ -172,7 +172,7 @@ export const MetadataRulesPanel: React.FC<{
   }
 
   async function saveRule() {
-    if (!draft) return;
+    if (!draft || !preview || busy) return;
     setBusy(true);
     setError(null);
     try {
@@ -181,6 +181,9 @@ export const MetadataRulesPanel: React.FC<{
         draft,
         editingId ? "PUT" : "POST",
       );
+      version.current++;
+      setPreview(null);
+      setHistory(null);
       setEditingId(saved.id);
       setDraft({ ...saved, expectedRevision: saved.revision });
       setSavedNotice(true);
@@ -201,9 +204,11 @@ export const MetadataRulesPanel: React.FC<{
         { ...rule, enabled: !rule.enabled, expectedRevision: rule.revision },
         "PUT",
       );
+      version.current++;
+      setPreview(null);
+      setHistory(null);
       if (editingId === rule.id) {
         setDraft(null);
-        setPreview(null);
       }
       await mutate();
     } catch (cause) {
@@ -216,6 +221,7 @@ export const MetadataRulesPanel: React.FC<{
   async function previewHistory(sample: RecognitionSample) {
     if (!editingId || !draft?.expectedRevision || !selectedSavedRule?.enabled)
       return;
+    const requestedVersion = version.current;
     setBusy(true);
     setError(null);
     try {
@@ -226,7 +232,8 @@ export const MetadataRulesPanel: React.FC<{
           itemRevision: sample.revision,
         },
       );
-      setHistory({ itemId: sample.itemId, preview: result });
+      if (version.current === requestedVersion)
+        setHistory({ itemId: sample.itemId, preview: result });
     } catch (cause) {
       showError(cause);
     } finally {

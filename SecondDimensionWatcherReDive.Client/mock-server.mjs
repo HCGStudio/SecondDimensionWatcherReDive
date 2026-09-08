@@ -491,6 +491,15 @@ const metadataCatalog = new Map(
       name: entry.animeName,
       originalName: entry.originalName ?? null,
       posterPath: entry.posterPath ?? null,
+      // The offline catalog only advertises seasons represented by seeded releases.
+      seasonNumbers: [
+        ...new Set(
+          ANIME_TITLES.filter(
+            (candidate) =>
+              candidate.tmdbId === entry.tmdbId && candidate.season != null,
+          ).map((candidate) => candidate.season),
+        ),
+      ],
     },
   ]),
 );
