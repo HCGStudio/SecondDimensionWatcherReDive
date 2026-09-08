@@ -12,7 +12,8 @@ internal sealed record NotificationDeliveryItem(
     DateTimeOffset OccurredAt,
     DateTimeOffset? LastAttemptAt,
     DateTimeOffset? DeliveredAt,
-    string? LastError);
+    string? LastError,
+    string? Target);
 
 internal sealed record TestNotificationResponse(Guid EventId);
 

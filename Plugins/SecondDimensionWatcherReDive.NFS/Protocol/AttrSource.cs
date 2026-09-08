@@ -10,4 +10,5 @@ internal sealed record AttrSource(
     int LeaseTimeSeconds)
 {
     public ulong? CanonicalFileId { get; init; }
+    public ulong? ChangeId { get; init; }
 }

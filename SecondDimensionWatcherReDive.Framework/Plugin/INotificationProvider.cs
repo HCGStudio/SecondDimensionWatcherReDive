@@ -4,7 +4,11 @@ public sealed record PluginNotification(
     string Title,
     string Message,
     string Severity = "info",
-    IReadOnlyDictionary<string, string>? Metadata = null);
+    IReadOnlyDictionary<string, string>? Metadata = null)
+{
+    /// <summary>Stable logical event identity. Providers must deduplicate external side effects by this value.</summary>
+    public Guid? EventId { get; init; }
+}
 
 public interface INotificationProvider
 {

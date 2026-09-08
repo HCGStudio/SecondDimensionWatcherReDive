@@ -71,7 +71,7 @@ internal partial class FileController(
         });
         var url = Url.ActionLink(nameof(GetFile), values: new { resourceId = tickets.ResourceId })!;
         LogLinkGenerated(logger, payload.Id, lifetime.TotalMinutes);
-        return Ok(new External.FileLinkResultResponse(url));
+        return Ok(new External.FileLinkResultResponse(url, ExpiresAt: tickets.ExpiresAt));
     }
 
     [AllowAnonymous]

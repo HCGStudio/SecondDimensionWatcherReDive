@@ -161,10 +161,10 @@ export const WorkbenchOverview: React.FC = () => {
 
   return (
     <aside
-      className="grid min-w-0 gap-8 border-t border-border-light pt-7 sm:grid-cols-2 xl:grid-cols-1 xl:content-start xl:border-l xl:border-t-0 xl:pl-7 xl:pt-0"
+      className="grid min-w-0 grid-cols-1 gap-8 border-t border-border-light pt-7 sm:grid-cols-2 xl:grid-cols-1 xl:content-start xl:border-l xl:border-t-0 xl:pl-7 xl:pt-0"
       aria-label={t("workbench.overview")}
     >
-      <section aria-labelledby="download-overview-title">
+      <section className="min-w-0" aria-labelledby="download-overview-title">
         <div className="mb-4 flex items-center justify-between gap-3">
           <h2
             id="download-overview-title"
@@ -216,7 +216,7 @@ export const WorkbenchOverview: React.FC = () => {
           <ArrowRight size={14} aria-hidden="true" />
         </Link>
       </section>
-      <section aria-labelledby="feed-overview-title">
+      <section className="min-w-0" aria-labelledby="feed-overview-title">
         <div className="mb-4 flex items-center justify-between gap-3">
           <h2
             id="feed-overview-title"

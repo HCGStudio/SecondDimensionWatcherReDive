@@ -41,6 +41,7 @@ export interface PrepareServerTranscodingRequest {
   audioTrackLabel?: string | null;
   subtitleLanguage?: string | null;
   subtitleTrackLabel?: string | null;
+  forceHls?: boolean;
 }
 
 const abortError = (): DOMException =>

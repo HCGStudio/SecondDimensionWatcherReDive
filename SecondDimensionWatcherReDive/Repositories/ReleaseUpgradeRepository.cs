@@ -25,7 +25,12 @@ public sealed partial class ReleaseUpgradeRepository(
         bool CurrentScored,
         bool CandidateScored,
         Guid? CandidateFeedId,
-        DateTimeOffset CandidatePublishTime);
+        DateTimeOffset CandidatePublishTime,
+        string CurrentTitle,
+        MetadataReviewStatus CurrentMetadataStatus,
+        MetadataReviewStatus CandidateMetadataStatus,
+        bool CandidateBusy,
+        AnimationAddRequest CandidateRequest);
 
     public async Task<IReadOnlyList<ReleaseUpgradeCandidate>> GetCandidatesAsync(
         bool automaticOnly,
@@ -163,7 +168,11 @@ public sealed partial class ReleaseUpgradeRepository(
         if (candidateScore.Value <= currentScore.Value) return null;
         var automatic = row.CurrentScored && row.CandidateScored &&
                         policy is { EnableVersionUpgrade: true } &&
-                        candidateScore.Value - currentScore.Value >= policy.MinimumUpgradeScore;
+                        candidateScore.Value - currentScore.Value >= policy.MinimumUpgradeScore &&
+                        !row.CandidateBusy &&
+                        LibraryCompletionService.IsReliable(row.Season, row.Episode, row.CurrentMetadataStatus, row.CurrentTitle) &&
+                        LibraryCompletionService.IsReliable(row.Season, row.Episode, row.CandidateMetadataStatus, row.CandidateRequest.Title) &&
+                        automationMatcher.Evaluate(policy, row.CandidateRequest).Matched;
         return new ReleaseUpgradeCandidate(
             row.CurrentReleaseId, row.CandidateReleaseId, row.AnimationName,
             row.Season, row.Episode, currentScore.Value, candidateScore.Value,
@@ -199,7 +208,7 @@ public sealed partial class ReleaseUpgradeRepository(
                     policy.FeedId == candidate.SourceFeedId && policy.EnableVersionUpgrade));
         }
 
-        // Project only scoring metadata, and stream one incumbent at a time so
+        // Project scoring and eligibility metadata, and stream one incumbent at a time so
         // large libraries do not load torrent payloads or retain every pair.
         return
             from current in currentReleases
@@ -230,7 +239,12 @@ public sealed partial class ReleaseUpgradeRepository(
                 new SubscriptionReleaseMetadata(candidate.ReleaseSubtitleGroup, candidate.ReleaseResolution,
                     candidate.ReleaseCodec, candidate.ReleaseLanguages, candidate.ReleaseSizeBytes),
                 current.ReleaseScoreReasonsJson != null, candidate.ReleaseScoreReasonsJson != null,
-                candidate.SourceFeedId, candidate.PublishTime);
+                candidate.SourceFeedId, candidate.PublishTime,
+                current.Title, current.MetadataStatus, candidate.MetadataStatus,
+                candidate.IsDownloadTracked && !candidate.IsDownloadFinished,
+                new AnimationAddRequest(candidate.PublishTime, candidate.Title, candidate.Description,
+                    candidate.DownloadUrl, candidate.DownloadType, candidate.AdditionalDownloadInfo,
+                    candidate.SourceFeedId, candidate.ReleaseSizeBytes, null, null));
     }
 
     private IQueryable<Models.AnimationInfo> BuildEligibleCandidates(bool automaticOnly)

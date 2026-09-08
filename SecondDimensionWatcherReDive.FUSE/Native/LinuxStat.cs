@@ -2,10 +2,8 @@ using System.Runtime.InteropServices;
 
 namespace SecondDimensionWatcherReDive.FUSE.Native;
 
-// Mirror of glibc `struct stat` on Linux x86_64 / arm64. See <bits/struct_stat.h> /
-// <bits/stat.h>. The layout below assumes 64-bit kernel structs with __USE_FILE_OFFSET64
-// (which the .NET runtime targets on these RIDs). We never read the optional padding
-// fields back — the kernel and FUSE protocol simply ignore them.
+// glibc's x86_64 stat ABI (144 bytes). ARM64 has a different layout below;
+// sizeof(long) alone does not determine the native structure's ABI.
 [StructLayout(LayoutKind.Sequential)]
 internal struct LinuxStat
 {
@@ -29,6 +27,33 @@ internal struct LinuxStat
     public long __unused0;
     public long __unused1;
     public long __unused2;
+}
+
+// glibc's AArch64 stat ABI (128 bytes), including its 32-bit nlink/blksize
+// fields and the padding before st_size. libfuse allocates this exact size.
+[StructLayout(LayoutKind.Sequential)]
+internal struct LinuxArm64Stat
+{
+    public ulong st_dev;
+    public ulong st_ino;
+    public uint st_mode;
+    public uint st_nlink;
+    public uint st_uid;
+    public uint st_gid;
+    public ulong st_rdev;
+    public ulong __pad1;
+    public long st_size;
+    public int st_blksize;
+    public int __pad2;
+    public long st_blocks;
+    public long st_atime_sec;
+    public long st_atime_nsec;
+    public long st_mtime_sec;
+    public long st_mtime_nsec;
+    public long st_ctime_sec;
+    public long st_ctime_nsec;
+    public uint __unused0;
+    public uint __unused1;
 }
 
 internal static class LinuxFileMode

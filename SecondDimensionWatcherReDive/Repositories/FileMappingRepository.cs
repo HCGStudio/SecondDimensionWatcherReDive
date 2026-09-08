@@ -244,6 +244,21 @@ public class FileMappingRepository(
             .FirstOrDefaultAsync(cancellationToken);
     }
 
+    public async Task<long?> GetDirectoryGenerationAsync(
+        string parentPath,
+        CancellationToken cancellationToken) =>
+        await context.FileSystemDirectoryStates.AsNoTracking()
+            .Where(state => state.Path == parentPath)
+            .Select(state => (long?)state.Generation)
+            .SingleOrDefaultAsync(cancellationToken);
+
+    public async Task<IReadOnlyDictionary<string, long>> GetDirectoryGenerationsAsync(
+        IReadOnlyCollection<string> parentPaths,
+        CancellationToken cancellationToken) =>
+        await context.FileSystemDirectoryStates.AsNoTracking()
+            .Where(state => parentPaths.Contains(state.Path))
+            .ToDictionaryAsync(state => state.Path, state => state.Generation, cancellationToken);
+
     public async Task<FileSystemDirectoryPage?> GetImmediateChildrenPageAsync(
         string parentPath,
         long? afterCookie,

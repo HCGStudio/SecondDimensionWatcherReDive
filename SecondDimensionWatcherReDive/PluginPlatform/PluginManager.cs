@@ -300,21 +300,60 @@ internal sealed class PluginManager(
         }
     }
 
-    public async Task<JsonElement> InvokeAsync(
+    public Task<JsonElement> InvokeAsync(
         string id,
         string handler,
         JsonElement input,
         CancellationToken cancellationToken)
+        => InvokeCoreAsync(id, handler, input, null, cancellationToken);
+
+    public Task<JsonElement> InvokeNotificationAsync(
+        PluginNotificationTarget target,
+        PluginNotification notification,
+        CancellationToken cancellationToken)
+        => InvokeCoreAsync(target.PluginId, null, JsonSerializer.SerializeToElement(notification),
+            target, cancellationToken);
+
+    private async Task<JsonElement> InvokeCoreAsync(
+        string id,
+        string? handler,
+        JsonElement input,
+        PluginNotificationTarget? notificationTarget,
+        CancellationToken cancellationToken)
     {
         await EnsureInitializedAsync(cancellationToken);
-        if (!PluginManifestValidator.IsValidHandlerName(handler))
+        if (notificationTarget is null &&
+            (handler is null || !PluginManifestValidator.IsValidHandlerName(handler)))
             throw new InvalidDataException("Invalid plugin handler name.");
         PluginCatalogEntry entry;
         PluginLifecycleCoordinator.InvocationLease? invocation = null;
         await _gate.WaitAsync(cancellationToken);
         try
         {
-            entry = GetRequiredEntry(id);
+            if (notificationTarget is not null)
+            {
+                // Bind a queued event to its approved publisher, and resolve the current send
+                // handler under the same gate used to acquire the lifecycle invocation lease.
+                // An uninstall/reinstall cannot race this check and redirect an older event.
+                if (!_entries.TryGetValue(id, out var notificationEntry))
+                    throw new PluginNotificationTargetUnavailableException("PluginRemoved", true);
+                entry = notificationEntry;
+                if (!string.Equals(GetNotificationPublisherIdentity(entry),
+                        notificationTarget.PublisherIdentity, StringComparison.Ordinal))
+                    throw new PluginNotificationTargetUnavailableException("PluginPublisherChanged", true);
+                var provider = entry.Manifest.Providers.FirstOrDefault(provider =>
+                    provider.Kind == "notification" && provider.Name == notificationTarget.ProviderName);
+                if (provider is null || !provider.Handlers.TryGetValue("send", out handler))
+                    throw new PluginNotificationTargetUnavailableException("PluginProviderRemoved", true);
+                if (!entry.IsEnabled || GetCompatibilityErrors(entry.Manifest).Count > 0)
+                    throw new PluginNotificationTargetUnavailableException("PluginDisabled", false);
+                if (entry.Health.CircuitOpenUntil is { } retryAt && retryAt > timeProvider.GetUtcNow())
+                    throw new PluginNotificationTargetUnavailableException("PluginCircuitOpen", false, retryAt);
+            }
+            else
+            {
+                entry = GetRequiredEntry(id);
+            }
             EnsureNoPendingLifecycleManagement();
             if (!entry.IsEnabled) throw new InvalidOperationException($"Plugin '{id}' is disabled.");
             var errors = GetCompatibilityErrors(entry.Manifest);
@@ -337,7 +376,7 @@ internal sealed class PluginManager(
         {
             try
             {
-                result = await processExecutor.InvokeAsync(entry, handler, input, activeInvocation.Token);
+                result = await processExecutor.InvokeAsync(entry, handler!, input, activeInvocation.Token);
                 interruptedByLifecycle = activeInvocation.LifecycleCancellationToken.IsCancellationRequested &&
                                          !cancellationToken.IsCancellationRequested;
                 if (interruptedByLifecycle)
@@ -624,7 +663,10 @@ internal sealed class PluginManager(
                 entry.ApprovedCapabilities,
                 GetCompatibilityErrors(entry.Manifest),
                 entry.Health,
-                ParseConfiguration(entry.ConfigurationJson)))
+                ParseConfiguration(entry.ConfigurationJson))
+            {
+                PublisherIdentity = GetNotificationPublisherIdentity(entry)
+            })
             .ToArray();
 
     private void UpdateSnapshot() => Volatile.Write(ref _snapshot, CreateSnapshot().ToArray());
@@ -884,6 +926,13 @@ internal sealed class PluginManager(
 
     private TimeSpan LifecycleWaitTimeout =>
         TimeSpan.FromMilliseconds(_options.InvocationTimeoutMilliseconds + 2_000);
+
+    private static string GetNotificationPublisherIdentity(PluginCatalogEntry entry)
+        // Signed upgrades retain publisher ownership. An unsigned development package has no
+        // publisher identity, so bind its notifications to the approved execution payload instead.
+        // A different package under the same plugin/provider name cannot inherit queued events.
+        => entry.PublisherFingerprint ?? "unsigned:" + Convert.ToHexString(
+            SHA256.HashData(PluginSignaturePayload.Create(entry.Manifest)));
 
     private static void EnsurePublisherContinuity(string? existingFingerprint, string? incomingFingerprint)
     {

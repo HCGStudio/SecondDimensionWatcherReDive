@@ -175,19 +175,74 @@ parse_connection_string() {
 
     local connection="${ConnectionStrings__sdw:-}"
     [[ -n "${connection}" ]] || die "PostgreSQL connection environment is not configured"
-    local pair key value
-    local -a pairs
-    IFS=';' read -r -a pairs <<<"${connection}"
-    for pair in "${pairs[@]}"; do
-        key=${pair%%=*}
-        value=${pair#*=}
+    local key value character quote closed
+    local index=0 length=${#connection}
+    # ADO.NET values may contain semicolons and doubled quote delimiters.
+    # Parse in-process: credentials must never become command arguments or eval input.
+    while (( index < length )); do
+        while (( index < length )); do
+            character=${connection:index:1}
+            [[ "${character}" == ';' || "${character}" == [[:space:]] ]] || break
+            index=$((index + 1))
+        done
+        (( index < length )) || break
+        key=""
+        while (( index < length )); do
+            character=${connection:index:1}
+            [[ "${character}" != '=' ]] || break
+            [[ "${character}" != ';' ]] || die "invalid ASP.NET connection string"
+            key+="${character}"
+            index=$((index + 1))
+        done
+        (( index < length )) || die "invalid ASP.NET connection string"
         key=${key//[[:space:]]/}
+        [[ -n "${key}" ]] || die "invalid ASP.NET connection string"
+        index=$((index + 1))
+        while (( index < length )) && [[ "${connection:index:1}" == [[:space:]] ]]; do
+            index=$((index + 1))
+        done
+        value=""
+        character=${connection:index:1}
+        if [[ "${character}" == '"' || "${character}" == "'" ]]; then
+            quote=${character}
+            closed=false
+            index=$((index + 1))
+            while (( index < length )); do
+                character=${connection:index:1}
+                index=$((index + 1))
+                if [[ "${character}" == "${quote}" ]]; then
+                    if (( index < length )) && [[ "${connection:index:1}" == "${quote}" ]]; then
+                        value+="${quote}"
+                        index=$((index + 1))
+                    else
+                        closed=true
+                        break
+                    fi
+                else
+                    value+="${character}"
+                fi
+            done
+            [[ "${closed}" == true ]] || die "invalid ASP.NET connection string"
+            while (( index < length )) && [[ "${connection:index:1}" == [[:space:]] ]]; do
+                index=$((index + 1))
+            done
+            [[ ${index} -eq ${length} || "${connection:index:1}" == ';' ]] ||
+                die "invalid ASP.NET connection string"
+        else
+            while (( index < length )) && [[ "${connection:index:1}" != ';' ]]; do
+                value+="${connection:index:1}"
+                index=$((index + 1))
+            done
+            value=${value%"${value##*[![:space:]]}"}
+            [[ "${value: -1}" != '"' && "${value: -1}" != "'" ]] ||
+                die "invalid ASP.NET connection string"
+        fi
         case "${key,,}" in
-            host) PGHOST=${value} ;;
+            host|server) PGHOST=${value} ;;
             port) PGPORT=${value} ;;
-            username|userid) PGUSER=${value} ;;
-            password) PGPASSWORD=${value} ;;
-            database|initial\ catalog) PGDATABASE=${value} ;;
+            username|userid|uid) PGUSER=${value} ;;
+            password|pwd) PGPASSWORD=${value} ;;
+            database|initialcatalog) PGDATABASE=${value} ;;
         esac
     done
     [[ -n "${PGHOST:-}" && -n "${PGUSER:-}" && -n "${PGDATABASE:-}" ]] ||

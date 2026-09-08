@@ -254,7 +254,7 @@ internal sealed partial class NfsCompoundDispatcher(
                 childHandle,
                 child.VirtualPath,
                 child.Size,
-                child.MTime);
+                child.MTime) with { ChangeId = child.ChangeId };
 
             var directoryInfoBuffer = new ArrayBufferWriter<byte>();
             var directoryInfoWriter = new XdrWriter(directoryInfoBuffer);
@@ -462,6 +462,7 @@ internal sealed partial class NfsCompoundDispatcher(
                 $"{ctx.Credential.Gid}@sdw",
                 options.Value.LeaseSeconds)
             {
+                ChangeId = resolved.ChangeId,
                 CanonicalFileId = NfsAttributes.ComputeCanonicalFileId(
                     resolved.Kind,
                     resolved.VirtualPath)

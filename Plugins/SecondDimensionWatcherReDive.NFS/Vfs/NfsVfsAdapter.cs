@@ -11,7 +11,8 @@ internal sealed record NfsResolvedNode(
     long Size,
     DateTimeOffset MTime,
     string? FileStoreName = null,
-    string? PhysicalPath = null);
+    string? PhysicalPath = null,
+    ulong? ChangeId = null);
 
 internal sealed record NfsDirectoryChild(
     Guid EntryId,
@@ -20,7 +21,8 @@ internal sealed record NfsDirectoryChild(
     NfsHandleKind Kind,
     string VirtualPath,
     long Size,
-    DateTimeOffset MTime);
+    DateTimeOffset MTime,
+    ulong? ChangeId = null);
 
 internal sealed record NfsDirectoryPage(
     IReadOnlyList<NfsDirectoryChild> Items,
@@ -45,7 +47,8 @@ internal sealed class NfsVfsAdapter(
                     NfsHandleKind.Root,
                     "/",
                     0,
-                    DateTimeOffset.UnixEpoch)
+                    DateTimeOffset.UnixEpoch,
+                    ChangeId: await GetDirectoryChangeIdAsync("/", cancellationToken))
                 : null;
         }
 
@@ -92,7 +95,8 @@ internal sealed class NfsVfsAdapter(
                 NfsHandleKind.Directory,
                 entry.Path,
                 0,
-                DateTimeOffset.UnixEpoch)
+                DateTimeOffset.UnixEpoch,
+                ChangeId: await GetDirectoryChangeIdAsync(entry.Path, cancellationToken))
             : null;
     }
 
@@ -141,7 +145,14 @@ internal sealed class NfsVfsAdapter(
             NfsHandleKind.Directory,
             parent.Path,
             0,
-            DateTimeOffset.UnixEpoch);
+            DateTimeOffset.UnixEpoch,
+            ChangeId: await GetDirectoryChangeIdAsync(parent.Path, cancellationToken));
+    }
+
+    private async Task<ulong?> GetDirectoryChangeIdAsync(string path, CancellationToken cancellationToken)
+    {
+        var generation = await mappingRepository.GetDirectoryGenerationAsync(path, cancellationToken);
+        return generation.HasValue ? (ulong)generation.Value : null;
     }
 
     public async Task<NfsDirectoryPage?> ListPageAsync(
@@ -163,6 +174,11 @@ internal sealed class NfsVfsAdapter(
             cancellationToken);
         if (page is null) return null;
 
+        var directoryPaths = page.Items.Where(entry => entry.IsDirectory).Select(entry => entry.Path).ToArray();
+        var generations = directoryPaths.Length == 0
+            ? null
+            : await mappingRepository.GetDirectoryGenerationsAsync(directoryPaths, cancellationToken);
+
         var items = page.Items.Select(entry => new NfsDirectoryChild(
             entry.EntryId,
             entry.Cookie,
@@ -170,7 +186,8 @@ internal sealed class NfsVfsAdapter(
             entry.IsDirectory ? NfsHandleKind.Directory : NfsHandleKind.File,
             entry.Path,
             entry.FileInfo?.Length ?? 0,
-            entry.FileInfo?.LastModifiedUtc ?? DateTimeOffset.UnixEpoch)).ToList();
+            entry.FileInfo?.LastModifiedUtc ?? DateTimeOffset.UnixEpoch,
+            generations?.TryGetValue(entry.Path, out var generation) == true ? (ulong)generation : null)).ToList();
         return new NfsDirectoryPage(
             items,
             page.Generation,

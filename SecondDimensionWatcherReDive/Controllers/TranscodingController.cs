@@ -35,7 +35,8 @@ internal sealed class TranscodingController(
                 request.AudioLanguage,
                 request.AudioTrackLabel,
                 request.SubtitleLanguage,
-                request.SubtitleTrackLabel);
+                request.SubtitleTrackLabel,
+                request.ForceHls);
             var status = await transcodingService.PrepareAsync(
                 request.Id,
                 request.Path,

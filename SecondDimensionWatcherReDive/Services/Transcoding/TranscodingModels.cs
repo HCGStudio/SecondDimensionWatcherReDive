@@ -26,14 +26,16 @@ internal sealed record TranscodingSelection(
     string? AudioLanguage,
     string? AudioTrackLabel,
     string? SubtitleLanguage,
-    string? SubtitleTrackLabel)
+    string? SubtitleTrackLabel,
+    bool ForceHls = false)
 {
     public static TranscodingSelection Create(
         string? quality,
         string? audioLanguage,
         string? audioTrackLabel,
         string? subtitleLanguage,
-        string? subtitleTrackLabel)
+        string? subtitleTrackLabel,
+        bool forceHls = false)
     {
         var normalizedQuality = string.IsNullOrWhiteSpace(quality)
             ? "auto"
@@ -46,7 +48,8 @@ internal sealed record TranscodingSelection(
             Normalize(audioLanguage),
             Normalize(audioTrackLabel),
             Normalize(subtitleLanguage),
-            Normalize(subtitleTrackLabel));
+            Normalize(subtitleTrackLabel),
+            forceHls);
     }
 
     private static string? Normalize(string? value)
@@ -77,6 +80,8 @@ internal sealed record TranscodingSource(
             selection.AudioTrackLabel ?? string.Empty,
             selection.SubtitleLanguage ?? string.Empty,
             selection.SubtitleTrackLabel ?? string.Empty);
+        // A browser-rejected source must not reuse a direct-play preparation.
+        if (selection.ForceHls) material += "\nforce-hls";
         return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(material)));
     }
 }

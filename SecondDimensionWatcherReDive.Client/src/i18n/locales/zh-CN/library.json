@@ -43,7 +43,13 @@
     "unidentified": "未识别",
     "score": "Release 评分",
     "morePaths": "另有 {{count}} 个路径",
-    "next": "下一页"
+    "next": "下一页",
+    "browseFiles": "浏览文件与播放",
+    "download": "下载此版本",
+    "startingDownload": "正在提交…",
+    "downloadQueued": "已加入下载队列",
+    "downloadFailed": "未能开始下载，请刷新状态后重试",
+    "viewDownload": "查看下载队列"
   },
   "integrity": {
     "title": "完整性与版本升级",

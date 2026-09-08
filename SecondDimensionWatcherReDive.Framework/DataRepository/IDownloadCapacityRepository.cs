@@ -5,6 +5,8 @@ public sealed record DownloadCapacityEntry(
     long RemainingBytes, string State, bool Paused, string Reason,
     DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt);
 
+public sealed record DownloadCapacityAttempt(Guid ItemId, Guid? DownloadAttemptId, bool Cancelling);
+
 public interface ICapacityTransaction : IAsyncDisposable
 {
     Task CommitAsync(CancellationToken cancellationToken);
@@ -15,6 +17,7 @@ public interface IDownloadCapacityRepository
 {
     Task<ICapacityTransaction> BeginAsync(CancellationToken cancellationToken);
     Task RecoverTrackedAsync(CancellationToken cancellationToken);
+    Task<IReadOnlyList<DownloadCapacityAttempt>> GetActiveAttemptsAsync(CancellationToken cancellationToken);
     Task<IReadOnlyList<DownloadCapacityEntry>> ListAsync(CancellationToken cancellationToken);
     Task SaveAsync(DownloadCapacityEntry entry, CancellationToken cancellationToken);
     Task RemoveAsync(Guid itemId, CancellationToken cancellationToken);

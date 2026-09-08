@@ -33,8 +33,23 @@ public sealed record NotificationEvent(
     DateTimeOffset? OccurredAt = null,
     Guid? Id = null);
 
+public enum NotificationPublicationOutcome
+{
+    NotRequired,
+    Persisted,
+    Failed
+}
+
 public interface INotificationPublisher
 {
+    /// <summary>
+    /// Distinguishes disabled/unsubscribed destinations from a persistence failure.
+    /// Persisted includes an existing outbox entry for every currently eligible target.
+    /// </summary>
+    Task<NotificationPublicationOutcome> PublishDurablyAsync(
+        NotificationEvent notificationEvent,
+        CancellationToken cancellationToken);
+
     /// <summary>Returns true when at least one target is eligible and all eligible targets have durable outbox entries.</summary>
     Task<bool> EnsurePublishedAsync(NotificationEvent notificationEvent, CancellationToken cancellationToken);
 

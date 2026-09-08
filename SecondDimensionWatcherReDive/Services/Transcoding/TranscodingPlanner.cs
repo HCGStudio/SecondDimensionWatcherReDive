@@ -45,6 +45,7 @@ internal static class TranscodingPlanner
                         && bitmapToBurn is null;
         var copyAudio = audio is null || HlsAudioCodecs.Contains(audio.CodecName);
         var direct = IsDirectPlayContainer(extension, video, audio?.CodecName)
+                     && !selection.ForceHls
                      && selection.Quality == "auto"
                      && bitmapToBurn is null;
         var strategy = direct

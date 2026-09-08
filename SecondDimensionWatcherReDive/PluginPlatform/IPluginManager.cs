@@ -22,5 +22,9 @@ internal interface IPluginManager
         string handler,
         JsonElement input,
         CancellationToken cancellationToken);
+    Task<JsonElement> InvokeNotificationAsync(
+        PluginNotificationTarget target,
+        PluginNotification notification,
+        CancellationToken cancellationToken);
     IReadOnlyList<InstalledPlugin> GetSnapshot();
 }

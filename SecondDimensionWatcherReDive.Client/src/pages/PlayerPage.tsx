@@ -282,11 +282,27 @@ export const PlayerPage: React.FC = () => {
   const [selectedSubtitle, setSelectedSubtitle] = React.useState(OFF_TRACK);
   const [audioTracks, setAudioTracks] = React.useState<AudioTrackOption[]>([]);
   const [selectedAudio, setSelectedAudio] = React.useState("preference:auto");
+  const selectedAudioRef = React.useRef<AudioTrackOption | null>(null);
   const [savingPreferences, setSavingPreferences] = React.useState(false);
   const [savingWatched, setSavingWatched] = React.useState(false);
+  const [forceHls, setForceHls] = React.useState(false);
+  const forceHlsRef = React.useRef(forceHls);
+  forceHlsRef.current = forceHls;
 
   const playerContainerRef = React.useRef<HTMLDivElement>(null);
   const artRef = React.useRef<Artplayer | null>(null);
+  const sourceRefreshRef = React.useRef<(() => Promise<void>) | null>(null);
+  const sourceExpiresAtRef = React.useRef(0);
+  const wantsPlaybackRef = React.useRef(shouldAutoplay);
+  const playbackReloadRef = React.useRef<{
+    mediaKey: string;
+    position: number;
+    playing: boolean;
+    rate: number;
+    volume: number;
+    muted: boolean;
+    audio: Pick<AudioTrackOption, "key" | "label" | "language"> | null;
+  } | null>(null);
   const captionsRendererRef = React.useRef<CaptionsRenderer | null>(null);
   const contextRef = React.useRef(playbackContext);
   const preferencesRef = React.useRef(playbackContext?.preferences);
@@ -310,6 +326,32 @@ export const PlayerPage: React.FC = () => {
   const activeMediaKey = `${animationId ?? ""}\u0000${file ?? ""}`;
   const activeMediaKeyRef = React.useRef(activeMediaKey);
   activeMediaKeyRef.current = activeMediaKey;
+
+  const retainPlaybackForReload = React.useCallback(() => {
+    const art = artRef.current;
+    if (
+      !art ||
+      playbackReloadRef.current?.mediaKey === activeMediaKeyRef.current
+    )
+      return;
+    playbackReloadRef.current = {
+      mediaKey: activeMediaKeyRef.current,
+      position: !initialSeekAppliedRef.current
+        ? contextRef.current?.state?.isWatched
+          ? 0
+          : (contextRef.current?.state?.positionSeconds ?? 0)
+        : Number.isFinite(art.currentTime)
+          ? art.currentTime
+          : 0,
+      playing: wantsPlaybackRef.current,
+      rate: art.playbackRate,
+      volume: art.volume,
+      muted: art.muted,
+      audio: selectedAudioRef.current,
+    };
+    initialSeekAppliedRef.current = false;
+    audioSelectionInitializedRef.current = false;
+  }, []);
 
   const subtitleSignature =
     playbackContext?.subtitles
@@ -348,12 +390,18 @@ export const PlayerPage: React.FC = () => {
         contextRef.current = undefined;
         preferencesRef.current = undefined;
         lastSyncedTimeRef.current = -1;
+        sourceRefreshRef.current = null;
+        playbackReloadRef.current = null;
         artRef.current?.pause();
       }),
     [],
   );
 
   React.useEffect(() => {
+    setForceHls(false);
+    sourceExpiresAtRef.current = 0;
+    playbackReloadRef.current = null;
+    wantsPlaybackRef.current = shouldAutoplay;
     setExternalPlaybackUrl(null);
     setPlaybackUrl(null);
     setPlaybackMode("native");
@@ -367,6 +415,7 @@ export const PlayerPage: React.FC = () => {
     setSelectedSubtitle(OFF_TRACK);
     setAudioTracks([]);
     setSelectedAudio("preference:auto");
+    selectedAudioRef.current = null;
     setLinkError(null);
     lastSyncedTimeRef.current = -1;
     initialSeekAppliedRef.current = false;
@@ -382,52 +431,135 @@ export const PlayerPage: React.FC = () => {
     let cancelServerUrl: string | null = null;
     let serverKeepAliveTimer: ReturnType<typeof globalThis.setInterval> | null =
       null;
+    let sourceRefreshTimer: ReturnType<typeof globalThis.setTimeout> | null =
+      null;
+    let refreshInFlight: Promise<void> | null = null;
+    let usesOriginalSource = !forceHls;
+    const identityKey = getAuthIdentityKey();
     const controller = new AbortController();
     setLinkLoading(true);
     setLinkError(null);
     setMkvStatus(null);
     setSubtitleDiscoveryComplete(false);
 
+    const isCurrent = () =>
+      !cancelled &&
+      identityKey !== null &&
+      identityKey === getAuthIdentityKey();
+    const loadSourceLinks = async () => {
+      const [videoLink, subtitleLinks] = await Promise.all([
+        generatePlaybackLink(
+          animationId,
+          playbackContext.media.path,
+          controller.signal,
+        ),
+        Promise.all(
+          playbackContext.subtitles.map(async (subtitle) => ({
+            ...subtitle,
+            source: "external" as const,
+            ...(await generatePlaybackLink(
+              animationId,
+              subtitle.path,
+              controller.signal,
+            )),
+          })),
+        ),
+      ]);
+      return { videoLink, subtitleLinks };
+    };
+    const scheduleSourceRefresh = (expiresAt?: string | null) => {
+      if (sourceRefreshTimer !== null)
+        globalThis.clearTimeout(sourceRefreshTimer);
+      const expires = expiresAt ? Date.parse(expiresAt) : NaN;
+      sourceExpiresAtRef.current = Number.isFinite(expires)
+        ? expires
+        : Date.now() + 5 * 60 * 1000;
+      // Renew before expiry; visibility/play events also recover suspended tabs.
+      const delay = Math.max(
+        1000,
+        (sourceExpiresAtRef.current - Date.now()) * 0.8,
+      );
+      sourceRefreshTimer = globalThis.setTimeout(
+        () => void refreshSourceLinks(),
+        delay,
+      );
+    };
+    const refreshSourceLinks = (): Promise<void> => {
+      if (!isCurrent()) return Promise.resolve();
+      if (refreshInFlight) return refreshInFlight;
+      refreshInFlight = (async () => {
+        try {
+          const { videoLink, subtitleLinks } = await loadSourceLinks();
+          if (!isCurrent()) return;
+          setExternalPlaybackUrl(videoLink.externalUrl ?? null);
+          setSubtitles((current) => [
+            ...subtitleLinks,
+            ...current.filter((subtitle) => subtitle.source === "embedded"),
+          ]);
+          if (usesOriginalSource) {
+            retainPlaybackForReload();
+            setPlaybackUrl(videoLink.url);
+          }
+          scheduleSourceRefresh(videoLink.expiresAt);
+        } catch (error) {
+          if (isAbortError(error) || !isCurrent()) return;
+          // A transient failure must not discard the still-valid buffered media.
+          sourceRefreshTimer = globalThis.setTimeout(
+            () => void refreshSourceLinks(),
+            5000,
+          );
+        } finally {
+          refreshInFlight = null;
+        }
+      })();
+      return refreshInFlight;
+    };
+    sourceRefreshRef.current = refreshSourceLinks;
+    const onSourceVisibility = () => {
+      if (
+        document.visibilityState === "visible" &&
+        sourceExpiresAtRef.current <= Date.now() + 5000
+      )
+        void refreshSourceLinks();
+    };
+    document.addEventListener("visibilitychange", onSourceVisibility);
+    const unsubscribeIdentity = subscribeToAuthChanges(() => {
+      if (identityKey !== getAuthIdentityKey()) controller.abort();
+    });
+
     const preparePlayback = async () => {
       let generatedLinks = false;
       try {
-        const [videoLink, subtitleLinks] = await Promise.all([
-          generatePlaybackLink(animationId, playbackContext.media.path),
-          Promise.all(
-            playbackContext.subtitles.map(async (subtitle) => ({
-              ...subtitle,
-              source: "external" as const,
-              url: (await generatePlaybackLink(animationId, subtitle.path)).url,
-            })),
-          ),
-        ]);
-        if (cancelled) return;
+        const { videoLink, subtitleLinks } = await loadSourceLinks();
+        if (!isCurrent()) return;
 
         generatedLinks = true;
         setExternalPlaybackUrl(videoLink.externalUrl ?? null);
         setSubtitles(subtitleLinks);
+        scheduleSourceRefresh(videoLink.expiresAt);
 
-        if (!isMkvPath(playbackContext.media.path)) {
+        if (!forceHls && !isMkvPath(playbackContext.media.path)) {
           setPlaybackMode("native");
           setPlaybackUrl(videoLink.url);
           setSubtitleDiscoveryComplete(true);
           return;
         }
 
-        setMkvStatus({ stage: "probing" });
         let probe: MkvPlaybackProbe | null = null;
-        const { probeMkvPlayback } = await import("../playback/mkv/support");
-        try {
-          probe = await probeMkvPlayback(videoLink.url, controller.signal);
-        } catch (error) {
-          if (isAbortError(error)) throw error;
-          // A server/probe incompatibility should still get a chance to use
-          // the server-side probe and streaming fallback.
+        if (!forceHls) {
+          setMkvStatus({ stage: "probing" });
+          const { probeMkvPlayback } = await import("../playback/mkv/support");
+          try {
+            probe = await probeMkvPlayback(videoLink.url, controller.signal);
+          } catch (error) {
+            if (isAbortError(error)) throw error;
+            // Failed browser probing can still use the server-side fallback.
+          }
         }
-        if (cancelled) return;
+        if (!isCurrent()) return;
         setMkvProbe(probe);
 
-        if (chooseMkvPlaybackPlan(probe) === "mkvProxy") {
+        if (!forceHls && chooseMkvPlaybackPlan(probe) === "mkvProxy") {
           setPlaybackMode("mkvProxy");
           setPlaybackUrl(videoLink.url);
           setLinkLoading(false);
@@ -447,7 +579,7 @@ export const PlayerPage: React.FC = () => {
                 }
               },
             });
-            if (cancelled) {
+            if (!isCurrent()) {
               extracted.cleanup();
               return;
             }
@@ -464,7 +596,10 @@ export const PlayerPage: React.FC = () => {
                 url: track.url,
               }),
             );
-            setSubtitles([...subtitleLinks, ...embeddedSubtitles]);
+            setSubtitles((current) => [
+              ...current.filter((subtitle) => subtitle.source === "external"),
+              ...embeddedSubtitles,
+            ]);
           } catch (error) {
             if (!isAbortError(error) && !cancelled) {
               addToast({
@@ -481,6 +616,7 @@ export const PlayerPage: React.FC = () => {
           return;
         }
 
+        usesOriginalSource = false;
         const initialSession = await prepareServerTranscoding(
           {
             id: animationId,
@@ -490,6 +626,7 @@ export const PlayerPage: React.FC = () => {
             audioTrackLabel: playbackContext.preferences.audioTrackLabel,
             subtitleLanguage: playbackContext.preferences.subtitleLanguage,
             subtitleTrackLabel: playbackContext.preferences.subtitleTrackLabel,
+            forceHls,
           },
           controller.signal,
         );
@@ -498,14 +635,14 @@ export const PlayerPage: React.FC = () => {
           initialSession,
           controller.signal,
           (session) => {
-            if (cancelled) return;
+            if (!isCurrent()) return;
             cancelServerUrl = session.cancelUrl;
             setServerStrategy(session.strategy);
             setServerCacheHit(session.cacheHit);
             setSkippedSubtitleCount(session.unsupportedSubtitleCount);
             if (session.subtitles.length > 0) {
-              setSubtitles([
-                ...subtitleLinks,
+              setSubtitles((current) => [
+                ...current.filter((subtitle) => subtitle.source === "external"),
                 ...session.subtitles.map((subtitle) => ({
                   ...subtitle,
                   source: "embedded" as const,
@@ -542,7 +679,7 @@ export const PlayerPage: React.FC = () => {
             });
           },
         );
-        if (!cancelled) {
+        if (isCurrent()) {
           serverKeepAliveTimer = globalThis.setInterval(
             () => {
               void touchServerTranscoding(
@@ -572,6 +709,12 @@ export const PlayerPage: React.FC = () => {
     return () => {
       cancelled = true;
       controller.abort();
+      unsubscribeIdentity();
+      document.removeEventListener("visibilitychange", onSourceVisibility);
+      if (sourceRefreshRef.current === refreshSourceLinks)
+        sourceRefreshRef.current = null;
+      if (sourceRefreshTimer !== null)
+        globalThis.clearTimeout(sourceRefreshTimer);
       releasePreparedMedia?.();
       if (serverKeepAliveTimer !== null) {
         globalThis.clearInterval(serverKeepAliveTimer);
@@ -584,6 +727,8 @@ export const PlayerPage: React.FC = () => {
     subtitleSignature,
     addToast,
     i18n,
+    forceHls,
+    retainPlaybackForReload,
   ]);
 
   React.useEffect(() => {
@@ -700,6 +845,10 @@ export const PlayerPage: React.FC = () => {
         pendingProgressRef.current = null;
         return;
       }
+      // Reloading a renewed URL or waiting for an HLS resume target must not
+      // persist the new element's temporary zero position.
+      if (playbackReloadRef.current !== null || !initialSeekAppliedRef.current)
+        return;
       const art = artRef.current;
       const context = contextRef.current;
       if (!art || !context) return;
@@ -781,6 +930,13 @@ export const PlayerPage: React.FC = () => {
 
     let hls: Hls | null = null;
     let disposed = false;
+    // These belong to this player instance even if durationchange consumes the
+    // shared resume snapshot before loadedmetadata arrives.
+    const reloadSnapshot =
+      playbackReloadRef.current?.mediaKey === activeMediaKeyRef.current
+        ? playbackReloadRef.current
+        : null;
+    const isReload = reloadSnapshot !== null;
     const art = new Artplayer({
       container: playerContainerRef.current,
       url: playbackUrl,
@@ -825,7 +981,7 @@ export const PlayerPage: React.FC = () => {
             })
           : undefined,
       lang: artplayerLang,
-      autoplay: shouldAutoplay,
+      autoplay: isReload ? false : shouldAutoplay,
       fullscreen: true,
       fullscreenWeb: true,
       pip: playbackMode !== "mkvProxy",
@@ -864,6 +1020,29 @@ export const PlayerPage: React.FC = () => {
     const applyInitialSeek = () => {
       const context = contextRef.current;
       if (!context || initialSeekAppliedRef.current) return;
+      const reload = playbackReloadRef.current;
+      if (reload?.mediaKey === activeMediaKeyRef.current) {
+        const duration = art.duration;
+        if (
+          !Number.isFinite(duration) ||
+          duration <= 0 ||
+          (playbackMode === "hls" && reload.position >= duration)
+        )
+          return;
+        art.currentTime = Math.min(reload.position, duration);
+        art.playbackRate = reload.rate;
+        art.volume = reload.volume;
+        art.muted = reload.muted;
+        initialSeekAppliedRef.current = true;
+        playbackReloadRef.current = null;
+        wantsPlaybackRef.current = reload.playing;
+        if (reload.playing) {
+          void art.play().catch(() => {
+            art.notice.show = i18n.t("player:next.autoplayBlocked");
+          });
+        }
+        return;
+      }
       const resumeAt = context.state?.positionSeconds ?? 0;
       const duration = art.duration;
       if (
@@ -902,13 +1081,32 @@ export const PlayerPage: React.FC = () => {
       );
       setAudioTracks(discoveredTracks);
       if (!audioSelectionInitializedRef.current) {
-        const choice = chooseAudioTrack(
+        const available =
           discoveredTracks.length > 0
             ? discoveredTracks
-            : preferenceAudioOptions,
-          context.preferences,
-        );
+            : preferenceAudioOptions;
+        const previousAudio = reloadSnapshot?.audio;
+        const restoredAudio = previousAudio
+          ? (available.find((track) => track.key === previousAudio.key) ??
+            available.find(
+              (track) =>
+                track.label === previousAudio.label &&
+                track.language === previousAudio.language,
+            ) ??
+            (previousAudio.language
+              ? available.find(
+                  (track) => track.language === previousAudio.language,
+                )
+              : undefined))
+          : undefined;
+        const choice =
+          restoredAudio ??
+          chooseAudioTrack(
+            available,
+            preferencesRef.current ?? context.preferences,
+          );
         if (choice) {
+          selectedAudioRef.current = choice;
           setSelectedAudio(choice.key);
           if (choice.trackIndex != null) {
             const nativeTracks = (art.video as VideoWithAudioTracks)
@@ -923,7 +1121,7 @@ export const PlayerPage: React.FC = () => {
         audioSelectionInitializedRef.current = true;
       }
 
-      if (shouldAutoplay) {
+      if (shouldAutoplay && !isReload) {
         void art.play().catch(() => {
           art.notice.show = i18n.t("player:next.autoplayBlocked");
         });
@@ -934,13 +1132,46 @@ export const PlayerPage: React.FC = () => {
       if (captionsRenderer) captionsRenderer.currentTime = art.currentTime;
       persistCurrentProgressRef.current(false);
     };
-    const onPause = () => persistCurrentProgressRef.current(true);
+    const onPlay = () => {
+      wantsPlaybackRef.current = true;
+      if (
+        playbackMode !== "hls" &&
+        sourceExpiresAtRef.current <= Date.now() + 5000
+      )
+        void sourceRefreshRef.current?.();
+    };
+    const onPause = () => {
+      if (!disposed && !art.video.error && playbackReloadRef.current === null)
+        wantsPlaybackRef.current = false;
+      persistCurrentProgressRef.current(true);
+    };
+    const onPlaybackError = () => {
+      if (disposed || artRef.current !== art || !contextRef.current) return;
+      if (
+        playbackMode !== "hls" &&
+        sourceExpiresAtRef.current <= Date.now() + 5000
+      ) {
+        void sourceRefreshRef.current?.();
+        return;
+      }
+      const code = art.video.error?.code;
+      if (
+        playbackMode === "native" &&
+        !forceHlsRef.current &&
+        (code === 3 || code === 4)
+      ) {
+        retainPlaybackForReload();
+        setForceHls(true);
+      }
+    };
     const onSeeked = () => {
       if (captionsRenderer) captionsRenderer.currentTime = art.currentTime;
       persistCurrentProgressRef.current(true);
       if (skippedEndingRef.current) skippedEndingRef.current.seeked = true;
     };
     const onEnded = () => {
+      if (playbackReloadRef.current !== null || !initialSeekAppliedRef.current)
+        return;
       persistCurrentProgressRef.current(true);
       const context = contextRef.current;
       if (context?.preferences.autoPlayNext && context.next) {
@@ -957,6 +1188,8 @@ export const PlayerPage: React.FC = () => {
     art.on("video:loadedmetadata", onLoadedMetadata);
     art.on("video:durationchange", applyInitialSeek);
     art.on("video:timeupdate", onTimeUpdate);
+    art.on("video:play", onPlay);
+    art.on("video:error", onPlaybackError);
     art.on("video:pause", onPause);
     art.on("video:seeked", onSeeked);
     art.on("video:ended", onEnded);
@@ -984,6 +1217,7 @@ export const PlayerPage: React.FC = () => {
     i18n,
     navigate,
     shouldAutoplay,
+    retainPlaybackForReload,
   ]);
 
   React.useEffect(() => {
@@ -1044,7 +1278,7 @@ export const PlayerPage: React.FC = () => {
       .catch(() => {
         addToast({ title: t("tracks.subtitleLoadFailed"), color: "warning" });
       });
-  }, [addToast, playbackMode, selectedSubtitle, subtitles, t]);
+  }, [addToast, playbackMode, playbackUrl, selectedSubtitle, subtitles, t]);
 
   const flushPreferenceQueue = React.useCallback(async () => {
     if (preferenceSaveRunningRef.current) return;
@@ -1153,6 +1387,7 @@ export const PlayerPage: React.FC = () => {
       setSelectedAudio(key);
       const choice = displayAudioTracks.find((track) => track.key === key);
       if (!choice) return;
+      selectedAudioRef.current = choice;
 
       if (choice.trackIndex != null) {
         const nativeTracks = (artRef.current?.video as VideoWithAudioTracks)

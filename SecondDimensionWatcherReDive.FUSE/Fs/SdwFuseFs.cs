@@ -264,6 +264,12 @@ internal sealed unsafe partial class SdwFuseFs
 
     private void FillStat(LinuxStat* statPtr, VfsEntry entry)
     {
+        if (RuntimeInformation.ProcessArchitecture == Architecture.Arm64)
+        {
+            FillArm64Stat((LinuxArm64Stat*)statPtr, entry);
+            return;
+        }
+
         Unsafe.InitBlockUnaligned(statPtr, 0, (uint)sizeof(LinuxStat));
         if (entry.IsDirectory)
         {
@@ -282,6 +288,26 @@ internal sealed unsafe partial class SdwFuseFs
         statPtr->st_uid = _uid;
         statPtr->st_gid = _gid;
 
+        if (entry.LastModifiedUtc is { } mtime)
+        {
+            var sec = mtime.ToUnixTimeSeconds();
+            statPtr->st_mtime_sec = sec;
+            statPtr->st_atime_sec = sec;
+            statPtr->st_ctime_sec = sec;
+        }
+    }
+
+    private void FillArm64Stat(LinuxArm64Stat* statPtr, VfsEntry entry)
+    {
+        Unsafe.InitBlockUnaligned(statPtr, 0, (uint)sizeof(LinuxArm64Stat));
+        statPtr->st_mode = entry.IsDirectory
+            ? LinuxFileMode.DirectoryReadOnly : LinuxFileMode.FileReadOnly;
+        statPtr->st_nlink = entry.IsDirectory ? 2u : 1u;
+        statPtr->st_size = entry.IsDirectory ? 0 : entry.Size ?? 0;
+        statPtr->st_blksize = entry.IsDirectory ? 0 : 4096;
+        statPtr->st_blocks = (statPtr->st_size + 511) / 512;
+        statPtr->st_uid = _uid;
+        statPtr->st_gid = _gid;
         if (entry.LastModifiedUtc is { } mtime)
         {
             var sec = mtime.ToUnixTimeSeconds();

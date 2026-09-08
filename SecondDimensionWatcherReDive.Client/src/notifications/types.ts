@@ -1,7 +1,8 @@
 export interface NotificationDelivery {
   id: string;
   eventId: string;
-  channel: "Webhook" | "WebPush";
+  channel: "Webhook" | "WebPush" | "Plugin";
+  target?: string | null;
   type: string;
   status: "Pending" | "Processing" | "Delivered" | "Failed";
   attemptCount: number;

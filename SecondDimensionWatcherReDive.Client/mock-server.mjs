@@ -2323,20 +2323,30 @@ async function route(method, pathname, searchParams, req, res) {
     const webPushReady =
       systemSettings.notifications.webPushEnabled &&
       webPushSubscriptions.length > 0;
-    if (!webhookReady && !webPushReady)
+    const pluginTargets = mockPlugins
+      .filter((plugin) => plugin.isEnabled && plugin.compatibilityErrors.length === 0)
+      .flatMap((plugin) => plugin.manifest.providers
+        .filter((provider) => provider.kind === "notification")
+        .map((provider) => ({
+          channel: "Plugin",
+          target: `plugin:${plugin.manifest.id}:${provider.name}`,
+        })));
+    if (!webhookReady && !webPushReady && pluginTargets.length === 0)
       return json(res, { message: "Configure a destination first" }, 409);
     const eventId = randomUUID();
     const channels = [
-      ...(webhookReady ? ["Webhook"] : []),
+      ...(webhookReady ? [{ channel: "Webhook", target: null }] : []),
       ...webPushSubscriptions
         .filter(() => webPushReady)
-        .map(() => "WebPush"),
+        .map(() => ({ channel: "WebPush", target: null })),
+      ...pluginTargets,
     ];
     notificationDeliveries.unshift(
-      ...channels.map((channel, index) => ({
+      ...channels.map(({ channel, target }, index) => ({
         id: index === 0 ? eventId : randomUUID(),
         eventId,
         channel,
+        target,
         type: "test",
         status: "Delivered",
         attemptCount: 1,
@@ -3823,7 +3833,11 @@ async function route(method, pathname, searchParams, req, res) {
         "Set-Cookie",
         `sdw-mock-playback=${randomBytes(32).toString("base64url")}; HttpOnly; SameSite=Strict; Path=/api/file/play`,
       );
-      return json(res, { url: `/api/file/play/${resourceId}`, externalUrl: null });
+      return json(res, {
+        url: `/api/file/play/${resourceId}`,
+        externalUrl: null,
+        expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+      });
     });
   }
 

@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc;
 using SecondDimensionWatcherReDive.Controllers.External;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Framework.Notifications;
+using SecondDimensionWatcherReDive.PluginPlatform;
 
 namespace SecondDimensionWatcherReDive.Controllers;
 
@@ -15,6 +16,7 @@ internal sealed class NotificationsController(
     INotificationPublisher publisher,
     INotificationOutboxRepository outboxRepository,
     IConfiguration configuration,
+    IPluginProviderRegistry pluginProviders,
     IWebPushSubscriptionRepository? webPushSubscriptions = null) : ControllerBase
 {
     [HttpPost("test")]
@@ -29,18 +31,19 @@ internal sealed class NotificationsController(
                            && !string.IsNullOrWhiteSpace(
                                configuration["Notifications:WebPush:VapidPublicKey"])
                            && (await webPushSubscriptions.GetAllAsync(cancellationToken)).Count > 0;
-        if (!webhookReady && !webPushReady)
+        var pluginReady = pluginProviders.GetNotificationTargets().Any(target => target.AcceptsNotifications);
+        if (!webhookReady && !webPushReady && !pluginReady)
             return Conflict(new { message = "Enable and configure at least one notification destination first." });
 
         var id = Guid.NewGuid();
-        var enqueued = await publisher.PublishAsync(new NotificationEvent(
+        var outcome = await publisher.PublishDurablyAsync(new NotificationEvent(
             NotificationEventType.Test,
             $"test:{id}",
             "SecondDimensionWatcher Re:Dive test",
             "Your notification channel is configured correctly.",
             "/settings?section=notifications",
             Id: id), cancellationToken);
-        if (!enqueued)
+        if (outcome != NotificationPublicationOutcome.Persisted)
             return StatusCode(
                 StatusCodes.Status503ServiceUnavailable,
                 new { message = "The test notification could not be persisted." });
@@ -64,7 +67,8 @@ internal sealed class NotificationsController(
             item.OccurredAt,
             item.LastAttemptAt,
             item.DeliveredAt,
-            item.LastError)).ToList());
+            item.LastError,
+            item.PluginProviderId)).ToList());
     }
 
     private static string ToJsonName(NotificationEventType type)

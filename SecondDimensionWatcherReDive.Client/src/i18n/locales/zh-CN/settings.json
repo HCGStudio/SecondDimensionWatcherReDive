@@ -231,7 +231,8 @@
         "empty": "还没有投递记录。",
         "channel": {
           "Webhook": "Webhook",
-          "WebPush": "Web Push"
+          "WebPush": "Web Push",
+          "Plugin": "插件"
         },
         "status": {
           "Pending": "等待中",
@@ -239,6 +240,14 @@
           "Delivered": "已投递",
           "Failed": "已失败"
         }
+      },
+      "plugins": {
+        "title": "插件通知",
+        "description": "已启用的兼容通知插件接收下方选中的事件，并遵循免打扰时段。停用期间保留已排队通知，重新启用后继续投递。",
+        "enabled": "已启用",
+        "disabled": "未启用或不兼容",
+        "empty": "尚未安装通知插件。",
+        "manage": "管理插件"
       }
     },
     "access": {

@@ -49,11 +49,11 @@ internal sealed partial class FfmpegProcessRunner(
             "-read_intervals", "%+#32",
             "-show_format",
             "-show_streams",
-            "-of", "json",
-            "-i", "pipe:0");
+            "-of", "json");
+        AddMediaInput(startInfo, source);
 
         using var process = Start(startInfo);
-        var pumpTask = PumpInputAsync(process, source, cancellationToken);
+        var pumpTask = SupplyInputAsync(process, source, cancellationToken);
         var outputTask = process.StandardOutput.ReadToEndAsync();
         var errorTask = process.StandardError.ReadToEndAsync();
         try
@@ -112,7 +112,7 @@ internal sealed partial class FfmpegProcessRunner(
         AddArguments(startInfo, "-hide_banner", "-y");
         if (useHardwareEncoder)
             foreach (var argument in _options.HardwareInputArguments) startInfo.ArgumentList.Add(argument);
-        AddArguments(startInfo, "-i", "pipe:0");
+        AddMediaInput(startInfo, source);
         if (plan.BitmapSubtitleToBurn is null)
             AddArguments(startInfo, "-map", $"0:{plan.Video.Index}");
 
@@ -200,8 +200,9 @@ internal sealed partial class FfmpegProcessRunner(
         TryDelete(temporaryPath);
         var startInfo = CreateStartInfo(_options.FfmpegPath, redirectOutput: false);
         AddArguments(startInfo,
-            "-hide_banner", "-y",
-            "-i", "pipe:0",
+            "-hide_banner", "-y");
+        AddMediaInput(startInfo, source);
+        AddArguments(startInfo,
             "-threads", _options.MaxThreadsPerJob.ToString(CultureInfo.InvariantCulture),
             "-nostats",
             "-map", $"0:{subtitle.Index}",
@@ -246,7 +247,7 @@ internal sealed partial class FfmpegProcessRunner(
         double? lastProcessedSeconds = null;
         var firstSegmentReady = 0;
         string? resourceViolation = null;
-        var pumpTask = PumpInputAsync(process, source, cancellationToken);
+        var pumpTask = SupplyInputAsync(process, source, cancellationToken);
         var errorTask = Task.Run(async () =>
         {
             while (await process.StandardError.ReadLineAsync(cancellationToken) is { } line)
@@ -360,6 +361,29 @@ internal sealed partial class FfmpegProcessRunner(
     private static void AddArguments(ProcessStartInfo startInfo, params string[] arguments)
     {
         foreach (var argument in arguments) startInfo.ArgumentList.Add(argument);
+    }
+
+    private static string GetInputLocation(Stream source) => source switch
+    {
+        ScopeOwnedStream { LinuxFileDescriptorPath: { } path } => path,
+        FileStream file => ScopeOwnedStream.GetLinuxFileDescriptorPath(file) ?? "pipe:0",
+        _ => "pipe:0"
+    };
+
+    private static void AddMediaInput(ProcessStartInfo startInfo, Stream source) =>
+        AddArguments(startInfo,
+            "-protocol_whitelist", "file,pipe",
+            "-format_whitelist", "matroska,webm,mov,mp4,m4a,3gp,3g2,mj2,avi,asf,flv,mpegts,mpeg,mpegvideo",
+            "-i", GetInputLocation(source));
+
+    private static Task SupplyInputAsync(Process process, Stream source, CancellationToken cancellationToken)
+    {
+        // MP4/MOV often store their index at the end. Linux's descriptor path
+        // preserves the provider-opened inode while letting FFmpeg seek. Other
+        // hosts/providers retain streaming input rather than reopening a name.
+        if (GetInputLocation(source) == "pipe:0") return PumpInputAsync(process, source, cancellationToken);
+        process.StandardInput.Close();
+        return Task.CompletedTask;
     }
 
     private static async Task PumpInputAsync(

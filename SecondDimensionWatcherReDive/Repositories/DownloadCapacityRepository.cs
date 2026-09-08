@@ -8,6 +8,13 @@ namespace SecondDimensionWatcherReDive.Repositories;
 
 public sealed class DownloadCapacityRepository([FromKeyedServices("capacity")] Models.ApplicationContext context) : IDownloadCapacityRepository
 {
+    public async Task<IReadOnlyList<DownloadCapacityAttempt>> GetActiveAttemptsAsync(CancellationToken cancellationToken) =>
+        await (from entry in context.Set<Entry>().AsNoTracking()
+               join info in context.AnimationInfo.AsNoTracking() on entry.ItemId equals info.Id
+               where info.IsDownloadTracked && !info.IsDownloadFinished
+               select new DownloadCapacityAttempt(info.Id, info.DownloadAttemptId, info.DownloadCancellationId != null))
+            .ToListAsync(cancellationToken);
+
     public async Task RecoverTrackedAsync(CancellationToken cancellationToken)
     {
         // Rebuild reservations for downloads submitted before this feature (or

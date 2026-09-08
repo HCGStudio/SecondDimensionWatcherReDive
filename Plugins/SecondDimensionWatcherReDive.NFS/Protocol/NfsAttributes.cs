@@ -95,7 +95,7 @@ internal static class NfsAttributes
                 writer.WriteUInt32(NfsConstants.Fh4Persistent);
                 break;
             case NfsConstants.FattrChange:
-                writer.WriteUInt64((ulong)source.MTime.UtcTicks);
+                writer.WriteUInt64(source.ChangeId ?? (ulong)source.MTime.UtcTicks);
                 break;
             case NfsConstants.FattrSize:
                 writer.WriteUInt64((ulong)source.Size);
