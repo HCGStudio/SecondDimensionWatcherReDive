@@ -1772,6 +1772,8 @@ async function route(method, pathname, searchParams, req, res) {
     return empty(res, 401);
   }
 
+  if (pathname === "/api/download-capacity" && method === "GET") return json(res, []);
+
   if (pathname === "/api/accounts/profiles" && method === "GET") return json(res, mockProfiles);
   if (pathname === "/api/accounts/profiles" && method === "POST") {
     const body = await readBody(req);

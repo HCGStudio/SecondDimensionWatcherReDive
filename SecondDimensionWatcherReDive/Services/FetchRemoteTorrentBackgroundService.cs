@@ -35,11 +35,18 @@ public partial class FetchRemoteTorrentBackgroundService(
         await using var scope = scopeFactory.CreateAsyncScope();
         var animationInfoRepository = scope.ServiceProvider.GetRequiredService<IAnimationInfoRepository>();
 
+        var capacity = scope.ServiceProvider.GetService<IDownloadCapacityRepository>();
+        var waiting = capacity is null ? new HashSet<Guid>() :
+            (await capacity.ListAsync(cancellationToken)).Where(entry => entry.State != "Submitted")
+            .Select(entry => entry.ItemId).ToHashSet();
         await foreach (var info in animationInfoRepository.GetUnfinishedTorrentDownloadsAsync(cancellationToken))
+        {
+            if (waiting.Contains(info.Id)) continue;
             yield return new RemoteTorrentTrackRequest(
                 info.Id,
                 info.AdditionalDownloadInfo,
                 DownloadAttemptId: info.DownloadAttemptId);
+        }
     }
 
     private async Task<RemoteTorrentTrackRequest?> BindCurrentAttemptAsync(
@@ -57,14 +64,19 @@ public partial class FetchRemoteTorrentBackgroundService(
                 StringComparison.OrdinalIgnoreCase))
             return null;
 
+        if (scope.ServiceProvider.GetService<IDownloadCapacityRepository>() is { } capacity)
+        {
+            var queued = (await capacity.ListAsync(cancellationToken)).FirstOrDefault(entry => entry.ItemId == info.Id);
+            if (queued is not null && queued.State != "Submitted") return null;
+        }
         return request with { DownloadAttemptId = info.DownloadAttemptId };
     }
 
     protected override async Task ExecuteAsync(CancellationToken cancellationToken)
     {
         var reader = remoteTorrentTrackRequest.Reader;
-        var tracked = new ConcurrentDictionary<string, RemoteTorrentTrackRequest>();
-        var observations = new ConcurrentDictionary<string, DownloadObservation>();
+        var tracked = new ConcurrentDictionary<string, RemoteTorrentTrackRequest>(StringComparer.OrdinalIgnoreCase);
+        var observations = new ConcurrentDictionary<string, DownloadObservation>(StringComparer.OrdinalIgnoreCase);
         var nextDatabaseRefreshAt = DateTimeOffset.MinValue;
 
         while (!cancellationToken.IsCancellationRequested)
@@ -75,8 +87,19 @@ public partial class FetchRemoteTorrentBackgroundService(
                 {
                     // Periodic refresh recovers requests whose initial channel
                     // binding happened during a temporary database outage.
+                    var recovered = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                     await foreach (var request in FetchUnfinishedTaskFromDb(cancellationToken))
+                    {
+                        recovered.Add(request.Hash);
                         tracked[request.Hash] = request;
+                    }
+                    // A tracked attempt can return to the capacity queue. Only
+                    // reconcile removals after a complete successful DB refresh.
+                    foreach (var hash in tracked.Keys.Where(hash => !recovered.Contains(hash)))
+                    {
+                        tracked.TryRemove(hash, out _);
+                        observations.TryRemove(hash, out _);
+                    }
                     nextDatabaseRefreshAt = DateTimeOffset.UtcNow.AddSeconds(30);
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

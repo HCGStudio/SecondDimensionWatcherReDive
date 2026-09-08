@@ -91,5 +91,44 @@
     "watched": "已看",
     "progress": "已看 {{watched}}/{{total}}",
     "summary": "共 {{total}} 个视频，已看 {{watched}} 个"
+  },
+  "capacity": {
+    "title": "容量等待队列",
+    "description": "未暂停的任务按加入顺序处理。开启容量检查时，空间恢复后自动继续；大小未知需更正资源大小、取消原任务后重新提交。取消不会删除已下载媒体。",
+    "loadFailed": "无法加载容量队列",
+    "actionFailed": "操作失败，请重试。",
+    "paused": "已暂停",
+    "unknownSize": "大小未知",
+    "size": "预计 {{size}} GiB",
+    "pause": "暂停等待",
+    "resume": "继续等待",
+    "cancel": "取消任务",
+    "states": {
+      "Waiting": "排队中",
+      "Reserved": "准备提交",
+      "Submitted": "已提交下载",
+      "Failed": "提交失败",
+      "Unknown": "状态未知"
+    },
+    "reasons": {
+      "assessingCapacity": "正在评估可用容量。",
+      "queuedForSubmission": "容量检查已关闭，未暂停的任务将自动提交到下载器。",
+      "waitingForCapacity": "可用空间不足。空间恢复后，未暂停的任务会自动继续。",
+      "unknownSize": "无法确认资源大小。请更正资源大小、取消原任务后重新提交。",
+      "storageUnavailable": "暂时无法确认存储容量。请管理员检查下载器连接、实际写入卷的共享挂载与容量配置，并关闭下载器的独立未完成目录。恢复后，未暂停的任务会自动重新评估。",
+      "downloaderUnavailable": "暂时无法确认下载器状态。请管理员检查下载器连接；连接恢复后，未暂停的任务会自动核对状态并继续处理。",
+      "resubmitting": "正在重新评估容量，以便重新提交下载。",
+      "preparingSubmission": "容量已预留，正在准备提交下载。",
+      "submissionUncertain": "尚未确认提交结果。系统会保留预留容量并自动核对下载器状态，请勿重复提交。",
+      "downloading": "下载器正在处理此任务。",
+      "reconciling": "正在核对下载器中的任务，完成后会自动更新状态。",
+      "submissionRejected": "下载器拒绝了提交。请更正种子信息、取消原任务后重新提交。",
+      "unknown": "暂时无法确定原因，请稍后刷新。"
+    },
+    "pausedHints": {
+      "waiting": "等待中的任务暂停后不预留容量，也不阻挡其他等待任务；恢复后继续排队，并按当前设置处理。也可取消任务。",
+      "reserved": "若已预留容量，暂停期间仍会保留。可恢复或取消任务。",
+      "other": "任务已暂停，可恢复或取消任务。"
+    }
   }
 }
