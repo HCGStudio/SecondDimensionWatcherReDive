@@ -29,7 +29,7 @@ Windows 压缩包提供 `sdw-cli.exe` 与 `install-clis.ps1`，解压后由脚�
 
 `--config` 缺省时依次使用 `Config` 环境变量、已存在的 `/etc/sdw-redive/appsettings.yml` 或当前目录的 `appsettings.json`。`--working-directory` 指定旧应用进程的工作目录，用于保留密钥环、插件和缓存的旧相对状态路径；缺省为命令进程的当前目录。`--content-root` 指定旧主程序的 ContentRoot，用于读取相对 `PasswordFile` 或默认 `password.json`，缺省采用 `--working-directory`；相对值也以旧工作目录为基准。旧服务使用 `--contentRoot` 或 `ASPNETCORE_CONTENTROOT` 时，应把同一目录传给 CLI 的 `--content-root`。系统包服务的工作目录为 `/usr/lib/sdw-redive`，通用压缩包部署应填写原服务实际使用的目录。标准输入被重定向时也只允许静默迁移。
 
-迁移需要读取配置、其引用的旧密码文件，并写入目标配置所在目录。完整链成功后，执行器把原始配置保存为同目录的 `<文件名>.<时间戳>-<随机标识>.bak`，再以同目录临时文件原子替换配置。JSON/YAML 会重新序列化，原注释与排版保留在备份中；JSON 支持注释和尾逗号输入。原配置软链接保留，更新其最终目标文件。Unix 保留配置文件权限，Linux 还保留原所有者和组；新备份在 Unix 使用 `0600`。Windows 临时文件和备份从创建时即使用原配置的有效 DACL，并禁止继承目录中更宽的权限；最终替换保留原配置 ACL，无法保留元数据时迁移失败，不降级为普通覆盖。
+迁移需要读取配置、其引用的旧密码文件，并写入目标配置所在目录。完整链成功后，执行器把原始配置保存为同目录的 `<文件名>.<时间戳>-<随机标识>.bak`，再以同目录临时文件原子替换配置。JSON/YAML 会重新序列化，原注释与排版保留在备份中；JSON 支持注释和尾逗号输入。原配置软链接保留，更新其最终目标文件。Unix 保留配置文件权限，Linux 还保留原所有者、组及 POSIX 访问 ACL，并在写入前清除原文件不具备的目录继承 ACL；新备份在 Unix 使用 `0600`，不继承额外访问 ACL。Windows 临时文件和备份从创建时即使用原配置的有效 DACL，并禁止继承目录中更宽的权限；最终替换保留原配置 ACL，无法保留元数据时迁移失败，不降级为普通覆盖。
 
 同目录的 `<文件名>.migration.lock` 文件用于协调并发 CLI/启动迁移，执行结束后保留。写入前会核对配置是否仍与最初读取的内容一致；发生并发修改时退出并要求重试。
 
@@ -60,14 +60,14 @@ CLI 只呈现迁移必需的破坏性选择，例如同一设置同时存在互�
 
 | 旧配置 | 迁移后的配置 |
 |--------|--------------|
-| `Inference:Provider` | `AI:Provider` |
+| `Inference:Provider` | `AI:Provider`；名称仅大小写不同视为同一 Provider，密钥、模型等其他字段仍按原值区分 |
 | `Inference:ApiKey`、`BaseUrl`、`Model`、`MaxTokens` | 所选 `AI:OpenAI:*` 或 `AI:Anthropic:*` |
 | `Inference:RateLimitDelayMs` | 保留原位置与原值 |
 | 旧配置有效 Provider 为 OpenAI，或已包含 `AI:OpenAI` 子节 | 当前层和继承值均缺省 `ApiMode` 时显式保留 `ChatCompletions`；仅选择 Provider 而没有子节也适用，新配置的缺省协议为 `Responses` |
 | `PasswordFile` | 取旧密码文件父目录作为 `StateDirectory`，保留密钥环、插件和转码缓存的默认位置 |
 | `Password:Value` 或旧密码文件中的 BCrypt 哈希 | `Authentication:BootstrapPasswordHash` |
 
-同一份配置中的 `StateDirectory` 与旧密码文件父目录不一致，且仍有状态路径依赖隐式默认值时，迁移会要求选择。`legacy` 保留已有 `StateDirectory`，并把尚未明确配置的 `DataProtection:KeyRingPath`、`PluginPlatform:RootPath`、`Transcoding:CachePath` 显式指向旧目录下的对应位置；当前层或继承层中已经明确设置的路径保持原值。`current` 让隐式路径采用 `StateDirectory`，需要在重启前自行迁移对应状态文件。迁移器只修改配置，不移动密钥环、插件或缓存文件。
+同一份配置中的 `StateDirectory` 与旧密码文件父目录不一致，且仍有状态路径依赖隐式默认值时，迁移会要求选择。高优先级覆盖层显式设置 `StateDirectory` 时同样核验，不因已经继承 bootstrap 哈希或没有旧密码而跳过；未提供状态目录的覆盖层继续保留底层设置。`legacy` 保留已有 `StateDirectory`，并把尚未明确配置的 `DataProtection:KeyRingPath`、`PluginPlatform:RootPath`、`Transcoding:CachePath` 显式指向旧目录下的对应位置；当前层或继承层中已经明确设置的路径保持原值。`current` 让隐式路径采用 `StateDirectory`，需要在重启前自行迁移对应状态文件。迁移器只修改配置，不移动密钥环、插件或缓存文件。
 
 迁移后的主程序只读取当前配置结构，不再加载 `password.json` 或旧的 `Password`、`PasswordFile`、`Inference` 提供商字段。`Authentication:BootstrapPasswordHash` 只用于向数据库原子导入初始哈希；数据库已有密码时以数据库为准。新安装仍从网页注册管理员，无需填写此项。数据库中的旧家庭身份会在首次成功登录时继续迁移，此过程与配置结构迁移独立。
 
