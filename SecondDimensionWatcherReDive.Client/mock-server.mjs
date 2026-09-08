@@ -5,6 +5,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { handleCompletion } from "./mock-completion.mjs";
 import { handleMetadataRules, isMetadataRulePreviewCurrent } from "./mock-metadata-rules.mjs";
+import { handleWatchlistPlayback } from "./mock-watchlist-playback.mjs";
 
 const PORT = parseInt(process.env.MOCK_PORT ?? "5097", 10);
 
@@ -1765,7 +1766,8 @@ async function route(method, pathname, searchParams, req, res) {
   if (
     !hasAuth(req) &&
     !pathname.startsWith("/api/auth/") &&
-    !publicTranscodingSession
+    !publicTranscodingSession &&
+    !pathname.startsWith("/api/file/play/download/")
   ) {
     return empty(res, 401);
   }
@@ -2215,6 +2217,9 @@ async function route(method, pathname, searchParams, req, res) {
     }
     return empty(res, 204);
   }
+
+  if (await handleWatchlistPlayback({ req, res, method, pathname, searchParams, json, empty,
+    profileId: mockSessionFor(req).profileId, session: mockSessionFor(req), liveSessions: mockAccessSessions, vfsResolve })) return;
 
   // --- Playback continuity ---
 

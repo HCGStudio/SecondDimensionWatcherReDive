@@ -27,7 +27,9 @@
       "loadFailed": "无法加载该目录，请稍后重试。"
     },
     "download": {
-      "failed": "下载失败，请重试"
+      "failed": "下载失败，请重试",
+      "starting": "正在启动下载",
+      "handedOff": "已交给浏览器下载管理器；可在浏览器中查看进度或取消。"
     }
   },
   "webdav": {

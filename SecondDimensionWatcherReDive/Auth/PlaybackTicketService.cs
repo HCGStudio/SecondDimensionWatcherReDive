@@ -42,7 +42,9 @@ internal sealed class PlaybackTicketService
         string path,
         TimeSpan lifetime,
         Guid? identitySessionId = null,
-        Guid? profileId = null)
+        Guid? profileId = null,
+        string? mappingFingerprint = null,
+        string? purpose = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(userId);
         ArgumentException.ThrowIfNullOrWhiteSpace(accessTokenId);
@@ -51,11 +53,12 @@ internal sealed class PlaybackTicketService
             throw new ArgumentOutOfRangeException(nameof(lifetime));
 
         var expiresAt = _timeProvider.GetUtcNow().Add(lifetime);
-        // Every link generated concurrently from one access token receives the same session
-        // binding. Different login/refresh sessions cannot borrow each other's cookie.
-        var sessionId = _tokenHasher.Hash($"playback-session:{userId}:{accessTokenId}");
+        // All files in the same login/profile share a cookie binding, including after
+        // access-token refresh. Issuing another file must not break existing Range requests.
+        var sessionBinding = identitySessionId?.ToString() ?? accessTokenId;
+        var sessionId = _tokenHasher.Hash($"playback-session:{userId}:{sessionBinding}:{profileId}");
         var session = new PlaybackSessionTicket(userId, sessionId, expiresAt);
-        var resource = new PlaybackResourceTicket(path, userId, sessionId, expiresAt, identitySessionId, profileId);
+        var resource = new PlaybackResourceTicket(path, userId, sessionId, expiresAt, identitySessionId, profileId, mappingFingerprint, purpose);
 
         return new PlaybackTicketBundle(
             ProtectResource(resource),

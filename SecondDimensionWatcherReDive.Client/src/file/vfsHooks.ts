@@ -20,22 +20,26 @@ export async function downloadVfsFile(
 ): Promise<void> {
   const request = beginAuthBoundRequest();
   try {
-    const res = await fetch(`/api/vfs/read?path=${encodeURIComponent(path)}`, {
-      headers: { Authorization: `Bearer ${request.auth.token}` },
+    const link = await fetcher<{ url: string }>(
+      `/api/vfs/download-link?path=${encodeURIComponent(path)}`,
+      { method: "POST" },
+    );
+    if (!request.isCurrent()) throw new AuthIdentityChangedError();
+    // HEAD verifies the actual cookie-bound download entrance without buffering media.
+    const ready = await fetch(link.url, {
+      method: "HEAD",
+      credentials: "same-origin",
       signal: request.signal,
     });
     if (!request.isCurrent()) throw new AuthIdentityChangedError();
-    if (!res.ok) throw new Error(`${res.status}`);
-    const blob = await res.blob();
-    if (!request.isCurrent()) throw new AuthIdentityChangedError();
-    const url = URL.createObjectURL(blob);
+    if (!ready.ok) throw new Error(`${ready.status}`);
     const a = document.createElement("a");
-    a.href = url;
+    a.href = link.url;
     a.download = fileName;
+    a.rel = "noreferrer";
     document.body.appendChild(a);
     a.click();
     a.remove();
-    URL.revokeObjectURL(url);
   } finally {
     request.dispose();
   }
