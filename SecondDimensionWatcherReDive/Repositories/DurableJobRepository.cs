@@ -7,6 +7,11 @@ namespace SecondDimensionWatcherReDive.Repositories;
 public sealed class DurableJobRepository(Models.ApplicationContext context)
     : IDurableJobRepository
 {
+    public Task<DateTimeOffset?> GetNextPendingAttemptAtAsync(CancellationToken cancellationToken) =>
+        context.DurableJobs
+            .Where(job => job.Status == DurableJobStatus.Pending)
+            .MinAsync(job => (DateTimeOffset?)job.NextAttemptAt, cancellationToken);
+
     public async Task<IReadOnlyList<DurableJob>> ClaimDueAsync(
         string workerId,
         DateTimeOffset now,
@@ -48,9 +53,15 @@ public sealed class DurableJobRepository(Models.ApplicationContext context)
         if (claimedIds.Count == 0)
             return [];
 
+        // Lease writes and worker validation use application UTC. Capture a fresh
+        // value outside the query so EF does not translate it to database time.
+        var readAt = DateTimeOffset.UtcNow;
         return (await context.DurableJobs
                 .AsNoTracking()
-                .Where(job => claimedIds.Contains(job.Id))
+                .Where(job => claimedIds.Contains(job.Id)
+                              && job.LeaseOwner == workerId
+                              && job.Status == DurableJobStatus.Processing
+                              && job.LeaseExpiresAt > readAt)
                 .OrderBy(job => job.CreatedAt)
                 .ToListAsync(cancellationToken))
             .Select(ToRecord)
@@ -103,6 +114,26 @@ public sealed class DurableJobRepository(Models.ApplicationContext context)
                 .SetProperty(job => job.UpdatedAt, now), cancellationToken);
         return affected == 1;
     }
+
+    public async Task<bool> DeferAsync(
+        Guid id,
+        string workerId,
+        DurableJobStage expectedStage,
+        DateTimeOffset now,
+        DateTimeOffset nextAttemptAt,
+        CancellationToken cancellationToken) =>
+        await context.DurableJobs
+            .Where(job => job.Id == id
+                          && job.LeaseOwner == workerId
+                          && job.Status == DurableJobStatus.Processing
+                          && job.Stage == expectedStage
+                          && job.LeaseExpiresAt > now)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(job => job.Status, DurableJobStatus.Pending)
+                .SetProperty(job => job.UpdatedAt, now)
+                .SetProperty(job => job.NextAttemptAt, nextAttemptAt)
+                .SetProperty(job => job.LeaseOwner, (string?)null)
+                .SetProperty(job => job.LeaseExpiresAt, (DateTimeOffset?)null), cancellationToken) == 1;
 
     public Task MarkFailedAsync(
         Guid id,

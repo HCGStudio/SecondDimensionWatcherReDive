@@ -710,7 +710,7 @@ builder.Services.AddSingleton(Channel.CreateBounded<FileDownloadStatus>(
 builder.Services.AddSingleton(Channel.CreateBounded<DownloadCompleteRequest>(
     new BoundedChannelOptions(128)
     {
-        SingleReader = true,
+        SingleReader = false,
         SingleWriter = true,
         FullMode = BoundedChannelFullMode.DropOldest
     }));

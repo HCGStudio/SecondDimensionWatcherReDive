@@ -112,7 +112,7 @@ Registered scheduled tasks:
 Channel-driven event processors (always running, end with BackgroundService suffix):
 - **FetchRemoteTorrentBackgroundService** — Polls qBittorrent in bounded hash batches with adaptive active/idle/paused intervals and failure backoff. It drains tracking/control messages between individual status batches and immediately continues the oldest overdue work; the idle delay applies only when no batch is due. `Torrent:Polling:StatusTimeoutSeconds` configures the complete status-request deadline, including authentication and waiting for the shared request lock (default 30 seconds, clamped to 1–600 seconds). Increase it for a busy or distant downloader; request failures never imply a torrent is missing.
 - **UpdateDownloadStatusBackgroundService** — Caches download progress in memory
-- **CompleteDownloadBackgroundService** — Finalizes downloads, invokes `IFileMapper` to build virtual-FS mappings, then fires the `OnFileDownloadCompleted` plugin event
+- **CompleteDownloadBackgroundService** — Runs bounded workers with independent leases for durable mapping, notification and plugin stages. Plugin contention defers the persisted job by three seconds and publishes a wake hint; idle workers wait until the next pending database attempt or the normal ten-second recovery poll, whichever comes first.
 
 ### Data Migration Tasks
 
