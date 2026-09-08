@@ -237,7 +237,10 @@ public partial class TmdbTool
                 Name: show.Name ?? "",
                 OriginalName: show.OriginalName ?? "",
                 Overview: show.Overview,
-                PosterPath: show.PosterPath));
+                PosterPath: show.PosterPath),
+                // Keep specials (season 0) and distinguish absent season data
+                // from a confirmed empty list for strict target validation.
+                show.Seasons?.Select(season => season.SeasonNumber).Distinct().ToArray());
         }
         catch (NotFoundException)
         {
@@ -276,7 +279,8 @@ public partial class TmdbTool
 
     public enum TmdbDetailsLookupStatus { Found, NotFound, Unavailable }
 
-    public sealed record TmdbDetailsLookup(TmdbDetailsLookupStatus Status, TmdbDetails? Details);
+    public sealed record TmdbDetailsLookup(TmdbDetailsLookupStatus Status, TmdbDetails? Details,
+        IReadOnlyList<int>? SeasonNumbers = null);
 
     public record TmdbDetails(string Name, string OriginalName, string? Overview, string? PosterPath);
 
