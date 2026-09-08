@@ -38,17 +38,17 @@ function evaluate(
   const now = Date.now();
   const result = [];
   for (const episode of plan.episodes) {
-    const linked = episode.candidates.filter((candidate) =>
-      subscription.feedIds.includes(
-        animations.get(candidate.releaseId)?.sourceFeedId,
-      ),
-    );
+    const linked = episode.candidates.filter((candidate) => {
+      const release = animations.get(candidate.releaseId);
+      return (
+        release?.isAiProcessed &&
+        release.season > 0 &&
+        release.episode > 0 &&
+        subscription.feedIds.includes(release.sourceFeedId)
+      );
+    });
     if (!linked.length) continue;
     const old = prior.find((decision) => decision.episode === episode.episode);
-    if (old?.outcome === "failed" && !retryFailures) {
-      result.push(old);
-      continue;
-    }
     const firstSeen = Math.max(
       new Date(subscription.createdAt).getTime(),
       Math.min(
@@ -82,6 +82,15 @@ function evaluate(
       const release = animations.get(candidate.releaseId);
       return release.isDownloadTracked && !release.isDownloadFinished;
     });
+    if (
+      old?.outcome === "failed" &&
+      !retryFailures &&
+      !current &&
+      !downloading
+    ) {
+      result.push(old);
+      continue;
+    }
     let selected = eligible[0];
     let outcome = "waiting";
     let reason = "waiting_for_primary";
