@@ -180,7 +180,8 @@ internal class AnimationInfoController(
 
     [HttpPost("download/{id:guid}")]
     [Authorize(Policy = AccessPolicies.ContentWrite)]
-    public async Task<IActionResult> StartDownload([FromRoute] Guid id, CancellationToken cancellationToken)
+    public async Task<IActionResult> StartDownload([FromRoute] Guid id, CancellationToken cancellationToken,
+        [FromQuery] bool fromAutomation = false)
     {
         var info = await animationInfoRepository.FindByIdAsync(id, cancellationToken);
 
@@ -203,7 +204,7 @@ internal class AnimationInfoController(
                     submissionLeaseId,
                     DownloadSubmissionLeaseDuration,
                     DateTimeOffset.Now,
-                    queuedDisposition: null,
+                    queuedDisposition: fromAutomation ? SubscriptionAutomationDisposition.ManualDownloadQueued : null,
                     cancellationToken);
             if (submissionLease is null)
                 return Conflict();

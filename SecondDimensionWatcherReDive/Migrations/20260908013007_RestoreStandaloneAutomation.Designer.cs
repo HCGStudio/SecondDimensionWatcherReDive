@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using SecondDimensionWatcherReDive.Models;
@@ -11,9 +12,11 @@ using SecondDimensionWatcherReDive.Models;
 namespace SecondDimensionWatcherReDive.Migrations
 {
     [DbContext(typeof(ApplicationContext))]
-    partial class ApplicationContextModelSnapshot : ModelSnapshot
+    [Migration("20260908013007_RestoreStandaloneAutomation")]
+    partial class RestoreStandaloneAutomation
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1137,61 +1140,6 @@ namespace SecondDimensionWatcherReDive.Migrations
                     b.ToTable("MediaLibrarySources");
                 });
 
-            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.MediaTimeline", b =>
-                {
-                    b.Property<string>("Key")
-                        .HasMaxLength(192)
-                        .HasColumnType("character varying(192)");
-
-                    b.Property<double>("DurationSeconds")
-                        .HasColumnType("double precision");
-
-                    b.Property<Guid?>("MappingId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("PointsJson")
-                        .IsRequired()
-                        .HasColumnType("jsonb");
-
-                    b.Property<DateTimeOffset>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Key");
-
-                    b.HasIndex("MappingId");
-
-                    b.ToTable("MediaTimelines", (string)null);
-                });
-
-            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.MediaTimelineBinding", b =>
-                {
-                    b.Property<string>("MediaVersion")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<DateTimeOffset>("AcceptedRevision")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<double>("DurationSeconds")
-                        .HasColumnType("double precision");
-
-                    b.Property<Guid>("MappingId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("SeasonKey")
-                        .IsRequired()
-                        .HasMaxLength(192)
-                        .HasColumnType("character varying(192)");
-
-                    b.HasKey("MediaVersion");
-
-                    b.HasIndex("MappingId");
-
-                    b.HasIndex("SeasonKey");
-
-                    b.ToTable("MediaTimelineBindings", (string)null);
-                });
-
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.MetadataRecognitionHit", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1742,9 +1690,6 @@ namespace SecondDimensionWatcherReDive.Migrations
                         .HasColumnType("character varying(128)");
 
                     b.Property<bool>("AutoPlayNext")
-                        .HasColumnType("boolean");
-
-                    b.Property<bool>("AutoSkip")
                         .HasColumnType("boolean");
 
                     b.Property<string>("SubtitleLanguage")
@@ -2515,29 +2460,6 @@ namespace SecondDimensionWatcherReDive.Migrations
                     b.Navigation("ActiveProfile");
 
                     b.Navigation("User");
-                });
-
-            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.MediaTimeline", b =>
-                {
-                    b.HasOne("SecondDimensionWatcherReDive.Models.FileMapping", null)
-                        .WithMany()
-                        .HasForeignKey("MappingId")
-                        .OnDelete(DeleteBehavior.Cascade);
-                });
-
-            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.MediaTimelineBinding", b =>
-                {
-                    b.HasOne("SecondDimensionWatcherReDive.Models.FileMapping", null)
-                        .WithMany()
-                        .HasForeignKey("MappingId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("SecondDimensionWatcherReDive.Models.MediaTimeline", null)
-                        .WithMany()
-                        .HasForeignKey("SeasonKey")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
                 });
 
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.MetadataRecognitionHit", b =>

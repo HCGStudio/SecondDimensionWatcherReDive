@@ -234,6 +234,7 @@
       "submission_failed": "Submission failed; evaluate again to retry.",
       "download_queued": "Better version submitted through the existing upgrade workflow.",
       "applied": "The better version is active.",
+      "upgrade_in_progress": "A replacement is in progress; the current release remains playable.",
       "mapping_pending": "The release completed but its live file mappings are not ready; another download is held."
     },
     "confirm": "Confirm this candidate"
