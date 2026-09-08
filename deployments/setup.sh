@@ -390,8 +390,13 @@ install_tarball() {
     sudo chown -R sdw-redive:sdw-redive /var/lib/sdw-redive
     secure_system_secrets "/etc/sdw-redive/appsettings.yml"
 
-    if ! sudo /usr/local/bin/sdw-migrate --config /etc/sdw-redive/appsettings.yml --working-directory /usr/lib/sdw-redive --non-interactive; then
-        echo "配置升级失败或需要确认破坏性变更。请运行 sudo sdw-migrate --config /etc/sdw-redive/appsettings.yml --working-directory /usr/lib/sdw-redive，完成后重新运行安装脚本。" >&2
+    local -a migration_context=(--inherit-config /usr/lib/sdw-redive/appsettings.json)
+    if [ -f /usr/lib/sdw-redive/appsettings.Production.json ]; then
+        migration_context+=(--inherit-config /usr/lib/sdw-redive/appsettings.Production.json)
+    fi
+    if ! sudo /usr/local/bin/sdw-migrate --config /etc/sdw-redive/appsettings.yml \
+        --working-directory /usr/lib/sdw-redive "${migration_context[@]}" --non-interactive; then
+        echo "配置升级失败或需要确认破坏性变更。请运行 sudo sdw-migrate --config /etc/sdw-redive/appsettings.yml --working-directory /usr/lib/sdw-redive ${migration_context[*]}，并按实际环境补充低优先级上下文快照；完成后重新运行安装脚本。" >&2
         exit 1
     fi
 

@@ -174,10 +174,11 @@ OutboundHttp:
 应用启动与包安装会尝试静默升级旧配置。版本缺省时按 `2.2.0` 处理；当前配置结构版本为 `2.3.0`。需要解决冲突等破坏性选择时，启动或安装会失败并提示运行：
 
 ```bash
-sudo sdw-migrate --config /etc/sdw-redive/appsettings.yml --working-directory /usr/lib/sdw-redive
+sudo sdw-migrate --config /etc/sdw-redive/appsettings.yml --working-directory /usr/lib/sdw-redive \
+  --inherit-config /usr/lib/sdw-redive/appsettings.json
 ```
 
-命令只询问迁移所必需的破坏性选择，普通功能继续使用默认值并在网页「设置」中配置。自动化部署可使用 `--non-interactive`；需要交互时会返回非零状态。详细格式、旧密码与 AI 配置处理见[配置版本迁移](configuration-migrations.md)。
+上例假定底层只有基础 JSON；存在 Production 文件时继续添加对应 `--inherit-config`，自定义环境/命令行覆盖须提供完整低层上下文快照。无继承的独立配置必须明确使用 `--standalone`。命令只询问迁移所必需的破坏性选择，普通功能继续使用默认值并在网页「设置」中配置。自动化部署可使用 `--non-interactive`；需要交互时会返回非零状态。详细格式、旧密码与 AI 配置处理见[配置版本迁移](configuration-migrations.md)。
 
 ### 服务端流式播放与转码
 

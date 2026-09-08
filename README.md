@@ -137,7 +137,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/HCGStudio/SecondDimensionWat
 
 > 使用现有媒体库导入前，必须至少配置一个 `MediaLibrary:AllowedRoots`。导入源必须位于白名单内，且不能与 `FileStore:Local` 管理的下载目录相同、互为父目录或以其他方式重叠。导入与后续对账只会修改数据库中的媒体记录和虚拟路径映射；系统绝不会移动、重命名或删除原文件。短暂缺失的条目会先撤下映射并保留观看/审核记录，超过 `MissingGracePeriod`（默认 24 小时）后才清理数据库记录。
 
-> 系统包升级配置时运行 `sdw-migrate --config /etc/sdw-redive/appsettings.yml --working-directory /usr/lib/sdw-redive`，JSON 配置同样支持。迁移按版本依次执行 `Up`；只有需要决定的破坏性变更才会提问，其他新增功能保持默认并在网页设置中配置。主程序启动和包安装只尝试静默升级，遇到需要用户决定或迁移失败时退出并提示运行此命令。详见[配置版本迁移](docs/configuration-migrations.md)。
+> 系统包升级配置使用 `sdw-migrate --config /etc/sdw-redive/appsettings.yml --working-directory /usr/lib/sdw-redive`，并通过重复的 `--inherit-config` 按优先级提供基础 JSON、存在的 Production 文件及自定义环境/命令行上下文快照；无继承的独立配置使用 `--standalone`。JSON 配置同样支持。迁移按版本依次执行 `Up`；只有需要决定的破坏性变更才会提问，其他新增功能保持默认并在网页设置中配置。主程序启动和包安装只尝试静默升级。完整参数与恢复步骤见[配置版本迁移](docs/configuration-migrations.md)。
 
 运行探针、持久任务恢复、死信操作和遥测标签约束详见 [运行可靠性与可观测性](docs/runtime-reliability.md)。
 升级前的备份、失败诊断、checkpoint 恢复和多副本发布流程见 **[数据库迁移运维手册](docs/migrations.md)**。

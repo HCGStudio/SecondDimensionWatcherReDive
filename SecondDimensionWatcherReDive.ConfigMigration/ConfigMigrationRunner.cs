@@ -42,8 +42,13 @@ public sealed class ConfigMigrationRunner
         {
             var original = await File.ReadAllBytesAsync(path, cancellationToken);
             var document = ConfigFileFormat.Read(System.Text.Encoding.UTF8.GetString(original).TrimStart('\uFEFF'), formatPath);
-            var (updated, result) = await MigrateAsync(document, workingDirectory, chooseAsync, cancellationToken, options);
+            var (effectiveOptions, inheritedSources) = await ResolveFileInheritanceAsync(
+                document, path, workingDirectory, options, cancellationToken);
+            var (updated, result) = await MigrateAsync(document, workingDirectory, chooseAsync, cancellationToken, effectiveOptions);
             if (result.AppliedMigrations.Count == 0) return result;
+            foreach (var source in inheritedSources)
+                if (!(await File.ReadAllBytesAsync(source.Path, cancellationToken)).AsSpan().SequenceEqual(source.Content))
+                    throw new ConfigMigrationException("Inherited configuration changed during migration. No migration was written; retry with the current context.");
             var backup = await ConfigFileWriter.ReplaceAsync(path, original,
                 ConfigFileFormat.Write(updated, formatPath), cancellationToken);
             return result with { BackupPath = backup };
@@ -52,6 +57,72 @@ public sealed class ConfigMigrationRunner
         {
             throw new ConfigMigrationException($"Cannot read or atomically update configuration '{path}'. Check file and directory permissions; run sdw-migrate with the required access.");
         }
+    }
+
+    private async Task<(ConfigMigrationOptions? Options, IReadOnlyList<(string Path, byte[] Content)> Sources)>
+        ResolveFileInheritanceAsync(JsonObject target, string targetPath, string workingDirectory,
+            ConfigMigrationOptions? options, CancellationToken cancellationToken)
+    {
+        var versionText = ConfigTree.Text(target, "Version");
+        var version = versionText is null ? BaselineVersion : ParseVersion(versionText);
+        // Current files do not run any Up or write data, so no inheritance declaration
+        // is needed for a no-op. Unsupported versions retain their normal diagnostics.
+        if (version >= CurrentVersion || version < BaselineVersion) return (options, []);
+        var files = options?.InheritedConfigurationFiles ?? [];
+        if (files.Count == 0)
+        {
+            if (options?.RequireExplicitInheritance == true)
+                throw new ConfigMigrationException("Migrating a legacy file requires its complete lower-priority context via --inherit-config, or --standalone when the file has no inherited configuration.");
+            return (options, []);
+        }
+
+        var sources = new List<(string Path, byte[] Content, JsonObject Document)>();
+        var paths = new HashSet<string>(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal)
+            { targetPath };
+        foreach (var file in files)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var path = Path.GetFullPath(file);
+            var formatPath = path;
+            if (new FileInfo(path).ResolveLinkTarget(returnFinalTarget: true) is { } linked) path = linked.FullName;
+            if (!paths.Add(path))
+                throw new ConfigMigrationException("Inherited configuration files must be distinct and cannot include the target file.");
+            var content = await File.ReadAllBytesAsync(path, cancellationToken);
+            var document = ConfigFileFormat.Read(System.Text.Encoding.UTF8.GetString(content).TrimStart('\uFEFF'), formatPath);
+            sources.Add((path, content, document));
+        }
+
+        var passwordFile = options?.LegacyPasswordFile ?? "password.json";
+        // The old password file followed the entire configuration chain. Select it
+        // before migrating any layer, while every original PasswordFile still exists.
+        foreach (var document in sources.Select(source => source.Document).Append(target))
+            if (document.ContainsKey("PasswordFile"))
+                passwordFile = ConfigTree.Text(document, "PasswordFile") ?? "password.json";
+
+        var inherited = options?.InheritedSettings?.ToDictionary(pair => pair.Key, pair => pair.Value,
+            StringComparer.OrdinalIgnoreCase) ?? new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        foreach (var source in sources)
+        {
+            JsonObject updated;
+            try
+            {
+                (updated, _) = await MigrateAsync(source.Document, workingDirectory, null, cancellationToken,
+                    new ConfigMigrationOptions(inherited, IsOverlay: inherited.Count > 0,
+                        ContentRootDirectory: options?.ContentRootDirectory, LegacyPasswordFile: passwordFile));
+            }
+            catch (ConfigMigrationException exception)
+            {
+                throw new ConfigMigrationException($"Inherited configuration '{source.Path}' cannot be migrated silently. Migrate that layer with its own context first. {exception.Message}");
+            }
+            foreach (var pair in ConfigTree.Flatten(source.Document)) inherited[pair.Key] = null;
+            foreach (var pair in ConfigTree.Flatten(updated)) inherited[pair.Key] = pair.Value;
+        }
+        return ((options ?? new ConfigMigrationOptions()) with
+        {
+            InheritedSettings = inherited,
+            IsOverlay = true,
+            LegacyPasswordFile = passwordFile
+        }, sources.Select(source => (source.Path, source.Content)).ToArray());
     }
 
     /// <summary>Upgrade the complete effective configuration in memory, including environment overrides.</summary>
