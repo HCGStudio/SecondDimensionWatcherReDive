@@ -1,63 +1,22 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
-import useSWR from "swr";
 
+import {
+  type CapacityEntry,
+  useDownloadCapacity,
+} from "../animation/downloadCapacity";
 import { useAccess } from "../auth/hooks";
-import fetcher, { authenticatedFetch } from "../auth/httpClient";
+import { authenticatedFetch } from "../auth/httpClient";
 import { Button } from "./ui/Button";
-
-interface CapacityEntry {
-  itemId: string;
-  title: string;
-  expectedBytes: number | null;
-  state: string;
-  paused: boolean;
-  reasonCode: string;
-}
-
-const capacityStates = new Set([
-  "Waiting",
-  "Reserved",
-  "Submitted",
-  "Failed",
-  "Unknown",
-]);
-const capacityReasons = new Set([
-  "assessingCapacity",
-  "queuedForSubmission",
-  "waitingForCapacity",
-  "unknownSize",
-  "storageUnavailable",
-  "downloaderUnavailable",
-  "resubmitting",
-  "preparingSubmission",
-  "submissionUncertain",
-  "downloading",
-  "reconciling",
-  "submissionRejected",
-  "unknown",
-]);
 
 export const DownloadCapacityQueue: React.FC = () => {
   const { t } = useTranslation("animation");
   const { canContentWrite } = useAccess();
-  const { data, error, mutate } = useSWR<CapacityEntry[]>(
-    "/api/download-capacity",
-    fetcher,
-    { refreshInterval: 5000 },
-  );
+  const { data, error, mutate } = useDownloadCapacity();
   const [busy, setBusy] = React.useState<string | null>(null);
   const [failure, setFailure] = React.useState<string | null>(null);
   const waiting =
-    data
-      ?.map((entry) => ({
-        ...entry,
-        state: capacityStates.has(entry.state) ? entry.state : "Unknown",
-        reasonCode: capacityReasons.has(entry.reasonCode)
-          ? entry.reasonCode
-          : "unknown",
-      }))
-      .filter((entry) => entry.state !== "Submitted" || entry.paused) ?? [];
+    data?.filter((entry) => entry.state !== "Submitted" || entry.paused) ?? [];
   const control = async (
     entry: CapacityEntry,
     action: "cancel" | "pause" | "resume",

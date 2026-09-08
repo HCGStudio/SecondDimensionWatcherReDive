@@ -6,6 +6,10 @@ import { ArrowRight, Download, Pause, Play, Rss } from "lucide-react";
 
 import { IAnimationInfo } from "../animation/IAnimationInfo";
 import {
+  type CapacityEntry,
+  useDownloadCapacity,
+} from "../animation/downloadCapacity";
+import {
   useAnimationDownloadStatus,
   useDownloadingAnimations,
 } from "../animation/hooks";
@@ -16,13 +20,27 @@ import { formatBytes } from "../utils/formatBytes";
 import { useToast } from "./ToastProvider";
 import { Spinner } from "./ui/Spinner";
 
-const DownloadSummary: React.FC<{ item: IAnimationInfo }> = ({ item }) => {
+const DownloadSummary: React.FC<{
+  item: IAnimationInfo;
+  capacityEntry?: CapacityEntry;
+  capacityLoading: boolean;
+  refreshCapacity: () => Promise<unknown>;
+}> = ({ item, capacityEntry, capacityLoading, refreshCapacity }) => {
   const { t } = useTranslation("animation");
-  const { data: status, error, mutate } = useAnimationDownloadStatus(item.id);
+  const capacityOnly = capacityEntry && capacityEntry.state !== "Submitted";
+  const {
+    data: status,
+    error,
+    mutate,
+  } = useAnimationDownloadStatus(capacityOnly ? null : item.id);
+  const queued =
+    capacityEntry && (capacityOnly || !status || error)
+      ? capacityEntry
+      : undefined;
   const { canContentWrite } = useAccess();
   const { addToast } = useToast();
   const [pending, setPending] = React.useState(false);
-  const paused = status?.state === "Paused";
+  const paused = queued ? queued.paused : status?.state === "Paused";
   const percent = Math.min(100, Math.max(0, (status?.progress ?? 0) * 100));
   const title = item.animation?.name ?? item.title;
 
@@ -30,7 +48,7 @@ const DownloadSummary: React.FC<{ item: IAnimationInfo }> = ({ item }) => {
     setPending(true);
     try {
       await (paused ? resumeDownload(item.id) : pauseDownload(item.id));
-      await mutate();
+      await Promise.allSettled([mutate(), refreshCapacity()]);
     } catch {
       addToast({
         title: t(paused ? "toast.resumeFailed" : "toast.pauseFailed"),
@@ -61,9 +79,9 @@ const DownloadSummary: React.FC<{ item: IAnimationInfo }> = ({ item }) => {
           ) : null}
         </div>
         {canContentWrite &&
-        !error &&
-        status &&
-        (status.state === "Downloading" || paused) ? (
+        ((queued &&
+          ["Waiting", "Reserved", "Submitted"].includes(queued.state)) ||
+          (!error && status && (status.state === "Downloading" || paused))) ? (
           <button
             type="button"
             disabled={pending}
@@ -85,7 +103,18 @@ const DownloadSummary: React.FC<{ item: IAnimationInfo }> = ({ item }) => {
           </button>
         ) : null}
       </div>
-      {error ? (
+      {queued ? (
+        <div
+          className="mt-3 space-y-1 text-[11px] leading-body text-muted"
+          role="status"
+        >
+          <p>
+            {t(`capacity.states.${queued.state}`)}
+            {queued.paused ? ` · ${t("capacity.paused")}` : ""}
+          </p>
+          <p>{t(`capacity.reasons.${queued.reasonCode}`)}</p>
+        </div>
+      ) : error && !capacityLoading ? (
         <p className="mt-3 text-xs text-error" role="alert">
           {t("workbench.statusUnavailable")}
         </p>
@@ -129,6 +158,7 @@ const DownloadSummary: React.FC<{ item: IAnimationInfo }> = ({ item }) => {
 export const WorkbenchOverview: React.FC = () => {
   const { t } = useTranslation("animation");
   const downloads = useDownloadingAnimations(0, 3);
+  const capacity = useDownloadCapacity(Boolean(downloads.data?.data.length));
   const feeds = useFeeds();
 
   return (
@@ -169,7 +199,15 @@ export const WorkbenchOverview: React.FC = () => {
           </p>
         ) : (
           downloads.data.data.map((item) => (
-            <DownloadSummary key={item.id} item={item} />
+            <DownloadSummary
+              key={item.id}
+              item={item}
+              capacityEntry={capacity.data?.find(
+                (entry) => entry.itemId === item.id,
+              )}
+              capacityLoading={capacity.isLoading}
+              refreshCapacity={() => capacity.mutate()}
+            />
           ))
         )}
         <Link
