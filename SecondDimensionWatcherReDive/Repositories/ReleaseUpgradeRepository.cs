@@ -296,8 +296,9 @@ public sealed partial class ReleaseUpgradeRepository(
             if (invocation != ReleaseUpgradeInvocation.Manual)
             {
                 // Retrying inference keeps old coordinates while marking metadata
-                // pending. Recheck the completion predicate under the release locks.
-                if (!LibraryCompletionService.IsReliable(next.Season, next.Episode, next.MetadataStatus, next.Title))
+                // pending. Recheck both releases under their row locks.
+                if (!LibraryCompletionService.IsReliable(current.Season, current.Episode, current.MetadataStatus, current.Title) ||
+                    !LibraryCompletionService.IsReliable(next.Season, next.Episode, next.MetadataStatus, next.Title))
                     return null;
                 var owners = await writeContext.Set<Models.MultiSourceSubscription>().AsNoTracking()
                     .Include(subscription => subscription.Sources)

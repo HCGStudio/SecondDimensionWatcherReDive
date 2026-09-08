@@ -103,6 +103,7 @@ export const MultiSourceSubscriptions: React.FC<{ feeds: IFeed[] }> = ({
       await mutate();
     } catch {
       setFailed(true);
+      await mutate().catch(() => undefined);
     } finally {
       setBusy(false);
     }
@@ -508,12 +509,18 @@ export const MultiSourceSubscriptions: React.FC<{ feeds: IFeed[] }> = ({
                     <Button
                       size="sm"
                       className="mt-2"
-                      disabled={busy}
+                      disabled={busy || !decision.selectedReleaseId}
                       onClick={() =>
                         void act(async () => {
                           const result = await fetcher<{ isSuccess: boolean }>(
                             `/api/multi-source-subscriptions/${status.subscription.id}/episodes/${decision.episode}/confirm`,
-                            { method: "POST" },
+                            {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({
+                                releaseId: decision.selectedReleaseId,
+                              }),
+                            },
                           );
                           if (!result.isSuccess)
                             throw new Error("Confirmation submission failed");
