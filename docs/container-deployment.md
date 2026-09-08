@@ -112,7 +112,7 @@ podman logs qbittorrent 2>&1 | grep "temporary password"
 
 | 环境变量 | 说明 | 默认值 |
 |----------|------|--------|
-| `Version` | 配置结构版本；缺省按 `2.2.0` 迁移 | `2.3.0`（随附部署模板） |
+| `SDW_CONFIG_VERSION` | 环境覆盖层的配置结构版本；缺省按 `2.2.0` 迁移，通用 `VERSION` 不参与配置迁移 | `2.3.0`（随附部署模板） |
 | `StateDirectory` | 持久状态目录 | `/app/data` |
 | `ConnectionStrings__sdw` | PostgreSQL 连接字符串 | 必填 |
 | `JwtSecret` | JWT 签名密钥（>=32 字符） | 必填 |
