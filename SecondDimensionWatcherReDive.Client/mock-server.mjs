@@ -682,6 +682,7 @@ setInterval(() => {
       if (ds.progress >= 1) {
         ds.state = "Finished";
         ds.progress = 1;
+        ds.completedAt = Date.now();
         const anim = animations.get(id);
         if (anim) {
           anim.isDownloadFinished = true;

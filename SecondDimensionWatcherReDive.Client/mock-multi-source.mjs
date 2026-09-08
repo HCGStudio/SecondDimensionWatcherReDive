@@ -49,6 +49,23 @@ function evaluate(
     });
     if (!linked.length) continue;
     const old = prior.find((decision) => decision.episode === episode.episode);
+    const failedAt =
+      old?.outcome === "failed" && !retryFailures
+        ? new Date(old.updatedAt).getTime()
+        : null;
+    const isLaterAcquisition = (candidate) => {
+      if (!candidate || failedAt == null) return false;
+      const release = animations.get(candidate.releaseId);
+      const state = downloadState.get(candidate.releaseId);
+      const operation = release.upgradeOperation;
+      return (
+        state?.startedAt > failedAt ||
+        (release.isDownloadFinished && state?.completedAt > failedAt) ||
+        (operation &&
+          ["Downloading", "Verifying", "Applied"].includes(operation.status) &&
+          new Date(operation.createdAt).getTime() > failedAt)
+      );
+    };
     const firstSeen = Math.max(
       new Date(subscription.createdAt).getTime(),
       Math.min(
@@ -75,19 +92,23 @@ function evaluate(
           new Date(right.publishedAt) - new Date(left.publishedAt) ||
           left.releaseId.localeCompare(right.releaseId),
       );
-    const current = episode.candidates.find((candidate) =>
+    const acquisitions = [...episode.candidates].sort(
+      (left, right) =>
+        Number(!!isLaterAcquisition(right)) -
+        Number(!!isLaterAcquisition(left)),
+    );
+    const current = acquisitions.find((candidate) =>
       isCurrentRelease(animations.get(candidate.releaseId)),
     );
-    const downloading = episode.candidates.find((candidate) => {
+    const downloading = acquisitions.find((candidate) => {
       const release = animations.get(candidate.releaseId);
-      return release.isDownloadTracked && !release.isDownloadFinished;
+      return (
+        release.isDownloadTracked &&
+        !release.isDownloadFinished &&
+        (failedAt == null || isLaterAcquisition(candidate))
+      );
     });
-    if (
-      old?.outcome === "failed" &&
-      !retryFailures &&
-      !current &&
-      !downloading
-    ) {
+    if (failedAt != null && ![current, downloading].some(isLaterAcquisition)) {
       result.push(old);
       continue;
     }
@@ -106,6 +127,7 @@ function evaluate(
       outcome = "downloaded";
       reason = "existing_release_retained";
       if (
+        failedAt == null &&
         subscription.mode === "AutoDownload" &&
         subscription.enableVersionUpgrade
       ) {
@@ -181,7 +203,7 @@ function evaluate(
         : null,
       outcome,
       reason,
-      updatedAt: iso(now),
+      updatedAt: iso(Date.now()),
     });
   }
   decisions.set(subscription.id, result);
