@@ -106,6 +106,10 @@ public interface IAnimationInfoRepository
 
     Task UpdateAsync(AnimationInfo info, CancellationToken cancellationToken);
 
+    Task<SubscriptionAutomationMode?> RefreshStandaloneAutomationAsync(
+        Guid id,
+        CancellationToken cancellationToken);
+
     Task<DownloadSubmissionLease?> TryStartDownloadAsync(
         Guid id,
         Guid downloadAttemptId,

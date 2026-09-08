@@ -373,6 +373,36 @@ const ANIME_TITLES = [
     tmdbId: "209867",
     posterPath: "/dqZENchTd7lp5zht7BdlqM7RBhD.jpg",
   },
+  {
+    title: "[LoliHouse] 葬送的芙莉莲 / Sousou no Frieren - 26 [1080p HEVC][简繁内封]",
+    desc: "多来源演示：主来源与备选来源均已发布本集",
+    season: 1,
+    episode: 26,
+    animeName: "葬送的芙莉莲",
+    originalName: "Sousou no Frieren",
+    tmdbId: "209867",
+    posterPath: "/dqZENchTd7lp5zht7BdlqM7RBhD.jpg",
+  },
+  {
+    title: "[ANi] 葬送的芙莉莲 / Sousou no Frieren - 26 [2160p HEVC][简繁内封]",
+    desc: "多来源演示：更高画质的备选仍遵循来源顺序",
+    season: 1,
+    episode: 26,
+    animeName: "葬送的芙莉莲",
+    originalName: "Sousou no Frieren",
+    tmdbId: "209867",
+    posterPath: "/dqZENchTd7lp5zht7BdlqM7RBhD.jpg",
+  },
+  {
+    title: "[ANi] 葬送的芙莉莲 / Sousou no Frieren - 25 [1080p HEVC][简繁内封]",
+    desc: "多来源演示：仅备选来源发布，等待主来源截止时间",
+    season: 1,
+    episode: 25,
+    animeName: "葬送的芙莉莲",
+    originalName: "Sousou no Frieren",
+    tmdbId: "209867",
+    posterPath: "/dqZENchTd7lp5zht7BdlqM7RBhD.jpg",
+  },
 ];
 
 /** @type {Map<string, object>} */
@@ -744,11 +774,18 @@ let feeds = [
     name: "药屋少女的呢喃",
     createdAt: new Date(Date.now() - 86400_000).toISOString(),
   },
+  {
+    id: randomUUID(),
+    url: "https://mikanani.me/RSS/Bangumi?bangumiId=3141&subgroupid=202",
+    name: "葬送的芙莉莲 · ANi（备选）",
+    createdAt: new Date(Date.now() - 86400_000 * 3).toISOString(),
+  },
 ];
 
 // Give demo releases stable source ownership; unassociated releases stay outside source orchestration.
 for (const release of animations.values()) {
   release.sourceFeedId = release.isMediaLibraryImport ? null
+    : release.animation?.tmdbId === "209867" && release.group?.name === "ANi" ? feeds[3].id
     : feeds.find((feed) => feed.name === release.animation?.name)?.id ?? null;
   release.ingestedAt = release.publishTime;
 }

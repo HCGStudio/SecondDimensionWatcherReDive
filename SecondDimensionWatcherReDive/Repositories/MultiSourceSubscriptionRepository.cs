@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Utils.FileStore;
+using SecondDimensionWatcherReDive.Utils.LibraryCompletion;
 namespace SecondDimensionWatcherReDive.Repositories;
 
 public sealed class MultiSourceSubscriptionRepository(Models.ApplicationContext context,
@@ -110,8 +111,13 @@ public sealed class MultiSourceSubscriptionRepository(Models.ApplicationContext 
             var feed = await context.Feeds.AsNoTracking().FirstOrDefaultAsync(x => x.Id == source.FeedId, cancellationToken);
             var query = context.AnimationInfo.AsNoTracking().Where(x => x.SourceFeedId == source.FeedId);
             var latest = await query.OrderByDescending(x => x.PublishTime).Select(x => new { x.Title, x.PublishTime }).FirstOrDefaultAsync(cancellationToken);
+            var unidentifiedCount = 0;
+            await foreach (var release in query.Select(x => new { x.Season, x.Episode, x.MetadataStatus, x.Title })
+                .AsAsyncEnumerable().WithCancellation(cancellationToken))
+                if (!LibraryCompletionService.IsReliable(release.Season, release.Episode, release.MetadataStatus, release.Title))
+                    unidentifiedCount++;
             result.Add(new(source.FeedId, feed?.Name ?? feed?.Url ?? "", source.Priority, latest?.PublishTime, latest?.Title,
-                await query.CountAsync(x => x.Season == null || x.Episode == null || x.MetadataStatus == MetadataReviewStatus.LowConfidence, cancellationToken)));
+                unidentifiedCount));
         }
         return result;
     }

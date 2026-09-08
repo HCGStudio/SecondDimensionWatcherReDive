@@ -832,6 +832,57 @@ public class AnimationInfoRepository(
         });
     }
 
+    public async Task<SubscriptionAutomationMode?> RefreshStandaloneAutomationAsync(
+        Guid id,
+        CancellationToken cancellationToken) =>
+        await context.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
+        {
+            await using var writeContext = new Models.ApplicationContext(contextOptions);
+            await using var transaction = await writeContext.Database.BeginTransactionAsync(cancellationToken);
+            await MappingTransactionLock.AcquireAsync(writeContext, cancellationToken);
+            var entity = await MappingTransactionLock.LockAnimationInfoAsync(writeContext, id, cancellationToken);
+            if (entity is null || entity.IsDownloadTracked || entity.IsDownloadFinished
+                || entity.DownloadCancellationId is not null)
+                return (SubscriptionAutomationMode?)null;
+
+            SubscriptionAutomationMode? mode = null;
+            SubscriptionAutomationEvaluation? evaluation = null;
+            if (entity.SourceFeedId is { } feedId
+                && !await writeContext.Set<Models.MultiSourceFeed>()
+                    .AnyAsync(source => source.FeedId == feedId, cancellationToken))
+            {
+                // Linking/unlinking uses the mapping lock; policy edits are ordered
+                // by this row lock. Authorize the restored mode after ingestion.
+                var policy = await writeContext.SubscriptionAutomationPolicies
+                    .FromSqlInterpolated($"SELECT * FROM \"SubscriptionAutomationPolicies\" WHERE \"FeedId\" = {feedId} FOR SHARE")
+                    .AsNoTracking().SingleOrDefaultAsync(cancellationToken);
+                if (policy is not null)
+                {
+                    evaluation = automationMatcher.Evaluate(policy.ToRecord(), new AnimationAddRequest(
+                        entity.PublishTime, entity.Title, entity.Description, entity.DownloadUrl, entity.DownloadType,
+                        entity.AdditionalDownloadInfo, entity.SourceFeedId, entity.ReleaseSizeBytes));
+                    if (evaluation.Matched) mode = policy.Mode;
+                }
+            }
+
+            SubscriptionAutomationDisposition? disposition = mode switch
+            {
+                SubscriptionAutomationMode.NotifyOnly => SubscriptionAutomationDisposition.Notified,
+                SubscriptionAutomationMode.ManualConfirm => SubscriptionAutomationDisposition.PendingConfirmation,
+                SubscriptionAutomationMode.AutoDownload => SubscriptionAutomationDisposition.AutoDownloadFailed,
+                _ => null
+            };
+            await ResetTodoStateForTransitionAsync(writeContext, entity, entity.MetadataStatus,
+                disposition, cancellationToken);
+            entity.AutomationDisposition = disposition;
+            entity.AutomationExplanationJson = evaluation is null ? null
+                : JsonSerializer.Serialize(evaluation.Explanations, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+            entity.StateVersion = checked(entity.StateVersion + 1);
+            await writeContext.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return mode;
+        });
+
     public async Task<DownloadSubmissionLease?> TryStartDownloadAsync(
         Guid id,
         Guid downloadAttemptId,
