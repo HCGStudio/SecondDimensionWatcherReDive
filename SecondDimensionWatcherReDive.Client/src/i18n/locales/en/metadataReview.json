@@ -181,7 +181,8 @@
       "ruleAmbiguous": "Matching is ambiguous. Adjust the rule or correct the item manually.",
       "ruleLimit": "Up to 200 rules are supported. Edit an existing rule.",
       "tmdbNotFound": "The TMDB television series could not be resolved. Check the target ID.",
-      "tmdbUnavailable": "TMDB lookup is unavailable. Configure access or use an existing identified series."
+      "ruleSeasonNotFound": "The fixed season does not exist in the target TMDB series. Season 0 requires a specials season.",
+      "tmdbUnavailable": "TMDB lookup is unavailable. Configure access and retry. A fixed season requires the target series’ season catalog."
     }
   }
 }
