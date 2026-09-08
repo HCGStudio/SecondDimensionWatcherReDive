@@ -159,4 +159,4 @@ curl --fail -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json
 
 逻辑导出不含 JWT、登录密码、WebDAV token、Data Protection key、AI/qBittorrent 凭据、聊天内容或媒体文件。跨 major 格式、不匹配校验和、未知类别、非法数值与超大类别会在事务开始前拒绝。
 
-新增追番、媒体时间段、长期识别规则与命中、多来源订阅和容量队列属于完整 PostgreSQL 备份范围，当前逻辑 JSON 类别不导出这些新表。升级后应重新创建完整备份；恢复容量队列还需与独立恢复的 qBittorrent 状态及实际卷对账。
+追番、媒体时间段、识别规则命中历史、多来源订阅和容量队列需要通过完整 PostgreSQL 备份恢复，当前逻辑 JSON 类别不导出这些数据；长期识别规则配置本身可通过 `recognition-rules` 类别迁移。升级后应重新创建完整备份；恢复容量队列还需与独立恢复的 qBittorrent 状态及实际卷对账。
