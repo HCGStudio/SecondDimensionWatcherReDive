@@ -35,6 +35,9 @@ public sealed record NotificationEvent(
 
 public interface INotificationPublisher
 {
+    /// <summary>Returns true when at least one target is eligible and all eligible targets have durable outbox entries.</summary>
+    Task<bool> EnsurePublishedAsync(NotificationEvent notificationEvent, CancellationToken cancellationToken);
+
     Task<bool> PublishAsync(
         NotificationEvent notificationEvent,
         CancellationToken cancellationToken);
