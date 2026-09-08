@@ -1,11 +1,13 @@
 using Microsoft.EntityFrameworkCore;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
+using SecondDimensionWatcherReDive.Framework.Feed;
 using SecondDimensionWatcherReDive.Utils.FileStore;
 using SecondDimensionWatcherReDive.Utils.LibraryCompletion;
 namespace SecondDimensionWatcherReDive.Repositories;
 
 public sealed class MultiSourceSubscriptionRepository(Models.ApplicationContext context,
-    DbContextOptions<Models.ApplicationContext> options) : IMultiSourceSubscriptionRepository
+    DbContextOptions<Models.ApplicationContext> options,
+    ISubscriptionAutomationMatcher matcher) : IMultiSourceSubscriptionRepository
 {
     public async Task<IReadOnlyList<MultiSourceSubscription>> GetAllAsync(CancellationToken cancellationToken) =>
         (await context.Set<Models.MultiSourceSubscription>().AsNoTracking().Include(x => x.Sources)
@@ -252,6 +254,17 @@ public sealed class MultiSourceSubscriptionRepository(Models.ApplicationContext 
                         || !LibraryCompletionService.IsReliable(selected.Season, selected.Episode,
                             selected.MetadataStatus, selected.Title)))
                     return null;
+                // Failed submissions can still be completing their compensation;
+                // persist that outcome rather than treating it as a new offer.
+                if (!active && decision.Outcome != "failed")
+                {
+                    var policy = ToRecord(subscription).ToPolicy(selected.SourceFeedId!.Value);
+                    var evaluation = matcher.Evaluate(policy, new AnimationAddRequest(
+                        selected.PublishTime, selected.Title, selected.Description, selected.DownloadUrl,
+                        selected.DownloadType, selected.AdditionalDownloadInfo, selected.SourceFeedId, selected.ReleaseSizeBytes));
+                    if (LibraryCompletionService.GetIneligibilityReason(selected.ToRecord(), evaluation) is not null)
+                        return null;
+                }
             }
             // All policy/target changes and decision writes share this lock.
             // Only a decision based on the current snapshot can authorize a notification.
