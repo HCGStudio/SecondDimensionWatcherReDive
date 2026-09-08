@@ -18,6 +18,8 @@ internal static class ConfigurationVersionStartup
         var contentRoot = builder.Environment.ContentRootPath;
         var legacyPasswordFile = ResolveLegacyPasswordFile(configuration, contentRoot);
         var inherited = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        var inheritedFiles = new Dictionary<string, byte[]>(
+            OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
         var sawApplicationFile = false;
         // Process original sources in priority order. An overlay's own Version determines its
         // migration; lower settings provide defaults without promoting them into that overlay.
@@ -29,6 +31,7 @@ internal static class ConfigurationVersionStartup
             try
             {
                 provider.Load();
+                var readApplicationFile = false;
                 if (source is JsonConfigurationSource { Path: { } sourcePath } json
                     && Path.GetFileName(sourcePath).StartsWith("appsettings", StringComparison.OrdinalIgnoreCase))
                 {
@@ -36,15 +39,42 @@ internal static class ConfigurationVersionStartup
                     sawApplicationFile = true;
                     var path = json.FileProvider?.GetFileInfo(sourcePath).PhysicalPath
                                ?? Path.GetFullPath(sourcePath, builder.Environment.ContentRootPath);
-                    if (!File.Exists(path) && json.Optional) continue;
+                    if (!File.Exists(path) && json.Optional)
+                    {
+                        if (ReadProvider(provider).Any())
+                            throw new ConfigMigrationException($"Configuration source '{path}' disappeared during migration. Retry with the current sources.");
+                        continue;
+                    }
                     var result = await runner.MigrateFileAsync(path, workingDirectory, null,
-                        cancellationToken, new ConfigMigrationOptions(inherited, isOverlay, contentRoot, legacyPasswordFile));
+                        cancellationToken, new ConfigMigrationOptions(inherited, isOverlay, contentRoot, legacyPasswordFile,
+                            InheritedConfigurationSnapshots: inheritedFiles));
                     Report(path, result);
-                    provider.Load();
+                    readApplicationFile = true;
                 }
 
                 var values = ReadApplicationProvider(source, provider).ToDictionary(
                     pair => pair.Key, pair => pair.Value, StringComparer.OrdinalIgnoreCase);
+                (string Path, byte[] Content)? fileSnapshot = null;
+                if (source is JsonConfigurationSource { Path: { } filePath } file)
+                {
+                    var path = file.FileProvider?.GetFileInfo(filePath).PhysicalPath
+                               ?? Path.GetFullPath(filePath, contentRoot);
+                    if (File.Exists(path))
+                    {
+                        path = new FileInfo(path).ResolveLinkTarget(returnFinalTarget: true)?.FullName ?? path;
+                        var content = await File.ReadAllBytesAsync(path, cancellationToken);
+                        // Parse the same bytes retained for the commit-time check.
+                        // A separate provider.Load followed by a file read can race a replacement.
+                        using var stream = new MemoryStream(content, writable: false);
+                        var snapshot = new ConfigurationBuilder().AddJsonStream(stream).Build();
+                        using var lifetime = snapshot as IDisposable;
+                        values = ReadProvider(snapshot.Providers.Single()).ToDictionary(
+                            pair => pair.Key, pair => pair.Value, StringComparer.OrdinalIgnoreCase);
+                        fileSnapshot = (path, content);
+                    }
+                    else if (readApplicationFile || values.Count > 0 || !file.Optional)
+                        throw new ConfigMigrationException($"Configuration source '{path}' disappeared during migration. Retry with the current sources.");
+                }
                 IReadOnlyDictionary<string, string?> migrated = values;
                 if (source is EnvironmentVariablesConfigurationSource { Prefix: null or "" } or CommandLineConfigurationSource
                     || source is JsonConfigurationSource { Path: { } jsonPath }
@@ -67,6 +97,7 @@ internal static class ConfigurationVersionStartup
                 }
 
                 foreach (var pair in migrated) inherited[pair.Key] = pair.Value;
+                if (fileSnapshot is { } loaded) inheritedFiles[loaded.Path] = loaded.Content;
             }
             finally
             {
@@ -83,7 +114,8 @@ internal static class ConfigurationVersionStartup
             var path = Path.GetFullPath(configPath, builder.Environment.ContentRootPath);
             var result = await runner.MigrateFileAsync(path, workingDirectory, null,
                 cancellationToken, new ConfigMigrationOptions(inherited,
-                    ContentRootDirectory: contentRoot, LegacyPasswordFile: legacyPasswordFile));
+                    ContentRootDirectory: contentRoot, LegacyPasswordFile: legacyPasswordFile,
+                    InheritedConfigurationSnapshots: inheritedFiles));
             Report(path, result);
             if (Path.GetExtension(path).Equals(".json", StringComparison.OrdinalIgnoreCase))
                 configuration.AddJsonFile(path, optional: false, reloadOnChange: true);

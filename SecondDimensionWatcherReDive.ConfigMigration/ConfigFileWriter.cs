@@ -35,7 +35,10 @@ internal static class ConfigFileWriter
         {
             await using (var stream = CreateOutput(temporary, options, windowsSecurity))
             {
-                if (!OperatingSystem.IsWindows())
+                MacConfigFileAccess.Snapshot? macAccess = null;
+                if (OperatingSystem.IsMacOS())
+                    macAccess = MacConfigFileAccess.Preserve(path, stream.SafeFileHandle);
+                else if (!OperatingSystem.IsWindows())
                 {
                     var originalOwner = OperatingSystem.IsLinux() ? PreserveOwner(path, stream.SafeFileHandle) : null;
                     File.SetUnixFileMode(temporary, File.GetUnixFileMode(path));
@@ -44,10 +47,12 @@ internal static class ConfigFileWriter
                 // Establish the final access policy before writing any configuration data.
                 await stream.WriteAsync(Encoding.UTF8.GetBytes(contents), cancellationToken);
                 stream.Flush(flushToDisk: true);
+                if (macAccess is not null) MacConfigFileAccess.Verify(stream.SafeFileHandle, macAccess);
             }
             await using (var stream = CreateOutput(backup, options, windowsSecurity))
             {
                 if (OperatingSystem.IsLinux()) RemoveInheritedPosixAcl(stream.SafeFileHandle);
+                else if (OperatingSystem.IsMacOS()) MacConfigFileAccess.ProtectBackup(stream.SafeFileHandle);
                 await stream.WriteAsync(original, cancellationToken);
                 stream.Flush(flushToDisk: true);
             }
@@ -69,6 +74,13 @@ internal static class ConfigFileWriter
 
     internal static IDisposable AcquireMigrationLocks(string targetPath, IEnumerable<string> inheritedPaths)
     {
+        // Other Unix platforms have different ownership/ACL APIs. Copying mode
+        // bits alone can make an administrator's replacement unreadable by the
+        // original service account, so fail before creating any sidecar or output.
+        if (!OperatingSystem.IsLinux() && !OperatingSystem.IsWindows() && !OperatingSystem.IsMacOS())
+            throw new ConfigMigrationException("Configuration file migration is supported only on Linux, macOS and Windows, " +
+                "where ownership and access controls can be preserved. Use a prepared current-version configuration on this platform; this file was not changed.");
+
         var locks = new MigrationLocks();
         var comparer = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
         try
@@ -141,6 +153,11 @@ internal static class ConfigFileWriter
         }
         try
         {
+            if (OperatingSystem.IsMacOS())
+            {
+                MacConfigFileAccess.Preserve(path, migrationLock.SafeFileHandle, readWriteOnly: true);
+                return migrationLock;
+            }
             var originalOwner = OperatingSystem.IsLinux() ? PreserveOwner(path, migrationLock.SafeFileHandle) : null;
             // The inode carries no secrets and is never executable. Its owner can
             // always reacquire it; other accounts still need configuration write access.
