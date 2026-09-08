@@ -234,6 +234,7 @@
       "submission_failed": "提交失败，可立即评估重试。",
       "download_queued": "更优版本已进入现有升级流程。",
       "applied": "更优版本已经生效。",
+      "upgrade_in_progress": "正在处理替代版本；现有版本仍可播放。",
       "mapping_pending": "资源已完成，但有效文件映射尚未就绪；暂不重复下载。"
     },
     "confirm": "确认下载此候选"

@@ -773,6 +773,11 @@ public class ApplicationContext : DbContext
             .HasIndex(info => new { info.AutomationDisposition, info.PublishTime });
 
         modelBuilder.Entity<AnimationInfo>()
+            .HasIndex(info => info.Id)
+            .HasDatabaseName("IX_AnimationInfo_StandaloneAutomationPending")
+            .HasFilter("\"StandaloneAutomationPending\" = TRUE");
+
+        modelBuilder.Entity<AnimationInfo>()
             .HasOne<Feed>()
             .WithMany()
             .HasForeignKey(info => info.SourceFeedId)
