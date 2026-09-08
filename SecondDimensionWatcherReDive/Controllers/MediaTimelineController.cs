@@ -1,5 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -21,7 +19,9 @@ internal sealed class MediaTimelineController(IMediaTimelineRepository repositor
     public async Task<IActionResult> Get([FromQuery] Guid animationInfoId, [FromQuery] string path, CancellationToken cancellationToken)
     {
         var media = await ResolveAsync(animationInfoId, path, cancellationToken);
-        return media is null ? NotFound() : Ok(await repository.GetAsync(media.Version, media.SeasonKey, cancellationToken));
+        if (media is null) return NotFound();
+        var timeline = await repository.GetAsync(media.Version, media.Mapping, media.SeasonKey, cancellationToken);
+        return timeline is null ? NotFound() : Ok(timeline);
     }
 
     [HttpPut]
@@ -89,12 +89,8 @@ internal sealed class MediaTimelineController(IMediaTimelineRepository repositor
         if (!DevicePathScope.TryMapInternalToPublic(virtualPath, DevicePathScope.GetVirtualRoot(User), out _)) return null;
         var mapping = await mappings.FindByVirtualPathAsync(virtualPath, cancellationToken);
         if (mapping is null || mapping.AnimationInfoId != id || !MediaFileTypes.IsVideo(virtualPath)) return null;
-        FileStoreInfo metadata;
-        try { metadata = await stores.GetRequiredClient(mapping.FileStore).FileInfoAsync(mapping.PhysicalPath, cancellationToken); }
-        catch (IOException ex) when (ex is FileNotFoundException or DirectoryNotFoundException) { return null; }
-        if (metadata.IsDirectory || !metadata.Length.HasValue || !metadata.LastModifiedUtc.HasValue) return null;
-        var version = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
-            $"{mapping.Id}\0{mapping.AnimationInfoId}\0{mapping.VirtualPath}\0{mapping.FileStore}\0{mapping.PhysicalPath}\0{metadata.Length}\0{metadata.LastModifiedUtc:O}")));
+        var version = await MediaTimelineVersion.ResolveAsync(mapping, stores, cancellationToken);
+        if (version is null) return null;
         var seasonKey = info.Animation is not null && info.Group is not null && info.Season.HasValue
             ? $"season:{info.Animation.Id}:{info.Group.Id}:{info.Season}" : null;
         return new Media(mapping, version, seasonKey);
