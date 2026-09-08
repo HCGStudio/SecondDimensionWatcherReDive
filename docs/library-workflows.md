@@ -52,4 +52,4 @@ Admin 和 Member 可在播放器编辑共享的 OP/ED 区间和命名章节，�
 
 `DownloadCompletion:Workers` 默认 2，范围 1–16。每个 worker 使用独立 DI scope、任务租约和续租，只有空闲时才领取任务；同一任务依次执行映射、通知和插件。插件阶段在单实例内串行，AI 仍使用统一限速。插件被占用时，任务持久延后 3 s 并发送唤醒提示；空闲 worker 按最早待重试时间与 10 s 常规恢复轮询中较早者唤醒。`sdw.durable_job.queue_wait` 和已有处理耗时指标可区分排队与执行时间。详见 [运行可靠性](runtime-reliability.md)。
 
-新增规则/命中、追番、时间段、多来源决策及容量队列保存在 PostgreSQL，随完整数据库备份恢复。现有逻辑 JSON 导出的类别未增加这些新表，不能用逻辑导出替代完整备份；媒体与 qBittorrent 状态仍需独立备份。升级沿用启动迁移，恢复步骤见 [备份恢复](backup-restore.md) 和 [迁移运维](migrations.md)。
+长期识别规则配置可通过逻辑 JSON 的 `recognition-rules` 类别迁移，`all` 包含该类别；新导出使用格式 2，仍可导入格式 1。规则命中历史、追番、时间段、多来源订阅与决策及容量队列仅随完整 PostgreSQL 备份恢复，逻辑导出不能替代完整备份。媒体与 qBittorrent 状态仍需独立备份。升级沿用启动迁移，恢复步骤与规则导入的依赖、冲突及生效范围见 [备份恢复](backup-restore.md) 和 [迁移运维](migrations.md)。

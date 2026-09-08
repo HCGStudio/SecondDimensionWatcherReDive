@@ -157,6 +157,6 @@ curl --fail -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json
 
 识别规则导入只恢复配置，不导入命中历史或源实例的 `CreatedFromItemId`。新增及覆盖规则从目标实例当前导入时刻生效，覆盖时递增本地 revision；不会重设已有条目的识别状态，也不会静默应用于此前收录的资源。历史应用仍须通过原有逐项预览及确认流程。导入核验作用域、正则和数值约束，不要求恢复时连通 TMDB；后续识别保留既有 TMDB 可用性与失败处理。
 
-逻辑导出不含 JWT、登录密码、WebDAV token、Data Protection key、AI/qBittorrent 凭据、聊天内容或媒体文件。跨 major 格式、不匹配校验和、未知类别、非法数值与超大类别会在事务开始前拒绝。
+逻辑导出不含 JWT、登录密码、WebDAV token、Data Protection key、AI/qBittorrent 凭据、聊天内容或媒体文件。跨应用 major 版本、未支持的格式版本、不匹配校验和、未知类别、非法数值与超大类别会在事务开始前拒绝。
 
 追番、媒体时间段、识别规则命中历史、多来源订阅和容量队列需要通过完整 PostgreSQL 备份恢复，当前逻辑 JSON 类别不导出这些数据；长期识别规则配置本身可通过 `recognition-rules` 类别迁移。升级后应重新创建完整备份；恢复容量队列还需与独立恢复的 qBittorrent 状态及实际卷对账。
