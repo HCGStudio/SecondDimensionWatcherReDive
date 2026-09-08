@@ -186,7 +186,17 @@ internal partial class SyncFeed(
             {
                 evaluation = automationMatcher.Evaluate(policy, releaseWithSize);
                 if (!evaluation.Matched && multiSource == null)
-                    return;
+                {
+                    // Torrent fetching can overlap a new source association. Only
+                    // discard after checking ownership again; linked releases are
+                    // retained even when the shared policy does not match yet.
+                    var subscriptions = scope.ServiceProvider.GetService<IMultiSourceSubscriptionRepository>();
+                    if (request.FeedId is not { } currentFeedId || subscriptions is null) return;
+                    multiSource = await subscriptions.FindByFeedIdAsync(currentFeedId, cancellationToken);
+                    if (multiSource is null) return;
+                    policy = multiSource.ToPolicy(currentFeedId);
+                    evaluation = automationMatcher.Evaluate(policy, releaseWithSize);
+                }
             }
 
             var metadata = evaluation?.Metadata ?? metadataExtractor?.Extract(releaseWithSize) ??
