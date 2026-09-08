@@ -14,7 +14,15 @@
     "title": "Continue watching",
     "subtitle": "Pick up where you left off on any device",
     "resume": "Resume",
-    "progress": "Playback progress"
+    "progress": "Playback progress",
+    "loading": "Loading your watch history…",
+    "loadFailed": "Could not load your watch history.",
+    "emptyTitle": "Your next story starts here.",
+    "emptyBody": "Play a downloaded video to pick up your progress here next time.",
+    "browse": "Browse downloaded videos",
+    "more": "More to continue",
+    "itemCount_one": "{{count}} item",
+    "itemCount_other": "{{count}} items"
   },
   "progress": {
     "resumed": "Resumed at {{time}}",

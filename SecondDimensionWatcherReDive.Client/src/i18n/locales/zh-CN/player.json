@@ -14,7 +14,14 @@
     "title": "继续观看",
     "subtitle": "在任意设备上从上次离开的地方继续",
     "resume": "继续",
-    "progress": "播放进度"
+    "progress": "播放进度",
+    "loading": "正在加载观看记录…",
+    "loadFailed": "暂时无法加载观看记录。",
+    "emptyTitle": "下一段故事，从这里开始。",
+    "emptyBody": "播放已下载的视频后，可以在这里继续上次的进度。",
+    "browse": "浏览已下载的视频",
+    "more": "其他未看完的视频",
+    "itemCount": "{{count}} 项"
   },
   "progress": {
     "resumed": "已从 {{time}} 继续播放",

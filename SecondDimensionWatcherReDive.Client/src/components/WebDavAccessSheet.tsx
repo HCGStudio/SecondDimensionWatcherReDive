@@ -20,7 +20,9 @@ const buildEndpoint = (): string => {
   return `${window.location.origin}/webdav/`;
 };
 
-const codeNode = <code className="rounded bg-canvas px-1 font-mono text-xs" />;
+const codeNode = (
+  <code className="rounded bg-surface-muted px-1 font-mono text-xs" />
+);
 const accentNode = <span className="text-foreground" />;
 
 export const WebDavAccessSheet: React.FC = () => {
@@ -61,7 +63,7 @@ export const WebDavAccessSheet: React.FC = () => {
         </SheetHeader>
         <SheetBody className="space-y-6">
           <section>
-            <h4 className="mb-2 font-serif text-base font-medium text-foreground">
+            <h4 className="mb-2 font-sans text-base font-medium text-foreground">
               {t("webdav.connection")}
             </h4>
             <div className="space-y-2">
@@ -70,7 +72,7 @@ export const WebDavAccessSheet: React.FC = () => {
                 value={endpoint}
                 onCopy={() => copy(endpoint, t("webdav.address"))}
               />
-              <div className="rounded-md border border-border-light bg-canvas px-3 py-2 text-sm leading-body">
+              <div className="rounded-md border border-border-light bg-surface-muted px-3 py-2 text-sm leading-body">
                 <p className="text-foreground">{t("webdav.credentialsHint")}</p>
                 <Button
                   variant="outline"
@@ -86,7 +88,7 @@ export const WebDavAccessSheet: React.FC = () => {
           </section>
 
           <section>
-            <h4 className="mb-2 font-serif text-base font-medium text-foreground">
+            <h4 className="mb-2 font-sans text-base font-medium text-foreground">
               {t("webdav.notes")}
             </h4>
             <ul className="space-y-1 text-sm leading-body text-muted">
@@ -104,7 +106,7 @@ export const WebDavAccessSheet: React.FC = () => {
           </section>
 
           <section>
-            <h4 className="mb-2 font-serif text-base font-medium text-foreground">
+            <h4 className="mb-2 font-sans text-base font-medium text-foreground">
               {t("webdav.examples")}
             </h4>
             <div className="space-y-3">
@@ -171,7 +173,7 @@ const CredentialRow: React.FC<CredentialRowProps> = ({
 }) => {
   const { t } = useTranslation("files");
   return (
-    <div className="flex items-center gap-2 rounded-md border border-border-light bg-canvas px-3 py-2">
+    <div className="flex items-center gap-2 rounded-md border border-border-light bg-surface-muted px-3 py-2">
       <div className="min-w-0 flex-1">
         <div className="text-xs uppercase tracking-wide text-subtle">
           {label}
@@ -202,7 +204,7 @@ interface PlatformGuideProps {
 
 const PlatformGuide: React.FC<PlatformGuideProps> = ({ title, steps }) => (
   <div className="rounded-md border border-border-light bg-surface px-4 py-3">
-    <div className="mb-1.5 font-serif text-sm font-medium text-foreground">
+    <div className="mb-1.5 font-sans text-sm font-medium text-foreground">
       {title}
     </div>
     <ol className="ml-5 list-decimal space-y-0.5 text-sm leading-body text-muted">

@@ -86,7 +86,7 @@ export const SettingsPage: React.FC = () => {
   return (
     <PageTemplate>
       <header className="mb-8">
-        <h1 className="font-serif text-2xl font-medium text-foreground">
+        <h1 className="font-sans text-2xl font-medium text-foreground">
           {t("settings:pageTitle")}
         </h1>
         <p className="mt-2 max-w-3xl text-sm leading-body text-muted">
@@ -108,7 +108,7 @@ export const SettingsPage: React.FC = () => {
         </div>
       ) : null}
 
-      <div className="grid gap-8 lg:grid-cols-[13rem_minmax(0,1fr)]">
+      <div className="grid gap-8 xl:grid-cols-[12rem_minmax(0,1fr)]">
         <aside>
           <SettingsNavigation active={activeSection} onChange={selectSection} />
         </aside>

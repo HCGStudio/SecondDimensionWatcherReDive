@@ -166,7 +166,7 @@ export const AccountPage: React.FC = () => {
   return (
     <PageTemplate>
       <header className="mb-8">
-        <h1 className="font-serif text-2xl font-medium text-foreground">
+        <h1 className="font-sans text-2xl font-medium text-foreground">
           {t("title")}
         </h1>
         <p className="mt-2 text-sm text-muted">
@@ -176,7 +176,7 @@ export const AccountPage: React.FC = () => {
       </header>
 
       <section>
-        <h2 className="mb-4 font-serif text-xl text-foreground">
+        <h2 className="mb-4 font-sans text-xl text-foreground">
           {t("profiles")}
         </h2>
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -276,7 +276,7 @@ export const AccountPage: React.FC = () => {
       {isAdmin ? (
         <>
           <section className="mt-10">
-            <h2 className="mb-4 font-serif text-xl text-foreground">
+            <h2 className="mb-4 font-sans text-xl text-foreground">
               {t("users")}
             </h2>
             <Card icon={<Shield size={18} />} title={t("createUser")}>
@@ -416,7 +416,7 @@ const SessionSection: React.FC<{
   const { t } = useTranslation("accounts");
   return (
     <section className="mt-10">
-      <h2 className="mb-4 font-serif text-xl text-foreground">{title}</h2>
+      <h2 className="mb-4 font-sans text-xl text-foreground">{title}</h2>
       <div className="space-y-3">
         {sessions?.map((session) => (
           <div

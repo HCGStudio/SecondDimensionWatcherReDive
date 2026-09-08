@@ -14,7 +14,14 @@
     "title": "続きから見る",
     "subtitle": "どの端末でも前回の続きから再生できます",
     "resume": "再開",
-    "progress": "再生進捗"
+    "progress": "再生進捗",
+    "loading": "視聴履歴を読み込み中…",
+    "loadFailed": "視聴履歴を読み込めませんでした。",
+    "emptyTitle": "次の物語は、ここから。",
+    "emptyBody": "ダウンロード済みの動画を再生すると、次回ここから続きを視聴できます。",
+    "browse": "ダウンロード済みの動画を見る",
+    "more": "ほかの視聴途中の動画",
+    "itemCount": "{{count}} 件"
   },
   "progress": {
     "resumed": "{{time}} から再開しました",

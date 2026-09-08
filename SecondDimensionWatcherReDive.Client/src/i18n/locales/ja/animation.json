@@ -91,5 +91,38 @@
     "watched": "視聴済み",
     "progress": "{{watched}}/{{total}} 視聴済み",
     "summary": "{{total}} 本中 {{watched}} 本を視聴済み"
+  },
+  "workbench": {
+    "eyebrow": "アニメのワークスペース",
+    "title": "物語の続きを、ここから。",
+    "subtitle": "ライブラリ、購読、ダウンロードをまとめて管理。いつでも続きを楽しめます。",
+    "library": "ライブラリ",
+    "browseDownloaded": "ダウンロード済みを見る",
+    "columns": {
+      "title": "作品 / 原題",
+      "resources": "話数 / リリース"
+    },
+    "loadedCount": "{{count}} 作品を読み込み済み",
+    "releaseCount": "{{count}} リリース",
+    "loading": "読み込み中…",
+    "overview": "ダウンロードと購読の概要",
+    "downloads": "ダウンロードキュー",
+    "allDownloads": "すべてのダウンロードを見る",
+    "downloadsFailed": "キューを読み込めませんでした。ダウンロード一覧から再試行してください。",
+    "statusUnavailable": "ダウンロード状態を取得できません",
+    "downloadProgress": "{{name}} のダウンロード進捗",
+    "pauseDownload": "{{name}} のダウンロードを一時停止",
+    "resumeDownload": "{{name}} のダウンロードを再開",
+    "downloadStates": {
+      "Downloading": "ダウンロード中",
+      "Paused": "一時停止中",
+      "Finished": "完了",
+      "Error": "ダウンロードエラー"
+    },
+    "subscriptions": "購読中のフィード",
+    "manageSubscriptions": "購読と新作アニメを管理",
+    "subscriptionsFailed": "購読を読み込めませんでした。購読管理から再試行してください。",
+    "noSubscriptions": "購読はまだありません。RSS フィードを追加して、お気に入りの物語を集めましょう。",
+    "subscriptionHint": "購読管理で今期のアニメを探し、フィードの追加や自動ダウンロードの設定ができます。"
   }
 }

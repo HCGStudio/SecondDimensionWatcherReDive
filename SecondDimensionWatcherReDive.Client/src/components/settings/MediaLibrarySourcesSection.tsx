@@ -258,7 +258,7 @@ export const MediaLibrarySourcesSection: React.FC = () => {
   return (
     <div className="mt-8 border-t border-border pt-8">
       <header className="mb-5">
-        <h3 className="font-serif text-lg font-medium text-foreground">
+        <h3 className="font-sans text-lg font-medium text-foreground">
           {t("settings:mediaLibrary.title")}
         </h3>
         <p className="mt-1 max-w-3xl text-sm leading-body text-muted">

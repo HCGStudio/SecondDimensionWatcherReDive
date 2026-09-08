@@ -90,7 +90,7 @@ export const PluginSettingsSection: React.FC = () => {
         <p className="text-xs font-semibold uppercase tracking-widest text-brand">
           {t("system.plugins.eyebrow")}
         </p>
-        <h2 className="mt-2 font-serif text-2xl font-medium text-foreground">
+        <h2 className="mt-2 font-sans text-2xl font-medium text-foreground">
           {t("system.plugins.title")}
         </h2>
         <p className="mt-2 max-w-3xl text-sm leading-body text-muted">
@@ -112,7 +112,7 @@ export const PluginSettingsSection: React.FC = () => {
               setPreview(null);
               setApproved(false);
             }}
-            className="min-w-0 flex-1 text-sm text-muted file:mr-3 file:rounded-md file:border-0 file:bg-canvas file:px-3 file:py-2 file:text-sm file:text-foreground"
+            className="min-w-0 flex-1 text-sm text-muted file:mr-3 file:rounded-md file:border-0 file:bg-surface-muted file:px-3 file:py-2 file:text-sm file:text-foreground"
           />
           <Button
             variant="outline"
@@ -125,7 +125,7 @@ export const PluginSettingsSection: React.FC = () => {
         </div>
 
         {preview ? (
-          <div className="mt-5 rounded-md border border-border-light bg-canvas/60 p-4">
+          <div className="mt-5 rounded-md border border-border-light bg-surface-muted/60 p-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <p className="font-medium text-foreground">
@@ -204,7 +204,7 @@ export const PluginSettingsSection: React.FC = () => {
       </Card>
 
       <div className="space-y-3">
-        <h3 className="font-serif text-lg font-medium text-foreground">
+        <h3 className="font-sans text-lg font-medium text-foreground">
           {t("system.plugins.installed.title")}
         </h3>
         {error ? (

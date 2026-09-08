@@ -136,7 +136,7 @@ export const TodoPage: React.FC = () => {
           <p className="mb-2 text-xs font-medium uppercase tracking-[0.12em] text-brand">
             {t("todos:eyebrow")}
           </p>
-          <h1 className="font-serif text-2xl font-medium text-foreground">
+          <h1 className="font-sans text-2xl font-medium text-foreground">
             {t("todos:title")}
           </h1>
           <p className="mt-2 max-w-2xl text-sm leading-body text-muted">
@@ -267,14 +267,14 @@ export const TodoPage: React.FC = () => {
                       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                         <div>
                           <div className="flex flex-wrap items-center gap-2">
-                            <span className="rounded-full bg-canvas px-2 py-0.5 text-xs font-medium text-muted">
+                            <span className="rounded-full bg-surface-muted px-2 py-0.5 text-xs font-medium text-muted">
                               {t(`todos:types.${item.type}`)}
                             </span>
                             <span className="text-xs text-subtle">
                               {t(`todos:priorities.${item.priority}`)}
                             </span>
                           </div>
-                          <h2 className="mt-2 font-serif text-lg font-medium text-foreground">
+                          <h2 className="mt-2 font-sans text-lg font-medium text-foreground">
                             {item.title}
                           </h2>
                         </div>

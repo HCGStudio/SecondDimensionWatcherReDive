@@ -94,7 +94,7 @@ export function Table<T extends Record<string, any>>({
             {items.map((item, rowIdx) => (
               <tr
                 key={rowKey?.(item, rowIdx) ?? rowIdx}
-                className="transition-colors hover:bg-canvas"
+                className="transition-colors hover:bg-tint"
               >
                 {columns.map((col, colIdx) => (
                   <td

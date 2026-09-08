@@ -64,7 +64,7 @@ import { PlaybackErrorActions } from "./PlaybackErrorActions";
 import "media-captions/styles/captions.css";
 import "media-captions/styles/regions.css";
 
-const BRAND_TERRACOTTA = "#c96442";
+const PLAYER_ACCENT = "#7fc7a2";
 const PROGRESS_SYNC_INTERVAL_SECONDS = 10;
 const OFF_TRACK = "__off__";
 
@@ -754,7 +754,8 @@ export const PlayerPage: React.FC = () => {
     const art = new Artplayer({
       container: playerContainerRef.current,
       url: playbackUrl,
-      type: playbackMode === "hls" ? "m3u8" : undefined,
+      // Artplayer validates these merged options even for native playback.
+      type: playbackMode === "hls" ? "m3u8" : "",
       customType:
         playbackMode === "hls"
           ? {
@@ -784,7 +785,7 @@ export const PlayerPage: React.FC = () => {
                 hls.attachMedia(video);
               },
             }
-          : undefined,
+          : {},
       proxy:
         playbackMode === "mkvProxy"
           ? artplayerProxyMediabunny({
@@ -804,7 +805,7 @@ export const PlayerPage: React.FC = () => {
       setting: true,
       hotkey: true,
       subtitleOffset: true,
-      theme: BRAND_TERRACOTTA,
+      theme: PLAYER_ACCENT,
       volume: 0.8,
       muted: false,
       autoSize: true,
@@ -1345,7 +1346,7 @@ export const PlayerPage: React.FC = () => {
           <section className="mt-4 rounded-xl border border-border bg-surface p-4 shadow-ring">
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
-                <h2 className="font-serif text-base font-medium text-foreground">
+                <h2 className="font-sans text-base font-medium text-foreground">
                   {t("preferences.title")}
                 </h2>
                 <p className="mt-0.5 text-xs text-muted">

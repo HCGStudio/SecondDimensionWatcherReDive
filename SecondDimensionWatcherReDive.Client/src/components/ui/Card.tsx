@@ -22,14 +22,14 @@ export const Card: React.FC<CardProps> = ({
   return (
     <div
       className={cn(
-        "rounded-md border border-border bg-surface p-5 shadow-whisper",
+        "rounded-lg border border-border bg-surface p-5",
         className,
       )}
     >
       <div className="flex items-start gap-3">
         {icon ? <div className="mt-0.5 shrink-0 text-muted">{icon}</div> : null}
         <div className="min-w-0 flex-1">
-          <h3 className="font-serif text-lg font-medium leading-heading text-foreground">
+          <h3 className="font-sans text-lg font-medium leading-heading text-foreground">
             {title}
           </h3>
           {description ? (

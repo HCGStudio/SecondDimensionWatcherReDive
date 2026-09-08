@@ -37,7 +37,7 @@ export const SettingsSectionHeader: React.FC<SettingsSectionHeaderProps> = ({
         {eyebrow}
       </p>
     ) : null}
-    <h2 className="font-serif text-xl font-medium leading-heading text-foreground">
+    <h2 className="font-sans text-xl font-medium leading-heading text-foreground">
       {title}
     </h2>
     <p className="mt-2 max-w-3xl text-sm leading-body text-muted">
@@ -67,7 +67,7 @@ export const ToggleField: React.FC<ToggleFieldProps> = ({
   disabled,
   onChange,
 }) => (
-  <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-border-light bg-canvas/50 px-4 py-3">
+  <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-border-light bg-surface-muted/50 px-4 py-3">
     <input
       type="checkbox"
       className="mt-0.5 h-4 w-4 shrink-0 accent-brand"

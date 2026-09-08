@@ -6,6 +6,7 @@ import { mutate } from "swr";
 import { useAllowRegister, useLoginStatus } from "../auth/hooks";
 import { setAuthResult } from "../auth/httpClient";
 import { login, register } from "../auth/utils";
+import { BrandIcon } from "../components/BrandIcon";
 import { Button } from "../components/ui/Button";
 import { FormRow } from "../components/ui/FormRow";
 import { Input } from "../components/ui/Input";
@@ -96,10 +97,11 @@ export const LoginPage: React.FC = () => {
 
   return (
     <PageTemplate>
-      <div className="mx-auto max-w-md">
+      <div className="mx-auto my-5 max-w-md rounded-xl border border-border bg-surface p-6 sm:my-10 sm:p-8">
+        <BrandIcon className="mb-6 h-12 w-12" />
         {status ? null : registerInfo?.allow ? (
           <form onSubmit={onRegister}>
-            <h2 className="font-serif text-2xl font-medium leading-heading">
+            <h2 className="font-sans text-2xl font-medium leading-heading">
               {t("setupTitle")}
             </h2>
             <p className="mt-2 text-sm text-muted leading-body">
@@ -146,6 +148,7 @@ export const LoginPage: React.FC = () => {
               </FormRow>
               <Button
                 type="submit"
+                className="w-full"
                 disabled={
                   isSubmitting ||
                   password !== passwordConfirm ||
@@ -158,7 +161,7 @@ export const LoginPage: React.FC = () => {
           </form>
         ) : (
           <form onSubmit={onLogin}>
-            <h2 className="font-serif text-2xl font-medium leading-heading">
+            <h2 className="font-sans text-2xl font-medium leading-heading">
               {t("welcomeBack")}
             </h2>
             <div className="mt-6 space-y-4">
@@ -183,6 +186,7 @@ export const LoginPage: React.FC = () => {
               </FormRow>
               <Button
                 type="submit"
+                className="w-full"
                 disabled={isSubmitting || password.length === 0}
               >
                 {isSubmitting ? t("loggingIn") : t("login")}

@@ -1,7 +1,7 @@
 {
   "appName": "SDW Re:Dive",
   "nav": {
-    "home": "ホーム",
+    "home": "ワークスペース",
     "search": "検索",
     "searchPlaceholder": "ライブラリを検索…",
     "todo": "TODO センター",
@@ -14,7 +14,16 @@
     "metadataReview": "メタデータ確認",
     "chat": "AI アシスタント",
     "settings": "設定",
-    "menu": "メニューを開く"
+    "menu": "メニューを開く",
+    "navigation": "メインナビゲーション",
+    "yourSpace": "あなたのメディア空間",
+    "episodes": "エピソード詳細",
+    "player": "再生中",
+    "groups": {
+      "library": "マイライブラリ",
+      "watching": "視聴管理",
+      "management": "ワークスペース管理"
+    }
   },
   "user": {
     "account": "アカウント",
@@ -23,7 +32,12 @@
     "language": "言語",
     "logout": "ログアウト",
     "logoutFailed": "ローカルではログアウトしましたが、リモートの更新トークン失効を確認できませんでした。",
-    "login": "ログイン"
+    "login": "ログイン",
+    "roles": {
+      "Admin": "管理者",
+      "Member": "メンバー",
+      "Viewer": "視聴者"
+    }
   },
   "languages": {
     "zh-CN": "中文（简体）",
@@ -54,5 +68,6 @@
     "unavailable": "画像を読み込めません",
     "unavailableFor": "{{name}} の画像を読み込めません",
     "retry": "{{name}} の画像を再読み込み"
-  }
+  },
+  "appTitle": "二次元観測器 Re:Dive"
 }

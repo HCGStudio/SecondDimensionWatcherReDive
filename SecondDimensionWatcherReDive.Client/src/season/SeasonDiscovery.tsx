@@ -221,7 +221,7 @@ export const SeasonDiscovery: React.FC = () => {
       </span>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <h2 className="font-serif text-xl font-medium text-foreground">
+          <h2 className="font-sans text-xl font-medium text-foreground">
             {t("title")}
           </h2>
           <div className="flex items-center gap-1">
@@ -302,7 +302,7 @@ export const SeasonDiscovery: React.FC = () => {
       ) : (
         DAY_ORDER.filter((d) => grouped.has(d)).map((day) => (
           <div key={day} className="mb-6">
-            <h3 className="mb-3 font-serif text-base font-medium text-muted">
+            <h3 className="mb-3 font-sans text-base font-medium text-muted">
               {t(`days.${DAY_KEYS[day]}`)}
             </h3>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -442,7 +442,7 @@ const SubgroupList: React.FC<{
         const allUrl = buildAllRssUrl(bangumi.mikanId);
         const isAllSubscribed = subscribedUrls.has(allUrl);
         return (
-          <div className="flex flex-col gap-3 rounded-md border border-border-light bg-canvas p-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-3 rounded-md border border-border-light bg-surface-muted p-3 sm:flex-row sm:items-center sm:justify-between">
             <span className="text-sm font-medium text-foreground">
               {t("allSubgroups")}
             </span>

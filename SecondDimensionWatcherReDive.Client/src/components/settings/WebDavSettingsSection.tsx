@@ -199,7 +199,7 @@ export const WebDavSettingsSection: React.FC = () => {
   return (
     <div className="mt-8 border-t border-border pt-8">
       <header className="mb-5">
-        <h3 className="font-serif text-lg font-medium text-foreground">
+        <h3 className="font-sans text-lg font-medium text-foreground">
           {t("settings:webdav.title")}
         </h3>
         <p className="mt-1 max-w-3xl text-sm leading-body text-muted">
@@ -280,7 +280,7 @@ export const WebDavSettingsSection: React.FC = () => {
           <div className="flex items-start gap-3">
             <ShieldAlert size={18} className="mt-0.5 shrink-0 text-warning" />
             <div className="min-w-0 flex-1">
-              <h4 className="font-serif text-base font-medium text-foreground">
+              <h4 className="font-sans text-base font-medium text-foreground">
                 {t("settings:webdav.created.title")}
               </h4>
               <p className="mt-1 text-sm leading-body text-muted">

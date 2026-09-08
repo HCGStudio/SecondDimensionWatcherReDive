@@ -35,7 +35,7 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
       )}
     >
       <div className="flex items-center justify-between border-b border-border-light p-4 pr-12">
-        <h2 className="font-serif text-base font-medium text-foreground">
+        <h2 className="font-sans text-base font-medium text-foreground">
           {t("conversations")}
         </h2>
         <Button
@@ -61,8 +61,8 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
             className={cn(
               "group flex items-center rounded-md transition-colors",
               selectedId === conv.id
-                ? "bg-canvas text-foreground shadow-ring"
-                : "text-muted hover:text-foreground hover:bg-canvas",
+                ? "bg-tint text-accent"
+                : "text-muted hover:text-foreground hover:bg-tint",
             )}
           >
             <button

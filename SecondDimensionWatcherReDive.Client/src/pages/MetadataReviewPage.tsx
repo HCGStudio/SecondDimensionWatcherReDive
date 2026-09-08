@@ -118,8 +118,8 @@ const StatusTabs: React.FC<StatusTabsProps> = ({
           className={cn(
             "flex min-w-0 items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors focus:outline-hidden focus:ring-2 focus:ring-focus",
             active === status
-              ? "bg-canvas text-foreground shadow-ring"
-              : "text-muted hover:bg-canvas/60 hover:text-foreground",
+              ? "bg-tint text-accent"
+              : "text-muted hover:bg-tint/60 hover:text-foreground",
           )}
         >
           <span className="truncate">{t(`tabs.${status}`)}</span>
@@ -128,7 +128,7 @@ const StatusTabs: React.FC<StatusTabsProps> = ({
               "min-w-6 rounded-full px-1.5 py-0.5 text-center text-xs tabular-nums",
               active === status
                 ? "bg-brand/10 text-brand"
-                : "bg-canvas text-subtle",
+                : "bg-surface-muted text-subtle",
             )}
           >
             {countsLoaded ? counts[status] : "…"}
@@ -202,7 +202,7 @@ const ReviewItemRow: React.FC<ReviewItemRowProps> = ({
                 </span>
               </div>
               <h3
-                className="mt-2 line-clamp-2 font-serif text-base font-medium leading-heading text-foreground sm:text-lg"
+                className="mt-2 line-clamp-2 font-sans text-base font-medium leading-heading text-foreground sm:text-lg"
                 title={item.title}
               >
                 {item.title}
@@ -300,11 +300,11 @@ const RecentOperations: React.FC<RecentOperationsProps> = ({
   return (
     <section className="mt-6 rounded-xl border border-border-light bg-surface p-4 shadow-whisper sm:p-5">
       <div className="flex items-start gap-3">
-        <span className="rounded-lg bg-canvas p-2 text-muted">
+        <span className="rounded-lg bg-surface-muted p-2 text-muted">
           <History size={18} />
         </span>
         <div>
-          <h2 className="font-serif text-base font-medium text-foreground">
+          <h2 className="font-sans text-base font-medium text-foreground">
             {t("recent.title")}
           </h2>
           <p className="mt-0.5 text-sm text-muted">{t("recent.subtitle")}</p>
@@ -478,7 +478,7 @@ export const MetadataReviewPage: React.FC = () => {
   return (
     <PageTemplate>
       <header className="max-w-3xl">
-        <h1 className="font-serif text-2xl font-medium leading-heading text-foreground">
+        <h1 className="font-sans text-2xl font-medium leading-heading text-foreground">
           {t("title")}
         </h1>
         <p className="mt-2 text-sm leading-body text-muted">{t("subtitle")}</p>
@@ -510,7 +510,7 @@ export const MetadataReviewPage: React.FC = () => {
             <h2
               ref={queueHeadingRef}
               tabIndex={-1}
-              className="font-serif text-lg font-medium text-foreground focus:outline-hidden"
+              className="font-sans text-lg font-medium text-foreground focus:outline-hidden"
             >
               {t(`queue.${status}.title`)}
             </h2>

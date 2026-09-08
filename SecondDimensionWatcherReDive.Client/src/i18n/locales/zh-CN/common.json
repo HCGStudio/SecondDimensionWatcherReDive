@@ -1,7 +1,7 @@
 {
   "appName": "二次元观测器",
   "nav": {
-    "home": "主页",
+    "home": "工作台",
     "search": "搜索",
     "searchPlaceholder": "搜索媒体库…",
     "todo": "待办中心",
@@ -14,7 +14,16 @@
     "metadataReview": "元数据审核",
     "chat": "AI 助手",
     "settings": "设置",
-    "menu": "打开导航"
+    "menu": "打开导航",
+    "navigation": "主导航",
+    "yourSpace": "你的媒体空间",
+    "episodes": "剧集详情",
+    "player": "正在播放",
+    "groups": {
+      "library": "我的媒体",
+      "watching": "追番管理",
+      "management": "工作区管理"
+    }
   },
   "user": {
     "account": "账户",
@@ -23,7 +32,12 @@
     "language": "语言",
     "logout": "注销",
     "logoutFailed": "已在本机退出，但无法确认远端刷新令牌已撤销。",
-    "login": "登录"
+    "login": "登录",
+    "roles": {
+      "Admin": "管理员",
+      "Member": "成员",
+      "Viewer": "观看者"
+    }
   },
   "languages": {
     "zh-CN": "中文（简体）",
@@ -54,5 +68,6 @@
     "unavailable": "图片暂不可用",
     "unavailableFor": "{{name}} 的图片暂不可用",
     "retry": "重新加载 {{name}} 的图片"
-  }
+  },
+  "appTitle": "二次元观测器 Re:Dive"
 }

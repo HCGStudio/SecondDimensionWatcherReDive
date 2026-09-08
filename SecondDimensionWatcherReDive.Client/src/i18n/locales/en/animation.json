@@ -94,5 +94,40 @@
     "watched": "Watched",
     "progress": "{{watched}}/{{total}} watched",
     "summary": "{{watched}} of {{total}} videos watched"
+  },
+  "workbench": {
+    "eyebrow": "YOUR ANIME WORKSPACE",
+    "title": "Pick up a good story.",
+    "subtitle": "Your library, subscriptions and downloads, ready whenever you are.",
+    "library": "Your library",
+    "browseDownloaded": "Browse downloads",
+    "columns": {
+      "title": "Title / Original title",
+      "resources": "Episodes / Releases"
+    },
+    "loadedCount_one": "{{count}} anime loaded",
+    "loadedCount_other": "{{count}} anime loaded",
+    "releaseCount_one": "{{count}} release",
+    "releaseCount_other": "{{count}} releases",
+    "loading": "Loading…",
+    "overview": "Downloads and subscriptions overview",
+    "downloads": "Download queue",
+    "allDownloads": "View all downloads",
+    "downloadsFailed": "Could not load the queue. Open Downloads to try again.",
+    "statusUnavailable": "Download status is unavailable",
+    "downloadProgress": "Download progress for {{name}}",
+    "pauseDownload": "Pause download of {{name}}",
+    "resumeDownload": "Resume download of {{name}}",
+    "downloadStates": {
+      "Downloading": "Downloading",
+      "Paused": "Paused",
+      "Finished": "Finished",
+      "Error": "Download error"
+    },
+    "subscriptions": "Your subscriptions",
+    "manageSubscriptions": "Manage subscriptions and anime",
+    "subscriptionsFailed": "Could not load subscriptions. Open Subscriptions to try again.",
+    "noSubscriptions": "No subscriptions yet. Add an RSS feed to bring your favorite stories here.",
+    "subscriptionHint": "Discover seasonal anime, add feeds and configure automatic download policies in Subscriptions."
   }
 }

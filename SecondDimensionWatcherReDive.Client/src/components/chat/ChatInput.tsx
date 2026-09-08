@@ -64,7 +64,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSend, disabled }) => {
           placeholder={t("inputPlaceholder")}
           disabled={disabled}
           rows={1}
-          className="scrollbar-none flex-1 resize-none rounded-lg border border-border bg-canvas px-3 py-2 text-sm text-foreground placeholder:text-subtle transition-colors focus:border-focus focus:outline-hidden focus:ring-2 focus:ring-focus"
+          className="scrollbar-none flex-1 resize-none rounded-lg border border-border bg-surface-muted px-3 py-2 text-sm text-foreground placeholder:text-subtle transition-colors focus:border-focus focus:outline-hidden focus:ring-2 focus:ring-focus"
         />
         <Button
           type="submit"
