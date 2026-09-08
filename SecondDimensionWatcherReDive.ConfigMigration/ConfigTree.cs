@@ -61,15 +61,42 @@ internal static class ConfigTree
             {
                 // IConfiguration also accepts colon-delimited keys. Expand them so migration
                 // and current-schema validation see the same tree as the configuration binder.
-                if (Get(result, pair.Key) is not null || result.ContainsKey(pair.Key))
-                    throw new ConfigMigrationException("Configuration contains duplicate or overlapping keys.");
-                Set(result, pair.Key, Normalize(pair.Value));
+                MergeNormalized(result, pair.Key, Normalize(pair.Value));
             }
             return result;
         }
         return node is JsonArray array
             ? new JsonArray(array.Select(Normalize).ToArray())
             : node?.DeepClone();
+    }
+
+    private static void MergeNormalized(JsonObject root, string path, JsonNode? value)
+    {
+        var keys = path.Split(':');
+        var current = root;
+        foreach (var key in keys[..^1])
+        {
+            if (!current.TryGetPropertyValue(key, out var branch))
+            {
+                branch = Object();
+                current.Add(key, branch);
+            }
+            current = branch as JsonObject
+                      ?? throw new ConfigMigrationException("Configuration contains duplicate or overlapping keys.");
+        }
+
+        if (!current.TryGetPropertyValue(keys[^1], out var existing))
+        {
+            current.Add(keys[^1], value?.DeepClone());
+            return;
+        }
+        if (existing is JsonObject existingObject && value is JsonObject incomingObject)
+        {
+            foreach (var pair in incomingObject)
+                MergeNormalized(existingObject, pair.Key, pair.Value);
+            return;
+        }
+        throw new ConfigMigrationException("Configuration contains duplicate or overlapping keys.");
     }
 
     internal static IEnumerable<KeyValuePair<string, string?>> Flatten(JsonNode? node, string prefix = "")

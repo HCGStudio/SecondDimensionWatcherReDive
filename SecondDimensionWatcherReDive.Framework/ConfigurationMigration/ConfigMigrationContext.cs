@@ -13,8 +13,9 @@ namespace SecondDimensionWatcherReDive.Framework.ConfigurationMigration;
 /// Consult these for inherited defaults without modifying or copying them into the current source.
 /// </param>
 /// <param name="IsOverlay">
-/// Whether this source overrides an earlier configuration source. An overlay must not implicitly
-/// reload legacy files or replace inherited settings merely because its own document omits them.
+/// Whether this source overrides an earlier configuration source. An overlay must not replace
+/// inherited settings merely because its own document omits them. Legacy credential migration
+/// may read the implicit password file until an earlier layer has retained its bootstrap hash.
 /// </param>
 public sealed record ConfigMigrationContext(JsonObject Configuration, string WorkingDirectory,
     IReadOnlyDictionary<string, string?>? InheritedSettings = null,

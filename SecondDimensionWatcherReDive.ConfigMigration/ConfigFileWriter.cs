@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Security.AccessControl;
 using System.Text;
 using Microsoft.Win32.SafeHandles;
 
@@ -32,9 +33,17 @@ internal static class ConfigFileWriter
             Options = FileOptions.Asynchronous
         };
         if (!OperatingSystem.IsWindows()) options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+        FileSecurity? windowsSecurity = null;
+        if (OperatingSystem.IsWindows())
+        {
+            windowsSecurity = new FileInfo(path).GetAccessControl(AccessControlSections.Access);
+            // Preserve the effective DACL at creation time, before either file contains
+            // secrets. Do not inherit broader permissions from the containing directory.
+            windowsSecurity.SetAccessRuleProtection(isProtected: true, preserveInheritance: true);
+        }
         try
         {
-            await using (var stream = new FileStream(temporary, options))
+            await using (var stream = CreateOutput(temporary, options, windowsSecurity))
             {
                 await stream.WriteAsync(Encoding.UTF8.GetBytes(contents), cancellationToken);
                 stream.Flush(flushToDisk: true);
@@ -44,7 +53,7 @@ internal static class ConfigFileWriter
                     File.SetUnixFileMode(temporary, File.GetUnixFileMode(path));
                 }
             }
-            await using (var stream = new FileStream(backup, options))
+            await using (var stream = CreateOutput(backup, options, windowsSecurity))
             {
                 await stream.WriteAsync(original, cancellationToken);
                 stream.Flush(flushToDisk: true);
@@ -53,13 +62,25 @@ internal static class ConfigFileWriter
             if (!(await File.ReadAllBytesAsync(path, cancellationToken)).AsSpan().SequenceEqual(original))
                 throw new ConfigMigrationException("Configuration changed during migration. No migration was written; retry with the new file.");
             // Same-directory atomic replacement. The version and every Up commit together.
-            File.Move(temporary, path, overwrite: true);
+            if (OperatingSystem.IsWindows())
+                File.Replace(temporary, path, destinationBackupFileName: null, ignoreMetadataErrors: false);
+            else
+                File.Move(temporary, path, overwrite: true);
             return backup;
         }
         finally
         {
             if (File.Exists(temporary)) File.Delete(temporary);
         }
+    }
+
+    private static FileStream CreateOutput(string path, FileStreamOptions options, FileSecurity? windowsSecurity)
+    {
+        if (OperatingSystem.IsWindows())
+            return new FileInfo(path).Create(FileMode.CreateNew, FileSystemRights.Write,
+                FileShare.None, options.BufferSize, options.Options,
+                windowsSecurity ?? throw new IOException("Cannot preserve configuration access control."));
+        return new FileStream(path, options);
     }
 
     private static void PreserveOwner(string path, SafeFileHandle destination)

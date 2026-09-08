@@ -22,7 +22,7 @@ internal sealed class UseCanonicalConfiguration : IConfigMigration
             choices.Add(new(PasswordKey,
                 "A legacy login hash differs from Authentication:BootstrapPasswordHash. Choose the bootstrap credential to retain (database credentials stay authoritative).",
                 [new("current", "Keep the current bootstrap hash"), new("legacy", "Import the legacy login hash")]));
-        if (HasStateConflict(context))
+        if (HasStateConflict(context, hash))
             choices.Add(new("StateDirectory",
                 "StateDirectory differs from the legacy password directory. Moving implicit state paths can lose access to encryption keys, plugins and cached media.",
                 [new("legacy", "Keep implicit state in the legacy directory"), new("current", "Use StateDirectory (move the existing state there before restarting)")]));
@@ -66,7 +66,11 @@ internal sealed class UseCanonicalConfiguration : IConfigMigration
     private static string? ReadLegacyHash(ConfigMigrationContext context)
     {
         var hash = ConfigTree.Text(context.Configuration, "Password:Value");
-        if (context.IsOverlay && ConfigTree.Get(context.Configuration, "PasswordFile") is null) return hash;
+        // A newly bundled base file may already be current while a legacy overlay
+        // still relies on password.json. Import it until an earlier layer has
+        // retained the credential; only then suppress duplicate implicit lookups.
+        if (context.IsOverlay && ConfigTree.Get(context.Configuration, "PasswordFile") is null
+            && !string.IsNullOrWhiteSpace(context.InheritedSettings?.GetValueOrDefault(PasswordKey))) return hash;
         var path = PasswordPath(context);
         try
         {
@@ -79,9 +83,11 @@ internal sealed class UseCanonicalConfiguration : IConfigMigration
         return hash;
     }
 
-    private static bool HasStateConflict(ConfigMigrationContext context)
+    private static bool HasStateConflict(ConfigMigrationContext context, string? legacyHash)
     {
-        if (context.IsOverlay && ConfigTree.Get(context.Configuration, "PasswordFile") is null) return false;
+        if (context.IsOverlay && ConfigTree.Get(context.Configuration, "PasswordFile") is null
+            && (!string.IsNullOrWhiteSpace(context.InheritedSettings?.GetValueOrDefault(PasswordKey))
+                || string.IsNullOrWhiteSpace(legacyHash))) return false;
         var current = ConfigTree.Text(context.Configuration, "StateDirectory");
         if (string.IsNullOrWhiteSpace(current)) return false;
         var legacyDirectory = Path.GetDirectoryName(PasswordPath(context))!;
