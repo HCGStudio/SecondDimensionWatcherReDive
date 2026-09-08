@@ -124,7 +124,7 @@ export const ContinueWatching: React.FC = () => {
       <h2 id="continue-watching-title" className="sr-only">
         {t("continue.title")}
       </h2>
-      {error ? (
+      {error && !data ? (
         <div
           className="rounded-xl border border-border-light bg-tint p-5 text-sm text-muted"
           role="alert"
