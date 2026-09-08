@@ -7,4 +7,5 @@ public sealed record ConfigMigrationOptions(
     string? ContentRootDirectory = null,
     string? LegacyPasswordFile = null,
     IReadOnlyList<string>? InheritedConfigurationFiles = null,
-    bool RequireExplicitInheritance = false);
+    bool RequireExplicitInheritance = false,
+    IReadOnlyDictionary<string, byte[]>? InheritedConfigurationSnapshots = null);

@@ -79,6 +79,25 @@ public sealed class ConfigMigrationRunner
         // is needed for a no-op. Unsupported versions retain their normal diagnostics.
         if (version >= CurrentVersion || version < BaselineVersion) return (options, []);
         var files = options?.InheritedConfigurationFiles ?? [];
+        if (options?.InheritedConfigurationSnapshots is { Count: > 0 } snapshots)
+        {
+            if (files.Count > 0)
+                throw new ConfigMigrationException("Supply inherited file paths or their loaded snapshots, not both.");
+            // Startup already combined these exact bytes with intervening memory,
+            // environment and command-line sources. Re-reading and reconstructing
+            // only the files here would change that source ordering or retain stale keys.
+            var loadedPaths = new HashSet<string>(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal)
+                { targetPath };
+            var loaded = new List<(string Path, byte[] Content)>();
+            foreach (var snapshot in snapshots)
+            {
+                var path = Path.GetFullPath(snapshot.Key);
+                if (!loadedPaths.Add(path))
+                    throw new ConfigMigrationException("Inherited configuration snapshots must be distinct and cannot include the target file.");
+                loaded.Add((path, snapshot.Value.ToArray()));
+            }
+            return (options, loaded);
+        }
         if (files.Count == 0)
         {
             if (options?.RequireExplicitInheritance == true)
