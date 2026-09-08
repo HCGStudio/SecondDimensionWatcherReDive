@@ -68,12 +68,15 @@ public sealed partial class LibraryCompletionService(ILibraryCompletionRepositor
             info.SourceFeedId, info.ReleaseSizeBytes));
         var score = scoring.Score(new(info.ReleaseSubtitleGroup ?? info.Group?.Name, info.ReleaseResolution,
             info.ReleaseCodec, info.ReleaseLanguages ?? [], info.ReleaseSizeBytes), policy);
-        var reason = !IsReliable(info) ? "unidentified_or_batch" : info.DownloadType != FileDownloadTypes.TorrentDownload ? "unsupported_source" :
-            info.IsDownloadFinished ? "downloaded" : info.IsDownloadTracked ? "downloading" :
-            evaluation is { Matched: false } ? "policy_mismatch" : null;
+        var reason = GetIneligibilityReason(info, evaluation);
         return new(info.Id, info.Title, info.PublishTime, info.ReleaseSizeBytes, score.Value,
             score.Reasons.Concat(evaluation?.Explanations.Where(x => !x.Passed).Select(x => x.Message) ?? []).ToList(), reason == null, reason);
     }
+
+    internal static string? GetIneligibilityReason(AnimationInfo info, SubscriptionAutomationEvaluation? evaluation) =>
+        !IsReliable(info) ? "unidentified_or_batch" : info.DownloadType != FileDownloadTypes.TorrentDownload ? "unsupported_source" :
+        info.IsDownloadFinished ? "downloaded" : info.IsDownloadTracked ? "downloading" :
+        evaluation is { Matched: false } ? "policy_mismatch" : null;
 
     public Task<IReadOnlyList<CompletionSubmissionResult>> SubmitAsync(CompletionSubmissionRequest request,
         CancellationToken cancellationToken) => SubmitCoreAsync(request, null, cancellationToken);
