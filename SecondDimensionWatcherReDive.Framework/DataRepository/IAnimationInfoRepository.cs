@@ -137,7 +137,7 @@ public interface IAnimationInfoRepository
         Guid submissionLeaseId,
         TimeSpan submissionLeaseDuration,
         DateTimeOffset startedAt,
-        MultiSourceSubscription? automaticSubscription,
+        MultiSourceSubscription? expectedSubscription,
         CancellationToken cancellationToken);
 
     Task<bool> TryMarkDownloadSubmittedAsync(
