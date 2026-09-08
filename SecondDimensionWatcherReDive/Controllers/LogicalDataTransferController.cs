@@ -10,6 +10,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Framework.Inference;
+using SecondDimensionWatcherReDive.Utils.MetadataReview;
 
 namespace SecondDimensionWatcherReDive.Controllers;
 
@@ -106,6 +107,11 @@ internal sealed class LogicalDataTransferController(
         catch (LogicalDataImportConflictException exception)
         {
             return Conflict(new { error = exception.Message });
+        }
+        catch (MetadataReviewServiceException exception)
+        {
+            return StatusCode(exception is MetadataReviewUnavailableException ? 503 : 422,
+                new External.MetadataReviewError(exception.Code, exception.Message));
         }
     }
 
