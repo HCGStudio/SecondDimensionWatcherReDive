@@ -6,13 +6,22 @@ namespace SecondDimensionWatcherReDive.ConfigMigration;
 public sealed class ConfigMigrationRunner
 {
     public static Version BaselineVersion { get; } = new(2, 2, 0);
-    private static readonly HashSet<string> MigrationRoots = new(StringComparer.OrdinalIgnoreCase)
+    private static readonly HashSet<string> MigrationPaths = new(StringComparer.OrdinalIgnoreCase)
     {
-        "Version", "AI", "Inference", "Password", "PasswordFile", "StateDirectory", "Authentication"
+        "Version", "PasswordFile", "Password:Value", "StateDirectory", "Authentication:BootstrapPasswordHash",
+        "AI:Engine", "AI:Provider",
+        "AI:OpenAI:ApiKey", "AI:OpenAI:BaseUrl", "AI:OpenAI:ApiMode", "AI:OpenAI:Model", "AI:OpenAI:MaxTokens",
+        "AI:Anthropic:ApiKey", "AI:Anthropic:BaseUrl", "AI:Anthropic:Model", "AI:Anthropic:MaxTokens", "AI:Anthropic:ApiVersion",
+        "AI:CodexAppServer:Endpoint", "AI:CodexAppServer:Model", "AI:CodexAppServer:PermissionProfile",
+        "AI:CodexAppServer:TimeoutSeconds", "AI:CodexAppServer:Token",
+        "Inference:Provider", "Inference:ApiKey", "Inference:BaseUrl", "Inference:Model", "Inference:MaxTokens",
+        "Inference:RateLimitDelayMs"
     };
+    private static readonly HashSet<string> MigrationSections = new(StringComparer.OrdinalIgnoreCase)
+        { "AI", "Inference", "Password", "Authentication" };
 
     public static bool ContainsMigrationSettings(IEnumerable<KeyValuePair<string, string?>> settings) =>
-        settings.Any(pair => MigrationRoots.Contains(pair.Key.Split(':')[0]));
+        settings.Any(pair => MigrationPaths.Contains(pair.Key));
     private readonly IReadOnlyList<IConfigMigration> migrations;
     public Version CurrentVersion { get; }
 
@@ -131,7 +140,10 @@ public sealed class ConfigMigrationRunner
         CancellationToken cancellationToken, ConfigMigrationOptions? options = null)
     {
         var document = ConfigTree.Object();
-        var entries = settings.ToArray();
+        // IConfiguration can contain an unrelated scalar such as PASSWORD or AI
+        // alongside real section descendants. It is not an application setting;
+        // leave it in the original provider rather than migrate or clear it.
+        var entries = settings.Where(pair => !MigrationSections.Contains(pair.Key)).ToArray();
         foreach (var pair in entries.Where(pair => pair.Value is not null).OrderBy(pair => pair.Key.Count(c => c == ':')))
             ConfigTree.Set(document, pair.Key, JsonValue.Create(pair.Value));
         var (updated, _) = await MigrateAsync(document, workingDirectory, null, cancellationToken, options);
