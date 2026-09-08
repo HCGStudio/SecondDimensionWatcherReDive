@@ -410,10 +410,17 @@ internal sealed class LogicalDataTransferWorker(
         // Plan only actual changes against read-only current state, before taking any
         // import locks. A source supplied by this bundle will exist after feed import.
         var feeds = await context.Feeds.AsNoTracking()
-            .ToDictionaryAsync(feed => feed.Url, feed => feed.Id, StringComparer.Ordinal, cancellationToken);
-        var importedFeedUrls = bundle.Categories.HasFlag(LogicalDataCategory.Feeds)
-            ? bundle.Feeds.Select(feed => feed.Url).ToHashSet(StringComparer.Ordinal)
-            : [];
+            .ToDictionaryAsync(feed => feed.Url, feed => (Guid?)feed.Id, StringComparer.Ordinal, cancellationToken);
+        var usedFeedIds = feeds.Values.Where(id => id.HasValue).Select(id => id!.Value).ToHashSet();
+        if (bundle.Categories.HasFlag(LogicalDataCategory.Feeds))
+        {
+            // Mirror ImportFeedsAsync's input order and ID reuse. A restored feed
+            // may reconnect an unchanged rule's old SourceFeedId. Only a collision
+            // requires a future random ID, which remains unknown during validation.
+            foreach (var importedFeed in bundle.Feeds)
+                if (!feeds.ContainsKey(importedFeed.Url))
+                    feeds.Add(importedFeed.Url, usedFeedIds.Add(importedFeed.Id) ? importedFeed.Id : null);
+        }
         var rules = await context.Set<Models.MetadataRecognitionRule>().AsNoTracking()
             .ToDictionaryAsync(rule => rule.Id, cancellationToken);
         foreach (var imported in bundle.RecognitionRules)
@@ -421,16 +428,15 @@ internal sealed class LogicalDataTransferWorker(
             cancellationToken.ThrowIfCancellationRequested();
             if (imported.SourceFeedMissing) continue;
             Guid? sourceFeedId = null;
-            var newSource = false;
+            var unknownSourceId = false;
             if (imported.SourceFeedUrl is { } url)
             {
-                if (feeds.TryGetValue(url, out var feedId)) sourceFeedId = feedId;
-                else if (importedFeedUrls.Contains(url)) newSource = true;
-                else continue;
+                if (!feeds.TryGetValue(url, out sourceFeedId)) continue;
+                unknownSourceId = sourceFeedId is null;
             }
             if (rules.TryGetValue(imported.Id, out var existing))
             {
-                if (!newSource && MatchesRecognitionRule(existing, imported, sourceFeedId)) continue;
+                if (!unknownSourceId && MatchesRecognitionRule(existing, imported, sourceFeedId)) continue;
                 if (strategy == LogicalImportConflictStrategy.Skip) continue;
                 if (strategy == LogicalImportConflictStrategy.Fail)
                     throw new LogicalDataImportConflictException($"Import conflict at recognition-rule:{imported.Id}.");
