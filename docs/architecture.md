@@ -125,7 +125,7 @@ One-shot data migrations (distinct from EF Core schema migrations) run once per 
 
 ### AI Inference Pipeline
 
-AI inference is decoupled from feed sync — runs offline as a background task (`InferAnimationMetadata`).
+AI inference is decoupled from feed sync — runs offline as a background task (`InferAnimationMetadata`). Deterministic recognition rules keep the task enabled even when the selected engine is unconfigured. Items requiring AI remain Pending without consuming retries or emitting ambiguity notifications until `IAIEngineStatus` reports the selected engine configured. AI incident retries check that status or validate an applicable deterministic rule for the specific item before resetting it and enqueueing the task; task enablement alone does not establish AI availability.
 
 **Flow:**
 1. `SyncFeed` creates raw `AnimationInfo` records (no AI metadata)
