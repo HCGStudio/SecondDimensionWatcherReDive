@@ -15,7 +15,7 @@ For dependencies specific to the Linux FUSE client (`sdwfuse`), see also
 
 ## Backend (NuGet)
 
-The .NET backend, plugins, and analyzers reference the following packages.
+The .NET backend, CLI, plugins, and analyzers reference the following packages.
 Transitive dependencies are not enumerated; their notices flow through the
 direct dependencies listed here.
 
@@ -37,8 +37,10 @@ direct dependencies listed here.
 | NetEscapades.Configuration.Yaml | MIT | https://github.com/andrewlock/NetEscapades.Configuration |
 | Npgsql.EntityFrameworkCore.PostgreSQL | PostgreSQL License | https://github.com/npgsql/efcore.pg |
 | Swashbuckle.AspNetCore | MIT | https://github.com/domaindrivendev/Swashbuckle.AspNetCore |
+| System.CommandLine | MIT | https://github.com/dotnet/command-line-api |
 | TMDbLib | MIT | https://github.com/LordMike/TMDbLib |
 | WebPush | MIT | https://github.com/web-push-libs/web-push-csharp |
+| YamlDotNet | MIT | https://github.com/aaubry/YamlDotNet |
 
 The PostgreSQL License (used by Npgsql) is a permissive license functionally
 equivalent to the MIT/BSD family; full text:

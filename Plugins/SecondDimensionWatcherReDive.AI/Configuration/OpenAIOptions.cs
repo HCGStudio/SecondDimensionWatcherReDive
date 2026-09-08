@@ -25,10 +25,10 @@ public sealed class OpenAIOptions
     public string Model { get; set; } = string.Empty;
 
     /// <summary>
-    ///     Wire protocol used by this endpoint. Chat Completions remains the code default so existing
-    ///     Ollama/vLLM/LiteLLM configurations keep working until explicitly migrated.
+    ///     Wire protocol used by this endpoint. Endpoints that implement Chat Completions must
+    ///     select that protocol explicitly.
     /// </summary>
-    public OpenAIApiMode ApiMode { get; set; } = OpenAIApiMode.ChatCompletions;
+    public OpenAIApiMode ApiMode { get; set; } = OpenAIApiMode.Responses;
 
     [Range(1, int.MaxValue)]
     public int MaxTokens { get; set; } = 1024;

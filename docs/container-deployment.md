@@ -112,6 +112,8 @@ podman logs qbittorrent 2>&1 | grep "temporary password"
 
 | 环境变量 | 说明 | 默认值 |
 |----------|------|--------|
+| `SDW_CONFIG_VERSION` | 环境覆盖层的配置结构版本；缺省按 `2.2.0` 迁移，通用 `VERSION` 不参与配置迁移 | `2.3.0`（随附部署模板） |
+| `StateDirectory` | 持久状态目录 | `/app/data` |
 | `ConnectionStrings__sdw` | PostgreSQL 连接字符串 | 必填 |
 | `JwtSecret` | JWT 签名密钥（>=32 字符） | 必填 |
 | `DataProtection__KeyRingPath` | 网页保存密钥/密码所用的持久化加密密钥环 | `/app/data/data-protection-keys` |
@@ -140,7 +142,7 @@ podman logs qbittorrent 2>&1 | grep "temporary password"
 | `AI__OpenAI__ApiKey` | OpenAI API 密钥 | 空（禁用推断） |
 | `AI__OpenAI__Model` | OpenAI 模型名称 | `gpt-4o-mini` |
 | `AI__OpenAI__BaseUrl` | OpenAI API 端点 | `https://api.openai.com/v1` |
-| `AI__OpenAI__ApiMode` | `Responses`；Ollama/vLLM 等旧兼容端点使用 `ChatCompletions` | 随附配置为 `Responses`；旧配置缺省为 `ChatCompletions` |
+| `AI__OpenAI__ApiMode` | `Responses`；Ollama/vLLM 等兼容端点显式使用 `ChatCompletions` | `Responses`；迁移会显式保留旧协议 |
 | `AI__CodexAppServer__Endpoint` | 本地 Agent 的 WebSocket 地址 | 空 |
 | `AI__CodexAppServer__BearerToken` | app-server / 反向代理要求的 Bearer token | 空 |
 | `AI__CodexAppServer__PermissionProfile` | `:read-only` 或管理员定义的 permission profile id | `:read-only` |

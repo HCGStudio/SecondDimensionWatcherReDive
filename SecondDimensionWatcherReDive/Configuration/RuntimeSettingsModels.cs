@@ -320,7 +320,7 @@ internal static class RuntimeSettingsDefaults
             ParseEnum(configuration["AI:Provider"], BuiltInAiProvider.OpenAI),
             new OpenAiSettingsValues(
                 configuration["AI:OpenAI:BaseUrl"] ?? "https://api.openai.com/v1",
-                ParseEnum(configuration["AI:OpenAI:ApiMode"], OpenAiApiMode.ChatCompletions),
+                ParseEnum(configuration["AI:OpenAI:ApiMode"], OpenAiApiMode.Responses),
                 configuration["AI:OpenAI:Model"] ?? "gpt-4o-mini",
                 configuration.GetValue<int?>("AI:OpenAI:MaxTokens") ?? 1024),
             new AnthropicSettingsValues(

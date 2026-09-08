@@ -256,10 +256,14 @@ jobs:
           echo "ARCH=amd64" >> "$GITHUB_ENV"
 
       - name: Build package payload locally (no release)
-        run: >-
-          dotnet publish SecondDimensionWatcherReDive/SecondDimensionWatcherReDive.csproj
-          -c Release -r linux-x64 --self-contained false
-          /p:Version=${VERSION} -o publish
+        run: |
+          dotnet publish SecondDimensionWatcherReDive/SecondDimensionWatcherReDive.csproj \
+            -c Release -r linux-x64 --self-contained false \
+            /p:Version=${VERSION} -o publish
+          dotnet publish SecondDimensionWatcherReDive.CLI/SecondDimensionWatcherReDive.CLI.csproj \
+            -c Release -r linux-x64 --self-contained false \
+            /p:Version=${VERSION} -o publish
+          ln -s sdw-cli publish/sdw-migrate
 
       - name: Install nfpm
         run: |

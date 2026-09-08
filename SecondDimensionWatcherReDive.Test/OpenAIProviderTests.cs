@@ -19,14 +19,14 @@ public sealed class OpenAIProviderTests
     private static readonly Uri BaseAddress = new("https://api.example.com/v1/");
 
     [TestMethod]
-    public async Task DefaultMode_UsesChatCompletionsRequestAndStreamsText()
+    public async Task ChatCompletionsMode_UsesChatCompletionsRequestAndStreamsText()
     {
         var handler = new RecordingHandler(Sse(
             """{"choices":[{"index":0,"delta":{"content":"Hel"}}]}""",
             """{"choices":[{"index":0,"delta":{"content":"lo"}}]}""",
             """{"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}""",
             "[DONE]"));
-        var provider = CreateProvider(handler);
+        var provider = CreateProvider(handler, OpenAIApiMode.ChatCompletions);
 
         var updates = await CollectAsync(provider.StreamChatCompletionAsync(
             [new SystemMessage("be concise"), new UserMessage("hello")],

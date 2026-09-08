@@ -34,6 +34,7 @@ jobs:
       PGHOST: 127.0.0.1
       PGPORT: 5432
       ASPNETCORE_ENVIRONMENT: Production
+      SDW_CONFIG_VERSION: "2.3.0"
       JwtSecret: backup-restore-drill-jwt-secret-with-at-least-32-bytes
     steps:
       - uses: actions/checkout@v7
@@ -83,11 +84,11 @@ jobs:
         run: |
           set -Eeuo pipefail
           mkdir -p "$WORK_DIR/source/keys" "$WORK_DIR/plugins/example" "$WORK_DIR/backups"
-          printf 'DisableCors: true\n' > "$WORK_DIR/source/appsettings.yml"
+          printf 'Version: "2.3.0"\nDisableCors: true\n' > "$WORK_DIR/source/appsettings.yml"
           printf '{"name":"example","version":"1"}\n' > "$WORK_DIR/plugins/example/manifest.json"
           export PGUSER=sdw_app PGPASSWORD=app-password PGDATABASE=sdw_source
           export ConnectionStrings__sdw='Host=127.0.0.1;Port=5432;Username=sdw_app;Password=app-password;Database=sdw_source'
-          export PasswordFile="$WORK_DIR/source/password.json"
+          export StateDirectory="$WORK_DIR/source"
           export DataProtection__KeyRingPath="$WORK_DIR/source/keys"
           export Config="$WORK_DIR/source/appsettings.yml"
           dotnet run --project SecondDimensionWatcherReDive -c Release --no-build \
@@ -231,7 +232,7 @@ jobs:
 
           export PGUSER=sdw_app PGPASSWORD=app-password PGDATABASE=sdw_restore
           export ConnectionStrings__sdw='Host=127.0.0.1;Port=5432;Username=sdw_app;Password=app-password;Database=sdw_restore'
-          export PasswordFile="$WORK_DIR/restored/password.json"
+          export StateDirectory="$WORK_DIR/restored"
           export DataProtection__KeyRingPath="$WORK_DIR/restored/keys"
           export Config="$WORK_DIR/restored/appsettings.yml"
           dotnet run --project SecondDimensionWatcherReDive -c Release --no-build \

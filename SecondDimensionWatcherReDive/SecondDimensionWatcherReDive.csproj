@@ -55,5 +55,6 @@
       <ProjectReference Include="..\Plugins\SecondDimensionWatcherReDive.Inference.AI\SecondDimensionWatcherReDive.Inference.AI.csproj" />
       <ProjectReference Include="..\Plugins\SecondDimensionWatcherReDive.NFS\SecondDimensionWatcherReDive.NFS.csproj" />
       <ProjectReference Include="..\Plugins\SecondDimensionWatcherReDive.WebDav\SecondDimensionWatcherReDive.WebDav.csproj" />
+      <ProjectReference Include="..\SecondDimensionWatcherReDive.ConfigMigration\SecondDimensionWatcherReDive.ConfigMigration.csproj" />
     </ItemGroup>
 </Project>

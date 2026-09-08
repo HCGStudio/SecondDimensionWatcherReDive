@@ -90,7 +90,8 @@ docker run --detach \
   --env ASPNETCORE_URLS=http://+:8080 \
   --env ConnectionStrings__sdw='Host=postgres;Username=sdw;Password=sdw_ci_password;Database=sdw' \
   --env JwtSecret='ci-only-secret-at-least-32-characters' \
-  --env PasswordFile=/tmp/password.json \
+  --env SDW_CONFIG_VERSION=2.3.0 \
+  --env StateDirectory=/tmp/sdw-state \
   --env DataProtection__KeyRingPath=/tmp/data-protection-keys \
   --env FileStore__Local=/tmp/downloads \
   --env DisableCors=true \

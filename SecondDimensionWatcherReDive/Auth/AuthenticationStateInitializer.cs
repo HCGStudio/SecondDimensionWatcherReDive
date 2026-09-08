@@ -10,7 +10,7 @@ internal sealed partial class AuthenticationStateInitializer(
 {
     public async Task InitializeAsync(CancellationToken cancellationToken)
     {
-        var deploymentHash = configuration["Password:Value"];
+        var deploymentHash = configuration["Authentication:BootstrapPasswordHash"];
         if (string.IsNullOrWhiteSpace(deploymentHash))
             return;
 
@@ -26,10 +26,10 @@ internal sealed partial class AuthenticationStateInitializer(
         }
 
         if (!string.Equals(databaseHash, deploymentHash, StringComparison.Ordinal))
-            LogCompatibilityPasswordIgnored(logger);
+            LogBootstrapPasswordIgnored(logger);
     }
 
     [LoggerMessage(Level = LogLevel.Warning,
-        Message = "The compatibility password file differs from the authoritative database password and was ignored")]
-    private static partial void LogCompatibilityPasswordIgnored(ILogger logger);
+        Message = "Authentication:BootstrapPasswordHash differs from the authoritative database password and was ignored")]
+    private static partial void LogBootstrapPasswordIgnored(ILogger logger);
 }
