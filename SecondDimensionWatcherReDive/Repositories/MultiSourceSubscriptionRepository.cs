@@ -31,6 +31,8 @@ public sealed class MultiSourceSubscriptionRepository(Models.ApplicationContext 
                 await write.Set<Models.MultiSourceSubscription>().AnyAsync(x => x.TmdbId == input.TmdbId && x.Season == input.Season && x.Id != input.Id, cancellationToken))
                 throw new ArgumentException("The season or feed is already linked to a subscription.");
             var entity = await write.Set<Models.MultiSourceSubscription>().Include(x => x.Sources).FirstOrDefaultAsync(x => x.Id == input.Id, cancellationToken);
+            var removedFeedIds = entity?.Sources.Where(source => !feedIds.Contains(source.FeedId))
+                .Select(source => source.FeedId).ToArray() ?? [];
             var savedAt = DateTimeOffset.UtcNow;
             if (entity == null)
             {
@@ -65,6 +67,21 @@ public sealed class MultiSourceSubscriptionRepository(Models.ApplicationContext 
                 source.Priority = priority;
             }
             await write.SaveChangesAsync(cancellationToken);
+            await ScheduleStandaloneRestorationAsync(write, removedFeedIds, cancellationToken);
+            // Source ownership and pending standalone actions change atomically.
+            // Keep already tracked attempts and downloaded media under their saga.
+            var pending = write.AnimationInfo.Where(info => info.SourceFeedId != null
+                && feedIds.Contains(info.SourceFeedId.Value) && !info.IsDownloadTracked && !info.IsDownloadFinished
+                && (info.StandaloneAutomationPending || info.AutomationDisposition == SubscriptionAutomationDisposition.Notified
+                    || info.AutomationDisposition == SubscriptionAutomationDisposition.PendingConfirmation
+                    || info.AutomationDisposition == SubscriptionAutomationDisposition.AutoDownloadFailed));
+            var todoKeys = pending.Select(info => "automation:" + info.Id.ToString());
+            await write.TodoItemStates.Where(state => todoKeys.Contains(state.Key)).ExecuteDeleteAsync(cancellationToken);
+            await pending.ExecuteUpdateAsync(setters => setters
+                .SetProperty(info => info.AutomationDisposition, (SubscriptionAutomationDisposition?)null)
+                .SetProperty(info => info.AutomationExplanationJson, (string?)null)
+                .SetProperty(info => info.StandaloneAutomationPending, false)
+                .SetProperty(info => info.StateVersion, info => info.StateVersion + 1), cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             return ToRecord(entity);
         });
@@ -75,11 +92,26 @@ public sealed class MultiSourceSubscriptionRepository(Models.ApplicationContext 
             await using var write = new Models.ApplicationContext(options);
             await using var transaction = await write.Database.BeginTransactionAsync(cancellationToken);
             await MappingTransactionLock.AcquireAsync(write, cancellationToken);
+            var feedIds = await write.Set<Models.MultiSourceFeed>().Where(source => source.SubscriptionId == id)
+                .Select(source => source.FeedId).ToArrayAsync(cancellationToken);
             var removed = await write.Set<Models.MultiSourceSubscription>()
                 .Where(subscription => subscription.Id == id).ExecuteDeleteAsync(cancellationToken) > 0;
+            if (removed) await ScheduleStandaloneRestorationAsync(write, feedIds, cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             return removed;
         });
+
+    private static async Task ScheduleStandaloneRestorationAsync(Models.ApplicationContext write,
+        Guid[] feedIds, CancellationToken cancellationToken)
+    {
+        if (feedIds.Length == 0) return;
+        await write.AnimationInfo.Where(info => info.SourceFeedId != null && feedIds.Contains(info.SourceFeedId.Value)
+            && !info.IsDownloadTracked && !info.IsDownloadFinished && !info.IsRetiredRelease
+            && info.DownloadCancellationId == null && info.AutomationDisposition == null)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(info => info.StandaloneAutomationPending, true)
+                .SetProperty(info => info.StateVersion, info => info.StateVersion + 1), cancellationToken);
+    }
 
     internal static bool MatchesAutomaticSnapshot(Models.MultiSourceSubscription current,
         MultiSourceSubscription expected) =>

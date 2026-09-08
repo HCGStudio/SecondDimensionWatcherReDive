@@ -18,6 +18,8 @@ public sealed record PendingDownloadSubmission(
     Guid DownloadAttemptId,
     Guid SubmissionLeaseId);
 
+public sealed record StandaloneAutomationDecision(AnimationInfo Info, SubscriptionAutomationMode Mode);
+
 public interface IAnimationInfoRepository
 {
     Task<PagedResult<AnimationInfo>> GetPagedAsync(int skip, int take, CancellationToken cancellationToken);
@@ -109,6 +111,15 @@ public interface IAnimationInfoRepository
     Task<SubscriptionAutomationMode?> RefreshStandaloneAutomationAsync(
         Guid id,
         CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<Guid>> GetPendingStandaloneAutomationIdsAsync(
+        Guid? afterId, int take, CancellationToken cancellationToken);
+
+    Task<StandaloneAutomationDecision?> RefreshPendingStandaloneAutomationAsync(
+        Guid id, CancellationToken cancellationToken);
+
+    Task CompleteStandaloneAutomationAsync(
+        Guid id, long expectedStateVersion, CancellationToken cancellationToken);
 
     Task<DownloadSubmissionLease?> TryStartDownloadAsync(
         Guid id,
