@@ -234,8 +234,7 @@ internal partial class SyncFeed(
                         SubscriptionAutomationMode.NotifyOnly => SubscriptionAutomationDisposition.Notified,
                         SubscriptionAutomationMode.ManualConfirm =>
                             SubscriptionAutomationDisposition.PendingConfirmation,
-                        SubscriptionAutomationMode.AutoDownload =>
-                            SubscriptionAutomationDisposition.AutoDownloadFailed,
+                        SubscriptionAutomationMode.AutoDownload => null,
                         _ => null
                     },
                     AutomationExplanationJson: evaluation is null
@@ -315,9 +314,10 @@ internal partial class SyncFeed(
                     var applied = await ApplyStandaloneAutomationAsync(decision.Info, decision.Mode,
                         scope.ServiceProvider, cancellationToken);
                     // Automatic tracking consumes the marker in its transaction. Notification
-                    // acknowledgement is conditional on the exact reconciled release revision.
-                    if (applied && decision.Mode != SubscriptionAutomationMode.AutoDownload)
-                        await pending.CompleteStandaloneAutomationAsync(id, decision.Info.StateVersion, cancellationToken);
+                    // acknowledgement rechecks both the release revision and evaluated policy.
+                    if (applied && decision.Mode is SubscriptionAutomationMode.NotifyOnly or SubscriptionAutomationMode.ManualConfirm)
+                        await pending.CompleteStandaloneAutomationAsync(id, decision.Info.StateVersion,
+                            decision.Policy, cancellationToken);
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
                 catch (Exception error) { logger.LogWarning(error, "Standalone automation restoration failed for {Id}", id); }
