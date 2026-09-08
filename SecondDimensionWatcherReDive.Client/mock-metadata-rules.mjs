@@ -147,6 +147,21 @@ function draftRule(body, id, context) {
     !context.metadataCatalog.has(String(Number(body.tmdbId)))
   )
     fail("tmdbNotFound", "The TMDB series is not in the mock catalog.");
+  if (!disablingOnly && body.fixedSeason != null) {
+    const seasons = context.metadataCatalog.get(String(Number(body.tmdbId)))
+      .seasonNumbers;
+    if (!Array.isArray(seasons))
+      fail(
+        "tmdbUnavailable",
+        "The mock catalog's season data is unavailable.",
+        503,
+      );
+    if (!seasons.includes(body.fixedSeason))
+      fail(
+        "ruleSeasonNotFound",
+        "The fixed season is not in the mock series catalog.",
+      );
+  }
   if (
     !disablingOnly &&
     body.sourceFeedId &&
