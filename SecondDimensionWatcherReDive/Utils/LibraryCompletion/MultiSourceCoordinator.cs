@@ -49,14 +49,30 @@ public sealed class MultiSourceCoordinator(IMultiSourceSubscriptionRepository su
                 .Where(x => x.Candidate.Eligible).OrderBy(x => subscription.FeedIds.ToList().IndexOf(x.Info.SourceFeedId!.Value))
                 .ThenByDescending(x => x.Candidate.Score).ThenByDescending(x => x.Info.PublishTime).ThenBy(x => x.Info.Id).ToList();
             var current = all.FirstOrDefault(x => x.Episode == group.Key && x.IsDownloadFinished && mapped.Contains(x.Id));
-            var downloading = all.FirstOrDefault(x => x.Episode == group.Key && (x.IsDownloadTracked && !x.IsDownloadFinished || x.IsDownloadFinished && !mapped.Contains(x.Id)));
+            var downloading = all.FirstOrDefault(x => x.Episode == group.Key && x.IsDownloadTracked && !x.IsDownloadFinished);
+            var pendingMappings = all.Where(x => x.Episode == group.Key && x.IsDownloadFinished && !mapped.Contains(x.Id));
+            var activeUpgrade = false;
+            if (downloading is null)
+            {
+                foreach (var pending in pendingMappings)
+                {
+                    // Failed activation may retain staged files indefinitely. It
+                    // must not hide a playable incumbent or block later upgrades.
+                    activeUpgrade = await upgrades.FindActiveByCandidateAsync(pending.Id, cancellationToken) is not null;
+                    if (current is not null && !activeUpgrade) continue;
+                    downloading = pending;
+                    break;
+                }
+            }
             var selected = eligible.FirstOrDefault();
             var outcome = "waiting";
             var reason = "waiting_for_primary";
             Guid? selectedId = selected.Info?.Id;
             if (downloading != null)
             {
-                selectedId = downloading.Id; outcome = downloading.IsDownloadFinished ? "mapping_pending" : "downloading"; reason = downloading.IsDownloadFinished ? "mapping_pending" : "episode_already_downloading";
+                selectedId = downloading.Id;
+                outcome = activeUpgrade ? "upgrading" : downloading.IsDownloadFinished ? "mapping_pending" : "downloading";
+                reason = activeUpgrade ? "upgrade_in_progress" : downloading.IsDownloadFinished ? "mapping_pending" : "episode_already_downloading";
             }
             else if (current != null)
             {

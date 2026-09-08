@@ -65,6 +65,19 @@ public sealed class MultiSourceSubscriptionRepository(Models.ApplicationContext 
                 source.Priority = priority;
             }
             await write.SaveChangesAsync(cancellationToken);
+            // Source ownership and pending standalone actions change atomically.
+            // Keep already tracked attempts and downloaded media under their saga.
+            var pending = write.AnimationInfo.Where(info => info.SourceFeedId != null
+                && feedIds.Contains(info.SourceFeedId.Value) && !info.IsDownloadTracked && !info.IsDownloadFinished
+                && (info.AutomationDisposition == SubscriptionAutomationDisposition.Notified
+                    || info.AutomationDisposition == SubscriptionAutomationDisposition.PendingConfirmation
+                    || info.AutomationDisposition == SubscriptionAutomationDisposition.AutoDownloadFailed));
+            var todoKeys = pending.Select(info => "automation:" + info.Id.ToString());
+            await write.TodoItemStates.Where(state => todoKeys.Contains(state.Key)).ExecuteDeleteAsync(cancellationToken);
+            await pending.ExecuteUpdateAsync(setters => setters
+                .SetProperty(info => info.AutomationDisposition, (SubscriptionAutomationDisposition?)null)
+                .SetProperty(info => info.AutomationExplanationJson, (string?)null)
+                .SetProperty(info => info.StateVersion, info => info.StateVersion + 1), cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             return ToRecord(entity);
         });

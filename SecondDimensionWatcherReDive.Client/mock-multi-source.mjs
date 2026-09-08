@@ -1,9 +1,20 @@
 // Development-only source orchestration, sharing completion plans and the mock library.
-import { planFor, submit } from "./mock-completion.mjs";
+import {
+  executeUpgrade,
+  isCurrentRelease,
+  planFor,
+  submit,
+} from "./mock-completion.mjs";
 
 const subscriptions = new Map();
 const decisions = new Map();
 const iso = (timestamp) => new Date(timestamp).toISOString();
+
+export function multiSourcePolicyForFeed(feedId) {
+  return [...subscriptions.values()].find((subscription) =>
+    subscription.feedIds.includes(feedId),
+  );
+}
 
 function evaluate(
   subscription,
@@ -16,7 +27,13 @@ function evaluate(
   // decisions or trigger downloads for this subscription.
   if (subscriptions.get(subscription.id) !== subscription)
     return decisions.get(subscription.id) ?? [];
-  const plan = planFor(animations, subscription.tmdbId, subscription.season);
+  const evaluateCandidate = (release) => evaluateRelease(release, subscription);
+  const plan = planFor(
+    animations,
+    subscription.tmdbId,
+    subscription.season,
+    evaluateCandidate,
+  );
   const prior = decisions.get(subscription.id) ?? [];
   const now = Date.now();
   const result = [];
@@ -45,12 +62,7 @@ function evaluate(
     const waitUntil =
       new Date(started).getTime() + subscription.waitMinutes * 60000;
     const eligible = linked
-      .filter(
-        (candidate) =>
-          candidate.eligible &&
-          evaluateRelease(animations.get(candidate.releaseId), subscription)
-            .matched,
-      )
+      .filter((candidate) => candidate.eligible)
       .sort(
         (left, right) =>
           subscription.feedIds.indexOf(
@@ -63,8 +75,8 @@ function evaluate(
           new Date(right.publishedAt) - new Date(left.publishedAt) ||
           left.releaseId.localeCompare(right.releaseId),
       );
-    const current = episode.candidates.find(
-      (candidate) => animations.get(candidate.releaseId).isDownloadFinished,
+    const current = episode.candidates.find((candidate) =>
+      isCurrentRelease(animations.get(candidate.releaseId)),
     );
     const downloading = episode.candidates.find((candidate) => {
       const release = animations.get(candidate.releaseId);
@@ -73,12 +85,54 @@ function evaluate(
     let selected = eligible[0];
     let outcome = "waiting";
     let reason = "waiting_for_primary";
-    if (downloading || current) {
-      selected = downloading ?? current;
-      outcome = downloading ? "downloading" : "downloaded";
-      reason = downloading
-        ? "episode_already_downloading"
-        : "existing_release_retained";
+    if (downloading) {
+      selected = downloading;
+      const upgrading =
+        animations.get(downloading.releaseId).upgradeOperation?.status ===
+        "Downloading";
+      outcome = upgrading ? "upgrading" : "downloading";
+      reason = upgrading ? "download_queued" : "episode_already_downloading";
+    } else if (current) {
+      selected = current;
+      outcome = "downloaded";
+      reason = "existing_release_retained";
+      if (
+        subscription.mode === "AutoDownload" &&
+        subscription.enableVersionUpgrade
+      ) {
+        const incumbent = animations.get(current.releaseId);
+        const retainFallbackSource = subscription.feedIds
+          .slice(1)
+          .includes(incumbent.sourceFeedId);
+        const upgrade = eligible
+          .filter(
+            (candidate) =>
+              !retainFallbackSource ||
+              animations.get(candidate.releaseId).sourceFeedId ===
+                incumbent.sourceFeedId,
+          )
+          .sort((left, right) => right.score - left.score)[0];
+        if (
+          upgrade &&
+          upgrade.score > current.score &&
+          upgrade.score - current.score >= subscription.minimumUpgradeScore
+        ) {
+          const response = executeUpgrade(
+            animations,
+            downloadState,
+            {
+              currentReleaseId: current.releaseId,
+              candidateReleaseId: upgrade.releaseId,
+            },
+            evaluateRelease,
+            subscription,
+            true,
+          );
+          selected = upgrade;
+          outcome = response.isSuccess ? "upgrading" : "failed";
+          reason = response.outcome;
+        } else if (upgrade) reason = "upgrade_threshold_not_met";
+      }
     } else if (!selected) {
       outcome = "unavailable";
       reason = "no_eligible_candidate";
@@ -99,6 +153,7 @@ function evaluate(
             subscription.tmdbId,
             subscription.season,
             [{ episode: episode.episode, releaseId: selected.releaseId }],
+            evaluateCandidate,
           )[0];
           outcome = response.isSuccess ? "downloading" : "failed";
           if (!response.isSuccess) reason = response.outcome;
@@ -168,6 +223,7 @@ export async function handleMultiSourceSubscriptions({
   downloadState,
   feeds,
   evaluateRelease,
+  todoStates,
 }) {
   const respond = (data, status = 200) => {
     json(res, data, status);
@@ -237,6 +293,24 @@ export async function handleMultiSourceSubscriptions({
     )
       decisions.delete(id);
     subscriptions.set(id, subscription);
+    const newlyLinked = subscription.feedIds.filter(
+      (feedId) => !previous?.feedIds.includes(feedId),
+    );
+    for (const release of animations.values()) {
+      if (
+        newlyLinked.includes(release.sourceFeedId) &&
+        !release.isDownloadTracked &&
+        !release.isDownloadFinished &&
+        ["Notified", "PendingConfirmation", "AutoDownloadFailed"].includes(
+          release.automationDisposition,
+        )
+      ) {
+        release.automationDisposition = null;
+        release.automationExplanationJson = null;
+        release.stateVersion = (release.stateVersion ?? 0) + 1;
+        todoStates.delete(`automation:${release.id}`);
+      }
+    }
     evaluate(subscription, animations, downloadState, evaluateRelease);
     return respond(subscription);
   }
@@ -269,6 +343,7 @@ export async function handleMultiSourceSubscriptions({
       subscription.tmdbId,
       subscription.season,
       [{ episode: decision.episode, releaseId: decision.selectedReleaseId }],
+      (release) => evaluateRelease(release, subscription),
     )[0];
     evaluate(subscription, animations, downloadState, evaluateRelease);
     return respond(result);

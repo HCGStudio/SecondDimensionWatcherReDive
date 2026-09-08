@@ -1062,6 +1062,17 @@ public class AnimationInfoRepository(
             if (entity is null)
                 return new DownloadStartResult(false, null);
 
+            // Todo confirmation/retry is authorized by a pending standalone action,
+            // not the general manual-download override. A newly linked source or
+            // cleared action invalidates even a request opened before the change.
+            if (queuedDisposition == SubscriptionAutomationDisposition.ManualDownloadQueued
+                && releaseUpgradeOperationId is null
+                && !(entity.IsDownloadTracked && entity.DownloadAttemptId == downloadAttemptId)
+                && (!IsAutomationTodoState(entity.AutomationDisposition)
+                    || await writeContext.Set<Models.MultiSourceFeed>()
+                        .AnyAsync(source => source.FeedId == entity.SourceFeedId, cancellationToken)))
+                return new DownloadStartResult(false, null);
+
             // Ordinary automatic ingestion must still have an unlinked source
             // and a matching current policy when its tracked attempt is committed.
             // Manual starts and claimed episode submissions do not use this gate.
