@@ -24,67 +24,76 @@ public sealed class MultiSourceSubscriptionRepository(Models.ApplicationContext 
             await using var write = new Models.ApplicationContext(options);
             await using var transaction = await write.Database.BeginTransactionAsync(cancellationToken);
             await MappingTransactionLock.AcquireAsync(write, cancellationToken);
-            var feedIds = input.FeedIds.ToArray();
-            if (await write.Feeds.CountAsync(x => feedIds.Contains(x.Id), cancellationToken) != feedIds.Length)
-                throw new ArgumentException("One or more feeds no longer exist.");
-            if (await write.Set<Models.MultiSourceFeed>().AnyAsync(x => feedIds.Contains(x.FeedId) && x.SubscriptionId != input.Id, cancellationToken) ||
-                await write.Set<Models.MultiSourceSubscription>().AnyAsync(x => x.TmdbId == input.TmdbId && x.Season == input.Season && x.Id != input.Id, cancellationToken))
-                throw new ArgumentException("The season or feed is already linked to a subscription.");
-            var entity = await write.Set<Models.MultiSourceSubscription>().Include(x => x.Sources).FirstOrDefaultAsync(x => x.Id == input.Id, cancellationToken);
-            var removedFeedIds = entity?.Sources.Where(source => !feedIds.Contains(source.FeedId))
-                .Select(source => source.FeedId).ToArray() ?? [];
-            var savedAt = DateTimeOffset.UtcNow;
-            if (entity == null)
-            {
-                entity = new Models.MultiSourceSubscription { Id = input.Id, CreatedAt = savedAt };
-                write.Add(entity);
-            }
-            else if (entity.TmdbId != input.TmdbId || entity.Season != input.Season)
-            {
-                await write.Set<Models.MultiSourceEpisodeDecision>().Where(x => x.SubscriptionId == input.Id).ExecuteDeleteAsync(cancellationToken);
-                // CreatedAt is the wait epoch for this target. Previously
-                // collected fallback releases must wait again after retargeting.
-                entity.CreatedAt = savedAt;
-            }
-            else if (!entity.Sources.OrderBy(source => source.Priority).Select(source => source.FeedId).SequenceEqual(feedIds))
-                await ClearPendingDecisionsAsync(write, input.Id, cancellationToken);
-            entity.Name = input.Name; entity.TmdbId = input.TmdbId; entity.Season = input.Season;
-            entity.WaitMinutes = input.WaitMinutes; entity.Mode = input.Mode;
-            entity.SubtitleGroups = input.SubtitleGroups.ToArray(); entity.Resolutions = input.Resolutions.ToArray();
-            entity.Codecs = input.Codecs.ToArray(); entity.Languages = input.Languages.ToArray();
-            entity.MinSizeBytes = input.MinSizeBytes; entity.MaxSizeBytes = input.MaxSizeBytes;
-            entity.ExcludedKeywords = input.ExcludedKeywords.ToArray(); entity.EnableVersionUpgrade = input.EnableVersionUpgrade;
-            entity.MinimumUpgradeScore = input.MinimumUpgradeScore; entity.UpgradeRollbackHours = input.UpgradeRollbackHours;
-            entity.UpdatedAt = savedAt;
-            foreach (var old in entity.Sources.Where(x => !feedIds.Contains(x.FeedId)).ToList())
-            {
-                entity.Sources.Remove(old); write.Remove(old);
-            }
-            for (var priority = 0; priority < feedIds.Length; priority++)
-            {
-                var source = entity.Sources.FirstOrDefault(x => x.FeedId == feedIds[priority]);
-                if (source == null) { source = new Models.MultiSourceFeed { FeedId = feedIds[priority], SubscriptionId = entity.Id }; entity.Sources.Add(source); }
-                source.Priority = priority;
-            }
-            await write.SaveChangesAsync(cancellationToken);
-            await ScheduleStandaloneRestorationAsync(write, removedFeedIds, cancellationToken);
-            // Source ownership and pending standalone actions change atomically.
-            // Keep already tracked attempts and downloaded media under their saga.
-            var pending = write.AnimationInfo.Where(info => info.SourceFeedId != null
-                && feedIds.Contains(info.SourceFeedId.Value) && !info.IsDownloadTracked && !info.IsDownloadFinished
-                && (info.StandaloneAutomationPending || info.AutomationDisposition == SubscriptionAutomationDisposition.Notified
-                    || info.AutomationDisposition == SubscriptionAutomationDisposition.PendingConfirmation
-                    || info.AutomationDisposition == SubscriptionAutomationDisposition.AutoDownloadFailed));
-            var todoKeys = pending.Select(info => "automation:" + info.Id.ToString());
-            await write.TodoItemStates.Where(state => todoKeys.Contains(state.Key)).ExecuteDeleteAsync(cancellationToken);
-            await pending.ExecuteUpdateAsync(setters => setters
-                .SetProperty(info => info.AutomationDisposition, (SubscriptionAutomationDisposition?)null)
-                .SetProperty(info => info.AutomationExplanationJson, (string?)null)
-                .SetProperty(info => info.StandaloneAutomationPending, false)
-                .SetProperty(info => info.StateVersion, info => info.StateVersion + 1), cancellationToken);
+            var saved = await SaveInTransactionAsync(write, input, cancellationToken);
             await transaction.CommitAsync(cancellationToken);
-            return ToRecord(entity);
+            return saved;
         });
+
+    // The caller owns the transaction and mapping lock, allowing logical imports
+    // to apply feeds and source ownership as one atomic operation.
+    internal static async Task<MultiSourceSubscription> SaveInTransactionAsync(Models.ApplicationContext write,
+        MultiSourceSubscription input, CancellationToken cancellationToken)
+    {
+        var feedIds = input.FeedIds.ToArray();
+        if (await write.Feeds.CountAsync(x => feedIds.Contains(x.Id), cancellationToken) != feedIds.Length)
+            throw new ArgumentException("One or more feeds no longer exist.");
+        if (await write.Set<Models.MultiSourceFeed>().AnyAsync(x => feedIds.Contains(x.FeedId) && x.SubscriptionId != input.Id, cancellationToken) ||
+            await write.Set<Models.MultiSourceSubscription>().AnyAsync(x => x.TmdbId == input.TmdbId && x.Season == input.Season && x.Id != input.Id, cancellationToken))
+            throw new ArgumentException("The season or feed is already linked to a subscription.");
+        var entity = await write.Set<Models.MultiSourceSubscription>().Include(x => x.Sources).FirstOrDefaultAsync(x => x.Id == input.Id, cancellationToken);
+        var removedFeedIds = entity?.Sources.Where(source => !feedIds.Contains(source.FeedId))
+            .Select(source => source.FeedId).ToArray() ?? [];
+        var savedAt = DateTimeOffset.UtcNow;
+        if (entity == null)
+        {
+            entity = new Models.MultiSourceSubscription { Id = input.Id, CreatedAt = savedAt };
+            write.Add(entity);
+        }
+        else if (entity.TmdbId != input.TmdbId || entity.Season != input.Season)
+        {
+            await write.Set<Models.MultiSourceEpisodeDecision>().Where(x => x.SubscriptionId == input.Id).ExecuteDeleteAsync(cancellationToken);
+            // CreatedAt is the wait epoch for this target. Previously
+            // collected fallback releases must wait again after retargeting.
+            entity.CreatedAt = savedAt;
+        }
+        else if (!entity.Sources.OrderBy(source => source.Priority).Select(source => source.FeedId).SequenceEqual(feedIds))
+            await ClearPendingDecisionsAsync(write, input.Id, cancellationToken);
+        entity.Name = input.Name; entity.TmdbId = input.TmdbId; entity.Season = input.Season;
+        entity.WaitMinutes = input.WaitMinutes; entity.Mode = input.Mode;
+        entity.SubtitleGroups = input.SubtitleGroups.ToArray(); entity.Resolutions = input.Resolutions.ToArray();
+        entity.Codecs = input.Codecs.ToArray(); entity.Languages = input.Languages.ToArray();
+        entity.MinSizeBytes = input.MinSizeBytes; entity.MaxSizeBytes = input.MaxSizeBytes;
+        entity.ExcludedKeywords = input.ExcludedKeywords.ToArray(); entity.EnableVersionUpgrade = input.EnableVersionUpgrade;
+        entity.MinimumUpgradeScore = input.MinimumUpgradeScore; entity.UpgradeRollbackHours = input.UpgradeRollbackHours;
+        entity.UpdatedAt = savedAt;
+        foreach (var old in entity.Sources.Where(x => !feedIds.Contains(x.FeedId)).ToList())
+        {
+            entity.Sources.Remove(old); write.Remove(old);
+        }
+        for (var priority = 0; priority < feedIds.Length; priority++)
+        {
+            var source = entity.Sources.FirstOrDefault(x => x.FeedId == feedIds[priority]);
+            if (source == null) { source = new Models.MultiSourceFeed { FeedId = feedIds[priority], SubscriptionId = entity.Id }; entity.Sources.Add(source); }
+            source.Priority = priority;
+        }
+        await write.SaveChangesAsync(cancellationToken);
+        await ScheduleStandaloneRestorationAsync(write, removedFeedIds, cancellationToken);
+        // Source ownership and pending standalone actions change atomically.
+        // Keep already tracked attempts and downloaded media under their saga.
+        var pending = write.AnimationInfo.Where(info => info.SourceFeedId != null
+            && feedIds.Contains(info.SourceFeedId.Value) && !info.IsDownloadTracked && !info.IsDownloadFinished
+            && (info.StandaloneAutomationPending || info.AutomationDisposition == SubscriptionAutomationDisposition.Notified
+                || info.AutomationDisposition == SubscriptionAutomationDisposition.PendingConfirmation
+                || info.AutomationDisposition == SubscriptionAutomationDisposition.AutoDownloadFailed));
+        var todoKeys = pending.Select(info => "automation:" + info.Id.ToString());
+        await write.TodoItemStates.Where(state => todoKeys.Contains(state.Key)).ExecuteDeleteAsync(cancellationToken);
+        await pending.ExecuteUpdateAsync(setters => setters
+            .SetProperty(info => info.AutomationDisposition, (SubscriptionAutomationDisposition?)null)
+            .SetProperty(info => info.AutomationExplanationJson, (string?)null)
+            .SetProperty(info => info.StandaloneAutomationPending, false)
+            .SetProperty(info => info.StateVersion, info => info.StateVersion + 1), cancellationToken);
+        return ToRecord(entity);
+    }
 
     public async Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken) =>
         await context.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
@@ -117,7 +126,7 @@ public sealed class MultiSourceSubscriptionRepository(Models.ApplicationContext 
         MultiSourceSubscription expected) =>
         current.Mode == "AutoDownload" && MatchesSnapshot(current, expected);
 
-    private static bool MatchesSnapshot(Models.MultiSourceSubscription current,
+    internal static bool MatchesSnapshot(Models.MultiSourceSubscription current,
         MultiSourceSubscription expected) =>
         current.Id == expected.Id && current.Name == expected.Name && current.Mode == expected.Mode
         && current.TmdbId == expected.TmdbId && current.Season == expected.Season
