@@ -114,10 +114,18 @@ public sealed class MultiSourceSubscriptionRepository(Models.ApplicationContext 
         Guid[] feedIds, CancellationToken cancellationToken)
     {
         if (feedIds.Length == 0) return;
-        await write.AnimationInfo.Where(info => info.SourceFeedId != null && feedIds.Contains(info.SourceFeedId.Value)
+        var pending = write.AnimationInfo.Where(info => info.SourceFeedId != null && feedIds.Contains(info.SourceFeedId.Value)
             && !info.IsDownloadTracked && !info.IsDownloadFinished && !info.IsRetiredRelease
-            && info.DownloadCancellationId == null && info.AutomationDisposition == null)
-            .ExecuteUpdateAsync(setters => setters
+            && info.DownloadCancellationId == null
+            && (info.AutomationDisposition == null
+                || info.AutomationDisposition == SubscriptionAutomationDisposition.AutoDownloadFailed));
+        // Fully compensated failures belong to the old shared policy. Hide their
+        // obsolete Todo immediately, then let restoration apply the current feed policy.
+        var todoKeys = pending.Select(info => "automation:" + info.Id.ToString());
+        await write.TodoItemStates.Where(state => todoKeys.Contains(state.Key)).ExecuteDeleteAsync(cancellationToken);
+        await pending.ExecuteUpdateAsync(setters => setters
+                .SetProperty(info => info.AutomationDisposition, (SubscriptionAutomationDisposition?)null)
+                .SetProperty(info => info.AutomationExplanationJson, (string?)null)
                 .SetProperty(info => info.StandaloneAutomationPending, true)
                 .SetProperty(info => info.StateVersion, info => info.StateVersion + 1), cancellationToken);
     }
