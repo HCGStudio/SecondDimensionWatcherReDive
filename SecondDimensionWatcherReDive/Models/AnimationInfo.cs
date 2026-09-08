@@ -65,6 +65,8 @@ public class AnimationInfo
 
     public string? AutomationExplanationJson { get; set; }
 
+    public bool StandaloneAutomationPending { get; set; }
+
     public MetadataReviewStatus MetadataStatus { get; set; }
 
     public double? MetadataConfidence { get; set; }

@@ -835,15 +835,41 @@ public class AnimationInfoRepository(
     public async Task<SubscriptionAutomationMode?> RefreshStandaloneAutomationAsync(
         Guid id,
         CancellationToken cancellationToken) =>
+        (await RefreshStandaloneAutomationCoreAsync(id, false, cancellationToken))?.Mode;
+
+    public async Task<IReadOnlyList<Guid>> GetPendingStandaloneAutomationIdsAsync(
+        Guid? afterId, int take, CancellationToken cancellationToken) =>
+        await context.AnimationInfo.AsNoTracking()
+            .Where(info => info.StandaloneAutomationPending && (afterId == null || info.Id.CompareTo(afterId.Value) > 0))
+            .OrderBy(info => info.Id).Select(info => info.Id).Take(Math.Clamp(take, 1, 200))
+            .ToListAsync(cancellationToken);
+
+    public Task<StandaloneAutomationDecision?> RefreshPendingStandaloneAutomationAsync(
+        Guid id, CancellationToken cancellationToken) =>
+        RefreshStandaloneAutomationCoreAsync(id, true, cancellationToken);
+
+    public async Task CompleteStandaloneAutomationAsync(
+        Guid id, long expectedStateVersion, CancellationToken cancellationToken) =>
+        await context.AnimationInfo.Where(info => info.Id == id && info.StateVersion == expectedStateVersion)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(info => info.StandaloneAutomationPending, false), cancellationToken);
+
+    private async Task<StandaloneAutomationDecision?> RefreshStandaloneAutomationCoreAsync(
+        Guid id, bool requirePending, CancellationToken cancellationToken) =>
         await context.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
         {
             await using var writeContext = new Models.ApplicationContext(contextOptions);
             await using var transaction = await writeContext.Database.BeginTransactionAsync(cancellationToken);
             await MappingTransactionLock.AcquireAsync(writeContext, cancellationToken);
             var entity = await MappingTransactionLock.LockAnimationInfoAsync(writeContext, id, cancellationToken);
-            if (entity is null || entity.IsDownloadTracked || entity.IsDownloadFinished
+            if (entity is null || requirePending && !entity.StandaloneAutomationPending) return null;
+            if (entity.IsDownloadTracked || entity.IsDownloadFinished || entity.IsRetiredRelease
                 || entity.DownloadCancellationId is not null)
-                return (SubscriptionAutomationMode?)null;
+            {
+                entity.StandaloneAutomationPending = false;
+                await writeContext.SaveChangesAsync(cancellationToken);
+                await transaction.CommitAsync(cancellationToken);
+                return null;
+            }
 
             SubscriptionAutomationMode? mode = null;
             SubscriptionAutomationEvaluation? evaluation = null;
@@ -869,18 +895,22 @@ public class AnimationInfoRepository(
             {
                 SubscriptionAutomationMode.NotifyOnly => SubscriptionAutomationDisposition.Notified,
                 SubscriptionAutomationMode.ManualConfirm => SubscriptionAutomationDisposition.PendingConfirmation,
-                SubscriptionAutomationMode.AutoDownload => SubscriptionAutomationDisposition.AutoDownloadFailed,
+                SubscriptionAutomationMode.AutoDownload => entity.StandaloneAutomationPending
+                    ? null : SubscriptionAutomationDisposition.AutoDownloadFailed,
                 _ => null
             };
             await ResetTodoStateForTransitionAsync(writeContext, entity, entity.MetadataStatus,
                 disposition, cancellationToken);
-            entity.AutomationDisposition = disposition;
-            entity.AutomationExplanationJson = evaluation is null ? null
+            var explanation = evaluation is null ? null
                 : JsonSerializer.Serialize(evaluation.Explanations, new JsonSerializerOptions(JsonSerializerDefaults.Web));
-            entity.StateVersion = checked(entity.StateVersion + 1);
+            if (entity.AutomationDisposition != disposition || entity.AutomationExplanationJson != explanation)
+                entity.StateVersion = checked(entity.StateVersion + 1);
+            entity.AutomationDisposition = disposition;
+            entity.AutomationExplanationJson = explanation;
+            if (mode is null) entity.StandaloneAutomationPending = false;
             await writeContext.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
-            return mode;
+            return mode is { } currentMode ? new StandaloneAutomationDecision(entity.ToRecord(), currentMode) : null;
         });
 
     public async Task<DownloadSubmissionLease?> TryStartDownloadAsync(
@@ -1062,6 +1092,17 @@ public class AnimationInfoRepository(
             if (entity is null)
                 return new DownloadStartResult(false, null);
 
+            // Todo confirmation/retry is authorized by a pending standalone action,
+            // not the general manual-download override. A newly linked source or
+            // cleared action invalidates even a request opened before the change.
+            if (queuedDisposition == SubscriptionAutomationDisposition.ManualDownloadQueued
+                && releaseUpgradeOperationId is null
+                && !(entity.IsDownloadTracked && entity.DownloadAttemptId == downloadAttemptId)
+                && (!IsAutomationTodoState(entity.AutomationDisposition)
+                    || await writeContext.Set<Models.MultiSourceFeed>()
+                        .AnyAsync(source => source.FeedId == entity.SourceFeedId, cancellationToken)))
+                return new DownloadStartResult(false, null);
+
             // Ordinary automatic ingestion must still have an unlinked source
             // and a matching current policy when its tracked attempt is committed.
             // Manual starts and claimed episode submissions do not use this gate.
@@ -1201,6 +1242,7 @@ public class AnimationInfoRepository(
                     nextDisposition,
                     cancellationToken);
                 entity.IsDownloadTracked = true;
+                entity.StandaloneAutomationPending = false;
                 entity.IsDownloadFinished = false;
                 entity.DownloadAttemptId = downloadAttemptId;
                 entity.DownloadSubmissionLeaseId = null;
