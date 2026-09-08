@@ -1300,6 +1300,7 @@ export const PlayerPage: React.FC = () => {
             path={playbackContext.media.path}
             playerRef={artRef}
             endingProgressGuardRef={endingProgressGuardRef}
+            onTimelineResolved={() => persistCurrentProgressRef.current(true)}
             autoSkip={preferences?.autoSkip ?? false}
             onAutoSkipChange={(enabled) =>
               void updatePreferences({ autoSkip: enabled })

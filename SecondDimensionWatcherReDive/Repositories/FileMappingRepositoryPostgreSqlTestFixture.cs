@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
+using SecondDimensionWatcherReDive.Utils.Feed;
 
 namespace SecondDimensionWatcherReDive.Repositories;
 
@@ -174,7 +175,8 @@ internal sealed class FileMappingRepositoryPostgreSqlTestFixture(string connecti
         CancellationToken cancellationToken)
     {
         await using var context = new Models.ApplicationContext(_contextOptions);
-        var repository = new AnimationInfoRepository(context, _contextOptions);
+        var repository = new AnimationInfoRepository(context, _contextOptions,
+            new SubscriptionAutomationMatcher(new SubscriptionReleaseMetadataExtractor()));
         var result = await repository.TryCompleteDownloadAsync(
             itemId,
             attemptId,
