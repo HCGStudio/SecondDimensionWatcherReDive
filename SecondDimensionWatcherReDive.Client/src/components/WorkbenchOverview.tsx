@@ -34,9 +34,7 @@ const DownloadSummary: React.FC<{
     mutate,
   } = useAnimationDownloadStatus(capacityOnly ? null : item.id);
   const queued =
-    capacityEntry && (capacityOnly || !status || error)
-      ? capacityEntry
-      : undefined;
+    capacityEntry && (capacityOnly || !status) ? capacityEntry : undefined;
   const { canContentWrite } = useAccess();
   const { addToast } = useToast();
   const [pending, setPending] = React.useState(false);
@@ -81,7 +79,7 @@ const DownloadSummary: React.FC<{
         {canContentWrite &&
         ((queued &&
           ["Waiting", "Reserved", "Submitted"].includes(queued.state)) ||
-          (!error && status && (status.state === "Downloading" || paused))) ? (
+          (status && (status.state === "Downloading" || paused))) ? (
           <button
             type="button"
             disabled={pending}
@@ -114,7 +112,7 @@ const DownloadSummary: React.FC<{
           </p>
           <p>{t(`capacity.reasons.${queued.reasonCode}`)}</p>
         </div>
-      ) : error && !capacityLoading ? (
+      ) : error && !status && !capacityLoading ? (
         <p className="mt-3 text-xs text-error" role="alert">
           {t("workbench.statusUnavailable")}
         </p>
@@ -175,13 +173,13 @@ export const WorkbenchOverview: React.FC = () => {
             <Download size={15} className="text-brand" aria-hidden="true" />
             {t("workbench.downloads")}
           </h2>
-          {downloads.data && !downloads.error ? (
+          {downloads.data ? (
             <span className="rounded bg-tint px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-brand">
               {downloads.data.totalItems}
             </span>
           ) : null}
         </div>
-        {downloads.error ? (
+        {downloads.error && !downloads.data ? (
           <p className="py-3 text-xs leading-body text-error" role="alert">
             {t("workbench.downloadsFailed")}
           </p>
@@ -227,13 +225,13 @@ export const WorkbenchOverview: React.FC = () => {
             <Rss size={15} className="text-brand" aria-hidden="true" />
             {t("workbench.subscriptions")}
           </h2>
-          {feeds.data && !feeds.error ? (
+          {feeds.data ? (
             <span className="rounded bg-tint px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-brand">
               {feeds.data.length}
             </span>
           ) : null}
         </div>
-        {feeds.error ? (
+        {feeds.error && !feeds.data ? (
           <p className="py-3 text-xs leading-body text-error" role="alert">
             {t("workbench.subscriptionsFailed")}
           </p>
