@@ -50,10 +50,13 @@ contents:
       owner: root
       group: sdw-redive
 
-  - src: ./deployments/migrate-config.sh
-    dst: /usr/lib/sdw-redive/migrate-config.sh
-    file_info:
-      mode: 0755
+  - src: /usr/lib/sdw-redive/sdw-cli
+    dst: /usr/bin/sdw-cli
+    type: symlink
+
+  - src: /usr/lib/sdw-redive/sdw-cli
+    dst: /usr/bin/sdw-migrate
+    type: symlink
 
   - src: ./deployments/sdw-backup
     dst: /usr/bin/sdw-backup

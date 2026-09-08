@@ -260,7 +260,7 @@ public sealed class RuntimeSettingsServiceTests
 
         Assert.AreEqual(AiExecutionMode.BuiltIn, state.Desired.Ai.ExecutionMode);
         Assert.AreEqual(BuiltInAiProvider.OpenAI, state.Desired.Ai.Provider);
-        Assert.AreEqual(OpenAiApiMode.ChatCompletions, state.Desired.Ai.OpenAI.ApiMode);
+        Assert.AreEqual(OpenAiApiMode.Responses, state.Desired.Ai.OpenAI.ApiMode);
     }
 
     [TestMethod]

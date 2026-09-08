@@ -78,6 +78,7 @@ sudo pacman -U sdw-redive-*.pkg.tar.zst
 | 路径 | 说明 |
 |------|------|
 | `/usr/lib/sdw-redive/` | 应用程序文件（二进制、wwwroot 静态资源） |
+| `/usr/bin/sdw-migrate` | 指向 `sdw-cli` 的配置迁移入口软链接 |
 | `/etc/sdw-redive/appsettings.yml` | 配置文件（YAML 格式，升级时保留用户修改） |
 | `/var/lib/sdw-redive/downloads/` | 默认下载存储目录 |
 | `/var/lib/sdw-redive/data-protection-keys/` | 网页保存的敏感配置所用持久加密密钥环 |
@@ -91,6 +92,9 @@ sudo pacman -U sdw-redive-*.pkg.tar.zst
 编辑 `/etc/sdw-redive/appsettings.yml`，填写必要配置项：
 
 ```yaml
+Version: "2.3.0"
+StateDirectory: /var/lib/sdw-redive
+
 # PostgreSQL 连接字符串（必填）
 ConnectionStrings:
   sdw: "Host=localhost;Username=sdw;Password=YOUR_PASSWORD;Database=sdw"
@@ -164,6 +168,16 @@ OutboundHttp:
 #   ConnectionString: "localhost:6379"
 #   InstanceName: "sdw-redive:"
 ```
+
+### 配置升级
+
+应用启动与包安装会尝试静默升级旧配置。版本缺省时按 `2.2.0` 处理；当前配置结构版本为 `2.3.0`。需要解决冲突等破坏性选择时，启动或安装会失败并提示运行：
+
+```bash
+sudo sdw-migrate --config /etc/sdw-redive/appsettings.yml --working-directory /usr/lib/sdw-redive
+```
+
+命令只询问迁移所必需的破坏性选择，普通功能继续使用默认值并在网页「设置」中配置。自动化部署可使用 `--non-interactive`；需要交互时会返回非零状态。详细格式、旧密码与 AI 配置处理见[配置版本迁移](configuration-migrations.md)。
 
 ### 服务端流式播放与转码
 

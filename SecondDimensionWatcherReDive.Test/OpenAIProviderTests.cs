@@ -19,14 +19,14 @@ public sealed class OpenAIProviderTests
     private static readonly Uri BaseAddress = new("https://api.example.com/v1/");
 
     [TestMethod]
-    public async Task DefaultMode_UsesChatCompletionsRequestAndStreamsText()
+    public async Task ChatCompletionsMode_UsesChatCompletionsRequestAndStreamsText()
     {
         var handler = new RecordingHandler(Sse(
             """{"choices":[{"index":0,"delta":{"content":"Hel"}}]}""",
             """{"choices":[{"index":0,"delta":{"content":"lo"}}]}""",
             """{"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}""",
             "[DONE]"));
-        var provider = CreateProvider(handler);
+        var provider = CreateProvider(handler, OpenAIApiMode.ChatCompletions);
 
         var updates = await CollectAsync(provider.StreamChatCompletionAsync(
             [new SystemMessage("be concise"), new UserMessage("hello")],
@@ -54,14 +54,14 @@ public sealed class OpenAIProviderTests
     }
 
     [TestMethod]
-    public async Task ResponsesMode_UsesResponsesRequestShapeAndStreamsText()
+    public async Task DefaultMode_UsesResponsesRequestShapeAndStreamsText()
     {
         var handler = new RecordingHandler(Sse(
             """{"type":"response.output_text.delta","output_index":0,"delta":"Res"}""",
             """{"type":"response.output_text.delta","output_index":0,"delta":"ponse"}""",
             """{"type":"response.completed","response":{"id":"resp_1","status":"completed","output":[{"id":"msg_1","type":"message","status":"completed","role":"assistant","content":[{"type":"output_text","text":"Response"}],"phase":"final_answer"}]}}""",
             "[DONE]"));
-        var provider = CreateProvider(handler, OpenAIApiMode.Responses);
+        var provider = CreateProvider(handler);
         var tools = new[]
         {
             new ToolDefinition("lookup", "Look something up", Schema(

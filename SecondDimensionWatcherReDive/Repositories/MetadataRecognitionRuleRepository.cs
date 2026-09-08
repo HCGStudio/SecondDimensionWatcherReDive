@@ -3,7 +3,8 @@ using SecondDimensionWatcherReDive.Framework.DataRepository;
 
 namespace SecondDimensionWatcherReDive.Repositories;
 
-public sealed class MetadataRecognitionRuleRepository(Models.ApplicationContext context)
+public sealed class MetadataRecognitionRuleRepository(Models.ApplicationContext context,
+    DbContextOptions<Models.ApplicationContext> contextOptions)
     : IMetadataRecognitionRuleRepository
 {
     public async Task<IReadOnlyList<MetadataRecognitionRule>> ListAsync(CancellationToken cancellationToken) =>
@@ -17,30 +18,43 @@ public sealed class MetadataRecognitionRuleRepository(Models.ApplicationContext 
         return entity is null ? null : ToRecord(entity);
     }
 
-    public async Task<bool> SaveAsync(MetadataRecognitionRule rule, long? expectedRevision,
-        CancellationToken cancellationToken)
-    {
-        var entity = expectedRevision is null ? new Models.MetadataRecognitionRule { Id = rule.Id }
-            : await context.Set<Models.MetadataRecognitionRule>()
-                .SingleOrDefaultAsync(candidate => candidate.Id == rule.Id, cancellationToken);
-        if (entity is null || (expectedRevision is not null && entity.Revision != expectedRevision)) return false;
-        entity.Name = rule.Name;
-        entity.Enabled = rule.Enabled;
-        entity.Revision = rule.Revision;
-        entity.SourceFeedId = rule.SourceFeedId;
-        entity.TitlePattern = rule.TitlePattern;
-        entity.SubtitleGroup = rule.SubtitleGroup;
-        entity.TmdbId = rule.TmdbId;
-        entity.FixedSeason = rule.FixedSeason;
-        entity.EpisodeOffset = rule.EpisodeOffset;
-        entity.CanonicalGroupName = rule.CanonicalGroupName;
-        entity.CreatedFromItemId = rule.CreatedFromItemId;
-        entity.CreatedAt = rule.CreatedAt;
-        entity.EffectiveFrom = rule.EffectiveFrom;
-        if (expectedRevision is null) context.Add(entity);
-        try { await context.SaveChangesAsync(cancellationToken); return true; }
-        catch (DbUpdateConcurrencyException) { context.Entry(entity).State = EntityState.Detached; return false; }
-    }
+    public Task<bool> SaveAsync(MetadataRecognitionRule rule, long? expectedRevision,
+        CancellationToken cancellationToken) =>
+        context.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
+        {
+            await using var write = new Models.ApplicationContext(contextOptions);
+            await using var transaction = await write.Database.BeginTransactionAsync(cancellationToken);
+            // Share the import/inference lock order. Count and insert must be atomic
+            // across ordinary creates and imports, including when 199 rules exist.
+            await MappingTransactionLock.AcquireAsync(write, cancellationToken);
+            await write.Database.ExecuteSqlRawAsync(
+                "LOCK TABLE \"MetadataRecognitionRules\" IN SHARE ROW EXCLUSIVE MODE", cancellationToken);
+            var entity = expectedRevision is null ? new Models.MetadataRecognitionRule { Id = rule.Id }
+                : await write.Set<Models.MetadataRecognitionRule>()
+                    .SingleOrDefaultAsync(candidate => candidate.Id == rule.Id, cancellationToken);
+            if (entity is null || (expectedRevision is not null && entity.Revision != expectedRevision)) return false;
+            if (expectedRevision is null && await write.Set<Models.MetadataRecognitionRule>()
+                    .CountAsync(cancellationToken) >= LogicalDataTransferLimits.MaximumRecognitionRules)
+                throw new MetadataRecognitionRuleLimitException();
+            entity.Name = rule.Name;
+            entity.Enabled = rule.Enabled;
+            entity.Revision = rule.Revision;
+            entity.SourceFeedId = rule.SourceFeedId;
+            entity.TitlePattern = rule.TitlePattern;
+            entity.SubtitleGroup = rule.SubtitleGroup;
+            entity.TmdbId = rule.TmdbId;
+            entity.FixedSeason = rule.FixedSeason;
+            entity.EpisodeOffset = rule.EpisodeOffset;
+            entity.CanonicalGroupName = rule.CanonicalGroupName;
+            entity.CreatedFromItemId = rule.CreatedFromItemId;
+            entity.CreatedAt = rule.CreatedAt;
+            entity.EffectiveFrom = rule.EffectiveFrom;
+            if (expectedRevision is null) write.Add(entity);
+            try { await write.SaveChangesAsync(cancellationToken); }
+            catch (DbUpdateConcurrencyException) { return false; }
+            await transaction.CommitAsync(cancellationToken);
+            return true;
+        });
 
     public async Task<IReadOnlyList<AnimationInfo>> GetCandidatesAsync(Guid? sourceFeedId, int take,
         CancellationToken cancellationToken) =>

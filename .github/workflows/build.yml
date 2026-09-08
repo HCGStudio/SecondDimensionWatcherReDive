@@ -108,7 +108,7 @@ jobs:
           name: frontend-dist
           path: SecondDimensionWatcherReDive/wwwroot/
 
-      - name: Publish backend
+      - name: Publish backend and CLI
         env:
           VERSION: ${{ inputs.version }}
         run: |
@@ -118,6 +118,13 @@ jobs:
             --self-contained false \
             /p:Version="$VERSION" \
             -o publish
+          dotnet publish SecondDimensionWatcherReDive.CLI/SecondDimensionWatcherReDive.CLI.csproj \
+            -c Release \
+            -r linux-${{ matrix.arch }} \
+            --self-contained false \
+            /p:Version="$VERSION" \
+            -o publish
+          ln -s sdw-cli publish/sdw-migrate
 
       - name: Install nfpm
         run: |
@@ -174,11 +181,17 @@ jobs:
           name: frontend-dist
           path: SecondDimensionWatcherReDive/wwwroot/
 
-      - name: Publish backend
+      - name: Publish backend and CLI
         env:
           VERSION: ${{ inputs.version }}
         run: |
           dotnet publish SecondDimensionWatcherReDive/SecondDimensionWatcherReDive.csproj \
+            -c Release \
+            -r win-${{ matrix.arch }} \
+            --self-contained false \
+            /p:Version="$VERSION" \
+            -o publish
+          dotnet publish SecondDimensionWatcherReDive.CLI/SecondDimensionWatcherReDive.CLI.csproj \
             -c Release \
             -r win-${{ matrix.arch }} \
             --self-contained false \
@@ -189,6 +202,7 @@ jobs:
         env:
           VERSION: ${{ inputs.version }}
         run: |
+          cp packaging/install-clis.ps1 publish/install-clis.ps1
           cp LICENSE publish/LICENSE
           cp THIRD_PARTY_NOTICES.md publish/THIRD_PARTY_NOTICES.md
           (cd publish && zip -r "../sdw-redive_${VERSION}_win-${{ matrix.arch }}.zip" .)
@@ -222,7 +236,7 @@ jobs:
           name: frontend-dist
           path: SecondDimensionWatcherReDive/wwwroot/
 
-      - name: Publish backend
+      - name: Publish backend and CLI
         env:
           VERSION: ${{ inputs.version }}
         run: |
@@ -232,6 +246,14 @@ jobs:
             -p:UseAppHost=false \
             /p:Version="$VERSION" \
             -o publish
+          dotnet publish SecondDimensionWatcherReDive.CLI/SecondDimensionWatcherReDive.CLI.csproj \
+            -c Release \
+            --self-contained false \
+            -p:UseAppHost=false \
+            /p:Version="$VERSION" \
+            -o publish
+          install -m 0755 packaging/sdw-cli-portable publish/sdw-cli
+          ln -s sdw-cli publish/sdw-migrate
 
       - name: Package portable build
         env:

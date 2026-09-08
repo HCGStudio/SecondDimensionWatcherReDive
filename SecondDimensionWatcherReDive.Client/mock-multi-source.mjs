@@ -294,7 +294,11 @@ export async function handleMultiSourceSubscriptions({
     )
       decisions.delete(id);
     subscriptions.set(id, subscription);
-    restoreStandaloneSources(previous?.feedIds.filter((feedId) => !subscription.feedIds.includes(feedId)) ?? []);
+    restoreStandaloneSources(
+      previous?.feedIds.filter(
+        (feedId) => !subscription.feedIds.includes(feedId),
+      ) ?? [],
+    );
     const newlyLinked = subscription.feedIds.filter(
       (feedId) => !previous?.feedIds.includes(feedId),
     );

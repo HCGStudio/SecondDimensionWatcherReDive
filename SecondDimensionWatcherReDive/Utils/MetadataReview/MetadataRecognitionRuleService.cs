@@ -108,6 +108,12 @@ public sealed class MetadataRecognitionRuleService(
         // TMDB's season catalog and cannot authorize a fixed destination season.
         if (fixedSeason is null && existing is not null
             && !string.IsNullOrWhiteSpace(existing.Name) && existing.Name != id) return;
+        await ValidateRemoteTargetAsync(tmdbTool, tmdbId, fixedSeason, cancellationToken);
+    }
+
+    internal static async Task ValidateRemoteTargetAsync(TmdbTool tmdbTool, int tmdbId, int? fixedSeason,
+        CancellationToken cancellationToken)
+    {
         if (!tmdbTool.IsConfigured)
             throw new MetadataReviewUnavailableException("tmdbUnavailable",
                 "TMDB lookup is unavailable because no API key is configured.");
@@ -131,10 +137,15 @@ public sealed class MetadataRecognitionRuleService(
         Guid? id, CancellationToken cancellationToken)
     {
         var rule = await ValidateAsync(draft, id, cancellationToken);
-        if (id is null && (await repository.ListAsync(cancellationToken)).Count >= 200)
-            throw Invalid("ruleLimit", "Up to 200 recognition rules are supported.");
-        if (!await repository.SaveAsync(rule, id is null ? null : draft.ExpectedRevision, cancellationToken))
-            throw new MetadataReviewConflictException("ruleChanged", "The rule changed. Refresh it before saving.");
+        try
+        {
+            if (!await repository.SaveAsync(rule, id is null ? null : draft.ExpectedRevision, cancellationToken))
+                throw new MetadataReviewConflictException("ruleChanged", "The rule changed. Refresh it before saving.");
+        }
+        catch (MetadataRecognitionRuleLimitException exception)
+        {
+            throw Invalid("ruleLimit", exception.Message);
+        }
         return rule;
     }
 

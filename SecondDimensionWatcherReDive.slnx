@@ -1,4 +1,6 @@
 <Solution>
+  <Project Path="SecondDimensionWatcherReDive.CLI/SecondDimensionWatcherReDive.CLI.csproj" />
+  <Project Path="SecondDimensionWatcherReDive.ConfigMigration/SecondDimensionWatcherReDive.ConfigMigration.csproj" />
   <Project Path="SecondDimensionWatcherReDive.Framework/SecondDimensionWatcherReDive.Framework.csproj" />
   <Project Path="SecondDimensionWatcherReDive.Test/SecondDimensionWatcherReDive.Test.csproj" />
   <Project Path="SecondDimensionWatcherReDive.IntegrationTest/SecondDimensionWatcherReDive.IntegrationTest.csproj" />

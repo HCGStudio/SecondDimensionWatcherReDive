@@ -105,10 +105,12 @@ bash <(curl -fsSL https://raw.githubusercontent.com/HCGStudio/SecondDimensionWat
 
 | 配置项 | 说明 |
 |--------|------|
+| `Version` | 配置结构版本，当前为 `2.3.0`；与应用版本独立，缺省按 `2.2.0` 迁移 |
+| `StateDirectory` | 持久状态目录；密钥环、插件和转码缓存的默认路径位于此目录下 |
 | `ConnectionStrings:sdw` | PostgreSQL 连接字符串 |
 | `Migration:BackupExecutable` / `BackupArguments` / `BackupTimeout` / `RequireBackup` | schema/data migration 前的可选备份钩子与强制策略；详见[迁移运维手册](docs/migrations.md) |
 | `JwtSecret` | JWT 签名密钥 |
-| `Password:Value` | 旧部署兼容用 BCrypt 哈希；启动时可导入数据库的兼容认证状态，首次成功登录再建立或更新家庭账户；新部署仅在没有既有账户且无旧密码保留时开放注册 |
+| `Authentication:BootstrapPasswordHash` | 配置迁移保留的初始 BCrypt 哈希；启动时原子导入 PostgreSQL，之后以数据库为准。新安装通过网页注册，无需设置此项 |
 | `DataProtection:KeyRingPath` | 网页保存的 API key/密码所用加密密钥环；必须位于持久化目录 |
 | `Torrent:Remote:Url` | qBittorrent API 地址 |
 | `FileStore:Local` | 下载文件存储根目录 |
@@ -120,7 +122,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/HCGStudio/SecondDimensionWat
 | `AI:Engine` | `BuiltIn` 或 `CodexAppServer`（默认 `BuiltIn`） |
 | `AI:Provider` | 内置引擎使用的 `OpenAI` 或 `Anthropic`（默认 `OpenAI`） |
 | `AI:OpenAI:ApiKey` / `BaseUrl` / `Model` / `MaxTokens` | OpenAI 或 OpenAI 兼容端点配置 |
-| `AI:OpenAI:ApiMode` | `Responses`（官方 OpenAI）或 `ChatCompletions`（Ollama / vLLM / 旧兼容端点）；旧配置缺省为后者 |
+| `AI:OpenAI:ApiMode` | `Responses`（默认，官方 OpenAI）或 `ChatCompletions`（Ollama / vLLM 等兼容端点）；迁移会显式保留旧配置采用的协议 |
 | `AI:Anthropic:ApiKey` / `BaseUrl` / `Model` / `MaxTokens` / `ApiVersion` | Anthropic 端点 |
 | `AI:CodexAppServer:Endpoint` / `BearerToken` / `Model` / `PermissionProfile` / `TimeoutSeconds` | Codex app-server WebSocket 端点；空模型使用服务端默认模型；权限配置默认 `:read-only`，也可填写管理员定义的 profile id |
 | `Inference:RateLimitDelayMs` | 推断 API 调用最小间隔（毫秒，默认 1000） |
@@ -135,7 +137,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/HCGStudio/SecondDimensionWat
 
 > 使用现有媒体库导入前，必须至少配置一个 `MediaLibrary:AllowedRoots`。导入源必须位于白名单内，且不能与 `FileStore:Local` 管理的下载目录相同、互为父目录或以其他方式重叠。导入与后续对账只会修改数据库中的媒体记录和虚拟路径映射；系统绝不会移动、重命名或删除原文件。短暂缺失的条目会先撤下映射并保留观看/审核记录，超过 `MissingGracePeriod`（默认 24 小时）后才清理数据库记录。
 
-> 从 v2.2 之前升级：旧的 `Inference:ApiKey/Provider/Model` 已迁移到 `AI:` 前缀。运行 `deployments/migrate-config.sh` 自动迁移；包管理器安装时 `postinstall.sh` 会自动执行。
+> 系统包升级配置时运行 `sdw-migrate --config /etc/sdw-redive/appsettings.yml --working-directory /usr/lib/sdw-redive`，JSON 配置同样支持。迁移按版本依次执行 `Up`；只有需要决定的破坏性变更才会提问，其他新增功能保持默认并在网页设置中配置。主程序启动和包安装只尝试静默升级，遇到需要用户决定或迁移失败时退出并提示运行此命令。详见[配置版本迁移](docs/configuration-migrations.md)。
 
 运行探针、持久任务恢复、死信操作和遥测标签约束详见 [运行可靠性与可观测性](docs/runtime-reliability.md)。
 升级前的备份、失败诊断、checkpoint 恢复和多副本发布流程见 **[数据库迁移运维手册](docs/migrations.md)**。
@@ -146,13 +148,13 @@ bash <(curl -fsSL https://raw.githubusercontent.com/HCGStudio/SecondDimensionWat
 
 启用且订阅的通知会在核心操作完成后，以唯一去重键尽力写入 PostgreSQL Outbox，再由后台服务按至少一次语义投递。Webhook 和每个 Web Push 浏览器订阅拥有独立投递行、租约与重试状态，一个渠道失败不会重复投递另一个渠道；Webhook 请求带有稳定的 `X-SDW-Event-Id`，Web Push 也使用同一事件 ID 作为通知标签，接收端仍应按事件 ID 幂等。5xx、408、429 和网络错误会指数退避重试，失效的浏览器订阅会在 404/410 后撤销，永久失败可在「设置 → 通知」查看，且任何投递或入队失败都不会回滚订阅、下载、推断或异常处理。顶栏「待办中心」会按风险汇总待确认下载、异常、低置信度/失败元数据和磁盘预警，并支持已读、稍后提醒及无副作用批量操作。
 
-数据库连接、JWT、下载存储根目录、登录密码文件、CORS 和 Valkey 仍属于启动/基础设施配置，不允许从网页修改。NFS 监听地址、端口和启用状态会保存，但需要重启应用才能切换；其余上述设置对后续请求和新任务热生效。后台定时任务的间隔变更不会中断已经开始的等待，最迟会在当前等待周期结束后采用新值。
+数据库连接、JWT、下载存储根目录、持久状态目录、CORS 和 Valkey 仍属于启动/基础设施配置，不允许从网页修改。NFS 监听地址、端口和启用状态会保存，但需要重启应用才能切换；其余上述设置对后续请求和新任务热生效。后台定时任务的间隔变更不会中断已经开始的等待，最迟会在当前等待周期结束后采用新值。
 
 设置页提交的 API key 和密码会经过浏览器与服务端之间的连接；除严格的本机访问外，必须为网页入口配置 HTTPS。配置带凭据的 AI 或 qBittorrent 端点时也应使用 TLS，或将明文 HTTP 严格限制在受信任的隔离网络内。
 
 ### 家庭账户、档案与设备访问
 
-首次安装由注册页创建管理员和默认档案；旧实例若仍配置 `Password:Value`，注册入口会保持关闭，使用用户名 `admin` 和原密码首次登录后才会安全迁移。右上角档案菜单可即时切换档案，「账户与档案」页可管理名称、头像、可选 PIN、家庭用户和登录会话。档案切换会轮换访问/刷新令牌，并清除浏览器中上一档案的播放、聊天等缓存；多个标签页通过 Web Locks 与浏览器消息同步轮换结果。
+首次安装由注册页创建管理员和默认档案；旧实例的密码哈希会先经配置迁移写入 `Authentication:BootstrapPasswordHash`，再于启动时导入数据库。已有密码时注册入口保持关闭，使用用户名 `admin` 和原密码首次登录即可完成家庭账户迁移。主程序不再读取旧 `Password` 配置或 `password.json` 文件。右上角档案菜单可即时切换档案，「账户与档案」页可管理名称、头像、可选 PIN、家庭用户和登录会话。档案切换会轮换访问/刷新令牌，并清除浏览器中上一档案的播放、聊天等缓存；多个标签页通过 Web Locks 与浏览器消息同步轮换结果。
 
 角色权限由服务端强制执行：Admin 可管理全局设置、用户、任务、元数据和设备凭据；Member 可管理订阅、下载任务和播放状态，但删除已下载文件仍需近期管理员验证；Viewer 仅可浏览和播放。敏感管理操作在超过近期验证窗口后会要求再次输入账户密码，无需退出登录。
 

@@ -16,7 +16,6 @@ namespace SecondDimensionWatcherReDive.Controllers;
 [Route("api/[controller]")]
 [EnableRateLimiting("auth")]
 internal partial class AuthController(
-    IConfiguration configuration,
     TokenValidationParameters tokenValidationParams,
     IIdentityRepository identityRepository,
     SessionTokenIssuer tokenIssuer,
@@ -285,12 +284,10 @@ internal partial class AuthController(
     private async Task<bool> HasLegacyPasswordAsync(CancellationToken cancellationToken) =>
         !string.IsNullOrWhiteSpace(await GetLegacyPasswordHashAsync(cancellationToken));
 
-    private async Task<string?> GetLegacyPasswordHashAsync(CancellationToken cancellationToken)
-    {
-        var hash = authenticationStateRepository is null ? null :
-            await authenticationStateRepository.GetPasswordHashAsync(cancellationToken);
-        return string.IsNullOrWhiteSpace(hash) ? configuration["Password:Value"] : hash;
-    }
+    private Task<string?> GetLegacyPasswordHashAsync(CancellationToken cancellationToken) =>
+        authenticationStateRepository is null
+            ? Task.FromResult<string?>(null)
+            : authenticationStateRepository.GetPasswordHashAsync(cancellationToken);
 
     private static bool VerifyHash(string password, string hash)
     {
