@@ -324,7 +324,7 @@ internal partial class SyncFeed(
         {
             if (notificationPublisher is null) return false;
             var confirmation = mode == SubscriptionAutomationMode.ManualConfirm;
-            return await notificationPublisher.PublishAsync(new NotificationEvent(
+            return await notificationPublisher.EnsurePublishedAsync(new NotificationEvent(
                 confirmation ? NotificationEventType.DownloadPendingConfirmation : NotificationEventType.ReleaseMatched,
                 confirmation ? $"download-pending-confirmation:{info.Id}" : $"release-matched:{info.Id}",
                 confirmation ? "Download confirmation required" : "Subscription release matched",

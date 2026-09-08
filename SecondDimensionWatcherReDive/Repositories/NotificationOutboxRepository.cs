@@ -8,6 +8,10 @@ namespace SecondDimensionWatcherReDive.Repositories;
 public sealed class NotificationOutboxRepository(Models.ApplicationContext context)
     : INotificationOutboxRepository
 {
+    public Task<bool> ContainsDeduplicationKeyAsync(string deduplicationKey, CancellationToken cancellationToken) =>
+        context.NotificationOutboxMessages.AsNoTracking()
+            .AnyAsync(message => message.DeduplicationKey == deduplicationKey, cancellationToken);
+
     public async Task<bool> EnqueueAsync(
         NotificationOutboxMessage message,
         CancellationToken cancellationToken)
