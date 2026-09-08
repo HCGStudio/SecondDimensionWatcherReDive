@@ -15,16 +15,6 @@ public sealed class ConfigMigrationGenerator : IIncrementalGenerator
     private const string MigrationInterfaceName =
         "SecondDimensionWatcherReDive.Framework.ConfigurationMigration.IConfigMigration";
 
-    private static readonly DiagnosticDescriptor InvalidMigration = new(
-        id: "SDWCM001",
-        title: "Configuration migration cannot be registered",
-        messageFormat: "Configuration migration '{0}' {1}",
-        category: "ConfigurationMigration",
-        defaultSeverity: DiagnosticSeverity.Error,
-        isEnabledByDefault: true,
-        description: "Configuration migrations must be concrete, non-generic classes accessible " +
-                     "from the generated registry, with an accessible parameterless constructor.");
-
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
         var migrations = context.SyntaxProvider.CreateSyntaxProvider(
@@ -46,25 +36,24 @@ public sealed class ConfigMigrationGenerator : IIncrementalGenerator
             .Where(static symbol => symbol is not null)
             .Collect();
 
-        context.RegisterSourceOutput(context.CompilationProvider.Combine(migrations),
-            static (sourceContext, input) => Generate(sourceContext, input.Left, input.Right));
+        context.RegisterSourceOutput(migrations,
+            static (sourceContext, symbols) => Generate(sourceContext, symbols));
     }
 
     private static void Generate(
         SourceProductionContext context,
-        Compilation compilation,
         ImmutableArray<INamedTypeSymbol?> migrationSymbols)
     {
         // The analyzer is shared with AI tool projects, which must not emit another registry.
         if (migrationSymbols.IsEmpty)
             return;
 
-        var migrations = new SortedDictionary<string, INamedTypeSymbol>(StringComparer.Ordinal);
+        var migrations = new SortedSet<string>(StringComparer.Ordinal);
         foreach (var symbol in migrationSymbols)
         {
             context.CancellationToken.ThrowIfCancellationRequested();
             if (symbol is not null)
-                migrations[symbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)] = symbol;
+                migrations.Add(symbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat));
         }
 
         var source = new StringBuilder();
@@ -83,63 +72,13 @@ public sealed class ConfigMigrationGenerator : IIncrementalGenerator
         foreach (var migration in migrations)
         {
             context.CancellationToken.ThrowIfCancellationRequested();
-            var failure = GetRegistrationFailure(migration.Value, compilation);
-            if (failure is not null)
-            {
-                context.ReportDiagnostic(Diagnostic.Create(
-                    InvalidMigration,
-                    migration.Value.Locations.FirstOrDefault(),
-                    migration.Value.ToDisplayString(),
-                    failure));
-                continue;
-            }
-
             source.Append("        new ");
-            source.Append(migration.Key);
+            source.Append(migration);
             source.AppendLine("(),");
         }
 
         source.AppendLine("    ];");
         source.AppendLine("}");
         context.AddSource("GeneratedConfigMigrations.g.cs", SourceText.From(source.ToString(), Encoding.UTF8));
-    }
-
-    private static string? GetRegistrationFailure(INamedTypeSymbol migration, Compilation compilation)
-    {
-        if (migration.TypeKind != TypeKind.Class)
-            return "must be a class";
-        if (migration.IsAbstract)
-            return "must not be abstract";
-
-        for (var type = migration; type is not null; type = type.ContainingType)
-        {
-            if (type.IsGenericType)
-                return "must not be generic or nested in a generic type";
-            if (type.IsFileLocal)
-                return "must not be file-local or nested in a file-local type";
-        }
-
-        if (!compilation.IsSymbolAccessibleWithin(migration, compilation.Assembly))
-            return "must be accessible from the generated registry in the same assembly";
-
-        var constructor = migration.InstanceConstructors.FirstOrDefault(candidate =>
-            candidate.Parameters.Length == 0 &&
-            compilation.IsSymbolAccessibleWithin(candidate, compilation.Assembly));
-        if (constructor is null)
-            return "must have a parameterless constructor accessible from the same assembly";
-
-        if (!constructor.GetAttributes().Any(attribute => attribute.AttributeClass?.ToDisplayString() ==
-                "System.Diagnostics.CodeAnalysis.SetsRequiredMembersAttribute"))
-        {
-            for (var type = migration; type is not null; type = type.BaseType)
-            {
-                if (type.GetMembers().Any(member => member is IPropertySymbol { IsRequired: true } or
-                                                       IFieldSymbol { IsRequired: true }))
-                    return "has required members; its parameterless constructor must set them and " +
-                           "declare [SetsRequiredMembers]";
-            }
-        }
-
-        return null;
     }
 }

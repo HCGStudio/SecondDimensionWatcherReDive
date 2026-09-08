@@ -29,7 +29,17 @@ internal sealed class MoveInferenceToAi : IConfigMigration
         var config = context.Configuration;
         if (!HasLegacy(config)) return;
         var provider = Provider(context);
-        foreach (var pair in Mappings(provider))
+        var explicitProvider = ConfigTree.Get(config, "Inference:Provider");
+        // An explicit provider belongs to this layer and overrides inherited
+        // values. Only an inferred default should defer to the lower layer.
+        if (explicitProvider is not null && (ConfigTree.Get(config, "AI:Provider") is null
+                                            || selections.GetValueOrDefault("AI:Provider") == "legacy"))
+            ConfigTree.Set(config, "AI:Provider", explicitProvider);
+        else if (ConfigTree.Get(config, "AI:Provider") is null
+                 && context.InheritedSettings?.GetValueOrDefault("AI:Provider") is null)
+            ConfigTree.Set(config, "AI:Provider", JsonValue.Create(provider));
+
+        foreach (var pair in Mappings(provider).Skip(1))
         {
             var source = ConfigTree.Get(config, pair.Source);
             if (source is null) continue;
@@ -37,9 +47,6 @@ internal sealed class MoveInferenceToAi : IConfigMigration
                 || selections.GetValueOrDefault(pair.Target) == "legacy")
                 ConfigTree.Set(config, pair.Target, source);
         }
-        if (ConfigTree.Get(config, "AI:Provider") is null
-            && context.InheritedSettings?.GetValueOrDefault("AI:Provider") is null)
-            ConfigTree.Set(config, "AI:Provider", JsonValue.Create(provider));
         foreach (var key in LegacyKeys) ConfigTree.Remove(config, $"Inference:{key}");
     }
 
