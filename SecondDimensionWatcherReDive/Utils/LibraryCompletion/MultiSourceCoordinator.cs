@@ -73,6 +73,10 @@ public sealed class MultiSourceCoordinator(IMultiSourceSubscriptionRepository su
                     if (candidate is { Automatic: true } && candidate.CandidateScore - candidate.CurrentScore >= subscription.MinimumUpgradeScore)
                     {
                         var result = await upgradeCoordinator.ExecuteAsync(candidate, ReleaseUpgradeInvocation.AutomaticMultiSource, false, cancellationToken);
+                        // A competing evaluation or changed eligibility can reject
+                        // the claim. Preserve the winner's decision and let the
+                        // next pass observe current state instead of failing it.
+                        if (result.Outcome == "upgrade_already_started") continue;
                         selectedId = candidate.CandidateReleaseId; outcome = result.IsSuccess ? "upgrading" : "failed"; reason = result.Outcome;
                     }
                     else reason = selected.Info is null ? "existing_release_retained" : "upgrade_threshold_not_met";
@@ -105,7 +109,7 @@ public sealed class MultiSourceCoordinator(IMultiSourceSubscriptionRepository su
                 }
             }
             var persisted = await subscriptions.SaveDecisionAsync(new(subscription.Id, group.Key, started, until, selectedId,
-                outcome, reason, now), cancellationToken);
+                outcome, reason, now), subscription, cancellationToken);
             if (persisted is null) continue;
             if (outcome is "notified" or "pending_confirmation" && (old?.Outcome != outcome || old.SelectedReleaseId != selectedId))
                 await notifications.PublishAsync(new NotificationEvent(

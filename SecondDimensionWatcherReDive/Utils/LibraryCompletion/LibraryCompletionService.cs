@@ -9,9 +9,13 @@ public sealed partial class LibraryCompletionService(ILibraryCompletionRepositor
     ISubscriptionAutomationMatcher matcher, IReleaseScoringService scoring,
     EpisodeAirCalendarService calendar, EpisodeDownloadService downloads)
 {
-    public static bool IsReliable(AnimationInfo info) => info.Season is > 0 && info.Episode is > 0 &&
-        info.MetadataStatus is MetadataReviewStatus.Identified or MetadataReviewStatus.Reviewed &&
-        !BatchTitle().IsMatch(info.Title);
+    public static bool IsReliable(AnimationInfo info) =>
+        IsReliable(info.Season, info.Episode, info.MetadataStatus, info.Title);
+
+    public static bool IsReliable(int? season, int? episode, MetadataReviewStatus metadataStatus, string title) =>
+        season is > 0 && episode is > 0 &&
+        metadataStatus is MetadataReviewStatus.Identified or MetadataReviewStatus.Reviewed &&
+        !BatchTitle().IsMatch(title);
 
     [GeneratedRegex(@"(?i)(?:\b(?:batch|complete|全集)\b|合集|全\s*\d+\s*[集話话]|(?:\[|\s)\d{1,3}\s*[-~～]\s*\d{1,3}(?:\]|\s))")]
     private static partial Regex BatchTitle();
