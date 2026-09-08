@@ -224,6 +224,7 @@ export async function handleMultiSourceSubscriptions({
   feeds,
   evaluateRelease,
   todoStates,
+  restoreStandaloneSources,
 }) {
   const respond = (data, status = 200) => {
     json(res, data, status);
@@ -293,6 +294,7 @@ export async function handleMultiSourceSubscriptions({
     )
       decisions.delete(id);
     subscriptions.set(id, subscription);
+    restoreStandaloneSources(previous?.feedIds.filter((feedId) => !subscription.feedIds.includes(feedId)) ?? []);
     const newlyLinked = subscription.feedIds.filter(
       (feedId) => !previous?.feedIds.includes(feedId),
     );
@@ -315,8 +317,10 @@ export async function handleMultiSourceSubscriptions({
     return respond(subscription);
   }
   if (method === "DELETE" && !match[2]) {
+    const previous = subscriptions.get(id);
     const removed = subscriptions.delete(id);
     decisions.delete(id);
+    if (previous) restoreStandaloneSources(previous.feedIds);
     return respond(null, removed ? 200 : 404);
   }
   const subscription = subscriptions.get(id);

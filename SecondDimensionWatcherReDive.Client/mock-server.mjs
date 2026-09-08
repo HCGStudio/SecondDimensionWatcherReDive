@@ -1213,6 +1213,27 @@ function currentReleasePolicy(release) {
     ?? subscriptionPolicies.get(release?.sourceFeedId) ?? {};
 }
 
+function restoreStandaloneSources(feedIds) {
+  for (const release of animations.values()) {
+    if (!feedIds.includes(release.sourceFeedId) || release.isDownloadTracked
+      || release.isDownloadFinished || release.supersededByReleaseId
+      || release.automationDisposition != null) continue;
+    const policy = subscriptionPolicies.get(release.sourceFeedId);
+    if (!policy || multiSourcePolicyForFeed(release.sourceFeedId)) continue;
+    const evaluation = evaluateMultiSourceRelease(release, policy);
+    if (!evaluation.matched) continue;
+    release.automationExplanationJson = JSON.stringify(evaluation.explanations);
+    release.stateVersion = (release.stateVersion ?? 0) + 1;
+    mockTodoStates.delete(`automation:${release.id}`);
+    release.automationDisposition = policy.mode === "NotifyOnly" ? "Notified"
+      : policy.mode === "ManualConfirm" ? "PendingConfirmation" : "AutoDownloadQueued";
+    if (policy.mode === "AutoDownload") {
+      release.isDownloadTracked = true;
+      downloadState.set(release.id, { state: "Downloading", progress: 0, startedAt: Date.now() });
+    }
+  }
+}
+
 // WebDAV access tokens
 let webDavTokens = [
   {
@@ -3436,6 +3457,7 @@ async function route(method, pathname, searchParams, req, res) {
       feeds,
       evaluateRelease: evaluateMultiSourceRelease,
       todoStates: mockTodoStates,
+      restoreStandaloneSources,
     })
   )
     return;
