@@ -52,10 +52,12 @@ Windows 压缩包提供 `sdw-cli.exe` 与 `install-clis.ps1`，解压后由脚�
 |--------|------------------|
 | `appsettings.json` 及环境专用 `appsettings.*.json` | 更新对应文件并保留备份；环境专用文件按覆盖层处理 |
 | UserSecrets 等其他 JSON 源 | 只在内存中补充迁移产生的变化，不改写全局机密文件 |
-| 未加前缀的应用环境变量、命令行参数 | 只在各自源之后插入变化项，不修改进程环境或参数；`DOTNET_`、`ASPNETCORE_` 等带前缀的主机配置源不单独迁移 |
+| 未加前缀的应用环境变量、命令行参数 | 只在各自源之后插入变化项，不修改进程环境或参数；`DOTNET_`、`ASPNETCORE_` 等带前缀的主机环境源不进入逐层继承或最终迁移快照 |
 | `Config` 指定的外部 YAML/JSON | 更新文件并保留备份；仍按原有行为最后加载，优先于前述源 |
 
 当前版本且没有变化的配置源不会被完整内存快照替换。UserSecrets、环境变量和命令行的迁移只对本次启动有效；若这些源存在需要用户决定的冲突，应修正对应源中的值后重试。`sdw-migrate` 只处理 `--config` 指定的文件，不会改写其他配置源。
+
+主机配置源仍保留在实际宿主中，`ASPNETCORE_URLS`、`ASPNETCORE_CONTENTROOT` 等继续生效。即使可选的 appsettings 文件全部缺失，运行时的 `DOTNET_VERSION` 或 `ASPNETCORE_VERSION` 也不会成为应用配置的 `Version`；没有应用版本的环境配置仍按 `2.2.0` 迁移。
 
 包安装使用 `--non-interactive`，显式传入随包基础 JSON 及存在的 Production JSON，遵循同样的规则；这些参数只代表标准随包来源。自定义 systemd 环境、命令行或其他来源需要管理员补充上述上下文快照。出现需要交互的错误后，先运行日志提示的 `sdw-migrate --config ...` 并带上完整继承输入，完成迁移后再重启服务或重试包配置。
 

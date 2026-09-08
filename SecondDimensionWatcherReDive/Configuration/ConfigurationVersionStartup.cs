@@ -14,7 +14,7 @@ internal static class ConfigurationVersionStartup
         var runner = new ConfigMigrationRunner();
         var workingDirectory = Directory.GetCurrentDirectory();
         var contentRoot = builder.Environment.ContentRootPath;
-        var legacyPasswordFile = ResolveLegacyPasswordFile(configuration, contentRoot);
+        var legacyPasswordFile = ResolveLegacyPasswordFile(ReadApplicationConfiguration(configuration), contentRoot);
         var inherited = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
         var sawApplicationFile = false;
         // Process original sources in priority order. An overlay's own Version determines its
@@ -22,6 +22,7 @@ internal static class ConfigurationVersionStartup
         foreach (var source in configuration.Sources.ToArray())
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if (source is EnvironmentVariablesConfigurationSource { Prefix: { Length: > 0 } }) continue;
             var provider = source.Build(configuration);
             try
             {
@@ -88,8 +89,7 @@ internal static class ConfigurationVersionStartup
                 configuration.AddYamlFile(path, optional: false, reloadOnChange: true);
         }
 
-        var current = configuration.AsEnumerable().ToDictionary(
-            pair => pair.Key, pair => pair.Value, StringComparer.OrdinalIgnoreCase);
+        var current = ReadApplicationConfiguration(configuration);
         var effective = await runner.MigrateSettingsAsync(current, workingDirectory, cancellationToken,
             new ConfigMigrationOptions(ContentRootDirectory: contentRoot, LegacyPasswordFile: legacyPasswordFile));
         var finalChanges = ChangedValues(current, effective);
@@ -97,10 +97,25 @@ internal static class ConfigurationVersionStartup
             configuration.AddInMemoryCollection(finalChanges);
     }
 
-    private static string ResolveLegacyPasswordFile(IConfiguration configuration, string contentRoot)
+    private static Dictionary<string, string?> ReadApplicationConfiguration(ConfigurationManager configuration)
     {
-        var passwordFile = configuration["PasswordFile"] ?? "password.json";
-        if (configuration["Config"] is not { } configPath) return passwordFile;
+        var values = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        // Keep the live hosting providers intact, but do not reinterpret stripped
+        // DOTNET_/ASPNETCORE_ keys as application schema or inherited settings.
+        // Chained hosting settings remain in order; the default web-host chain
+        // suppresses its own environment provider and carries in-memory settings.
+        foreach (var (source, provider) in configuration.Sources.Zip(((IConfigurationRoot)configuration).Providers))
+        {
+            if (source is EnvironmentVariablesConfigurationSource { Prefix: { Length: > 0 } }) continue;
+            foreach (var pair in ReadProvider(provider)) values[pair.Key] = pair.Value;
+        }
+        return values;
+    }
+
+    private static string ResolveLegacyPasswordFile(IReadOnlyDictionary<string, string?> configuration, string contentRoot)
+    {
+        var passwordFile = configuration.GetValueOrDefault("PasswordFile") ?? "password.json";
+        if (configuration.GetValueOrDefault("Config") is not { } configPath) return passwordFile;
         // Before migration removes PasswordFile from individual layers, resolve
         // the value the old host selected after appending its external document.
         var path = Path.GetFullPath(configPath, contentRoot);
