@@ -1,8 +1,14 @@
 // Development-only completion plans, sharing the mock library.
+import { randomUUID } from "node:crypto";
+
 const iso = (timestamp) => new Date(timestamp).toISOString();
 const date = (timestamp) => iso(timestamp).slice(0, 10);
 
-function planFor(animations, tmdbId, season) {
+export function isCurrentRelease(release) {
+  return release.isDownloadFinished && !release.supersededByReleaseId;
+}
+
+export function planFor(animations, tmdbId, season, evaluateRelease) {
   const releases = [...animations.values()].filter(
     (x) => x.animation?.tmdbId === tmdbId && x.season === season,
   );
@@ -12,22 +18,35 @@ function planFor(animations, tmdbId, season) {
     const episode = index + 1;
     const candidates = releases
       .filter((x) => x.episode === episode)
-      .map((x) => ({
-        releaseId: x.id,
-        title: x.title,
-        publishedAt: x.publishTime,
-        sizeBytes: x.releaseSizeBytes ?? null,
-        score: x.title.includes("2160") ? 480 : 280,
-        reasons: ["resolution:1080p:+200", "codec:HEVC:+60"],
-        eligible: !x.isDownloadTracked && !x.isDownloadFinished,
-        unavailableReason: x.isDownloadFinished
+      .map((x) => {
+        const evaluation = evaluateRelease(x);
+        const unavailableReason = x.isDownloadFinished
           ? "downloaded"
           : x.isDownloadTracked
             ? "downloading"
-            : null,
-      }));
-    const downloaded = candidates.some(
-      (x) => animations.get(x.releaseId).isDownloadFinished,
+            : !evaluation.matched
+              ? "policy_mismatch"
+              : null;
+        return {
+          releaseId: x.id,
+          title: x.title,
+          publishedAt: x.publishTime,
+          sizeBytes: x.releaseSizeBytes ?? null,
+          score: evaluation.score,
+          reasons: evaluation.scoreReasons,
+          eligible: unavailableReason == null,
+          unavailableReason,
+        };
+      })
+      .sort(
+        (left, right) =>
+          Number(right.eligible) - Number(left.eligible) ||
+          right.score - left.score ||
+          new Date(right.publishedAt) - new Date(left.publishedAt) ||
+          left.releaseId.localeCompare(right.releaseId),
+      );
+    const downloaded = candidates.some((x) =>
+      isCurrentRelease(animations.get(x.releaseId)),
     );
     const downloading = candidates.some(
       (x) => animations.get(x.releaseId).isDownloadTracked,
@@ -77,11 +96,21 @@ function planFor(animations, tmdbId, season) {
   };
 }
 
-function submit(animations, downloadState, tmdbId, season, selections) {
+export function submit(
+  animations,
+  downloadState,
+  tmdbId,
+  season,
+  selections,
+  evaluateRelease,
+) {
   return selections.map((selection) => {
-    const episode = planFor(animations, tmdbId, season).episodes.find(
-      (x) => x.episode === selection.episode,
-    );
+    const episode = planFor(
+      animations,
+      tmdbId,
+      season,
+      evaluateRelease,
+    ).episodes.find((x) => x.episode === selection.episode);
     const item = animations.get(selection.releaseId);
     if (episode?.state === "downloaded" || episode?.state === "downloading")
       return {
@@ -112,6 +141,109 @@ function submit(animations, downloadState, tmdbId, season, selections) {
   });
 }
 
+// Both explicit upgrades and multi-source automation use the same synchronous
+// claim, download progress and activation path. Old media remains downloadable.
+export function executeUpgrade(
+  animations,
+  downloadState,
+  request,
+  evaluateRelease,
+  policy,
+  automatic = false,
+) {
+  const current = animations.get(request.currentReleaseId);
+  const candidate = animations.get(request.candidateReleaseId);
+  const dryRun = !!request.dryRun;
+  const requiresDownload = !!candidate && !candidate.isDownloadFinished;
+  const result = (isSuccess, outcome, operation = null) => ({
+    isSuccess,
+    outcome,
+    dryRun,
+    requiresDownload,
+    operation,
+    validationErrors: isSuccess ? [] : [outcome],
+  });
+  if (
+    !current ||
+    !candidate ||
+    current.id === candidate.id ||
+    !isCurrentRelease(current) ||
+    candidate.supersededByReleaseId ||
+    !current.animation?.tmdbId ||
+    current.animation.tmdbId !== candidate.animation?.tmdbId ||
+    current.season !== candidate.season ||
+    current.episode !== candidate.episode ||
+    !(current.season > 0 && current.episode > 0)
+  )
+    return result(false, "candidate_unavailable");
+  const previousScore = evaluateRelease(current, policy).score;
+  const next = evaluateRelease(candidate, policy);
+  if (
+    next.score <= previousScore ||
+    (automatic &&
+      (policy?.mode !== "AutoDownload" ||
+        !policy.enableVersionUpgrade ||
+        !next.matched ||
+        next.score - previousScore < policy.minimumUpgradeScore ||
+        !policy.feedIds.includes(candidate.sourceFeedId) ||
+        (policy.feedIds.slice(1).includes(current.sourceFeedId) &&
+          candidate.sourceFeedId !== current.sourceFeedId)))
+  )
+    return result(false, "upgrade_threshold_not_met");
+  if (
+    [...animations.values()].some(
+      (release) =>
+        release.animation?.tmdbId === current.animation.tmdbId &&
+        release.season === current.season &&
+        release.episode === current.episode &&
+        release.isDownloadTracked &&
+        !release.isDownloadFinished,
+    )
+  )
+    return result(false, "upgrade_already_started");
+  if (dryRun) return result(true, "ready");
+  const operation = {
+    id: randomUUID(),
+    currentReleaseId: current.id,
+    candidateReleaseId: candidate.id,
+    status: requiresDownload ? "Downloading" : "Verifying",
+    currentScore: previousScore,
+    candidateScore: next.score,
+    createdAt: iso(Date.now()),
+    appliedAt: null,
+    rollbackUntil: null,
+  };
+  candidate.upgradeOperation = operation;
+  candidate.upgradeRollbackHours = policy?.upgradeRollbackHours ?? 72;
+  if (!requiresDownload) {
+    completeUpgrade(animations, candidate);
+    return result(true, "applied", operation);
+  }
+  candidate.isDownloadTracked = true;
+  candidate.automationDisposition = automatic
+    ? "AutoDownloadQueued"
+    : "ManualDownloadQueued";
+  downloadState.set(candidate.id, {
+    state: "Downloading",
+    progress: 0,
+    startedAt: Date.now(),
+  });
+  return result(true, "download_queued", operation);
+}
+
+export function completeUpgrade(animations, candidate) {
+  const operation = candidate.upgradeOperation;
+  if (!operation || !["Downloading", "Verifying"].includes(operation.status))
+    return;
+  const previous = animations.get(operation.currentReleaseId);
+  if (previous) previous.supersededByReleaseId = candidate.id;
+  operation.status = "Applied";
+  operation.appliedAt = iso(Date.now());
+  operation.rollbackUntil = iso(
+    Date.now() + candidate.upgradeRollbackHours * 3600000,
+  );
+}
+
 export async function handleCompletion({
   req,
   res,
@@ -122,6 +254,7 @@ export async function handleCompletion({
   readBody,
   animations,
   downloadState,
+  evaluateRelease,
 }) {
   const respond = (data, status = 200) => {
     json(res, data, status);
@@ -134,6 +267,7 @@ export async function handleCompletion({
           animations,
           searchParams.get("tmdbId"),
           Number(searchParams.get("season")),
+          evaluateRelease,
         ),
       );
     if (method === "POST") {
@@ -145,6 +279,7 @@ export async function handleCompletion({
           body.tmdbId,
           body.season,
           body.selections ?? [],
+          evaluateRelease,
         ),
       );
     }

@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using TMDbLib.Client;
+using TMDbLib.Objects.Exceptions;
 
 namespace SecondDimensionWatcherReDive.Inference.AI.Tools;
 
@@ -29,6 +30,7 @@ public partial class TmdbTool
     public TmdbTool(TMDbClient tmdbClient, ILogger<TmdbTool> logger, bool isConfigured)
     {
         _tmdbClient = tmdbClient;
+        _tmdbClient.ThrowApiExceptions = true;
         _logger = logger;
         _explicitlyConfigured = isConfigured;
     }
@@ -209,29 +211,49 @@ public partial class TmdbTool
     ///     Fetches localized name, original name, and overview for a TV show from TMDB,
     ///     using the server's current culture as the language.
     /// </summary>
-    public async Task<TmdbDetails?> GetLocalizedDetailsAsync(int tmdbId, CancellationToken cancellationToken)
+    public async Task<TmdbDetails?> GetLocalizedDetailsAsync(int tmdbId, CancellationToken cancellationToken) =>
+        (await LookupLocalizedDetailsAsync(tmdbId, cancellationToken)).Details;
+
+    /// <summary>
+    ///     Retains the lookup outcome for callers that must distinguish a missing target
+    ///     from an unavailable API. The nullable compatibility API above keeps its behavior.
+    /// </summary>
+    public async Task<TmdbDetailsLookup> LookupLocalizedDetailsAsync(int tmdbId, CancellationToken cancellationToken)
     {
         var tmdbClient = GetClient();
-        if (tmdbClient is null) return null;
+        if (tmdbClient is null) return new(TmdbDetailsLookupStatus.Unavailable, null);
 
-        var language = CultureInfo.CurrentCulture.Name; // e.g. "zh-CN", "en-US", "ja-JP"
+        var language = CultureInfo.CurrentCulture.Name;
         LogGettingLocalizedDetails(_logger, tmdbId, language);
         try
         {
             var show = await tmdbClient.GetTvShowAsync(tmdbId, language: language,
                 cancellationToken: cancellationToken);
-            if (show == null) return null;
+            // With ThrowApiExceptions enabled, a real HTTP 404 throws NotFoundException.
+            // A successful response with no deserializable show is not evidence of absence.
+            if (show is null) return new(TmdbDetailsLookupStatus.Unavailable, null);
 
-            return new TmdbDetails(
+            return new(TmdbDetailsLookupStatus.Found, new TmdbDetails(
                 Name: show.Name ?? "",
                 OriginalName: show.OriginalName ?? "",
                 Overview: show.Overview,
-                PosterPath: show.PosterPath);
+                PosterPath: show.PosterPath),
+                // Keep specials (season 0) and distinguish absent season data
+                // from a confirmed empty list for strict target validation.
+                show.Seasons?.Select(season => season.SeasonNumber).Distinct().ToArray());
+        }
+        catch (NotFoundException)
+        {
+            return new(TmdbDetailsLookupStatus.NotFound, null);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
             LogGetLocalizedDetailsFailed(_logger, ex, tmdbId);
-            return null;
+            return new(TmdbDetailsLookupStatus.Unavailable, null);
         }
     }
 
@@ -247,13 +269,18 @@ public partial class TmdbTool
         {
             if (_tmdbClient is null || !string.Equals(_cachedApiKey, apiKey, StringComparison.Ordinal))
             {
-                _tmdbClient = new TMDbClient(apiKey);
+                _tmdbClient = new TMDbClient(apiKey) { ThrowApiExceptions = true };
                 _cachedApiKey = apiKey;
             }
 
             return _tmdbClient;
         }
     }
+
+    public enum TmdbDetailsLookupStatus { Found, NotFound, Unavailable }
+
+    public sealed record TmdbDetailsLookup(TmdbDetailsLookupStatus Status, TmdbDetails? Details,
+        IReadOnlyList<int>? SeasonNumbers = null);
 
     public record TmdbDetails(string Name, string OriginalName, string? Overview, string? PosterPath);
 

@@ -5,13 +5,17 @@ using SecondDimensionWatcherReDive.Framework.FileDownload;
 namespace SecondDimensionWatcherReDive.Utils.LibraryCompletion;
 
 public sealed partial class LibraryCompletionService(ILibraryCompletionRepository repository,
-    ISubscriptionAutomationPolicyRepository policies,
+    ISubscriptionAutomationPolicyRepository policies, IMultiSourceSubscriptionRepository sources,
     ISubscriptionAutomationMatcher matcher, IReleaseScoringService scoring,
     EpisodeAirCalendarService calendar, EpisodeDownloadService downloads)
 {
-    public static bool IsReliable(AnimationInfo info) => info.Season is > 0 && info.Episode is > 0 &&
-        info.MetadataStatus is MetadataReviewStatus.Identified or MetadataReviewStatus.Reviewed &&
-        !BatchTitle().IsMatch(info.Title);
+    public static bool IsReliable(AnimationInfo info) =>
+        IsReliable(info.Season, info.Episode, info.MetadataStatus, info.Title);
+
+    public static bool IsReliable(int? season, int? episode, MetadataReviewStatus metadataStatus, string title) =>
+        season is > 0 && episode is > 0 &&
+        metadataStatus is MetadataReviewStatus.Identified or MetadataReviewStatus.Reviewed &&
+        !BatchTitle().IsMatch(title);
 
     [GeneratedRegex(@"(?i)(?:\b(?:batch|complete|全集)\b|合集|全\s*\d+\s*[集話话]|(?:\[|\s)\d{1,3}\s*[-~～]\s*\d{1,3}(?:\]|\s))")]
     private static partial Regex BatchTitle();
@@ -26,6 +30,7 @@ public sealed partial class LibraryCompletionService(ILibraryCompletionRepositor
         var expected = releases.Select(x => x.ExpectedEpisodeCount ?? 0).DefaultIfEmpty().Max();
         episodeNumbers = episodeNumbers.Concat(Enumerable.Range(1, Math.Clamp(expected, 0, 10000)));
         var policyByFeed = (await policies.GetAllOrderedAsync(cancellationToken)).ToDictionary(x => x.FeedId);
+        var group = (await sources.GetAllAsync(cancellationToken)).FirstOrDefault(x => x.TmdbId == tmdbId && x.Season == season);
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
         var items = new List<EpisodeCompletionItem>();
         foreach (var episode in episodeNumbers.Distinct().Order())
@@ -37,6 +42,7 @@ public sealed partial class LibraryCompletionService(ILibraryCompletionRepositor
             var candidates = episodeReleases.Where(IsReliable).Select(info =>
             {
                 var policy = info.SourceFeedId is { } feedId ? policyByFeed.GetValueOrDefault(feedId) : null;
+                if (group != null && info.SourceFeedId is { } linkedId && group.FeedIds.Contains(linkedId)) policy = group.ToPolicy(linkedId);
                 return Candidate(info, policy);
             }).OrderByDescending(x => x.Eligible).ThenByDescending(x => x.Score).ThenByDescending(x => x.PublishedAt).ThenBy(x => x.ReleaseId).ToList();
             var downloaded = episodeReleases.Any(x => x.IsDownloadFinished && mapped.Contains(x.Id));
@@ -51,7 +57,7 @@ public sealed partial class LibraryCompletionService(ILibraryCompletionRepositor
                 selected != null ? "highest_eligible_score" : downloaded || mappingPending || downloading || unaired ? state :
                 !hasAirDate ? "air_date_unknown" : candidates.Count > 0 ? "no_eligible_candidate" : state));
         }
-        return new(tmdbId, releases.FirstOrDefault()?.Animation?.Name ?? tmdbId, season,
+        return new(tmdbId, releases.FirstOrDefault()?.Animation?.Name ?? group?.Name ?? tmdbId, season,
             DateTimeOffset.UtcNow, air.CheckedAt, air.Source, releases.Count(x => !IsReliable(x)), items);
     }
 

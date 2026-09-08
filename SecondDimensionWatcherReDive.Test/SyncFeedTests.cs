@@ -335,6 +335,9 @@ public class SyncFeedTests
         _mockPolicyRepo.Setup(repository => repository.FindByFeedIdAsync(
                 policy.FeedId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(policy);
+        _mockRepo.Setup(repository => repository.RefreshStandaloneAutomationAsync(
+                It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(policy.Mode);
     }
 
     private async Task InvokeProcessSingleAsync(AnimationAddRequest request)

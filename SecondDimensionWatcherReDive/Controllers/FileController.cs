@@ -86,7 +86,7 @@ internal partial class FileController(
         var playbackSession = Request.Cookies[PlaybackTicketService.SecureCookieName]
                               ?? Request.Cookies[PlaybackTicketService.DevelopmentCookieName];
         var grant = playbackTickets.Validate(resourceId, playbackSession);
-        if (grant is null)
+        if (grant is null || grant.Purpose is not null)
         {
             LogPlayTokenInvalid(logger);
             return NotFound();

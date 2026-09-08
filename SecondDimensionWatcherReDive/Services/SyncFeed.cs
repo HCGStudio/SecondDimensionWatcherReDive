@@ -41,7 +41,8 @@ internal partial class SyncFeed(
     protected override async Task ExecuteTaskAsync(CancellationToken cancellationToken)
     {
         var feeds = serviceProvider.GetServices<IFeedService>();
-        await Task.WhenAll(feeds.Select(f => ProcessFeed(f, cancellationToken)));
+        await Task.WhenAll(feeds.Select(f => ProcessFeed(f, cancellationToken))
+            .Append(RestoreStandaloneAutomationAsync(cancellationToken)));
     }
 
     internal readonly record struct TorrentData(byte[] CachedDownloadData, string Hash, long? PayloadSizeBytes);
@@ -156,11 +157,16 @@ internal partial class SyncFeed(
         try
         {
             SubscriptionAutomationPolicy? policy = null;
+            MultiSourceSubscription? multiSource = null;
             if (request.FeedId is { } feedId)
             {
                 var policyRepository = scope.ServiceProvider
                     .GetRequiredService<ISubscriptionAutomationPolicyRepository>();
                 policy = await policyRepository.FindByFeedIdAsync(feedId, cancellationToken);
+                var multiSourceRepository = scope.ServiceProvider.GetService<IMultiSourceSubscriptionRepository>();
+                multiSource = multiSourceRepository == null ? null : await multiSourceRepository
+                    .FindByFeedIdAsync(feedId, cancellationToken);
+                if (multiSource != null) policy = multiSource.ToPolicy(feedId);
             }
 
             var torrentData = request.DownloadType switch
@@ -179,7 +185,7 @@ internal partial class SyncFeed(
             if (policy is not null)
             {
                 evaluation = automationMatcher.Evaluate(policy, releaseWithSize);
-                if (!evaluation.Matched)
+                if (!evaluation.Matched && multiSource == null)
                     return;
             }
 
@@ -213,7 +219,7 @@ internal partial class SyncFeed(
                     AiRetryCount: 0,
                     SourceFeedId: request.FeedId,
                     ReleaseSizeBytes: torrentData.PayloadSizeBytes,
-                    AutomationDisposition: policy?.Mode switch
+                    AutomationDisposition: multiSource != null ? null : policy?.Mode switch
                     {
                         SubscriptionAutomationMode.NotifyOnly => SubscriptionAutomationDisposition.Notified,
                         SubscriptionAutomationMode.ManualConfirm =>
@@ -249,62 +255,18 @@ internal partial class SyncFeed(
                 return;
             }
 
-            if (notificationPublisher is not null)
-            {
-                if (policy?.Mode == SubscriptionAutomationMode.NotifyOnly)
-                {
-                    await notificationPublisher.PublishAsync(new NotificationEvent(
-                        NotificationEventType.ReleaseMatched,
-                        $"release-matched:{info.Id}",
-                        "Subscription release matched",
-                        info.Title,
-                        $"/todo?focus=automation:{info.Id}"), cancellationToken);
-                }
-                else if (policy?.Mode == SubscriptionAutomationMode.ManualConfirm)
-                {
-                    await notificationPublisher.PublishAsync(new NotificationEvent(
-                        NotificationEventType.DownloadPendingConfirmation,
-                        $"download-pending-confirmation:{info.Id}",
-                        "Download confirmation required",
-                        info.Title,
-                        $"/todo?focus=automation:{info.Id}"), cancellationToken);
-                }
-            }
+            // Source membership can change while fetching/parsing the torrent.
+            // Reconcile the persisted item under the ownership/policy locks so
+            // unlinking restores all standalone modes for this first ingestion.
+            var standaloneMode = await animationInfoRepository.RefreshStandaloneAutomationAsync(
+                info.Id, cancellationToken);
+            await ApplyStandaloneAutomationAsync(info, standaloneMode, scope.ServiceProvider, cancellationToken);
 
             if (incidentReporter is not null)
                 await incidentReporter.ResolveAsync(
                     IncidentType.FeedFailure,
                     CreateDownloadIncidentSourceId(request.DownloadUrl),
                     cancellationToken);
-
-            if (policy?.Mode == SubscriptionAutomationMode.AutoDownload)
-            {
-                var started = await QueueAutomaticDownloadAsync(
-                    info,
-                    animationInfoRepository,
-                    scope.ServiceProvider.GetRequiredService<IFileMappingRepository>(),
-                    scope.ServiceProvider.GetRequiredService<IFileDownloadClientProvider>(),
-                    cancellationToken);
-                if (!started && notificationPublisher is not null)
-                {
-                    // A failed compensation can leave the remote attempt durably
-                    // tracked for startup recovery. Only announce terminal failure
-                    // once the database confirms that state.
-                    var failed = await animationInfoRepository.FindByIdAsync(
-                        info.Id,
-                        cancellationToken);
-                    if (failed?.AutomationDisposition ==
-                        SubscriptionAutomationDisposition.AutoDownloadFailed)
-                    {
-                        await notificationPublisher.PublishAsync(new NotificationEvent(
-                            NotificationEventType.DownloadFailed,
-                            $"auto-download-failed:{info.Id}",
-                            "Automatic download failed",
-                            info.Title,
-                            $"/todo?focus=automation:{info.Id}"), cancellationToken);
-                    }
-                }
-            }
         }
         catch (InvalidTorrentDataException e)
         {
@@ -320,6 +282,68 @@ internal partial class SyncFeed(
                     cancellationToken);
             }
         }
+    }
+
+    private async Task RestoreStandaloneAutomationAsync(CancellationToken cancellationToken)
+    {
+        Guid? afterId = null;
+        while (true)
+        {
+            await using var batchScope = scopeFactory.CreateAsyncScope();
+            var repository = batchScope.ServiceProvider.GetRequiredService<IAnimationInfoRepository>();
+            var ids = await repository.GetPendingStandaloneAutomationIdsAsync(afterId, 200, cancellationToken);
+            if (ids.Count == 0) break;
+            foreach (var id in ids)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                try
+                {
+                    await using var scope = scopeFactory.CreateAsyncScope();
+                    var pending = scope.ServiceProvider.GetRequiredService<IAnimationInfoRepository>();
+                    var decision = await pending.RefreshPendingStandaloneAutomationAsync(id, cancellationToken);
+                    if (decision is null) continue;
+                    var applied = await ApplyStandaloneAutomationAsync(decision.Info, decision.Mode,
+                        scope.ServiceProvider, cancellationToken);
+                    // Automatic tracking consumes the marker in its transaction. Notification
+                    // acknowledgement is conditional on the exact reconciled release revision.
+                    if (applied && decision.Mode != SubscriptionAutomationMode.AutoDownload)
+                        await pending.CompleteStandaloneAutomationAsync(id, decision.Info.StateVersion, cancellationToken);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+                catch (Exception error) { logger.LogWarning(error, "Standalone automation restoration failed for {Id}", id); }
+            }
+            afterId = ids[^1];
+            if (ids.Count < 200) break;
+        }
+    }
+
+    private async Task<bool> ApplyStandaloneAutomationAsync(AnimationInfo info,
+        SubscriptionAutomationMode? mode, IServiceProvider scopedServices, CancellationToken cancellationToken)
+    {
+        if (mode is SubscriptionAutomationMode.NotifyOnly or SubscriptionAutomationMode.ManualConfirm)
+        {
+            if (notificationPublisher is null) return false;
+            var confirmation = mode == SubscriptionAutomationMode.ManualConfirm;
+            return await notificationPublisher.PublishAsync(new NotificationEvent(
+                confirmation ? NotificationEventType.DownloadPendingConfirmation : NotificationEventType.ReleaseMatched,
+                confirmation ? $"download-pending-confirmation:{info.Id}" : $"release-matched:{info.Id}",
+                confirmation ? "Download confirmation required" : "Subscription release matched",
+                info.Title, $"/todo?focus=automation:{info.Id}"), cancellationToken);
+        }
+        if (mode != SubscriptionAutomationMode.AutoDownload) return true;
+        var repository = scopedServices.GetRequiredService<IAnimationInfoRepository>();
+        var started = await QueueAutomaticDownloadAsync(info, repository,
+            scopedServices.GetRequiredService<IFileMappingRepository>(),
+            scopedServices.GetRequiredService<IFileDownloadClientProvider>(), cancellationToken);
+        if (!started && notificationPublisher is not null)
+        {
+            var failed = await repository.FindByIdAsync(info.Id, cancellationToken);
+            if (failed?.AutomationDisposition == SubscriptionAutomationDisposition.AutoDownloadFailed)
+                await notificationPublisher.PublishAsync(new NotificationEvent(
+                    NotificationEventType.DownloadFailed, $"auto-download-failed:{info.Id}",
+                    "Automatic download failed", info.Title, $"/todo?focus=automation:{info.Id}"), cancellationToken);
+        }
+        return started;
     }
 
     private async Task<bool> QueueAutomaticDownloadAsync(

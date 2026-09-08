@@ -14,6 +14,8 @@ public class PlaybackPreference
 
     public string? AudioTrackLabel { get; set; }
 
+    public bool AutoSkip { get; set; }
+
     public bool AutoPlayNext { get; set; } = true;
 
     public DateTimeOffset UpdatedAt { get; set; }

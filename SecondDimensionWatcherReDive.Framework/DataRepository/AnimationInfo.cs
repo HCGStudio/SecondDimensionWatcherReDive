@@ -47,4 +47,10 @@ public sealed record AnimationInfo(
     string? ReleaseScoreReasonsJson = null,
     int? ExpectedEpisodeCount = null,
     DateTimeOffset? IngestedAt = null,
-    bool IsActiveRelease = false);
+    bool IsActiveRelease = false)
+{
+    // Transient inference context, consumed atomically with metadata persistence.
+    public MetadataRecognitionRule? RecognitionRule { get; init; }
+    public bool RevalidateRecognitionRules { get; init; }
+    public IReadOnlyList<MetadataRecognitionRule>? RecognitionRulesAtFailure { get; init; }
+}

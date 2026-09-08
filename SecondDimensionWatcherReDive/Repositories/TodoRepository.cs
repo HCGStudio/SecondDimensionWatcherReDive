@@ -16,9 +16,10 @@ public sealed class TodoRepository(Models.ApplicationContext context) : ITodoRep
     {
         var automation =
             from info in context.AnimationInfo.AsNoTracking()
-            where info.AutomationDisposition == SubscriptionAutomationDisposition.Notified
+            where (info.AutomationDisposition == SubscriptionAutomationDisposition.Notified
                   || info.AutomationDisposition == SubscriptionAutomationDisposition.PendingConfirmation
-                  || info.AutomationDisposition == SubscriptionAutomationDisposition.AutoDownloadFailed
+                  || info.AutomationDisposition == SubscriptionAutomationDisposition.AutoDownloadFailed)
+                  && !context.Set<Models.MultiSourceFeed>().Any(source => source.FeedId == info.SourceFeedId)
             let key = "automation:" + info.Id.ToString()
             join candidateState in context.TodoItemStates.AsNoTracking()
                 on key equals candidateState.Key into candidateStates
@@ -239,7 +240,8 @@ public sealed class TodoRepository(Models.ApplicationContext context) : ITodoRep
                 .Where(info => automationIds.Contains(info.Id)
                                && (info.AutomationDisposition == SubscriptionAutomationDisposition.Notified
                                    || info.AutomationDisposition == SubscriptionAutomationDisposition.PendingConfirmation
-                                   || info.AutomationDisposition == SubscriptionAutomationDisposition.AutoDownloadFailed))
+                                   || info.AutomationDisposition == SubscriptionAutomationDisposition.AutoDownloadFailed)
+                               && !context.Set<Models.MultiSourceFeed>().Any(source => source.FeedId == info.SourceFeedId))
                 .Select(info => info.Id)
                 .ToListAsync(cancellationToken);
             foreach (var id in ids)

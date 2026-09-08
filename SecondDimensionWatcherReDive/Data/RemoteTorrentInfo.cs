@@ -20,4 +20,8 @@ public class RemoteTorrentInfo
     [JsonPropertyName("dlspeed")] public int Speed { get; set; }
 
     [JsonPropertyName("hash")] public string Hash { get; set; } = string.Empty;
+
+    [JsonPropertyName("amount_left")] public long? AmountLeft { get; set; }
+
+    [JsonPropertyName("total_size")] public long? TotalSize { get; set; }
 }

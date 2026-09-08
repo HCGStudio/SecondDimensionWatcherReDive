@@ -94,5 +94,44 @@
     "watched": "Watched",
     "progress": "{{watched}}/{{total}} watched",
     "summary": "{{watched}} of {{total}} videos watched"
+  },
+  "capacity": {
+    "title": "Capacity queue",
+    "description": "Unpaused tasks are processed in arrival order. With capacity checks enabled, downloads continue automatically when space becomes available; for an unknown size, correct the release size, cancel the original task, and submit it again. Cancellation keeps existing media.",
+    "loadFailed": "Unable to load the capacity queue.",
+    "actionFailed": "The action failed. Please retry.",
+    "paused": "Paused",
+    "unknownSize": "Unknown size",
+    "size": "Estimated {{size}} GiB",
+    "pause": "Pause",
+    "resume": "Resume",
+    "cancel": "Cancel download",
+    "states": {
+      "Waiting": "Queued",
+      "Reserved": "Awaiting submission",
+      "Submitted": "Download submitted",
+      "Failed": "Submission failed",
+      "Unknown": "Unknown state"
+    },
+    "reasons": {
+      "assessingCapacity": "Assessing available capacity.",
+      "queuedForSubmission": "Capacity checks are disabled. Unpaused tasks will be submitted to the downloader automatically.",
+      "waitingForCapacity": "There is not enough space. Unpaused tasks continue automatically when space becomes available.",
+      "unknownSize": "The release size could not be determined. Correct the release size, cancel the original task, and submit it again.",
+      "storageUnavailable": "Storage capacity cannot be confirmed. Ask an administrator to check the downloader connection, the shared mount and capacity settings for the volume receiving the download, and disable the downloader's separate incomplete-download directory. Unpaused tasks are reassessed automatically once this is resolved.",
+      "downloaderUnavailable": "The downloader state cannot be confirmed. Ask an administrator to check the downloader connection. Once it is restored, unpaused tasks are reconciled and continue automatically.",
+      "resubmitting": "Reassessing capacity before submitting the download again.",
+      "preparingSubmission": "Capacity is reserved. Preparing to submit the download.",
+      "submissionUncertain": "The submission result is not yet confirmed. Reserved capacity is retained while the system automatically reconciles the downloader state. Do not submit this download again.",
+      "downloading": "The downloader is processing this task.",
+      "reconciling": "Checking the task in the downloader. Its state will update automatically when this finishes.",
+      "submissionRejected": "The downloader rejected the submission. Correct the torrent information, cancel the original task, and submit it again.",
+      "unknown": "The reason is currently unknown. Refresh again later."
+    },
+    "pausedHints": {
+      "waiting": "A paused waiting task reserves no capacity and does not block other waiting tasks. Resume to continue queueing under the current settings, or cancel the task.",
+      "reserved": "Any existing capacity reservation is retained while paused. You can resume or cancel the task.",
+      "other": "This task is paused. You can resume or cancel it."
+    }
   }
 }

@@ -299,6 +299,9 @@ namespace SecondDimensionWatcherReDive.Migrations
                     b.Property<Guid?>("SourceFeedId")
                         .HasColumnType("uuid");
 
+                    b.Property<bool>("StandaloneAutomationPending")
+                        .HasColumnType("boolean");
+
                     b.Property<long>("StateVersion")
                         .IsConcurrencyToken()
                         .HasColumnType("bigint");
@@ -320,6 +323,10 @@ namespace SecondDimensionWatcherReDive.Migrations
                         .IsUnique();
 
                     b.HasIndex("GroupId");
+
+                    b.HasIndex("Id")
+                        .HasDatabaseName("IX_AnimationInfo_StandaloneAutomationPending")
+                        .HasFilter("\"StandaloneAutomationPending\" = TRUE");
 
                     b.HasIndex("MediaLibrarySourceId");
 
@@ -671,6 +678,55 @@ namespace SecondDimensionWatcherReDive.Migrations
                         {
                             t.HasCheckConstraint("CK_ChatPendingActions_Expiry", "\"ExpiresAt\" > \"CreatedAt\"");
                         });
+                });
+
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.DownloadCapacityEntry", b =>
+                {
+                    b.Property<Guid>("ItemId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("DownloadAttemptId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long?>("ExpectedBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Hash")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<bool>("Paused")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)");
+
+                    b.Property<long>("RemainingBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("ItemId");
+
+                    b.HasIndex("State", "CreatedAt");
+
+                    b.ToTable("DownloadCapacityEntries", (string)null);
                 });
 
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.DurableJob", b =>
@@ -1081,6 +1137,163 @@ namespace SecondDimensionWatcherReDive.Migrations
                     b.ToTable("MediaLibrarySources");
                 });
 
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.MediaTimeline", b =>
+                {
+                    b.Property<string>("Key")
+                        .HasMaxLength(192)
+                        .HasColumnType("character varying(192)");
+
+                    b.Property<double>("DurationSeconds")
+                        .HasColumnType("double precision");
+
+                    b.Property<Guid?>("MappingId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("PointsJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Key");
+
+                    b.HasIndex("MappingId");
+
+                    b.ToTable("MediaTimelines", (string)null);
+                });
+
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.MediaTimelineBinding", b =>
+                {
+                    b.Property<string>("MediaVersion")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset>("AcceptedRevision")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<double>("DurationSeconds")
+                        .HasColumnType("double precision");
+
+                    b.Property<Guid>("MappingId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("SeasonKey")
+                        .IsRequired()
+                        .HasMaxLength(192)
+                        .HasColumnType("character varying(192)");
+
+                    b.HasKey("MediaVersion");
+
+                    b.HasIndex("MappingId");
+
+                    b.HasIndex("SeasonKey");
+
+                    b.ToTable("MediaTimelineBindings", (string)null);
+                });
+
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.MetadataRecognitionHit", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AnimationInfoId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("AppliedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("ItemRevision")
+                        .HasColumnType("bigint");
+
+                    b.Property<Guid>("RuleId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("RuleName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<long>("RuleRevision")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AppliedAt");
+
+                    b.HasIndex("RuleId");
+
+                    b.HasIndex("AnimationInfoId", "ItemRevision")
+                        .IsUnique();
+
+                    b.ToTable("MetadataRecognitionHits", (string)null);
+                });
+
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.MetadataRecognitionRule", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CanonicalGroupName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CreatedFromItemId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("EffectiveFrom")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("EpisodeOffset")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("FixedSeason")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<Guid?>("SourceFeedId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("SubtitleGroup")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("TitlePattern")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("TmdbId")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Enabled", "SourceFeedId");
+
+                    b.ToTable("MetadataRecognitionRules", (string)null);
+                });
+
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.MetadataReviewMappingSnapshot", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1213,6 +1426,12 @@ namespace SecondDimensionWatcherReDive.Migrations
                     b.Property<int?>("ProposedSeason")
                         .HasColumnType("integer");
 
+                    b.Property<Guid?>("RecognitionRuleId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long?>("RecognitionRuleRevision")
+                        .HasColumnType("bigint");
+
                     b.Property<int>("State")
                         .HasColumnType("integer");
 
@@ -1284,6 +1503,132 @@ namespace SecondDimensionWatcherReDive.Migrations
 
                             t.HasCheckConstraint("CK_MigrationMarkers_Version_Positive", "\"Version\" > 0");
                         });
+                });
+
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.MultiSourceEpisodeDecision", b =>
+                {
+                    b.Property<Guid>("SubscriptionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Episode")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Outcome")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid?>("SelectedReleaseId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("WaitStartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("WaitUntil")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("SubscriptionId", "Episode");
+
+                    b.ToTable("MultiSourceEpisodeDecisions", (string)null);
+                });
+
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.MultiSourceFeed", b =>
+                {
+                    b.Property<Guid>("FeedId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Priority")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("SubscriptionId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("FeedId");
+
+                    b.HasIndex("SubscriptionId", "Priority");
+
+                    b.ToTable("MultiSourceFeeds", (string)null);
+                });
+
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.MultiSourceSubscription", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.PrimitiveCollection<string[]>("Codecs")
+                        .IsRequired()
+                        .HasColumnType("text[]");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("EnableVersionUpgrade")
+                        .HasColumnType("boolean");
+
+                    b.PrimitiveCollection<string[]>("ExcludedKeywords")
+                        .IsRequired()
+                        .HasColumnType("text[]");
+
+                    b.PrimitiveCollection<string[]>("Languages")
+                        .IsRequired()
+                        .HasColumnType("text[]");
+
+                    b.Property<long?>("MaxSizeBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<long?>("MinSizeBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("MinimumUpgradeScore")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Mode")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.PrimitiveCollection<string[]>("Resolutions")
+                        .IsRequired()
+                        .HasColumnType("text[]");
+
+                    b.Property<int>("Season")
+                        .HasColumnType("integer");
+
+                    b.PrimitiveCollection<string[]>("SubtitleGroups")
+                        .IsRequired()
+                        .HasColumnType("text[]");
+
+                    b.Property<string>("TmdbId")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("UpgradeRollbackHours")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("WaitMinutes")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TmdbId", "Season")
+                        .IsUnique();
+
+                    b.ToTable("MultiSourceSubscriptions", (string)null);
                 });
 
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.NotificationOutboxMessage", b =>
@@ -1397,6 +1742,9 @@ namespace SecondDimensionWatcherReDive.Migrations
                         .HasColumnType("character varying(128)");
 
                     b.Property<bool>("AutoPlayNext")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("AutoSkip")
                         .HasColumnType("boolean");
 
                     b.Property<string>("SubtitleLanguage")
@@ -1768,6 +2116,62 @@ namespace SecondDimensionWatcherReDive.Migrations
                     b.ToTable("TodoItemStates");
                 });
 
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.TranscodeCacheReader", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("DirectoryPath")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("LeaseUntil")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DirectoryPath");
+
+                    b.HasIndex("LeaseUntil");
+
+                    b.ToTable("TranscodeCacheReaders", (string)null);
+                });
+
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.TranscodeCapacityReservation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("BudgetBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<bool>("CountsAgainstDownloads")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("DirectoryPath")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("LeaseUntil")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("VolumeIdentity")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<long>("WrittenBytes")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DirectoryPath")
+                        .IsUnique();
+
+                    b.HasIndex("LeaseUntil");
+
+                    b.ToTable("TranscodeCapacityReservations", (string)null);
+                });
+
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.UserAccount", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1841,6 +2245,51 @@ namespace SecondDimensionWatcherReDive.Migrations
                         .IsUnique();
 
                     b.ToTable("Profiles");
+                });
+
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.WatchlistItem", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int?>("MikanId")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("ProfileId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<string>("SubjectKey")
+                        .IsRequired()
+                        .HasMaxLength(96)
+                        .HasColumnType("character varying(96)");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<string>("TmdbId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProfileId", "MikanId")
+                        .IsUnique();
+
+                    b.HasIndex("ProfileId", "SubjectKey")
+                        .IsUnique();
+
+                    b.ToTable("WatchlistItems", (string)null);
                 });
 
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.WebDavToken", b =>
@@ -2021,6 +2470,15 @@ namespace SecondDimensionWatcherReDive.Migrations
                     b.Navigation("Conversation");
                 });
 
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.DownloadCapacityEntry", b =>
+                {
+                    b.HasOne("SecondDimensionWatcherReDive.Models.AnimationInfo", null)
+                        .WithOne()
+                        .HasForeignKey("SecondDimensionWatcherReDive.Models.DownloadCapacityEntry", "ItemId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.FileNameRegexRule", b =>
                 {
                     b.HasOne("SecondDimensionWatcherReDive.Models.Animation", null)
@@ -2059,6 +2517,44 @@ namespace SecondDimensionWatcherReDive.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.MediaTimeline", b =>
+                {
+                    b.HasOne("SecondDimensionWatcherReDive.Models.FileMapping", null)
+                        .WithMany()
+                        .HasForeignKey("MappingId")
+                        .OnDelete(DeleteBehavior.Cascade);
+                });
+
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.MediaTimelineBinding", b =>
+                {
+                    b.HasOne("SecondDimensionWatcherReDive.Models.FileMapping", null)
+                        .WithMany()
+                        .HasForeignKey("MappingId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("SecondDimensionWatcherReDive.Models.MediaTimeline", null)
+                        .WithMany()
+                        .HasForeignKey("SeasonKey")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.MetadataRecognitionHit", b =>
+                {
+                    b.HasOne("SecondDimensionWatcherReDive.Models.AnimationInfo", null)
+                        .WithMany()
+                        .HasForeignKey("AnimationInfoId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("SecondDimensionWatcherReDive.Models.MetadataRecognitionRule", null)
+                        .WithMany()
+                        .HasForeignKey("RuleId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.MetadataReviewMappingSnapshot", b =>
                 {
                     b.HasOne("SecondDimensionWatcherReDive.Models.MetadataReviewOperation", "Operation")
@@ -2079,6 +2575,30 @@ namespace SecondDimensionWatcherReDive.Migrations
                         .IsRequired();
 
                     b.Navigation("AnimationInfo");
+                });
+
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.MultiSourceEpisodeDecision", b =>
+                {
+                    b.HasOne("SecondDimensionWatcherReDive.Models.MultiSourceSubscription", null)
+                        .WithMany()
+                        .HasForeignKey("SubscriptionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.MultiSourceFeed", b =>
+                {
+                    b.HasOne("SecondDimensionWatcherReDive.Models.Feed", null)
+                        .WithMany()
+                        .HasForeignKey("FeedId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("SecondDimensionWatcherReDive.Models.MultiSourceSubscription", null)
+                        .WithMany("Sources")
+                        .HasForeignKey("SubscriptionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.PlaybackPreference", b =>
@@ -2172,6 +2692,15 @@ namespace SecondDimensionWatcherReDive.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.WatchlistItem", b =>
+                {
+                    b.HasOne("SecondDimensionWatcherReDive.Models.UserProfile", null)
+                        .WithMany()
+                        .HasForeignKey("ProfileId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.WebDavToken", b =>
                 {
                     b.HasOne("SecondDimensionWatcherReDive.Models.UserAccount", "User")
@@ -2196,6 +2725,11 @@ namespace SecondDimensionWatcherReDive.Migrations
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.MetadataReviewOperation", b =>
                 {
                     b.Navigation("MappingSnapshots");
+                });
+
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.MultiSourceSubscription", b =>
+                {
+                    b.Navigation("Sources");
                 });
 
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.ReleaseUpgradeOperation", b =>

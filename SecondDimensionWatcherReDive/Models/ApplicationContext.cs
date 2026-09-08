@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Framework.FileDownload;
 using SecondDimensionWatcherReDive.Framework.Inference;
@@ -771,6 +771,11 @@ public class ApplicationContext : DbContext
 
         modelBuilder.Entity<AnimationInfo>()
             .HasIndex(info => new { info.AutomationDisposition, info.PublishTime });
+
+        modelBuilder.Entity<AnimationInfo>()
+            .HasIndex(info => info.Id)
+            .HasDatabaseName("IX_AnimationInfo_StandaloneAutomationPending")
+            .HasFilter("\"StandaloneAutomationPending\" = TRUE");
 
         modelBuilder.Entity<AnimationInfo>()
             .HasOne<Feed>()

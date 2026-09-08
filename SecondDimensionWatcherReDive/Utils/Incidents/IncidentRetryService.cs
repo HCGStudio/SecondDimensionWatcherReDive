@@ -1,8 +1,10 @@
+using SecondDimensionWatcherReDive.AI.Abstractions;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Framework.FileDownload;
 using SecondDimensionWatcherReDive.Framework.Inference;
 using SecondDimensionWatcherReDive.Framework.Tasks;
 using SecondDimensionWatcherReDive.Utils.FileStore;
+using SecondDimensionWatcherReDive.Utils.MetadataReview;
 using SecondDimensionWatcherReDive.Utils.ReleaseUpgrades;
 
 namespace SecondDimensionWatcherReDive.Utils.Incidents;
@@ -12,7 +14,8 @@ public sealed partial class IncidentRetryService(
     IServiceScopeFactory scopeFactory,
     IEnumerable<IScheduledTask> scheduledTasks,
     IIncidentDiskProbe diskProbe,
-    ILogger<IncidentRetryService> logger) : IIncidentRetryService
+    ILogger<IncidentRetryService> logger,
+    IAIEngineStatus aiEngineStatus) : IIncidentRetryService
 {
     private const string ReleaseUpgradeSourcePrefix = "release-upgrade:";
 
@@ -147,6 +150,20 @@ public sealed partial class IncidentRetryService(
         var repository = scope.ServiceProvider.GetRequiredService<IAnimationInfoRepository>();
         var info = await repository.FindByIdAsync(animationInfoId, cancellationToken)
                    ?? throw new InvalidOperationException("Animation no longer exists.");
+        // Rule support keeps the scheduled task enabled even without AI. Only
+        // reset this item when the selected engine or its own rule can process it.
+        if (!aiEngineStatus.IsConfigured)
+        {
+            var ruleRepository = scope.ServiceProvider.GetService<IMetadataRecognitionRuleRepository>();
+            var rules = ruleRepository is null ? [] : await ruleRepository.ListAsync(cancellationToken);
+            var rule = MetadataRecognitionRuleService.Select(rules, info);
+            if (rule is null || !MetadataRecognitionRuleService.CanResolveWithoutAi(rule, info))
+                throw new InvalidOperationException(
+                    "AI inference is not configured and no applicable rule can resolve this item's season and episode without AI.");
+            // Validate captures and offsets as the scheduled task does before
+            // accepting a deterministic retry; a capture name alone is insufficient.
+            _ = MetadataRecognitionRuleService.Apply(rule, info, null);
+        }
         await repository.UpdateAsync(info with
         {
             IsAiProcessed = false,
@@ -215,6 +232,7 @@ public sealed partial class IncidentRetryService(
 
                         var result = await coordinator.ExecuteAsync(
                             candidate,
+                            ReleaseUpgradeInvocation.Manual,
                             dryRun: false,
                             cancellationToken);
                         if (result.Operation is { } replacement && replacement.Id != operation.Id)

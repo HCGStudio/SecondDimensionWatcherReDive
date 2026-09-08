@@ -1,18 +1,18 @@
 # 3.0 发布目标
 
-制定日期：2026-09-07。目标版本：`v3.0.0`。当前状态：范围已确定，开发与发布验收尚未完成；发布日期按完成情况确定，不预设日期。
+制定日期：2026-09-07。目标版本：`v3.0.0`。当前状态：范围已扩展到本文列明的功能增量，代码已实现于功能 PR，合并与发布验收尚待完成；发布日期按完成情况确定，不预设日期。
 
 执行跟踪：[GitHub 3.0.0 里程碑](https://github.com/HCGStudio/SecondDimensionWatcherReDive/milestone/1)。#55 已纳入该里程碑；升级与候选交付状态记录在里程碑描述中。
 
 ## 版本定位
 
-将当前主线已经实现的订阅、下载、媒体整理、播放、家庭档案与运维能力收敛为可长期使用的稳定大版本。用户能够完成从发现番剧、订阅下载到入库观看的现有流程，管理员能够部署、升级、诊断故障并恢复数据。
+将既有主线的订阅、下载、媒体整理、播放、家庭档案与运维能力，连同本文列出的增量功能，收敛为可长期使用的稳定大版本。用户能够完成从发现番剧、订阅下载到入库观看的现有流程，管理员能够部署、升级、诊断故障并恢复数据。
 
-3.0 以现有能力整合、阻断问题修复和发布交付为范围。新增缺集补全、长期规则、容量编排等能力保留为后续候选，不作为本次发布的硬性门槛；P1 开发优先级不自动等于 3.0 发布阻断级别。
+3.0 范围包括既有能力整合、本文列出的缺集补全/长期规则/容量编排等增量、阻断问题修复和发布交付。原先仅整合既有能力的冻结范围已由本次功能工作扩展；实际入口与边界见 [使用指南](library-workflows.md)。这不代表它们或既有功能已完成 3.0 候选的新装、升级、恢复及正式制品验收；P1 开发优先级不自动等于发布阻断级别。
 
 ## 当前基线
 
-- 最新正式版本为 [v2.2.0](https://github.com/HCGStudio/SecondDimensionWatcherReDive/releases/tag/v2.2.0)，发布于 2026-04-26；制定目标时根目录 `VERSION` 与主项目程序集版本仍为 `2.2.0`。
+- 制定目标时的最新正式版本为 [v2.2.0](https://github.com/HCGStudio/SecondDimensionWatcherReDive/releases/tag/v2.2.0)，发布于 2026-04-26；制定目标时根目录 `VERSION` 与主项目程序集版本仍为 `2.2.0`。
 - 本计划的源码基线为 [`9ca46bf`](https://github.com/HCGStudio/SecondDimensionWatcherReDive/commit/9ca46bf)。制定目标时最新主线预发布 [pre-2.2.0.130](https://github.com/HCGStudio/SecondDimensionWatcherReDive/releases/tag/pre-2.2.0.130) 指向此前的 [`8292d17`](https://github.com/HCGStudio/SecondDimensionWatcherReDive/commit/8292d17)，两者之间只有代理指引迁移的文档提交。以下能力已合并，属于 3.0 的现有基础，不再重复立项：
 
 | 已有能力 | 已完成事项 |
@@ -22,15 +22,15 @@
 | 备份恢复、持久任务与 Outbox、可恢复迁移 | [#13](https://github.com/HCGStudio/SecondDimensionWatcherReDive/issues/13)、[#14](https://github.com/HCGStudio/SecondDimensionWatcherReDive/issues/14)、[#20](https://github.com/HCGStudio/SecondDimensionWatcherReDive/issues/20) |
 | 移动端与可访问性、家庭账户与独立档案、受控插件平台、前端按需加载 | [#15](https://github.com/HCGStudio/SecondDimensionWatcherReDive/issues/15)、[#16](https://github.com/HCGStudio/SecondDimensionWatcherReDive/issues/16)、[#17](https://github.com/HCGStudio/SecondDimensionWatcherReDive/issues/17)、[#21](https://github.com/HCGStudio/SecondDimensionWatcherReDive/issues/21) |
 
-“已合并”只表示已有实现，不代表 3.0 发布候选已完成验证。README、TODOS 与架构说明仍有旧描述，统一由 #55 同步。
+“已合并”只表示已有实现，不代表 3.0 发布候选已完成验证。README、TODOS 与架构说明由 #55 同步；功能实现和文档核对均不能代替候选发布验收。
 
 ## 必须完成的范围
 
-以下目标均以现有功能为基础。功能已经合并，候选版本的交付结果尚待确认；发现阻断问题时只修复实现与这些结果之间的差距，不借机扩大功能范围。
+以下目标覆盖既有主线与本次功能 PR。原基线能力已经合并，增量的合并状态和候选版本交付结果仍需分别确认；发现阻断问题时只修复实现与这些结果之间的差距，不借机扩大功能范围。
 
 | 目标 | 3.0 交付结果 | 现有边界 |
 | --- | --- | --- |
-| **订阅到观看的完整交付** | 当前支持的订阅与自动下载策略、元数据推断及人工审核、媒体导入、搜索、版本升级、播放进度、HLS 与外部播放器入口能够协同使用；失败可从现有待办及任务入口定位。 | 沿用 qBittorrent；导入不改动原文件；现有缺集统计不承诺播出感知或自动补全，磁盘告警不等于容量预留。 |
+| **订阅到观看的完整交付** | 当前支持的订阅与自动下载策略、元数据推断及人工审核、媒体导入、搜索、版本升级、播放进度、HLS 与外部播放器入口能够协同使用；失败可从现有待办及任务入口定位。 | 沿用 qBittorrent；导入不改动原文件；播出资料未知时明确标注；缺集仅从已收录候选补全；容量准入要求可核对实际下载卷。 |
 | **家庭使用与权限边界** | Admin / Member / Viewer、独立档案、播放与聊天状态、会话撤销和受限 WebDAV/VFS 设备凭据按已有规则工作，用户文档说明各角色可执行的操作。 | 媒体库共享；NFS 依赖受信网络；AI 写操作继续经过服务端确认与审计。 |
 | **持续运行与受控扩展** | 发布持久任务、Outbox、重试与死信、健康探针、指标与日志的现有入口及恢复步骤；受控插件的安装、启停、故障隔离和已支持 Provider 有准确说明。 | 不承诺所有阶段恰好执行一次；插件 API 1.0 仅接入通知和存储 Provider，远程任意脚本安装不开放。 |
 | **升级、恢复与可复现制品** | 提供受支持起点的 2.x → 3.0 升级及回退说明，记录候选的新装、升级和恢复结果；正式包、镜像与版本信息可追溯到同一已验证提交。 | 具体升级起点、备份范围、跨 major 限制和制品流程见下文；尚未执行的验证不能宣称完成。 |
@@ -38,7 +38,7 @@
 
 ## 实施顺序
 
-1. 冻结当前功能范围，完成 #55 的基线文档同步；同时整理升级、回退和 release notes。
+1. 完成本次 P1 → P2 功能 PR 的合并与 #55 文档同步，再冻结包含这些增量的候选范围；同时整理升级、回退和 release notes。
 2. 选定发布候选提交，完成现有验证及受支持部署方式的新装、升级、恢复操作，记录结果与已知限制。
 3. 处理发现的发布阻断问题，并按受影响范围复用现有验证；没有新变更或未解决问题时不重复扩大验证范围。
 4. 候选满足下述发布条件后，按现有发布流程交付 `v3.0.0`。新增增强另行排期，不在候选阶段追加。
@@ -60,20 +60,13 @@
 - 备份归档不含下载媒体、导入原始媒体、qBittorrent 数据或完整插件运行数据；这些内容需要独立备份。数据库恢复不能替代媒体恢复。
 - 回滚应用镜像不会回滚数据库。一旦新的家庭身份或受限设备凭据使旧 schema 无法表达其状态，降级可能被拒绝；回退到 2.x 应按升级前备份恢复相应数据库、密钥和配置，不强制删除新结构或移动已发布 tag。
 
-## 后续版本候选
+## 候选功能实现状态
 
-以下事项保持开放，但不阻塞 `v3.0.0`，也不在本计划中承诺完成日期：
+本次按 P1 → P2 实现以下增量，功能说明见 [订阅、下载与观看](library-workflows.md)。其代码验证记录随功能 PR 提供，3.0 发布验收仍按上述流程单独进行。
 
-| 事项 | 延期原因 |
+| 优先级 | 实现 |
 | --- | --- |
-| [#46 播出感知的缺集补全](https://github.com/HCGStudio/SecondDimensionWatcherReDive/issues/46) | 新增播出状态和补全计划；未来批量提交应接入 #52 的统一容量准入。 |
-| [#47 长期识别规则](https://github.com/HCGStudio/SecondDimensionWatcherReDive/issues/47) | 在现有单次纠错上增加可管理的规则模型与后续应用流程。 |
-| [#48 个人追番清单与更新日历](https://github.com/HCGStudio/SecondDimensionWatcherReDive/issues/48) | 在现有家庭档案之上扩展个人追番模型，独立于现有订阅、下载和观看流程。 |
-| [#49 番剧级多来源订阅与备选字幕组](https://github.com/HCGStudio/SecondDimensionWatcherReDive/issues/49) | 引入跨 Feed 编排与等待策略，范围较大；本次沿用现有订阅和版本升级。 |
-| [#50 OP/ED 跳过与章节导航](https://github.com/HCGStudio/SecondDimensionWatcherReDive/issues/50) | 属于连续观看增强，现有播放进度与自动下一集已可使用。 |
-| [#51 浏览器原生大文件下载](https://github.com/HCGStudio/SecondDimensionWatcherReDive/issues/51) | 替换当前完整 Blob 下载方式并引入受限下载入口；3.0 文档应如实说明当前网页大文件下载限制及已有 WebDAV/VFS 入口。 |
-| [#52 下载容量预留与等待队列](https://github.com/HCGStudio/SecondDimensionWatcherReDive/issues/52) | 新增跨手动下载、自动下载、版本升级与转码的容量协调；3.0 保留并说明现有磁盘告警能力。 |
-| [#53 自适应下载轮询](https://github.com/HCGStudio/SecondDimensionWatcherReDive/issues/53) | 属于下载器请求量优化，另行安排状态调度与分批处理。 |
-| [#54 下载完成处理有界并发](https://github.com/HCGStudio/SecondDimensionWatcherReDive/issues/54) | 属于批量入库吞吐改善，需独立处理租约、作用域和插件并发边界。 |
+| P1 | #46 播出感知缺集计划、#47 长期识别规则、#51 原生文件下载、#52 容量预留与等待队列 |
+| P2 | #48 个人追番清单、#49 多来源订阅、#50 OP/ED 与章节、#53 自适应轮询、#54 完成处理并发 |
 
 WebDAV 写入、内置种子下载引擎、外部种子搜索、推荐/第三方追番同步、任意远程脚本加载，以及插件下载/元数据 Provider 适配均不属于 3.0 首版范围。插件继续以 [API 1.0 已接入的通知与存储 Provider](plugin-platform.md) 为准。

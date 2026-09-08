@@ -3,22 +3,24 @@ using System.ComponentModel.DataAnnotations;
 namespace SecondDimensionWatcherReDive.Controllers.External;
 
 internal sealed record PlaybackProgressRequest(
-    [property: Required] Guid AnimationInfoId,
-    [property: Required, StringLength(2048, MinimumLength = 1)] string Path,
-    [property: Range(0d, 2678400d)] double PositionSeconds,
-    [property: Range(0d, 2678400d)] double DurationSeconds);
+    [Required] Guid AnimationInfoId,
+    [Required, StringLength(2048, MinimumLength = 1)] string Path,
+    [Range(0d, 2678400d)] double PositionSeconds,
+    [Range(0d, 2678400d)] double DurationSeconds,
+    bool SuppressWatched = false);
 
 internal sealed record PlaybackWatchedRequest(
-    [property: Required] Guid AnimationInfoId,
-    [property: Required, StringLength(2048, MinimumLength = 1)] string Path,
+    [Required] Guid AnimationInfoId,
+    [Required, StringLength(2048, MinimumLength = 1)] string Path,
     bool IsWatched);
 
 internal sealed record PlaybackPreferencesRequest(
-    [property: StringLength(64)] string? SubtitleLanguage,
-    [property: StringLength(128)] string? SubtitleTrackLabel,
-    [property: StringLength(64)] string? AudioLanguage,
-    [property: StringLength(128)] string? AudioTrackLabel,
-    bool AutoPlayNext);
+    [StringLength(64)] string? SubtitleLanguage,
+    [StringLength(128)] string? SubtitleTrackLabel,
+    [StringLength(64)] string? AudioLanguage,
+    [StringLength(128)] string? AudioTrackLabel,
+    bool AutoPlayNext,
+    bool AutoSkip = false);
 
 internal sealed record PlaybackStateResponse(
     Guid AnimationInfoId,
@@ -36,7 +38,8 @@ internal sealed record PlaybackPreferencesResponse(
     string? AudioLanguage,
     string? AudioTrackLabel,
     bool AutoPlayNext,
-    DateTimeOffset? UpdatedAt);
+    DateTimeOffset? UpdatedAt,
+    bool AutoSkip = false);
 
 internal sealed record PlaybackMediaResponse(
     Guid AnimationInfoId,

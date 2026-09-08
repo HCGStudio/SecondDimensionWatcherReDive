@@ -3,7 +3,10 @@
 // Then run: yarn start — the Parcel proxy forwards /api/* to this server.
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { createServer } from "node:http";
-import { handleCompletion } from "./mock-completion.mjs";
+import { completeUpgrade, executeUpgrade, handleCompletion, isCurrentRelease, planFor } from "./mock-completion.mjs";
+import { handleMetadataRules, isMetadataRulePreviewCurrent } from "./mock-metadata-rules.mjs";
+import { handleWatchlistPlayback } from "./mock-watchlist-playback.mjs";
+import { handleMultiSourceSubscriptions, multiSourcePolicyForFeed, removeMultiSourceFeed } from "./mock-multi-source.mjs";
 
 const PORT = parseInt(process.env.MOCK_PORT ?? "5097", 10);
 
@@ -370,6 +373,36 @@ const ANIME_TITLES = [
     tmdbId: "209867",
     posterPath: "/dqZENchTd7lp5zht7BdlqM7RBhD.jpg",
   },
+  {
+    title: "[LoliHouse] 葬送的芙莉莲 / Sousou no Frieren - 26 [1080p HEVC][简繁内封]",
+    desc: "多来源演示：主来源与备选来源均已发布本集",
+    season: 1,
+    episode: 26,
+    animeName: "葬送的芙莉莲",
+    originalName: "Sousou no Frieren",
+    tmdbId: "209867",
+    posterPath: "/dqZENchTd7lp5zht7BdlqM7RBhD.jpg",
+  },
+  {
+    title: "[ANi] 葬送的芙莉莲 / Sousou no Frieren - 26 [2160p HEVC][简繁内封]",
+    desc: "多来源演示：更高画质的备选仍遵循来源顺序",
+    season: 1,
+    episode: 26,
+    animeName: "葬送的芙莉莲",
+    originalName: "Sousou no Frieren",
+    tmdbId: "209867",
+    posterPath: "/dqZENchTd7lp5zht7BdlqM7RBhD.jpg",
+  },
+  {
+    title: "[ANi] 葬送的芙莉莲 / Sousou no Frieren - 25 [1080p HEVC][简繁内封]",
+    desc: "多来源演示：仅备选来源发布，等待主来源截止时间",
+    season: 1,
+    episode: 25,
+    animeName: "葬送的芙莉莲",
+    originalName: "Sousou no Frieren",
+    tmdbId: "209867",
+    posterPath: "/dqZENchTd7lp5zht7BdlqM7RBhD.jpg",
+  },
 ];
 
 /** @type {Map<string, object>} */
@@ -458,6 +491,15 @@ const metadataCatalog = new Map(
       name: entry.animeName,
       originalName: entry.originalName ?? null,
       posterPath: entry.posterPath ?? null,
+      // The offline catalog only advertises seasons represented by seeded releases.
+      seasonNumbers: [
+        ...new Set(
+          ANIME_TITLES.filter(
+            (candidate) =>
+              candidate.tmdbId === entry.tmdbId && candidate.season != null,
+          ).map((candidate) => candidate.season),
+        ),
+      ],
     },
   ]),
 );
@@ -643,6 +685,7 @@ setInterval(() => {
         const anim = animations.get(id);
         if (anim) {
           anim.isDownloadFinished = true;
+          completeUpgrade(animations, anim);
           if (
             anim.automationDisposition === "AutoDownloadQueued" ||
             anim.automationDisposition === "ManualDownloadQueued"
@@ -741,7 +784,21 @@ let feeds = [
     name: "药屋少女的呢喃",
     createdAt: new Date(Date.now() - 86400_000).toISOString(),
   },
+  {
+    id: randomUUID(),
+    url: "https://mikanani.me/RSS/Bangumi?bangumiId=3141&subgroupid=202",
+    name: "葬送的芙莉莲 · ANi（备选）",
+    createdAt: new Date(Date.now() - 86400_000 * 3).toISOString(),
+  },
 ];
+
+// Give demo releases stable source ownership; unassociated releases stay outside source orchestration.
+for (const release of animations.values()) {
+  release.sourceFeedId = release.isMediaLibraryImport ? null
+    : release.animation?.tmdbId === "209867" && release.group?.name === "ANi" ? feeds[3].id
+    : feeds.find((feed) => feed.name === release.animation?.name)?.id ?? null;
+  release.ingestedAt = release.publishTime;
+}
 
 // Per-feed subscription automation policies and historical releases.
 const POLICY_CREATED_AT = new Date(Date.now() - 86400_000).toISOString();
@@ -895,8 +952,11 @@ const RELEASE_HISTORY_BY_FEED = new Map([
   ],
 ]);
 
-function simulatePolicy(feedId, policy) {
-  const history = RELEASE_HISTORY_BY_FEED.get(feedId) ?? [];
+function simulatePolicy(
+  feedId,
+  policy,
+  history = RELEASE_HISTORY_BY_FEED.get(feedId) ?? [],
+) {
   const formatBytes = (bytes) => {
     const units = ["B", "KiB", "MiB", "GiB", "TiB"];
     let value = bytes;
@@ -909,6 +969,8 @@ function simulatePolicy(feedId, policy) {
   };
   const normalizeAllowedValue = (field, value) => {
     let normalized = value.trim().toUpperCase();
+    if (field === "subtitleGroup")
+      return normalized.replace(/^[\[【]+|[\]】]+$/g, "").trim();
     if (field === "resolution") {
       normalized = normalized.replace(/\s/g, "");
       const aliases = {
@@ -1013,19 +1075,23 @@ function simulatePolicy(feedId, policy) {
     const max =
       typeof policy.maxSizeBytes === "number" ? policy.maxSizeBytes : null;
     const sizePassed =
-      (min == null || item.sizeBytes >= min) &&
-      (max == null || item.sizeBytes <= max);
+      (min == null && max == null) ||
+      (item.sizeBytes != null &&
+        (min == null || item.sizeBytes >= min) &&
+        (max == null || item.sizeBytes <= max));
     explanations.push({
       field: "size",
       passed: sizePassed,
-      actual: formatBytes(item.sizeBytes),
+      actual: item.sizeBytes == null ? null : formatBytes(item.sizeBytes),
       expected:
         min == null && max == null
           ? null
           : `${min == null ? "0 B" : formatBytes(min)} – ${max == null ? "∞" : formatBytes(max)}`,
       message: sizePassed ? "withinSizeRange" : "outsideSizeRange",
     });
-    const excluded = (policy.excludedKeywords ?? []).filter(Boolean);
+    const excluded = (policy.excludedKeywords ?? [])
+      .map((keyword) => keyword.trim())
+      .filter(Boolean);
     const found = excluded.find((keyword) =>
       item.title.toLowerCase().includes(keyword.toLowerCase()),
     );
@@ -1051,6 +1117,130 @@ function simulatePolicy(feedId, policy) {
     matched: entries.filter((entry) => entry.matched).length,
     entries,
   };
+}
+
+// Reuse the policy simulator for real mock-library releases, preserving unknown metadata
+// so a constrained field cannot accidentally match an invented default value.
+function evaluateMultiSourceRelease(release, policy) {
+  const source = `${release.title} ${release.additionalDownloadInfo ?? ""}`;
+  const resolutionPattern =
+    /(?<!\d)(?:(?:3840|4096)[x×](2160)|2560[x×](1440)|1920[x×](1080)|1280[x×](720)|(2160|1440|1080|720|576|480)p)(?!\d)|\b(4K|UHD)\b/i;
+  const codecPattern =
+    /(?<![A-Za-z0-9])(?:AV1|HEVC|H[.\-]?265|X265|AVC|H[.\-]?264|X264|VP9)(?![A-Za-z0-9])/i;
+  const languagePatterns = [
+    [
+      /(?<![A-Za-z0-9])(?:CHS|SC|GB|ZH[._-]?CN)(?![A-Za-z0-9])|简(?:体|中)|簡中|[简簡]繁/i,
+      "简体中文",
+    ],
+    [
+      /(?<![A-Za-z0-9])(?:CHT|TC|BIG5|ZH[._-]?(?:TW|HK))(?![A-Za-z0-9])|繁(?:體|体|中)|[简簡]繁/i,
+      "繁體中文",
+    ],
+    [
+      /(?<![A-Za-z0-9])(?:JPN|JAP|JA)(?![A-Za-z0-9])|日(?:语|語)|日本語|Japanese/i,
+      "日语",
+    ],
+    [/(?<![A-Za-z0-9])(?:ENG|EN)(?![A-Za-z0-9])|英(?:语|語)|English/i, "英语"],
+  ];
+  const leadingTags =
+    release.title.match(/^(?:\s*[\[【][^\]】]+[\]】])+/)?.[0] ?? "";
+  const group = [...leadingTags.matchAll(/[\[【]([^\]】]+)[\]】]/g)]
+    .map((match) => match[1].trim())
+    .find(
+      (value) =>
+        !resolutionPattern.test(value) &&
+        !codecPattern.test(value) &&
+        !languagePatterns.some(([pattern]) => pattern.test(value)),
+    );
+  const resolution = source.match(resolutionPattern);
+  const rawCodec = source.match(codecPattern)?.[0].replace(/[.\-]/g, "").toUpperCase();
+  const codec = { H265: "HEVC", X265: "HEVC", H264: "AVC", X264: "AVC" }[rawCodec] ?? rawCodec ?? null;
+  const extracted = {
+    id: release.id,
+    title: release.title,
+    publishedAt: release.publishTime,
+    sizeBytes: release.releaseSizeBytes ?? null,
+    subtitleGroup: release.releaseSubtitleGroup ?? group ?? null,
+    resolution:
+      release.releaseResolution ??
+      (resolution
+        ? resolution[6]
+          ? "2160p"
+          : `${resolution.slice(1, 6).find(Boolean)}p`
+        : null),
+    codec: release.releaseCodec ?? codec,
+    languages:
+      release.releaseLanguages ??
+      languagePatterns
+        .filter(([pattern]) => pattern.test(source))
+        .map(([, value]) => value),
+  };
+  const scoreReasons = [];
+  const addScore = (field, value, points) => {
+    scoreReasons.push(`${field}:${value}:+${points}`);
+    return points;
+  };
+  const resolutionScore = {
+    "2160P": 400, "4K": 400, UHD: 400, "1440P": 300, "1080P": 200,
+    "720P": 100, "576P": 60, "480P": 40,
+  }[extracted.resolution?.trim().toUpperCase()] ?? 0;
+  const codecScore = {
+    AV1: 80, HEVC: 60, H265: 60, "H.265": 60,
+    AVC: 40, H264: 40, "H.264": 40, VP9: 30,
+  }[extracted.codec?.trim().toUpperCase()] ?? 0;
+  let score = 0;
+  if (resolutionScore) score += addScore("resolution", extracted.resolution, resolutionScore);
+  if (codecScore) score += addScore("codec", extracted.codec, codecScore);
+  if (extracted.subtitleGroup) {
+    const normalizeGroup = (value) => value.replace(/^[\[【]+|[\]】]+$/g, "").toUpperCase();
+    const position = (policy.subtitleGroups ?? []).findIndex((value) => normalizeGroup(value) === normalizeGroup(extracted.subtitleGroup));
+    score += addScore("subtitleGroup", extracted.subtitleGroup,
+      policy.subtitleGroups?.length ? position < 0 ? 0 : Math.max(10, 50 - position * 5) : 20);
+  }
+  const languages = new Set();
+  for (const language of extracted.languages) {
+    if (languages.has(language.toUpperCase())) continue;
+    languages.add(language.toUpperCase());
+    const preferred = !policy.languages?.length
+      || policy.languages.some((value) => value.toUpperCase() === language.toUpperCase());
+    score += addScore("language", language, preferred ? 20 : 5);
+  }
+  if (extracted.sizeBytes > 0) {
+    const gibibytes = extracted.sizeBytes / (1024 ** 3);
+    score += addScore("size", `${gibibytes.toFixed(2)}GiB`,
+      gibibytes >= 8 ? 40 : gibibytes >= 2 ? 25 : gibibytes >= 0.7 ? 10 : 5);
+  }
+  return {
+    ...simulatePolicy(release.sourceFeedId, policy, [extracted]).entries[0],
+    score,
+    scoreReasons,
+  };
+}
+
+function currentReleasePolicy(release) {
+  return multiSourcePolicyForFeed(release?.sourceFeedId)
+    ?? subscriptionPolicies.get(release?.sourceFeedId) ?? {};
+}
+
+function restoreStandaloneSources(feedIds) {
+  for (const release of animations.values()) {
+    if (!feedIds.includes(release.sourceFeedId) || release.isDownloadTracked
+      || release.isDownloadFinished || release.supersededByReleaseId
+      || release.automationDisposition != null) continue;
+    const policy = subscriptionPolicies.get(release.sourceFeedId);
+    if (!policy || multiSourcePolicyForFeed(release.sourceFeedId)) continue;
+    const evaluation = evaluateMultiSourceRelease(release, policy);
+    if (!evaluation.matched) continue;
+    release.automationExplanationJson = JSON.stringify(evaluation.explanations);
+    release.stateVersion = (release.stateVersion ?? 0) + 1;
+    mockTodoStates.delete(`automation:${release.id}`);
+    release.automationDisposition = policy.mode === "NotifyOnly" ? "Notified"
+      : policy.mode === "ManualConfirm" ? "PendingConfirmation" : "AutoDownloadQueued";
+    if (policy.mode === "AutoDownload") {
+      release.isDownloadTracked = true;
+      downloadState.set(release.id, { state: "Downloading", progress: 0, startedAt: Date.now() });
+    }
+  }
 }
 
 // WebDAV access tokens
@@ -1335,8 +1525,7 @@ const FILE_TREE = {
   ],
 };
 
-// Playback state is user-scoped in the real API. The mock server has one user,
-// so a composite animation/path key is sufficient for cross-page persistence.
+// Playback state is stored per household profile, matching the personal watchlist.
 const playbackProgress = new Map();
 let playbackPreferences = {
   subtitleLanguage: "zh",
@@ -1344,8 +1533,12 @@ let playbackPreferences = {
   audioLanguage: "ja",
   audioTrackLabel: null,
   autoPlayNext: true,
+  autoSkip: false,
   updatedAt: new Date().toISOString(),
 };
+
+const progressByProfile = new Map([[mockProfiles[0].id, playbackProgress]]);
+const preferencesByProfile = new Map([[mockProfiles[0].id, playbackPreferences]]);
 
 function playbackKey(animationInfoId, path) {
   return `${animationInfoId}:${path}`;
@@ -1634,28 +1827,25 @@ function vfsResolve(rawPath) {
 const mockTodoStates = new Map();
 
 function currentMockTodos() {
-  const anime = [...animations.values()];
   const base = [
-    anime[0] && {
-      key: `automation:${anime[0].id}`,
-      type: "ReleaseMatched",
-      priority: "Normal",
-      title: anime[0].title,
-      detail: "A notify-only subscription matched this release.",
-      deepLink: `/todo?focus=automation:${anime[0].id}`,
-      resourceId: anime[0].id,
-      occurredAt: anime[0].publishTime,
-    },
-    anime[1] && {
-      key: `automation:${anime[1].id}`,
-      type: "DownloadPendingConfirmation",
-      priority: "High",
-      title: anime[1].title,
-      detail: "A matched release is waiting for download confirmation.",
-      deepLink: `/todo?focus=automation:${anime[1].id}`,
-      resourceId: anime[1].id,
-      occurredAt: anime[1].publishTime,
-    },
+    ...[...animations.values()]
+      .filter((release) => !release.isDownloadTracked && !release.isDownloadFinished
+        && !multiSourcePolicyForFeed(release.sourceFeedId)
+        && ["Notified", "PendingConfirmation", "AutoDownloadFailed"].includes(release.automationDisposition))
+      .map((release) => ({
+        key: `automation:${release.id}`,
+        type: release.automationDisposition === "Notified" ? "ReleaseMatched"
+          : release.automationDisposition === "PendingConfirmation" ? "DownloadPendingConfirmation" : "DownloadFailed",
+        priority: release.automationDisposition === "Notified" ? "Normal"
+          : release.automationDisposition === "PendingConfirmation" ? "High" : "Critical",
+        title: release.title,
+        detail: release.automationDisposition === "Notified" ? "A notify-only subscription matched this release."
+          : release.automationDisposition === "PendingConfirmation" ? "A matched release is waiting for download confirmation."
+            : "The automatic download failed and can be retried.",
+        deepLink: `/todo?focus=automation:${release.id}`,
+        resourceId: release.id,
+        occurredAt: release.publishTime,
+      })),
     ...mockIncidents
       .filter((incident) => !incident.resolvedAt)
       .map((incident) => ({
@@ -1693,6 +1883,10 @@ function currentMockTodos() {
 // ---------------------------------------------------------------------------
 
 async function route(method, pathname, searchParams, req, res) {
+  const profileId = mockSessionFor(req).profileId;
+  const playbackProgress = progressByProfile.get(profileId) ?? new Map();
+  progressByProfile.set(profileId, playbackProgress);
+  let playbackPreferences = preferencesByProfile.get(profileId) ?? { subtitleLanguage: null, subtitleTrackLabel: null, audioLanguage: null, audioTrackLabel: null, autoPlayNext: true, autoSkip: false };
   console.log(
     `${method} ${pathname}${searchParams.toString() ? "?" + searchParams : ""}`,
   );
@@ -1755,10 +1949,13 @@ async function route(method, pathname, searchParams, req, res) {
   if (
     !hasAuth(req) &&
     !pathname.startsWith("/api/auth/") &&
-    !publicTranscodingSession
+    !publicTranscodingSession &&
+    !pathname.startsWith("/api/file/play/download/")
   ) {
     return empty(res, 401);
   }
+
+  if (pathname === "/api/download-capacity" && method === "GET") return json(res, []);
 
   if (pathname === "/api/accounts/profiles" && method === "GET") return json(res, mockProfiles);
   if (pathname === "/api/accounts/profiles" && method === "POST") {
@@ -2192,7 +2389,9 @@ async function route(method, pathname, searchParams, req, res) {
   if (method === "PATCH" && pathname === "/api/todos/state") {
     const body = await readBody(req);
     const now = new Date().toISOString();
+    const currentKeys = new Set(currentMockTodos().map((item) => item.key));
     for (const key of body.keys ?? []) {
+      if (!currentKeys.has(key)) continue;
       const state = mockTodoStates.get(key) ?? {
         readAt: null,
         snoozedUntil: null,
@@ -2205,6 +2404,10 @@ async function route(method, pathname, searchParams, req, res) {
     }
     return empty(res, 204);
   }
+
+  if (await handleWatchlistPlayback({ req, res, method, pathname, searchParams, json, empty, readBody,
+    animations, seasonBangumis: SEASON_BANGUMIS, profileId, session: mockSessionFor(req), liveSessions: mockAccessSessions,
+    vfsResolve, playbackProgress, playbackKey, playablePaths })) return;
 
   // --- Playback continuity ---
 
@@ -2285,7 +2488,7 @@ async function route(method, pathname, searchParams, req, res) {
     const previous = playbackProgress.get(key);
     const isWatched =
       previous?.isWatched ||
-      (durationSeconds > 0 && positionSeconds / durationSeconds >= 0.9);
+      (!body.suppressWatched && durationSeconds > 0 && positionSeconds / durationSeconds >= 0.9);
     const updatedAt = new Date().toISOString();
     const stored = {
       positionSeconds: Math.min(
@@ -2334,8 +2537,10 @@ async function route(method, pathname, searchParams, req, res) {
       audioLanguage: body.audioLanguage ?? null,
       audioTrackLabel: body.audioTrackLabel ?? null,
       autoPlayNext: body.autoPlayNext !== false,
+      autoSkip: body.autoSkip === true,
       updatedAt: new Date().toISOString(),
     };
+    preferencesByProfile.set(profileId, playbackPreferences);
     return json(res, playbackPreferences);
   }
 
@@ -2580,7 +2785,8 @@ async function route(method, pathname, searchParams, req, res) {
       }
       if (
         Date.parse(preview.expiresAt) <= Date.now() ||
-        preview.baseRevision !== item.revision
+        preview.baseRevision !== item.revision ||
+        !isMetadataRulePreviewCurrent(preview, item, animations.get(item.id), feeds)
       ) {
         metadataReviewPreviews.delete(preview.previewId);
         return json(res, { error: "Preview is stale." }, 409);
@@ -2704,7 +2910,11 @@ async function route(method, pathname, searchParams, req, res) {
     }
   }
 
-  if (await handleCompletion({ req, res, method, pathname, searchParams, json, readBody, animations, downloadState })) return;
+  if (await handleCompletion({ req, res, method, pathname, searchParams, json, readBody, animations, downloadState,
+    evaluateRelease: (release) => evaluateMultiSourceRelease(release, currentReleasePolicy(release)) })) return;
+  if (await handleMetadataRules({ req, res, method, pathname, searchParams, json, readBody,
+    animations, feeds, metadataReviewItems, metadataReviewPreviews, metadataCatalog,
+    mockMappedFiles, buildMetadataPathChanges })) return;
 
   // --- Animation Info ---
 
@@ -2828,6 +3038,30 @@ async function route(method, pathname, searchParams, req, res) {
     const values = [...animations.values()];
     const current = values[0];
     const candidate = values[21] ?? values[1];
+    const plan = planFor(animations, current.animation.tmdbId, 1,
+      (release) => evaluateMultiSourceRelease(release, currentReleasePolicy(release)));
+    const upgradeCandidates = plan.episodes.flatMap((episode) => {
+      const incumbent = episode.candidates.find((release) => isCurrentRelease(animations.get(release.releaseId)));
+      if (!incumbent || episode.candidates.some((release) => release.unavailableReason === "downloading")) return [];
+      return episode.candidates.flatMap((release) => {
+        const next = animations.get(release.releaseId);
+        if (next.isDownloadTracked || next.isDownloadFinished) return [];
+        const policy = currentReleasePolicy(next);
+        const previous = animations.get(incumbent.releaseId);
+        const currentScore = evaluateMultiSourceRelease(previous, policy).score;
+        const evaluation = evaluateMultiSourceRelease(next, policy);
+        if (evaluation.score <= currentScore) return [];
+        const retainFallbackSource = policy.feedIds?.slice(1).includes(previous.sourceFeedId);
+        return [{
+          currentReleaseId: previous.id, candidateReleaseId: next.id,
+          animationName: next.animation.name, season: next.season, episode: next.episode,
+          currentScore, candidateScore: evaluation.score, scoreReasons: evaluation.scoreReasons,
+          automatic: policy.mode === "AutoDownload" && !!policy.enableVersionUpgrade
+            && evaluation.matched && evaluation.score - currentScore >= policy.minimumUpgradeScore
+            && (!retainFallbackSource || previous.sourceFeedId === next.sourceFeedId),
+        }];
+      });
+    });
     return json(res, [
       {
         tmdbId: current.animation?.tmdbId ?? "209867",
@@ -2841,33 +3075,16 @@ async function route(method, pathname, searchParams, req, res) {
           { episode: 28, releaseIds: [current.id, candidate.id] },
         ],
         unidentifiedReleaseCount: 1,
-        upgradeCandidates: [
-          {
-            currentReleaseId: current.id,
-            candidateReleaseId: candidate.id,
-            animationName: current.animation?.name ?? "葬送的芙莉莲",
-            season: 1,
-            episode: 28,
-            currentScore: 300,
-            candidateScore: 480,
-            scoreReasons: ["resolution:2160p:+400", "codec:AV1:+80"],
-            automatic: true,
-          },
-        ],
+        upgradeCandidates,
       },
     ]);
   }
 
   if (method === "POST" && pathname === "/api/library/upgrades/execute") {
     const body = await readBody(req);
-    return json(res, {
-      isSuccess: true,
-      outcome: body.dryRun ? "ready" : "download_queued",
-      dryRun: !!body.dryRun,
-      requiresDownload: true,
-      operation: body.dryRun ? null : { id: randomUUID() },
-      validationErrors: [],
-    });
+    const result = executeUpgrade(animations, downloadState, body,
+      evaluateMultiSourceRelease, currentReleasePolicy(animations.get(body.candidateReleaseId)));
+    return json(res, result, result.isSuccess ? 200 : 409);
   }
 
   if (method === "GET" && pathname === "/api/animationinfo") {
@@ -3046,7 +3263,11 @@ async function route(method, pathname, searchParams, req, res) {
       const id = m[1];
       const anim = animations.get(id);
       if (!anim) return empty(res, 404);
-      if (anim.isDownloadTracked) return empty(res, 409);
+      if (anim.isDownloadTracked || anim.isDownloadFinished) return empty(res, 409);
+      if (searchParams.get("fromAutomation") === "true"
+        && (multiSourcePolicyForFeed(anim.sourceFeedId)
+          || !["Notified", "PendingConfirmation", "AutoDownloadFailed"].includes(anim.automationDisposition)))
+        return empty(res, 409);
       anim.isDownloadTracked = true;
       anim.isDownloadFinished = false;
       if (
@@ -3100,6 +3321,7 @@ async function route(method, pathname, searchParams, req, res) {
       if (!anim.isDownloadTracked) return empty(res, 409);
       anim.isDownloadTracked = false;
       anim.isDownloadFinished = false;
+      if (anim.upgradeOperation?.status === "Downloading") anim.upgradeOperation.status = "Failed";
       if (
         anim.automationDisposition === "AutoDownloadQueued" ||
         anim.automationDisposition === "ManualDownloadQueued" ||
@@ -3236,6 +3458,24 @@ async function route(method, pathname, searchParams, req, res) {
     });
   }
 
+  if (
+    await handleMultiSourceSubscriptions({
+      req,
+      res,
+      method,
+      pathname,
+      json,
+      readBody,
+      animations,
+      downloadState,
+      feeds,
+      evaluateRelease: evaluateMultiSourceRelease,
+      todoStates: mockTodoStates,
+      restoreStandaloneSources,
+    })
+  )
+    return;
+
   // --- Feeds ---
 
   if (method === "GET" && pathname === "/api/feed") {
@@ -3262,6 +3502,7 @@ async function route(method, pathname, searchParams, req, res) {
       const before = feeds.length;
       feeds = feeds.filter((f) => f.id !== m[1]);
       subscriptionPolicies.delete(m[1]);
+      if (feeds.length < before) removeMultiSourceFeed(m[1], animations);
       return empty(res, feeds.length < before ? 200 : 404);
     }
   }

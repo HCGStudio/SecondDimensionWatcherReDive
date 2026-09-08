@@ -6,6 +6,7 @@ import { AlertTriangle } from "lucide-react";
 
 import { useDownloadingAnimations } from "../animation/hooks";
 import { AnimationInfo } from "../components/AnimationInfo";
+import { DownloadCapacityQueue } from "../components/DownloadCapacityQueue";
 import { EmptyPrompt } from "../components/ui/EmptyPrompt";
 import { Pagination } from "../components/ui/Pagination";
 import { PAGE_SIZE } from "../config";
@@ -39,6 +40,7 @@ export const DownloadingPage: React.FC = () => {
 
   return (
     <PageTemplate>
+      <DownloadCapacityQueue />
       {error ? (
         <EmptyPrompt
           icon={<AlertTriangle size={48} />}

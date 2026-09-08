@@ -11,7 +11,7 @@
 ## 技术栈
 
 - **后端**: .NET 10, ASP.NET Core, Entity Framework Core, PostgreSQL
-- **前端**: React 18, TypeScript, Tailwind CSS, Radix UI, SWR, Parcel, Artplayer, react-i18next
+- **前端**: React 19, TypeScript, Tailwind CSS, Radix UI, SWR, Parcel, Artplayer, react-i18next
 - **下载**: qBittorrent Web API
 - **AI**: OpenAI / Anthropic，或本地 Codex app-server（流式 SSE + 工具调用）+ TMDB API
 - **包管理**: Yarn Berry (PnP)
@@ -19,10 +19,13 @@
 
 ## 功能
 
+以下能力描述当前源码；AI/TMDB、qBittorrent、HLS 转码、通知和协议服务需要对应部署配置。操作入口与边界见 [使用指南](docs/library-workflows.md)。
+
 - [x] RSS 订阅源管理（静态配置 + 动态 CRUD）
 - [x] 自动同步 RSS 源，创建动画信息记录
 - [x] 通过 qBittorrent 进行下载 / 暂停 / 恢复 / 取消管理
-- [x] 实时下载进度追踪（速度、剩余时间）
+- [x] 自适应下载进度追踪：活跃/暂停/无变化分频、分批查询与故障退避
+- [x] 持久容量预留与可暂停/取消的等待队列，统一覆盖手动、订阅和版本升级下载
 - [x] 虚拟文件系统：磁盘文件不重命名，按 `S##E##` 规则映射虚拟路径（含字幕语言后缀）
 - [x] 现有媒体库原地导入（手动扫描或周期监控，不移动/删除原文件）
 - [x] 多集种子通过 AI 推断逐文件拆分集数
@@ -35,7 +38,12 @@
 - [x] AI 对话助手：流式响应 + 7 个内置工具（动画 / 订阅 / 季度 / 下载 / 任务 / 文件查询）
 - [x] 网页运行时设置：AI、TMDB、qBittorrent、媒体库、异常阈值和 NFS
 - [x] TMDB 海报图片展示
-- [x] AI 推断失败后手动重试
+- [x] AI 推断失败后手动重试、元数据人工审核/映射预览/撤销、显式长期识别规则
+- [x] 订阅过滤、通知/确认/自动下载模式、番剧多来源优先级与等待回退
+- [x] 全局搜索、播出感知的缺集补全计划、候选评分和版本升级/回滚
+- [x] 档案独立的播放进度、个人追番清单与本周更新视图
+- [x] 手动 OP/ED 跳过、命名章节、需按媒体版本确认的季默认与默认关闭的个人自动跳过
+- [x] HLS 转码、音轨字幕选择、浏览器原生大文件下载与 Range 续传
 - [x] 按动画分组的主页展示（卡片 + 剧集列表）
 - [x] 当季番组发现（mikanani.me 爬取）+ 一键订阅
 - [x] 后台任务仪表盘（查看状态、手动触发）
@@ -45,16 +53,18 @@
 - [x] 插件事件系统（下载前 / 下载完成后钩子）
 - [x] 多语言界面（简体中文 / English / 日本語）
 - [x] Podman / Docker Compose 一键部署
-- [ ] 插件系统动态加载（JavaScript / ClearScript）
+- [x] 受控 JavaScript 插件管理：本地包检查、签名/能力确认、独立进程、启停与升级回滚（[API 1.0 边界](docs/plugin-platform.md)）
 - [ ] WebDAV 写入支持
 - [ ] 内置种子下载（替换 qBittorrent）
+
+功能操作入口与已知边界见 [订阅、下载与观看指南](docs/library-workflows.md)。部署相关能力分别见 [运行可靠性](docs/runtime-reliability.md)、[安全边界](docs/security-boundaries.md)、[备份恢复](docs/backup-restore.md) 与 [架构说明](docs/architecture.md)。
 
 ## 快速开始
 
 ### 前置条件
 
 - .NET 10 SDK
-- Node.js 18+
+- Node.js 24（与仓库 CI 一致）
 - Yarn (`corepack enable`)
 - PostgreSQL
 - qBittorrent（开启 Web API）
@@ -91,7 +101,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/HCGStudio/SecondDimensionWat
 
 ### 配置
 
-编辑 `SecondDimensionWatcherReDive/appsettings.json`（完整示例见 `appsettings.example.json`）：
+编辑 `SecondDimensionWatcherReDive/appsettings.json`（完整示例见 [appsettings.example.json](SecondDimensionWatcherReDive/appsettings.example.json)）：
 
 | 配置项 | 说明 |
 |--------|------|
@@ -104,6 +114,8 @@ bash <(curl -fsSL https://raw.githubusercontent.com/HCGStudio/SecondDimensionWat
 | `DataProtection:KeyRingPath` | 网页保存的 API key/密码所用加密密钥环；必须位于持久化目录 |
 | `Torrent:Remote:Url` | qBittorrent API 地址 |
 | `FileStore:Local` | 下载文件存储根目录 |
+| `DownloadCapacity:Enabled` / `SafetyBytes` / `LocalVolumePath` | 默认启用容量准入；安全余量默认 5 GiB；本地卷路径仅能指向下载器实际写入卷的共享挂载，详见[容量边界](docs/library-workflows.md#容量与等待队列) |
+| `Torrent:Polling` / `DownloadCompletion:Workers` | 自适应轮询周期/分批/退避；完成处理默认 2 个独立 worker |
 | `MediaLibrary:AllowedRoots` / `ScanInterval` / `SettlingPeriod` / `MissingGracePeriod` | 必须显式配置的导入根目录白名单、监控间隔、文件写入稳定等待时间与缺失记录保留期 |
 | `MikananiFeeds` | RSS 源 URL 数组 |
 | `TmdbApiKey` | TMDB API 密钥 |
@@ -132,7 +144,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/HCGStudio/SecondDimensionWat
 
 ### 网页运行时设置
 
-登录后打开「设置」，可修改 AI 执行模式与 Provider、AI/TMDB 密钥、qBittorrent、媒体库扫描、异常检测、通知和 NFS。保存值存入 PostgreSQL，并覆盖部署文件或环境变量中的默认值；密钥、密码、Webhook URL、VAPID 私钥及浏览器 PushSubscription 能力凭据使用持久化 Data Protection 密钥环加密，API 不会回显明文。可对单个敏感项选择保留、替换、清除或恢复部署默认值。
+管理员登录后打开「设置」，可修改 AI 执行模式与 Provider、AI/TMDB 密钥、qBittorrent、媒体库扫描、异常检测、通知和 NFS。保存值存入 PostgreSQL，并覆盖部署文件或环境变量中的默认值；密钥、密码、Webhook URL、VAPID 私钥及浏览器 PushSubscription 能力凭据使用持久化 Data Protection 密钥环加密，API 不会回显明文。可对单个敏感项选择保留、替换、清除或恢复部署默认值。
 
 启用且订阅的通知会在核心操作完成后，以唯一去重键尽力写入 PostgreSQL Outbox，再由后台服务按至少一次语义投递。Webhook 和每个 Web Push 浏览器订阅拥有独立投递行、租约与重试状态，一个渠道失败不会重复投递另一个渠道；Webhook 请求带有稳定的 `X-SDW-Event-Id`，Web Push 也使用同一事件 ID 作为通知标签，接收端仍应按事件 ID 幂等。5xx、408、429 和网络错误会指数退避重试，失效的浏览器订阅会在 404/410 后撤销，永久失败可在「设置 → 通知」查看，且任何投递或入队失败都不会回滚订阅、下载、推断或异常处理。顶栏「待办中心」会按风险汇总待确认下载、异常、低置信度/失败元数据和磁盘预警，并支持已读、稍后提醒及无副作用批量操作。
 

@@ -18,6 +18,10 @@ public class MetadataReviewOperation
 
     public long BaseVersion { get; set; }
 
+    public Guid? RecognitionRuleId { get; set; }
+
+    public long? RecognitionRuleRevision { get; set; }
+
     public string? BaseFileStore { get; set; }
 
     public string? BaseStorePath { get; set; }
