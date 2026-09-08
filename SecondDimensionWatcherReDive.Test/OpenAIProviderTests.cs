@@ -54,14 +54,14 @@ public sealed class OpenAIProviderTests
     }
 
     [TestMethod]
-    public async Task DefaultMode_UsesResponsesRequestShapeAndStreamsText()
+    public async Task ResponsesMode_UsesResponsesRequestShapeAndStreamsText()
     {
         var handler = new RecordingHandler(Sse(
             """{"type":"response.output_text.delta","output_index":0,"delta":"Res"}""",
             """{"type":"response.output_text.delta","output_index":0,"delta":"ponse"}""",
             """{"type":"response.completed","response":{"id":"resp_1","status":"completed","output":[{"id":"msg_1","type":"message","status":"completed","role":"assistant","content":[{"type":"output_text","text":"Response"}],"phase":"final_answer"}]}}""",
             "[DONE]"));
-        var provider = CreateProvider(handler);
+        var provider = CreateProvider(handler, OpenAIApiMode.Responses);
         var tools = new[]
         {
             new ToolDefinition("lookup", "Look something up", Schema(
