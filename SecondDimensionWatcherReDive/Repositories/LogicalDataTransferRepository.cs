@@ -5,7 +5,9 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
+using SecondDimensionWatcherReDive.Inference.AI.Tools;
 using SecondDimensionWatcherReDive.Utils.FileStore;
+using SecondDimensionWatcherReDive.Utils.MetadataReview;
 using DataFileMapping = SecondDimensionWatcherReDive.Framework.DataRepository.FileMapping;
 
 namespace SecondDimensionWatcherReDive.Repositories;
@@ -56,7 +58,8 @@ public sealed class LogicalDataTransferRepository(IServiceScopeFactory scopeFact
 
 internal sealed class LogicalDataTransferWorker(
     Models.ApplicationContext context,
-    IFileMapper fileMapper)
+    IFileMapper fileMapper,
+    TmdbTool? tmdbTool = null)
 {
     public async Task<LogicalDataBundle> ExportAsync(
         LogicalDataCategory categories,
@@ -215,6 +218,22 @@ internal sealed class LogicalDataTransferWorker(
             (bundle.Categories & ~LogicalDataTransferFormat.LegacyCategories) != 0) ||
             bundle.FormatVersion == LogicalDataTransferFormat.CurrentVersion && bundle.RecognitionRules is null)
             throw new ArgumentException("Logical data categories do not match the format version.", nameof(bundle));
+
+        // Enabling imported rules must pass the same remote series/season checks
+        // as rule creation. Resolve targets before any transaction or table lock;
+        // disabled rules can be restored while TMDB is unavailable.
+        if (bundle.Categories.HasFlag(LogicalDataCategory.RecognitionRules) && bundle.RecognitionRules is { } rules)
+        {
+            foreach (var target in rules.Where(rule => rule.Enabled && !rule.SourceFeedMissing)
+                         .Select(rule => (Id: int.Parse(rule.TmdbId, NumberStyles.None, CultureInfo.InvariantCulture),
+                             rule.FixedSeason)).Distinct())
+            {
+                if (tmdbTool is null)
+                    throw new MetadataReviewUnavailableException("tmdbUnavailable", "TMDB lookup is unavailable.");
+                await MetadataRecognitionRuleService.ValidateRemoteTargetAsync(
+                    tmdbTool, target.Id, target.FixedSeason, cancellationToken);
+            }
+        }
 
         var statistics = new ImportStatistics();
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
