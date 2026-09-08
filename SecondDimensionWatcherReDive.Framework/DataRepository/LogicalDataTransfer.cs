@@ -6,6 +6,20 @@ public static class LogicalDataTransferLimits
 {
     public const int MaximumItemsPerCategory = 10_000;
     public const int MaximumPayloadBytes = 10 * 1024 * 1024;
+    public const int MaximumRecognitionRules = 200;
+}
+
+public static class LogicalDataTransferFormat
+{
+    public const int CurrentVersion = 2;
+    public const LogicalDataCategory LegacyCategories = (LogicalDataCategory)31;
+
+    // The old string "All" now parses to the expanded enum value. Preserve its
+    // format-1 meaning before either checksum calculation or repository dispatch.
+    public static LogicalDataBundle NormalizeLegacyCategories(LogicalDataBundle bundle) =>
+        bundle.FormatVersion == 1 && bundle.Categories == LogicalDataCategory.All
+            ? bundle with { Categories = LegacyCategories }
+            : bundle;
 }
 
 [Flags]
@@ -18,7 +32,8 @@ public enum LogicalDataCategory
     FileNameRules = 4,
     MetadataCorrections = 8,
     Playback = 16,
-    All = Feeds | AutomationPolicies | FileNameRules | MetadataCorrections | Playback
+    RecognitionRules = 32,
+    All = Feeds | AutomationPolicies | FileNameRules | MetadataCorrections | Playback | RecognitionRules
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter<LogicalImportConflictStrategy>))]
@@ -60,6 +75,20 @@ public sealed record LogicalFileNameRule(
     string Pattern,
     string? Description,
     DateTimeOffset CreatedAt);
+
+public sealed record LogicalRecognitionRule(
+    Guid Id,
+    string Name,
+    bool Enabled,
+    string? SourceFeedUrl,
+    string? TitlePattern,
+    string? SubtitleGroup,
+    string TmdbId,
+    int? FixedSeason,
+    int EpisodeOffset,
+    string? CanonicalGroupName,
+    DateTimeOffset CreatedAt,
+    bool SourceFeedMissing = false);
 
 public sealed record LogicalMetadataCorrection(
     Guid OperationId,
@@ -103,7 +132,9 @@ public sealed record LogicalDataBundle(
     IReadOnlyList<LogicalFileNameRule> FileNameRules,
     IReadOnlyList<LogicalMetadataCorrection> MetadataCorrections,
     IReadOnlyList<LogicalPlaybackProgress> PlaybackProgress,
-    LogicalPlaybackPreferences? PlaybackPreferences);
+    LogicalPlaybackPreferences? PlaybackPreferences,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    IReadOnlyList<LogicalRecognitionRule>? RecognitionRules = null);
 
 public sealed record LogicalImportResult(
     int Added,
