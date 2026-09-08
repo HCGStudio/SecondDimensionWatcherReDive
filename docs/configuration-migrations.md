@@ -27,7 +27,7 @@ sdw-cli migrate --config ./appsettings.json
 
 Windows 压缩包提供 `sdw-cli.exe` 与 `install-clis.ps1`，解压后由脚本创建 `sdw-migrate.exe` 软链接。未创建链接时可直接执行 `./sdw-cli.exe migrate --config ./appsettings.json`。
 
-`--config` 缺省时依次使用 `Config` 环境变量、已存在的 `/etc/sdw-redive/appsettings.yml` 或当前目录的 `appsettings.json`。`--working-directory` 指定旧应用工作目录，用于解析相对 `PasswordFile` 或默认 `password.json`；缺省为命令进程的当前目录。系统包服务的工作目录为 `/usr/lib/sdw-redive`，通用压缩包部署应填写原服务实际使用的目录。标准输入被重定向时也只允许静默迁移。
+`--config` 缺省时依次使用 `Config` 环境变量、已存在的 `/etc/sdw-redive/appsettings.yml` 或当前目录的 `appsettings.json`。`--working-directory` 指定旧应用进程的工作目录，用于保留密钥环、插件和缓存的旧相对状态路径；缺省为命令进程的当前目录。`--content-root` 指定旧主程序的 ContentRoot，用于读取相对 `PasswordFile` 或默认 `password.json`，缺省采用 `--working-directory`；相对值也以旧工作目录为基准。旧服务使用 `--contentRoot` 或 `ASPNETCORE_CONTENTROOT` 时，应把同一目录传给 CLI 的 `--content-root`。系统包服务的工作目录为 `/usr/lib/sdw-redive`，通用压缩包部署应填写原服务实际使用的目录。标准输入被重定向时也只允许静默迁移。
 
 迁移需要读取配置、其引用的旧密码文件，并写入目标配置所在目录。完整链成功后，执行器把原始配置保存为同目录的 `<文件名>.<时间戳>-<随机标识>.bak`，再以同目录临时文件原子替换配置。JSON/YAML 会重新序列化，原注释与排版保留在备份中；JSON 支持注释和尾逗号输入。原配置软链接保留，更新其最终目标文件。Unix 保留配置文件权限，Linux 还保留原所有者和组；新备份在 Unix 使用 `0600`。Windows 临时文件和备份从创建时即使用原配置的有效 DACL，并禁止继承目录中更宽的权限；最终替换保留原配置 ACL，无法保留元数据时迁移失败，不降级为普通覆盖。
 
@@ -37,7 +37,7 @@ Windows 压缩包提供 `sdw-cli.exe` 与 `install-clis.ps1`，解压后由脚�
 
 主程序在注册并启动应用服务之前检查配置版本。版本过旧时，迁移器按连续的 `Up` 链计算结果。整条链能够静默完成才允许继续启动；缺少迁移路径、需要用户决定或静默升级失败时，程序返回非零状态并报告错误，不会带着部分迁移的配置启动。
 
-启动按配置源的原有优先级逐层处理。每个参与迁移的源独立读取自己的 `Version`，缺省按 `2.2.0` 处理，不会被随程序附带的 `Version: "2.3.0"` 遮蔽。低优先级源中已明确指定的 Provider、AI 协议、状态目录和具体状态路径会作为继承值传给后续迁移；仅覆盖密钥或日志的高优先级层不会重置这些值。如果新的基础文件已经是当前版本，但旧环境覆盖文件仍依赖默认 `password.json`，首个尚未继承 bootstrap 哈希的旧配置层仍会导入该密码；后续层已有哈希后才跳过重复的隐式读取。配置键沿用 IConfiguration 的大小写不敏感语义；扁平键与嵌套对象可按任意顺序混用，互不冲突的对象分支会合并，重复叶子键或标量/对象冲突会拒绝。
+启动按配置源的原有优先级逐层处理。每个参与迁移的源独立读取自己的 `Version`，缺省按 `2.2.0` 处理，不会被随程序附带的 `Version: "2.3.0"` 遮蔽。低优先级源中已明确指定的 Provider、AI 协议、状态目录和具体状态路径会作为继承值传给后续迁移；仅覆盖密钥或日志的高优先级层不会重置这些值。启动在改写旧字段前，先按原来的默认配置源及最后加载的外部 `Config` 确定最终 `PasswordFile`（缺省为 `password.json`）。旧密码文件原本在所有这些源之后加载；每个旧层迁移时仍由该文件中的哈希覆盖内联 `Password:Value`，不会因底层已导入 bootstrap 哈希而让高层内联旧值反过来覆盖它。凭据内容按 ContentRoot 定位；默认状态目录仍保留原进程工作目录下的解析结果。配置键沿用 IConfiguration 的大小写不敏感语义；扁平键与嵌套对象可按任意顺序混用，互不冲突的对象分支会合并，重复叶子键或标量/对象冲突会拒绝。
 
 | 配置源 | 启动时的迁移方式 |
 |--------|------------------|
@@ -63,7 +63,7 @@ CLI 只呈现迁移必需的破坏性选择，例如同一设置同时存在互�
 | `Inference:Provider` | `AI:Provider` |
 | `Inference:ApiKey`、`BaseUrl`、`Model`、`MaxTokens` | 所选 `AI:OpenAI:*` 或 `AI:Anthropic:*` |
 | `Inference:RateLimitDelayMs` | 保留原位置与原值 |
-| 旧 OpenAI 配置未指定有效 `AI:OpenAI:ApiMode` | 当前层和继承值均缺省时显式保留 `ChatCompletions`；新配置的缺省协议为 `Responses` |
+| 旧配置有效 Provider 为 OpenAI，或已包含 `AI:OpenAI` 子节 | 当前层和继承值均缺省 `ApiMode` 时显式保留 `ChatCompletions`；仅选择 Provider 而没有子节也适用，新配置的缺省协议为 `Responses` |
 | `PasswordFile` | 取旧密码文件父目录作为 `StateDirectory`，保留密钥环、插件和转码缓存的默认位置 |
 | `Password:Value` 或旧密码文件中的 BCrypt 哈希 | `Authentication:BootstrapPasswordHash` |
 
@@ -80,6 +80,6 @@ CLI 只呈现迁移必需的破坏性选择，例如同一设置同时存在互�
 3. `GetRequiredChoices` 只检查当前文档并返回确实需要决定的破坏性选择，使用稳定的选项 key；无需决定时返回空集合。此方法不得修改文档或外部状态。
 4. `Up` 使用已收集的选择修改内存中的 JSON 文档。不得直接写配置、修改其他文件或执行外部副作用；完整迁移链由执行器统一提交并更新版本。无破坏性的新增功能继续使用默认值。
 
-`ConfigMigrationContext.Configuration` 只包含当前层文档，`InheritedSettings` 提供低优先级源已经迁移后的扁平键值，供解析缺省设置时参考。`IsOverlay` 表示当前源属于覆盖层：没有显式 `PasswordFile` 且已继承 bootstrap 哈希时，不应再次查找隐式 `password.json`，也不能把底层已有设置作为新默认值提升到当前层。新增迁移应保持这些优先级规则。
+`ConfigMigrationContext.WorkingDirectory` 保留旧进程工作目录，`ContentRootDirectory` 单独提供凭据文件的读取基准；启动时还会通过 `LegacyPasswordFile` 传入旧配置链最终选定的文件名。`ConfigMigrationContext.Configuration` 只包含当前层文档，`InheritedSettings` 提供低优先级源已经迁移后的扁平键值，供解析缺省设置时参考。`IsOverlay` 表示当前源属于覆盖层：不能把底层已有设置作为新默认值提升到当前层。旧凭据文件是原加载链的最终覆盖源，其哈希必须贯穿所有旧层的凭据迁移，不能因为已继承哈希而跳过文件优先级。新增迁移应保持这些优先级规则。
 
 不要改写已经发布的迁移来描述下一版本。像 EF Core 的正向迁移一样叠加新的 `Up`，使较旧配置能够依次经过所有版本。

@@ -52,7 +52,9 @@ internal sealed class UseCanonicalConfiguration : IConfigMigration
             ConfigTree.Set(config, "StateDirectory", JsonValue.Create(Path.GetDirectoryName(passwordPath)!));
         // Preserve the old default on migrated deployments. Newly created 2.3 configs
         // use Responses; no unrelated feature is enabled or offered during an upgrade.
-        if (ConfigTree.Get(config, "AI:OpenAI") is not null
+        var provider = ConfigTree.Text(config, "AI:Provider")
+                       ?? context.InheritedSettings?.GetValueOrDefault("AI:Provider") ?? "OpenAI";
+        if ((ConfigTree.Get(config, "AI:OpenAI") is not null || provider.Equals("OpenAI", StringComparison.OrdinalIgnoreCase))
             && ConfigTree.Get(config, "AI:OpenAI:ApiMode") is null
             && context.InheritedSettings?.GetValueOrDefault("AI:OpenAI:ApiMode") is null)
             ConfigTree.Set(config, "AI:OpenAI:ApiMode", JsonValue.Create("ChatCompletions"));
@@ -60,18 +62,21 @@ internal sealed class UseCanonicalConfiguration : IConfigMigration
         ConfigTree.Remove(config, "PasswordFile");
     }
 
-    private static string PasswordPath(ConfigMigrationContext context) => Path.GetFullPath(
-        ConfigTree.Text(context.Configuration, "PasswordFile") ?? "password.json", context.WorkingDirectory);
+    private static string PasswordFile(ConfigMigrationContext context) =>
+        context.LegacyPasswordFile ?? ConfigTree.Text(context.Configuration, "PasswordFile") ?? "password.json";
+
+    // The old state defaults used Path.GetFullPath from the process cwd, while
+    // AddJsonFile used the content-root provider to locate credential contents.
+    private static string PasswordPath(ConfigMigrationContext context) =>
+        Path.GetFullPath(PasswordFile(context), context.WorkingDirectory);
 
     private static string? ReadLegacyHash(ConfigMigrationContext context)
     {
         var hash = ConfigTree.Text(context.Configuration, "Password:Value");
-        // A newly bundled base file may already be current while a legacy overlay
-        // still relies on password.json. Import it until an earlier layer has
-        // retained the credential; only then suppress duplicate implicit lookups.
-        if (context.IsOverlay && ConfigTree.Get(context.Configuration, "PasswordFile") is null
-            && !string.IsNullOrWhiteSpace(context.InheritedSettings?.GetValueOrDefault(PasswordKey))) return hash;
-        var path = PasswordPath(context);
+        // The file was appended after every default provider and the external Config.
+        // Reapply that final authority in every migrated legacy layer, including
+        // when an earlier layer already retained the same bootstrap credential.
+        var path = Path.GetFullPath(PasswordFile(context), context.ContentRootDirectory ?? context.WorkingDirectory);
         try
         {
             var password = ConfigFileFormat.Read(File.ReadAllText(path), "password.json");
