@@ -127,7 +127,7 @@ docker run --detach --name "$application_container" --network "$network" \
     --env ASPNETCORE_ENVIRONMENT=Production \
     --env 'ConnectionStrings__sdw=Host=postgres;Username=postgres;Password=postgres;Database=sdw_container' \
     --env 'JwtSecret=delivery-smoke-jwt-secret-with-at-least-32-characters' \
-    --env Version=2.3.0 \
+    --env SDW_CONFIG_VERSION=2.3.0 \
     --env 'StateDirectory=/tmp/sdw-state' \
     --env 'DataProtection__KeyRingPath=/tmp/sdw-keys' \
     --env 'FileStore__Local=/tmp/sdw-downloads' \
@@ -167,7 +167,7 @@ sudo --user=sdw-redive env \
     ASPNETCORE_CONTENTROOT=/usr/lib/sdw-redive \
     "ConnectionStrings__sdw=Host=127.0.0.1;Port=$database_port;Username=postgres;Password=postgres;Database=sdw_package" \
     'JwtSecret=delivery-smoke-jwt-secret-with-at-least-32-characters' \
-    Version=2.3.0 \
+    SDW_CONFIG_VERSION=2.3.0 \
     'StateDirectory=/var/lib/sdw-redive' \
     'DataProtection__KeyRingPath=/var/lib/sdw-redive/data-protection-keys' \
     'FileStore__Local=/var/lib/sdw-redive/downloads' \

@@ -7,15 +7,16 @@ namespace SecondDimensionWatcherReDive.ConfigMigration.Migrations;
 internal sealed class UseCanonicalConfiguration : IConfigMigration
 {
     private readonly ConditionalWeakTable<ConfigMigrationContext, LegacyCredential> credentials = new();
-    private sealed record LegacyCredential(string? Hash);
+    private sealed record LegacyCredential(string? Hash, string? FilePath);
     private const string PasswordKey = "Authentication:BootstrapPasswordHash";
+    private const string CredentialsFileKey = "Authentication:BootstrapCredentialsFile";
     public ConfigMigrationDefinition Definition { get; } = new(
         new Version(2, 2, 1), new Version(2, 3, 0),
         "Use explicit AI protocol, state directory and bootstrap credentials.", MayRequireUserIntervention: true);
 
     public IReadOnlyList<ConfigMigrationChoice> GetRequiredChoices(ConfigMigrationContext context)
     {
-        var hash = credentials.GetValue(context, static value => new(ReadLegacyHash(value))).Hash;
+        var hash = credentials.GetValue(context, ReadLegacyCredential).Hash;
         var current = ConfigTree.Text(context.Configuration, PasswordKey);
         var choices = new List<ConfigMigrationChoice>();
         if (!string.IsNullOrWhiteSpace(hash) && !string.IsNullOrWhiteSpace(current) && hash != current)
@@ -32,10 +33,28 @@ internal sealed class UseCanonicalConfiguration : IConfigMigration
     public void Up(ConfigMigrationContext context, IReadOnlyDictionary<string, string> selections)
     {
         var config = context.Configuration;
-        var hash = credentials.GetValue(context, static value => new(ReadLegacyHash(value))).Hash;
-        if (!string.IsNullOrWhiteSpace(hash) && (string.IsNullOrWhiteSpace(ConfigTree.Text(config, PasswordKey))
-                                              || selections.GetValueOrDefault(PasswordKey) == "legacy"))
-            ConfigTree.Set(config, PasswordKey, JsonValue.Create(hash));
+        var credential = credentials.GetValue(context, ReadLegacyCredential);
+        var hash = credential.Hash;
+        if (selections.GetValueOrDefault(PasswordKey) == "current")
+        {
+            // An empty value also hides a file reference from lower-priority layers.
+            ConfigTree.Set(config, CredentialsFileKey, JsonValue.Create(""));
+        }
+        else if (!string.IsNullOrWhiteSpace(hash))
+        {
+            if (credential.FilePath is { } file)
+            {
+                // Keep protected credentials in their original file. Appsettings may
+                // be world-readable or tracked in source control, so persist only a path.
+                ConfigTree.Set(config, CredentialsFileKey, JsonValue.Create(file));
+                ConfigTree.Remove(config, PasswordKey);
+            }
+            else
+            {
+                ConfigTree.Set(config, PasswordKey, JsonValue.Create(hash));
+                ConfigTree.Set(config, CredentialsFileKey, JsonValue.Create(""));
+            }
+        }
         var passwordPath = PasswordPath(context);
         if (selections.GetValueOrDefault("StateDirectory") == "legacy")
         {
@@ -65,27 +84,60 @@ internal sealed class UseCanonicalConfiguration : IConfigMigration
     private static string PasswordFile(ConfigMigrationContext context) =>
         context.LegacyPasswordFile ?? ConfigTree.Text(context.Configuration, "PasswordFile") ?? "password.json";
 
+    private static bool TryGetCredentialsFile(ConfigMigrationContext context, out string? file)
+    {
+        if (ConfigTree.Get(context.Configuration, "Authentication") is JsonObject authentication
+            && authentication.ContainsKey("BootstrapCredentialsFile"))
+        {
+            file = ConfigTree.Text(context.Configuration, CredentialsFileKey);
+            return true;
+        }
+        file = null;
+        // An explicit legacy file in this layer overrides a lower canonical
+        // reference. The preselected final legacy path still supplies its authority.
+        if (context.Configuration.ContainsKey("PasswordFile")) return false;
+        return context.InheritedSettings?.TryGetValue(CredentialsFileKey, out file) == true;
+    }
+
     // The old state defaults used Path.GetFullPath from the process cwd, while
     // AddJsonFile used the content-root provider to locate credential contents.
-    private static string PasswordPath(ConfigMigrationContext context) =>
-        Path.GetFullPath(PasswordFile(context), context.WorkingDirectory);
+    private static string PasswordPath(ConfigMigrationContext context)
+    {
+        // Once the lower layer is canonical, its state directory records the old
+        // cwd-based default. The credentials reference instead records a content-
+        // root-based path and must not become the state base on later startups.
+        if (ConfigTree.Get(context.Configuration, "PasswordFile") is null
+            && context.InheritedSettings?.GetValueOrDefault("StateDirectory") is { } inheritedState
+            && !string.IsNullOrWhiteSpace(inheritedState))
+            return Path.Combine(Path.GetFullPath(inheritedState, context.WorkingDirectory), "password.json");
+        return Path.GetFullPath(PasswordFile(context), context.WorkingDirectory);
+    }
 
-    private static string? ReadLegacyHash(ConfigMigrationContext context)
+    private static LegacyCredential ReadLegacyCredential(ConfigMigrationContext context)
     {
         var hash = ConfigTree.Text(context.Configuration, "Password:Value");
+        var hasReference = TryGetCredentialsFile(context, out var reference);
+        // A previous migration may already have removed PasswordFile from a lower
+        // layer. Its canonical reference still carries the final file authority.
+        // An explicit empty reference records the user's decision to disable it.
+        if (hasReference && string.IsNullOrWhiteSpace(reference)) return new(hash, null);
         // The file was appended after every default provider and the external Config.
         // Reapply that final authority in every migrated legacy layer, including
         // when an earlier layer already retained the same bootstrap credential.
-        var path = Path.GetFullPath(PasswordFile(context), context.ContentRootDirectory ?? context.WorkingDirectory);
+        var path = Path.GetFullPath(hasReference ? reference! : PasswordFile(context),
+            context.ContentRootDirectory ?? context.WorkingDirectory);
         try
         {
             var password = ConfigFileFormat.Read(File.ReadAllText(path), "password.json");
             // The old password file was the last provider and overrode inline credentials.
-            hash = ConfigTree.Text(password, "Password:Value") ?? hash;
+            var fileHash = ConfigTree.Text(password, PasswordKey) ?? ConfigTree.Text(password, "Password:Value");
+            if (!string.IsNullOrWhiteSpace(fileHash)) return new(fileHash, path);
+            if (hasReference)
+                throw new ConfigMigrationException("The bootstrap credentials file does not contain a password hash.");
         }
-        catch (FileNotFoundException) { }
-        catch (DirectoryNotFoundException) { }
-        return hash;
+        catch (FileNotFoundException) when (!hasReference) { }
+        catch (DirectoryNotFoundException) when (!hasReference) { }
+        return new(hash, null);
     }
 
     private static bool HasStateConflict(ConfigMigrationContext context)

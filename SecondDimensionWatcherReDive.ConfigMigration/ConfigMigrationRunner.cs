@@ -8,7 +8,7 @@ public sealed class ConfigMigrationRunner
     public static Version BaselineVersion { get; } = new(2, 2, 0);
     private static readonly HashSet<string> MigrationPaths = new(StringComparer.OrdinalIgnoreCase)
     {
-        "Version", "PasswordFile", "Password:Value", "StateDirectory", "Authentication:BootstrapPasswordHash",
+        "Version", "PasswordFile", "Password:Value", "StateDirectory", "Authentication:BootstrapPasswordHash", "Authentication:BootstrapCredentialsFile",
         "AI:Engine", "AI:Provider",
         "AI:OpenAI:ApiKey", "AI:OpenAI:BaseUrl", "AI:OpenAI:ApiMode", "AI:OpenAI:Model", "AI:OpenAI:MaxTokens",
         "AI:Anthropic:ApiKey", "AI:Anthropic:BaseUrl", "AI:Anthropic:Model", "AI:Anthropic:MaxTokens", "AI:Anthropic:ApiVersion",
@@ -55,6 +55,7 @@ public sealed class ConfigMigrationRunner
                 document, path, workingDirectory, options, cancellationToken);
             var (updated, result) = await MigrateAsync(document, workingDirectory, chooseAsync, cancellationToken, effectiveOptions);
             if (result.AppliedMigrations.Count == 0) return result;
+            using var migrationLocks = ConfigFileWriter.AcquireMigrationLocks(path, inheritedSources.Select(source => source.Path));
             foreach (var source in inheritedSources)
                 if (!(await File.ReadAllBytesAsync(source.Path, cancellationToken)).AsSpan().SequenceEqual(source.Content))
                     throw new ConfigMigrationException("Inherited configuration changed during migration. No migration was written; retry with the current context.");

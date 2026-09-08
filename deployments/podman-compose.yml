@@ -50,7 +50,7 @@ services:
     ports:
       - "5097:8080"
     environment:
-      Version: "2.3.0"
+      SDW_CONFIG_VERSION: "2.3.0"
       ConnectionStrings__sdw: "Host=db;Username=sdw;Password=sdw_password;Database=sdw"
       JwtSecret: "CHANGE_ME_TO_A_32_CHAR_RANDOM_STRING"
       FileStore__Local: "/downloads"

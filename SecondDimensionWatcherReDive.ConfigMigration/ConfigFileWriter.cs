@@ -20,7 +20,7 @@ internal static class ConfigFileWriter
             windowsSecurity = new FileInfo(path).GetAccessControl(AccessControlSections.Access);
             windowsSecurity.SetAccessRuleProtection(isProtected: true, preserveInheritance: true);
         }
-        using var migrationLock = OpenMigrationLock(path, windowsSecurity);
+        // The runner holds every target/inheritance lock through this replacement.
         if (!(await File.ReadAllBytesAsync(path, cancellationToken)).AsSpan().SequenceEqual(original))
             throw new ConfigMigrationException("Configuration changed during migration. No migration was written; retry with the new file.");
         var options = new FileStreamOptions
@@ -67,14 +67,59 @@ internal static class ConfigFileWriter
         }
     }
 
-    private static FileStream OpenMigrationLock(string path, FileSecurity? windowsSecurity)
+    internal static IDisposable AcquireMigrationLocks(string targetPath, IEnumerable<string> inheritedPaths)
+    {
+        var locks = new MigrationLocks();
+        var comparer = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+        try
+        {
+            foreach (var path in inheritedPaths.Append(targetPath).Distinct(comparer).Order(comparer))
+            {
+                try
+                {
+                    FileSecurity? security = null;
+                    if (OperatingSystem.IsWindows())
+                    {
+                        security = new FileInfo(path).GetAccessControl(AccessControlSections.Access);
+                        security.SetAccessRuleProtection(isProtected: true, preserveInheritance: true);
+                    }
+                    locks.Handles.Add(OpenMigrationLock(path, security,
+                        comparer.Equals(path, targetPath) ? FileAccess.ReadWrite : FileAccess.Read));
+                }
+                catch (Exception exception) when (!comparer.Equals(path, targetPath)
+                                                  && exception is IOException or UnauthorizedAccessException)
+                {
+                    throw new ConfigMigrationException($"Cannot lock inherited configuration '{path}'. " +
+                        "An existing .migration.lock must be readable and not held by another migration. " +
+                        "Creating the first lock requires a writable directory; an authorized account can create a lock with configuration-compatible access first.");
+                }
+            }
+            return locks;
+        }
+        catch
+        {
+            locks.Dispose();
+            throw;
+        }
+    }
+
+    private sealed class MigrationLocks : IDisposable
+    {
+        internal List<FileStream> Handles { get; } = [];
+        public void Dispose()
+        {
+            foreach (var handle in Handles.AsEnumerable().Reverse()) handle.Dispose();
+        }
+    }
+
+    private static FileStream OpenMigrationLock(string path, FileSecurity? windowsSecurity, FileAccess access)
     {
         // Keep one stable inode for cooperating writers, but do not leave an
         // administrator-only sidecar beside a configuration owned by the service.
         var lockPath = path + ".migration.lock";
         if (OperatingSystem.IsWindows())
             return new FileInfo(lockPath).Create(FileMode.OpenOrCreate,
-                FileSystemRights.Read | FileSystemRights.Write, FileShare.None, 4096,
+                FileSystemRights.Read | (access == FileAccess.ReadWrite ? FileSystemRights.Write : 0), FileShare.None, 4096,
                 FileOptions.None, windowsSecurity ?? throw new IOException("Cannot preserve migration lock access control."));
 
         FileStream migrationLock;
@@ -92,7 +137,7 @@ internal static class ConfigFileWriter
         {
             // Existing compatible locks need no chmod/chown privilege. In
             // particular, an ACL-authorized account may use an inode it does not own.
-            return new FileStream(lockPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+            return new FileStream(lockPath, FileMode.Open, access, FileShare.None);
         }
         try
         {

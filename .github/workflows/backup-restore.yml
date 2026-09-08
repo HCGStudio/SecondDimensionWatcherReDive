@@ -34,7 +34,7 @@ jobs:
       PGHOST: 127.0.0.1
       PGPORT: 5432
       ASPNETCORE_ENVIRONMENT: Production
-      Version: "2.3.0"
+      SDW_CONFIG_VERSION: "2.3.0"
       JwtSecret: backup-restore-drill-jwt-secret-with-at-least-32-bytes
     steps:
       - uses: actions/checkout@v7
