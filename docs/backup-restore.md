@@ -147,7 +147,7 @@ curl --fail -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json
   https://sdw.example/api/data-transfer/import
 ```
 
-导出在一个 repeatable-read 快照内读取所有类别；导出与导入共同限制为每类 10,000 条、完整导入请求 10 MiB，因此不会生成自身无法重新导入的文件。envelope 内的 SHA-256 在任何写入前验证。`skip` 可安全重复导入；`overwrite` 更新稳定键冲突项；`fail` 在首个冲突处返回 409，事务不会提交。生产 Npgsql 重试的每个 attempt 都使用全新 scope、DbContext 和 mapper 状态。
+导出在一个 repeatable-read 快照内读取所有类别；导出与导入共同限制为每类 10,000 条、完整导入请求 10 MiB，因此不会生成自身无法重新导入的文件。envelope 内的 SHA-256 在任何写入前验证。`skip` 可安全重复导入；`overwrite` 更新稳定键冲突项；`fail` 在首个冲突处返回 409，事务不会提交。生产 Npgsql 重试的每个 attempt 都使用全新 scope、DbContext 和 mapper 状态。人工修正对应的 release 若仍有活动中的集数下载认领，`skip` 会计入冲突并跳过该项；`fail` 和 `overwrite` 返回 409 并回滚，待提交结束后可重新导入。
 
 订阅以 URL、规则以 TMDB id + pattern、人工修正以 release URL + title + publish time、播放进度以虚拟路径匹配。目标实例缺少对应 release 或虚拟文件时会明确计入 skipped，不会制造指向不存在媒体的记录。人工修正不会覆盖目标中已有同 TMDB Animation 的全局名称、原名或海报，也不会改动共享该 Animation 的其他 release；物理路径由目标实例的映射预览与事务性替换流程处理。
 
