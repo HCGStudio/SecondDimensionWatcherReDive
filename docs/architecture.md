@@ -217,8 +217,9 @@ React + TypeScript with Tailwind CSS for styling and Radix UI for accessible int
 Frontend UI strings are localized via **react-i18next** with bundled translation resources (no async HTTP loading). Supported languages: **zh-CN** (default/source), **en**, **ja**.
 
 - `src/i18n/index.ts` — calls `i18next.init()` at module load. Uses `i18next-browser-languagedetector` with order `localStorage → navigator`, persisted under `localStorage["i18n.lng"]`. `fallbackLng` is `zh-CN`. `nonExplicitSupportedLngs: true` so `en-US` → `en`, `zh-TW` → `zh-CN`. Resources are bundled (no Suspense needed: `react.useSuspense: false`).
-- `src/i18n/resources.ts` — static `import` of every locale JSON, assembled into the resources map.
+- `src/i18n/resources.ts` — static `import` of eager locale JSON files, assembled into the resources map.
 - `src/i18n/locales/{zh-CN,en,ja}/{common,auth,errors,animation,files,chat,feeds,season,tasks,player}.json` — 10 namespaces grouped by feature/page surface. To add a string, edit all three language files. To add a language, drop a folder of JSON files matching the structure and add it to `supportedLanguages` in `src/i18n/index.ts`.
+- `src/i18n/chatResources.ts` — imported by the lazy Chat page; registers all three `chat.json` bundles before Chat components render, keeping Chat-only translations out of the initial and home-route JavaScript.
 - `src/App.tsx` — imports `./i18n` so init runs before `createRoot`, then bridges `i18n.on("languageChanged")` to `setDayjsLocale(lng)` and `document.documentElement.lang`.
 - `src/utils/initDayjs.ts` exports `setDayjsLocale(lng)` which dynamically imports the matching dayjs locale module and calls `dayjs.locale(...)`. Plugins (`duration`, `relativeTime`) are extended once at module load.
 - The language switcher lives inside the user dropdown in `AppHeader` (Radix DropdownMenu). It calls `i18n.changeLanguage(lng)` directly; persistence is automatic via the detector. Language labels are always rendered in their native form (`中文（简体）` / `English` / `日本語`) regardless of UI language — see `languageLabels` in `src/i18n/index.ts`.
