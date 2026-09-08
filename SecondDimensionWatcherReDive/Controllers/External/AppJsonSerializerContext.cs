@@ -28,6 +28,7 @@ namespace SecondDimensionWatcherReDive.Controllers.External;
 [JsonSerializable(typeof(WatchlistRequest))]
 [JsonSerializable(typeof(WatchlistEntry[]))]
 [JsonSerializable(typeof(MultiSourceSubscription))]
+[JsonSerializable(typeof(MultiSourceConfirmationRequest))]
 [JsonSerializable(typeof(List<MultiSourceSubscriptionStatus>))]
 [JsonSerializable(typeof(List<MultiSourceEpisodeDecision>))]
 [JsonSerializable(typeof(MediaTimelineRequest))]

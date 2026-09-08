@@ -9,7 +9,7 @@ public sealed class MultiSourceCoordinator(IMultiSourceSubscriptionRepository su
     INotificationPublisher notifications)
 {
     public async Task<CompletionSubmissionResult?> ConfirmAsync(MultiSourceSubscription subscription,
-        int episode, CancellationToken cancellationToken)
+        int episode, Guid expectedReleaseId, CancellationToken cancellationToken)
     {
         var currentSubscription = (await subscriptions.GetAllAsync(cancellationToken))
             .FirstOrDefault(candidate => candidate.Id == subscription.Id);
@@ -19,10 +19,11 @@ public sealed class MultiSourceCoordinator(IMultiSourceSubscriptionRepository su
         var decision = (await subscriptions.GetDecisionsAsync(subscription.Id, cancellationToken))
             .FirstOrDefault(x => x.Episode == episode && x.Outcome == "pending_confirmation");
         if (decision?.SelectedReleaseId is not { } releaseId
+            || releaseId != expectedReleaseId
             || decision.SelectedSourceFeedId is not { } sourceFeedId
             || !subscription.FeedIds.Contains(sourceFeedId)) return null;
         var result = await completion.SubmitConfirmedAsync(new(subscription.TmdbId, subscription.Season,
-            [new(episode, releaseId)]), subscription, cancellationToken);
+            [new(episode, expectedReleaseId)]), subscription, cancellationToken);
         await EvaluateAsync(subscription, cancellationToken);
         return result.Single();
     }
@@ -41,6 +42,7 @@ public sealed class MultiSourceCoordinator(IMultiSourceSubscriptionRepository su
         {
             var now = DateTimeOffset.UtcNow;
             var old = previous.GetValueOrDefault(group.Key);
+            var failedAt = old?.Outcome == "failed" && !retryFailures ? old.UpdatedAt : (DateTimeOffset?)null;
             var firstSeen = group.Min(x => x.IngestedAt ?? x.PublishTime);
             if (firstSeen < subscription.CreatedAt) firstSeen = subscription.CreatedAt;
             var started = old?.WaitStartedAt ?? firstSeen;
@@ -48,21 +50,31 @@ public sealed class MultiSourceCoordinator(IMultiSourceSubscriptionRepository su
             var eligible = group.Select(x => (Info: x, Candidate: completion.Candidate(x, subscription.ToPolicy(x.SourceFeedId!.Value))))
                 .Where(x => x.Candidate.Eligible).OrderBy(x => subscription.FeedIds.ToList().IndexOf(x.Info.SourceFeedId!.Value))
                 .ThenByDescending(x => x.Candidate.Score).ThenByDescending(x => x.Info.PublishTime).ThenBy(x => x.Info.Id).ToList();
-            var current = all.FirstOrDefault(x => x.Episode == group.Key && x.IsDownloadFinished
-                && x.DownloadCancellationId is null && mapped.Contains(x.Id));
-            var tracked = all.Where(x => x.Episode == group.Key && x.IsDownloadTracked && !x.IsDownloadFinished).ToList();
-            var downloading = tracked.FirstOrDefault(x => x.DownloadCancellationId is null);
+            var current = all.Where(x => x.Episode == group.Key && x.IsDownloadFinished
+                    && x.DownloadCancellationId is null && mapped.Contains(x.Id))
+                .OrderByDescending(x => IsLaterAcquisition(x, failedAt)).FirstOrDefault();
+            var tracked = all.Where(x => x.Episode == group.Key && x.IsDownloadTracked && !x.IsDownloadFinished)
+                .OrderByDescending(x => IsLaterAcquisition(x, failedAt)).ToList();
+            var downloading = tracked.FirstOrDefault(x => x.DownloadCancellationId is null
+                && (failedAt is null || IsLaterAcquisition(x, failedAt)));
             var pendingMappings = all.Where(x => x.Episode == group.Key && x.IsDownloadFinished
-                && x.DownloadCancellationId is null && !mapped.Contains(x.Id));
+                    && x.DownloadCancellationId is null && !mapped.Contains(x.Id))
+                .OrderByDescending(x => IsLaterAcquisition(x, failedAt));
             var activeUpgrade = false;
+            DateTimeOffset? activeUpgradeStartedAt = null;
             if (downloading is null)
             {
                 foreach (var pending in pendingMappings)
                 {
                     // Failed activation may retain staged files indefinitely. It
                     // must not hide a playable incumbent or block later upgrades.
-                    activeUpgrade = await upgrades.FindActiveByCandidateAsync(pending.Id, cancellationToken) is not null;
-                    if (current is not null && !activeUpgrade) continue;
+                    var operation = await upgrades.FindActiveByCandidateAsync(pending.Id, cancellationToken);
+                    activeUpgrade = operation is not null;
+                    var laterDownload = IsLaterAcquisition(pending, failedAt);
+                    if (failedAt is { } previousFailure && !laterDownload
+                        && !(operation?.CreatedAt > previousFailure)) continue;
+                    if (current is not null && !activeUpgrade && !laterDownload) continue;
+                    activeUpgradeStartedAt = operation?.CreatedAt;
                     downloading = pending;
                     break;
                 }
@@ -71,11 +83,15 @@ public sealed class MultiSourceCoordinator(IMultiSourceSubscriptionRepository su
             // download or playable release, but still blocks a fresh automatic start.
             if (downloading is null && current is null)
                 downloading = tracked.FirstOrDefault(x => x.DownloadCancellationId is not null);
-            // A later manual or independent acquisition supersedes an old failure.
-            // Keep failed submissions terminal only while there is no live acquisition;
-            // an attempt still being compensated does not authorize an automatic retry.
-            if (old?.Outcome == "failed" && !retryFailures && current is null
-                && (downloading is null || downloading.DownloadCancellationId is not null)) continue;
+            // An upgrade's original incumbent already existed when it failed. Only
+            // a later acquisition can supersede that failure without an explicit retry;
+            // cancellation and staged files from the failed attempt cannot reopen it.
+            if (failedAt is { } failureTime)
+            {
+                var laterAcquisition = new[] { current, downloading }.Any(release =>
+                    release is not null && IsLaterAcquisition(release, failedAt));
+                if (!laterAcquisition && !(activeUpgradeStartedAt > failureTime)) continue;
+            }
             var selected = eligible.FirstOrDefault();
             var outcome = "waiting";
             var reason = "waiting_for_primary";
@@ -89,7 +105,8 @@ public sealed class MultiSourceCoordinator(IMultiSourceSubscriptionRepository su
             else if (current != null)
             {
                 selectedId = current.Id; outcome = "downloaded"; reason = "existing_release_retained";
-                if (subscription.Mode == "AutoDownload" && subscription.EnableVersionUpgrade && selected.Info != null)
+                if (failedAt is null && subscription.Mode == "AutoDownload"
+                    && subscription.EnableVersionUpgrade && selected.Info != null)
                 {
                     var retainFallbackSource = current.SourceFeedId is { } currentFeedId
                         && subscription.FeedIds.Skip(1).Contains(currentFeedId);
@@ -137,7 +154,7 @@ public sealed class MultiSourceCoordinator(IMultiSourceSubscriptionRepository su
                 }
             }
             var persisted = await subscriptions.SaveDecisionAsync(new(subscription.Id, group.Key, started, until, selectedId,
-                outcome, reason, now), subscription, cancellationToken);
+                outcome, reason, DateTimeOffset.UtcNow), subscription, cancellationToken);
             if (persisted is null) continue;
             // False also means that a target already has this event. Keep retrying
             // eligible decisions after persistence failures (or disabled channels);
@@ -149,6 +166,11 @@ public sealed class MultiSourceCoordinator(IMultiSourceSubscriptionRepository su
                     $"S{subscription.Season}E{group.Key}: {selected.Info?.Title}", "/feeds"), cancellationToken);
         }
     }
+
+    private static bool IsLaterAcquisition(AnimationInfo release, DateTimeOffset? failedAt) =>
+        failedAt is { } failureTime && release.DownloadCancellationId is null
+        && (release.DownloadStartTime > failureTime
+            || release.IsDownloadFinished && release.DownloadEndTime > failureTime);
 }
 
 public sealed class MultiSourceBackgroundService(IServiceScopeFactory scopeFactory,
