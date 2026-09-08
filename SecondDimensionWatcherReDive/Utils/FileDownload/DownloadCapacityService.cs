@@ -228,13 +228,30 @@ public sealed class DownloadCapacityService(
         // Older qBittorrent exposes only the default save volume. This fallback
         // is valid solely when the actual save directory is that default and no
         // separate incomplete-download directory is enabled.
-        if (!root.TryGetProperty("save_path", out var path) || path.GetString()?.TrimEnd('/', '\\') != SavePath.TrimEnd('/', '\\'))
+        if (!root.TryGetProperty("save_path", out var path) || !SameRemoteSavePath(path.GetString(), SavePath))
             throw new IOException("Configure DownloadCapacity:LocalVolumePath for the actual shared write volume, or use qBittorrent path-specific capacity reporting without a separate incomplete directory.");
         using var data = JsonDocument.Parse(await client.GetStringAsync("/api/v2/sync/maindata", cancellationToken));
         if (data.RootElement.TryGetProperty("server_state", out var server)
             && server.TryGetProperty("free_space_on_disk", out var free) && free.TryGetInt64(out bytes) && bytes >= 0)
             return bytes;
         throw new IOException("The downloader did not report usable free-space information.");
+    }
+
+    internal static bool SameRemoteSavePath(string? first, string second)
+    {
+        if (string.IsNullOrWhiteSpace(first) || string.IsNullOrWhiteSpace(second)) return false;
+        static bool IsDrivePath(string value) => value.Length >= 3 && char.IsAsciiLetter(value[0])
+            && value[1] == ':' && value[2] is '/' or '\\';
+        static bool IsUncPath(string value) => value.StartsWith("\\\\", StringComparison.Ordinal)
+            || value.StartsWith("//", StringComparison.Ordinal);
+        // Two slash-only paths may be POSIX (including a double-slash root).
+        // Fold UNC casing only with an explicit Windows backslash spelling.
+        var windows = IsDrivePath(first) || IsDrivePath(second)
+            || first.StartsWith("\\\\", StringComparison.Ordinal) || second.StartsWith("\\\\", StringComparison.Ordinal);
+        if (!windows) return string.Equals(first.TrimEnd('/'), second.TrimEnd('/'), StringComparison.Ordinal);
+        if (!(IsDrivePath(first) && IsDrivePath(second) || IsUncPath(first) && IsUncPath(second))) return false;
+        return string.Equals(first.Replace('\\', '/').TrimEnd('/'), second.Replace('\\', '/').TrimEnd('/'),
+            StringComparison.OrdinalIgnoreCase);
     }
 
     internal static DriveInfo? FindDrive(string path)
