@@ -213,7 +213,10 @@ test.describe("production boundary journeys", () => {
 
     await page.goto("/feeds");
     await page
-      .getByRole("button", { name: "Configure automation for 葬送的芙莉莲" })
+      .getByRole("button", {
+        name: "Configure automation for 葬送的芙莉莲",
+        exact: true,
+      })
       .click();
     await expect(
       page.getByRole("heading", { name: "Automation policy" }),

@@ -4,6 +4,7 @@ using System.Data;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
+using SecondDimensionWatcherReDive.Framework.Feed;
 using SecondDimensionWatcherReDive.Framework.FileDownload;
 using SecondDimensionWatcherReDive.Utils.MetadataReview;
 
@@ -11,7 +12,8 @@ namespace SecondDimensionWatcherReDive.Repositories;
 
 public class AnimationInfoRepository(
     Models.ApplicationContext context,
-    DbContextOptions<Models.ApplicationContext> contextOptions) : IAnimationInfoRepository
+    DbContextOptions<Models.ApplicationContext> contextOptions,
+    ISubscriptionAutomationMatcher automationMatcher) : IAnimationInfoRepository
 {
     public async Task<PagedResult<AnimationInfo>> GetPagedAsync(int skip, int take, CancellationToken cancellationToken)
     {
@@ -830,6 +832,126 @@ public class AnimationInfoRepository(
         });
     }
 
+    public async Task<SubscriptionAutomationMode?> RefreshStandaloneAutomationAsync(
+        Guid id,
+        CancellationToken cancellationToken) =>
+        (await RefreshStandaloneAutomationCoreAsync(id, false, cancellationToken))?.Mode;
+
+    public async Task<IReadOnlyList<Guid>> GetPendingStandaloneAutomationIdsAsync(
+        Guid? afterId, int take, CancellationToken cancellationToken) =>
+        await context.AnimationInfo.AsNoTracking()
+            .Where(info => info.StandaloneAutomationPending && (afterId == null || info.Id.CompareTo(afterId.Value) > 0))
+            .OrderBy(info => info.Id).Select(info => info.Id).Take(Math.Clamp(take, 1, 200))
+            .ToListAsync(cancellationToken);
+
+    public Task<StandaloneAutomationDecision?> RefreshPendingStandaloneAutomationAsync(
+        Guid id, CancellationToken cancellationToken) =>
+        RefreshStandaloneAutomationCoreAsync(id, true, cancellationToken);
+
+    public Task CompleteStandaloneAutomationAsync(
+        Guid id, long expectedStateVersion, SubscriptionAutomationPolicy expectedPolicy, CancellationToken cancellationToken) =>
+        context.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
+        {
+            await using var writeContext = new Models.ApplicationContext(contextOptions);
+            await using var transaction = await writeContext.Database.BeginTransactionAsync(cancellationToken);
+            await MappingTransactionLock.AcquireAsync(writeContext, cancellationToken);
+            var entity = await MappingTransactionLock.LockAnimationInfoAsync(writeContext, id, cancellationToken);
+            if (entity is null || !entity.StandaloneAutomationPending || entity.StateVersion != expectedStateVersion
+                || entity.SourceFeedId != expectedPolicy.FeedId || entity.IsDownloadTracked || entity.IsDownloadFinished
+                || entity.IsRetiredRelease || expectedPolicy.Mode is not (SubscriptionAutomationMode.NotifyOnly or SubscriptionAutomationMode.ManualConfirm)
+                || await writeContext.Set<Models.MultiSourceFeed>()
+                    .AnyAsync(source => source.FeedId == expectedPolicy.FeedId, cancellationToken)) return;
+            // A policy edit does not increment the release revision. Hold the current
+            // policy row through acknowledgement and compare every evaluated setting.
+            var policy = await writeContext.SubscriptionAutomationPolicies
+                .FromSqlInterpolated($"SELECT * FROM \"SubscriptionAutomationPolicies\" WHERE \"FeedId\" = {expectedPolicy.FeedId} FOR SHARE")
+                .AsNoTracking().SingleOrDefaultAsync(cancellationToken);
+            if (policy is null || !MatchesStandalonePolicy(policy.ToRecord(), expectedPolicy)) return;
+            entity.StandaloneAutomationPending = false;
+            await writeContext.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        });
+
+    private static bool MatchesStandalonePolicy(SubscriptionAutomationPolicy current, SubscriptionAutomationPolicy expected) =>
+        current.FeedId == expected.FeedId && current.Mode == expected.Mode &&
+        current.CreatedAt == expected.CreatedAt && current.UpdatedAt == expected.UpdatedAt &&
+        current.SubtitleGroups.SequenceEqual(expected.SubtitleGroups) &&
+        current.Resolutions.SequenceEqual(expected.Resolutions) && current.Codecs.SequenceEqual(expected.Codecs) &&
+        current.Languages.SequenceEqual(expected.Languages) && current.ExcludedKeywords.SequenceEqual(expected.ExcludedKeywords) &&
+        current.MinSizeBytes == expected.MinSizeBytes && current.MaxSizeBytes == expected.MaxSizeBytes &&
+        current.EnableVersionUpgrade == expected.EnableVersionUpgrade &&
+        current.MinimumUpgradeScore == expected.MinimumUpgradeScore && current.UpgradeRollbackHours == expected.UpgradeRollbackHours;
+
+    private async Task<StandaloneAutomationDecision?> RefreshStandaloneAutomationCoreAsync(
+        Guid id, bool requirePending, CancellationToken cancellationToken) =>
+        await context.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
+        {
+            await using var writeContext = new Models.ApplicationContext(contextOptions);
+            await using var transaction = await writeContext.Database.BeginTransactionAsync(cancellationToken);
+            await MappingTransactionLock.AcquireAsync(writeContext, cancellationToken);
+            var entity = await MappingTransactionLock.LockAnimationInfoAsync(writeContext, id, cancellationToken);
+            if (entity is null || requirePending && !entity.StandaloneAutomationPending) return null;
+            if (entity.IsDownloadTracked || entity.IsDownloadFinished || entity.IsRetiredRelease
+                || entity.AutomationDisposition == SubscriptionAutomationDisposition.DownloadCancelled
+                || entity.DownloadCancellationId is not null
+                   && !(entity.StandaloneAutomationPending && entity.DownloadAttemptId is null))
+            {
+                entity.StandaloneAutomationPending = false;
+                await writeContext.SaveChangesAsync(cancellationToken);
+                await transaction.CommitAsync(cancellationToken);
+                return null;
+            }
+
+            SubscriptionAutomationMode? mode = null;
+            SubscriptionAutomationEvaluation? evaluation = null;
+            SubscriptionAutomationPolicy? evaluatedPolicy = null;
+            if (entity.SourceFeedId is { } feedId
+                && !await writeContext.Set<Models.MultiSourceFeed>()
+                    .AnyAsync(source => source.FeedId == feedId, cancellationToken))
+            {
+                // Linking/unlinking uses the mapping lock; policy edits are ordered
+                // by this row lock. Authorize the restored mode after ingestion.
+                var policy = await writeContext.SubscriptionAutomationPolicies
+                    .FromSqlInterpolated($"SELECT * FROM \"SubscriptionAutomationPolicies\" WHERE \"FeedId\" = {feedId} FOR SHARE")
+                    .AsNoTracking().SingleOrDefaultAsync(cancellationToken);
+                if (policy is not null)
+                {
+                    evaluatedPolicy = policy.ToRecord();
+                    evaluation = automationMatcher.Evaluate(evaluatedPolicy, new AnimationAddRequest(
+                        entity.PublishTime, entity.Title, entity.Description, entity.DownloadUrl, entity.DownloadType,
+                        entity.AdditionalDownloadInfo, entity.SourceFeedId, entity.ReleaseSizeBytes));
+                    if (evaluation.Matched) mode = policy.Mode;
+                }
+            }
+
+            SubscriptionAutomationDisposition? disposition = mode switch
+            {
+                SubscriptionAutomationMode.NotifyOnly => SubscriptionAutomationDisposition.Notified,
+                SubscriptionAutomationMode.ManualConfirm => SubscriptionAutomationDisposition.PendingConfirmation,
+                SubscriptionAutomationMode.AutoDownload => null,
+                _ => null
+            };
+            await ResetTodoStateForTransitionAsync(writeContext, entity, entity.MetadataStatus,
+                disposition, cancellationToken);
+            var explanation = evaluation is null ? null
+                : JsonSerializer.Serialize(evaluation.Explanations, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+            // Matching is not a failed attempt. Keep durable work until the start
+            // transaction authorizes tracking, or a later refresh sees the changed policy.
+            var pending = mode == SubscriptionAutomationMode.AutoDownload
+                || (mode is SubscriptionAutomationMode.NotifyOnly or SubscriptionAutomationMode.ManualConfirm
+                    && entity.StandaloneAutomationPending);
+            if (entity.AutomationDisposition != disposition || entity.AutomationExplanationJson != explanation
+                || entity.StandaloneAutomationPending != pending)
+                entity.StateVersion = checked(entity.StateVersion + 1);
+            entity.AutomationDisposition = disposition;
+            entity.AutomationExplanationJson = explanation;
+            entity.StandaloneAutomationPending = pending;
+            await writeContext.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return mode is not null && evaluatedPolicy is not null
+                ? new StandaloneAutomationDecision(entity.ToRecord(), evaluatedPolicy) : null;
+        });
+
     public async Task<DownloadSubmissionLease?> TryStartDownloadAsync(
         Guid id,
         Guid downloadAttemptId,
@@ -851,7 +973,8 @@ public class AnimationInfoRepository(
             submissionLeaseDuration,
             startedAt,
             queuedDisposition,
-            cancellationToken);
+            cancellationToken,
+            requireStandaloneFeed: queuedDisposition == SubscriptionAutomationDisposition.AutoDownloadQueued);
         return result.IsSuccess && result.SubmissionLeaseUntil is { } leaseUntil
             ? new DownloadSubmissionLease(submissionLeaseId, leaseUntil)
             : null;
@@ -864,13 +987,14 @@ public class AnimationInfoRepository(
         Guid submissionLeaseId,
         TimeSpan submissionLeaseDuration,
         DateTimeOffset startedAt,
+        MultiSourceSubscription? expectedSubscription,
         CancellationToken cancellationToken)
     {
         if (submissionLeaseDuration <= TimeSpan.Zero || submissionLeaseDuration > TimeSpan.FromMinutes(30))
             throw new ArgumentOutOfRangeException(nameof(submissionLeaseDuration));
         var result = await TryStartDownloadCoreAsync(expected.Id, null, downloadAttemptId,
             submissionLeaseId, submissionLeaseDuration, startedAt,
-            SubscriptionAutomationDisposition.AutoDownloadQueued, cancellationToken, expected, claimId);
+            SubscriptionAutomationDisposition.AutoDownloadQueued, cancellationToken, expected, claimId, expectedSubscription);
         return result.IsSuccess && result.SubmissionLeaseUntil is { } leaseUntil
             ? new DownloadSubmissionLease(submissionLeaseId, leaseUntil)
             : null;
@@ -989,7 +1113,9 @@ public class AnimationInfoRepository(
         SubscriptionAutomationDisposition? queuedDisposition,
         CancellationToken cancellationToken,
         AnimationInfo? expectedEpisode = null,
-        Guid? episodeClaimId = null)
+        Guid? episodeClaimId = null,
+        MultiSourceSubscription? expectedSubscription = null,
+        bool requireStandaloneFeed = false)
     {
         var strategy = context.Database.CreateExecutionStrategy();
         return await strategy.ExecuteAsync(async () =>
@@ -1004,6 +1130,38 @@ public class AnimationInfoRepository(
                 cancellationToken);
             if (entity is null)
                 return new DownloadStartResult(false, null);
+
+            // Todo confirmation/retry is authorized by a pending standalone action,
+            // not the general manual-download override. A newly linked source or
+            // cleared action invalidates even a request opened before the change.
+            if (queuedDisposition == SubscriptionAutomationDisposition.ManualDownloadQueued
+                && releaseUpgradeOperationId is null
+                && !(entity.IsDownloadTracked && entity.DownloadAttemptId == downloadAttemptId)
+                && (!IsAutomationTodoState(entity.AutomationDisposition)
+                    || await writeContext.Set<Models.MultiSourceFeed>()
+                        .AnyAsync(source => source.FeedId == entity.SourceFeedId, cancellationToken)))
+                return new DownloadStartResult(false, null);
+
+            // Ordinary automatic ingestion must still have an unlinked source
+            // and a matching current policy when its tracked attempt is committed.
+            // Manual starts and claimed episode submissions do not use this gate.
+            if (requireStandaloneFeed)
+            {
+                if (entity.SourceFeedId is not { } feedId
+                    || await writeContext.Set<Models.MultiSourceFeed>()
+                        .AnyAsync(source => source.FeedId == feedId, cancellationToken))
+                    return new DownloadStartResult(false, null);
+                // Policy updates do not take the mapping lock. This row lock
+                // orders changes/removal against the automatic start transaction.
+                var policy = await writeContext.SubscriptionAutomationPolicies
+                    .FromSqlInterpolated($"SELECT * FROM \"SubscriptionAutomationPolicies\" WHERE \"FeedId\" = {feedId} FOR SHARE")
+                    .AsNoTracking().SingleOrDefaultAsync(cancellationToken);
+                if (policy?.Mode != SubscriptionAutomationMode.AutoDownload
+                    || !automationMatcher.Evaluate(policy.ToRecord(), new AnimationAddRequest(
+                        entity.PublishTime, entity.Title, entity.Description, entity.DownloadUrl, entity.DownloadType,
+                        entity.AdditionalDownloadInfo, entity.SourceFeedId, entity.ReleaseSizeBytes)).Matched)
+                    return new DownloadStartResult(false, null);
+            }
 
             await writeContext.Entry(entity).Reference(info => info.Animation).LoadAsync(cancellationToken);
             if (expectedEpisode is null && entity.Animation is not null
@@ -1044,6 +1202,32 @@ public class AnimationInfoRepository(
                 // Lock contention before tracking must not consume the metadata
                 // protection needed during the bounded remote submission.
                 acquisition.ExpiresAt = claimNow.AddMinutes(5);
+            }
+
+            if (expectedSubscription is not null)
+            {
+                // Subscription saves/deletes and feed unlinking take the same
+                // transaction lock for both automatic starts and explicit confirmations.
+                var currentSubscription = await writeContext.Set<Models.MultiSourceSubscription>()
+                    .AsNoTracking().Include(subscription => subscription.Sources)
+                    .SingleOrDefaultAsync(subscription => subscription.Id == expectedSubscription.Id, cancellationToken);
+                if (currentSubscription is null
+                    || expectedSubscription.Mode is not ("AutoDownload" or "ManualConfirm")
+                    || !MultiSourceSubscriptionRepository.MatchesSnapshot(currentSubscription, expectedSubscription)
+                    || entity.Animation?.TmdbId != currentSubscription.TmdbId
+                    || entity.Season != currentSubscription.Season
+                    || !currentSubscription.Sources.Any(source => source.FeedId == entity.SourceFeedId))
+                    return new DownloadStartResult(false, null);
+                // A confirmation authorizes the release displayed to the user. Decision
+                // writes share this lock, so a newer selection cannot win between the
+                // coordinator's comparison and the first tracked transition.
+                if (expectedSubscription.Mode == "ManualConfirm"
+                    && !(entity.IsDownloadTracked && entity.DownloadAttemptId == downloadAttemptId)
+                    && !await writeContext.Set<Models.MultiSourceEpisodeDecision>().AnyAsync(decision =>
+                        decision.SubscriptionId == expectedSubscription.Id && decision.Episode == entity.Episode
+                        && decision.Outcome == "pending_confirmation" && decision.SelectedReleaseId == entity.Id,
+                        cancellationToken))
+                    return new DownloadStartResult(false, null);
             }
 
             var databaseNow = await writeContext.Database
@@ -1108,6 +1292,7 @@ public class AnimationInfoRepository(
                     nextDisposition,
                     cancellationToken);
                 entity.IsDownloadTracked = true;
+                entity.StandaloneAutomationPending = false;
                 entity.IsDownloadFinished = false;
                 entity.DownloadAttemptId = downloadAttemptId;
                 entity.DownloadSubmissionLeaseId = null;

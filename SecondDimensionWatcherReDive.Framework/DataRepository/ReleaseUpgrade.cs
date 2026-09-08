@@ -1,5 +1,12 @@
 namespace SecondDimensionWatcherReDive.Framework.DataRepository;
 
+public enum ReleaseUpgradeInvocation
+{
+    Manual,
+    AutomaticFeed,
+    AutomaticMultiSource
+}
+
 public enum ReleaseUpgradeStatus
 {
     Downloading,
@@ -95,6 +102,7 @@ public interface IReleaseUpgradeRepository
 
     Task<ReleaseUpgradeOperation?> TryBeginAsync(
         ReleaseUpgradeCandidate candidate,
+        ReleaseUpgradeInvocation invocation,
         DateTimeOffset createdAt,
         CancellationToken cancellationToken);
 

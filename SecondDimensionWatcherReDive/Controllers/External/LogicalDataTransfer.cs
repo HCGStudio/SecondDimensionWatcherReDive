@@ -40,3 +40,33 @@ internal sealed record LogicalDataBundleV1(
     IReadOnlyList<LogicalMetadataCorrection> MetadataCorrections,
     IReadOnlyList<LogicalPlaybackProgress> PlaybackProgress,
     LogicalPlaybackPreferences? PlaybackPreferences);
+
+[Flags]
+[JsonConverter(typeof(JsonStringEnumConverter<LogicalDataCategoryV2>))]
+internal enum LogicalDataCategoryV2
+{
+    None = 0,
+    Feeds = 1,
+    AutomationPolicies = 2,
+    FileNameRules = 4,
+    MetadataCorrections = 8,
+    Playback = 16,
+    RecognitionRules = 32,
+    All = Feeds | AutomationPolicies | FileNameRules | MetadataCorrections | Playback | RecognitionRules
+}
+
+// Format 2 included recognition rules but had no multi-source payload. Its enum
+// and field order stay fixed while shared preference fields retain their behavior.
+internal sealed record LogicalDataBundleV2(
+    int FormatVersion,
+    DateTimeOffset ExportedAtUtc,
+    string ApplicationVersion,
+    LogicalDataCategoryV2 Categories,
+    IReadOnlyList<LogicalFeed> Feeds,
+    IReadOnlyList<LogicalAutomationPolicy> AutomationPolicies,
+    IReadOnlyList<LogicalFileNameRule> FileNameRules,
+    IReadOnlyList<LogicalMetadataCorrection> MetadataCorrections,
+    IReadOnlyList<LogicalPlaybackProgress> PlaybackProgress,
+    LogicalPlaybackPreferences? PlaybackPreferences,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    IReadOnlyList<LogicalRecognitionRule>? RecognitionRules);

@@ -11,15 +11,24 @@ public static class LogicalDataTransferLimits
 
 public static class LogicalDataTransferFormat
 {
-    public const int CurrentVersion = 2;
+    public const int CurrentVersion = 3;
     public const LogicalDataCategory LegacyCategories = (LogicalDataCategory)31;
+    public const LogicalDataCategory Version2Categories = (LogicalDataCategory)63;
 
     // The old string "All" now parses to the expanded enum value. Preserve its
-    // format-1 meaning before either checksum calculation or repository dispatch.
+    // original format's meaning before checksum calculation or repository dispatch.
     public static LogicalDataBundle NormalizeLegacyCategories(LogicalDataBundle bundle) =>
-        bundle.FormatVersion == 1 && bundle.Categories == LogicalDataCategory.All
-            ? bundle with { Categories = LegacyCategories }
+        bundle.FormatVersion is 1 or 2 && bundle.Categories == LogicalDataCategory.All
+            ? bundle with { Categories = SupportedCategories(bundle.FormatVersion) }
             : bundle;
+
+    public static LogicalDataCategory SupportedCategories(int formatVersion) => formatVersion switch
+    {
+        1 => LegacyCategories,
+        2 => Version2Categories,
+        CurrentVersion => LogicalDataCategory.All,
+        _ => LogicalDataCategory.None
+    };
 }
 
 [Flags]
@@ -33,7 +42,8 @@ public enum LogicalDataCategory
     MetadataCorrections = 8,
     Playback = 16,
     RecognitionRules = 32,
-    All = Feeds | AutomationPolicies | FileNameRules | MetadataCorrections | Playback | RecognitionRules
+    MultiSourceSubscriptions = 64,
+    All = Feeds | AutomationPolicies | FileNameRules | MetadataCorrections | Playback | RecognitionRules | MultiSourceSubscriptions
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter<LogicalImportConflictStrategy>))]
@@ -90,6 +100,24 @@ public sealed record LogicalRecognitionRule(
     DateTimeOffset CreatedAt,
     bool SourceFeedMissing = false);
 
+public sealed record LogicalMultiSourceSubscription(
+    string Name,
+    string TmdbId,
+    int Season,
+    IReadOnlyList<string> FeedUrls,
+    int WaitMinutes,
+    string Mode,
+    IReadOnlyList<string> SubtitleGroups,
+    IReadOnlyList<string> Resolutions,
+    IReadOnlyList<string> Codecs,
+    IReadOnlyList<string> Languages,
+    long? MinSizeBytes,
+    long? MaxSizeBytes,
+    IReadOnlyList<string> ExcludedKeywords,
+    bool EnableVersionUpgrade,
+    int MinimumUpgradeScore,
+    int UpgradeRollbackHours);
+
 public sealed record LogicalMetadataCorrection(
     Guid OperationId,
     string ReleaseDownloadUrl,
@@ -133,7 +161,9 @@ public sealed record LogicalDataBundle(
     IReadOnlyList<LogicalPlaybackProgress> PlaybackProgress,
     LogicalPlaybackPreferences? PlaybackPreferences,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    IReadOnlyList<LogicalRecognitionRule>? RecognitionRules = null);
+    IReadOnlyList<LogicalRecognitionRule>? RecognitionRules = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    IReadOnlyList<LogicalMultiSourceSubscription>? MultiSourceSubscriptions = null);
 
 public sealed record LogicalImportResult(
     int Added,

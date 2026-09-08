@@ -127,6 +127,7 @@ internal sealed class LogicalDataTransferController(
                 "automation" or "automation-policies" => LogicalDataCategory.AutomationPolicies,
                 "rules" or "filename-rules" => LogicalDataCategory.FileNameRules,
                 "recognition-rules" => LogicalDataCategory.RecognitionRules,
+                "multi-source-subscriptions" => LogicalDataCategory.MultiSourceSubscriptions,
                 "metadata" or "metadata-corrections" => LogicalDataCategory.MetadataCorrections,
                 "playback" => LogicalDataCategory.Playback,
                 _ => LogicalDataCategory.None
@@ -148,16 +149,17 @@ internal sealed class LogicalDataTransferController(
             error = "Logical export is incomplete.";
             return false;
         }
-        if (bundle.FormatVersion is not (1 or LogicalDataTransferFormat.CurrentVersion))
+        if (bundle.FormatVersion is not (1 or 2 or LogicalDataTransferFormat.CurrentVersion))
         {
             error = $"Unsupported logical export format {bundle.FormatVersion}.";
             return false;
         }
         if (bundle.Categories == LogicalDataCategory.None ||
-            (bundle.Categories & ~(bundle.FormatVersion == 1
-                ? LogicalDataTransferFormat.LegacyCategories : LogicalDataCategory.All)) != 0 ||
+            (bundle.Categories & ~LogicalDataTransferFormat.SupportedCategories(bundle.FormatVersion)) != 0 ||
             bundle.FormatVersion == 1 && bundle.RecognitionRules is not null ||
-            bundle.FormatVersion == LogicalDataTransferFormat.CurrentVersion && bundle.RecognitionRules is null)
+            bundle.FormatVersion >= 2 && bundle.RecognitionRules is null ||
+            bundle.FormatVersion < 3 && bundle.MultiSourceSubscriptions is not null ||
+            bundle.FormatVersion == LogicalDataTransferFormat.CurrentVersion && bundle.MultiSourceSubscriptions is null)
         {
             error = "Logical export contains unknown categories.";
             return false;
@@ -173,7 +175,8 @@ internal sealed class LogicalDataTransferController(
             bundle.AutomationPolicies.Count > LogicalDataTransferLimits.MaximumItemsPerCategory ||
             bundle.FileNameRules.Count > LogicalDataTransferLimits.MaximumItemsPerCategory ||
             bundle.MetadataCorrections.Count > LogicalDataTransferLimits.MaximumItemsPerCategory ||
-            bundle.PlaybackProgress.Count > LogicalDataTransferLimits.MaximumItemsPerCategory)
+            bundle.PlaybackProgress.Count > LogicalDataTransferLimits.MaximumItemsPerCategory ||
+            bundle.MultiSourceSubscriptions?.Count > LogicalDataTransferLimits.MaximumItemsPerCategory)
         {
             error = $"A logical export category exceeds {LogicalDataTransferLimits.MaximumItemsPerCategory} items.";
             return false;
@@ -188,6 +191,7 @@ internal sealed class LogicalDataTransferController(
             (!bundle.Categories.HasFlag(LogicalDataCategory.FileNameRules) && bundle.FileNameRules.Count > 0) ||
             (!bundle.Categories.HasFlag(LogicalDataCategory.MetadataCorrections) && bundle.MetadataCorrections.Count > 0) ||
             (!bundle.Categories.HasFlag(LogicalDataCategory.RecognitionRules) && bundle.RecognitionRules?.Count > 0) ||
+            (!bundle.Categories.HasFlag(LogicalDataCategory.MultiSourceSubscriptions) && bundle.MultiSourceSubscriptions?.Count > 0) ||
             (!bundle.Categories.HasFlag(LogicalDataCategory.Playback) &&
              (bundle.PlaybackProgress.Count > 0 || bundle.PlaybackPreferences is not null)))
         {
@@ -206,6 +210,16 @@ internal sealed class LogicalDataTransferController(
              recognitionRules.Select(item => item.Id).Distinct().Count() != recognitionRules.Count))
         {
             error = "Logical export contains invalid or duplicate recognition rules.";
+            return false;
+        }
+        if (bundle.MultiSourceSubscriptions is { } subscriptions &&
+            (subscriptions.Any(item => item is null || !IsValidMultiSourceSubscription(item)) ||
+             subscriptions.Select(item => (TmdbId: int.Parse(item.TmdbId, NumberStyles.None, CultureInfo.InvariantCulture), item.Season))
+                 .Distinct().Count() != subscriptions.Count ||
+             subscriptions.SelectMany(item => item.FeedUrls).Distinct(StringComparer.Ordinal).Count()
+                 != subscriptions.Sum(item => item.FeedUrls.Count)))
+        {
+            error = "Logical export contains invalid or duplicate multi-source subscriptions.";
             return false;
         }
         if (bundle.Feeds.Any(item => item.Id == Guid.Empty || !IsSafeHttpUrl(item.Url)) ||
@@ -287,17 +301,41 @@ internal sealed class LogicalDataTransferController(
         return Version.TryParse(value, out var parsed) ? parsed.Major : -1;
     }
 
+    private static bool IsValidMultiSourceSubscription(LogicalMultiSourceSubscription subscription) =>
+        !string.IsNullOrWhiteSpace(subscription.Name) && subscription.Name.Length <= 200 &&
+        int.TryParse(subscription.TmdbId, NumberStyles.None, CultureInfo.InvariantCulture, out var tmdbId) && tmdbId > 0 &&
+        subscription.Season is >= 1 and <= 100 && subscription.WaitMinutes is >= 0 and <= 43200 &&
+        subscription.FeedUrls is { Count: > 0 and <= 20 } && subscription.FeedUrls.All(IsSafeHttpUrl) &&
+        subscription.FeedUrls.Distinct(StringComparer.Ordinal).Count() == subscription.FeedUrls.Count &&
+        subscription.Mode is "NotifyOnly" or "ManualConfirm" or "AutoDownload" &&
+        subscription.MinimumUpgradeScore is >= 1 and <= 1000 && subscription.UpgradeRollbackHours is >= 1 and <= 720 &&
+        subscription.MinSizeBytes is not < 0 && subscription.MaxSizeBytes is not < 0 &&
+        !(subscription.MinSizeBytes > subscription.MaxSizeBytes) &&
+        ValidMultiSourceList(subscription.SubtitleGroups) && ValidMultiSourceList(subscription.Resolutions) &&
+        ValidMultiSourceList(subscription.Codecs) && ValidMultiSourceList(subscription.Languages) &&
+        ValidMultiSourceList(subscription.ExcludedKeywords);
+
+    private static bool ValidMultiSourceList(IReadOnlyList<string>? values) =>
+        values is { Count: <= 50 } && values.All(value => value is { Length: > 0 and <= 200 } && !string.IsNullOrWhiteSpace(value));
+
     private static string Digest(LogicalDataBundle bundle)
     {
         bundle = LogicalDataTransferFormat.NormalizeLegacyCategories(bundle);
-        var bytes = bundle.FormatVersion == 1
-            ? JsonSerializer.SerializeToUtf8Bytes(new External.LogicalDataBundleV1(
+        var bytes = bundle.FormatVersion switch
+        {
+            1 => JsonSerializer.SerializeToUtf8Bytes(new External.LogicalDataBundleV1(
                 bundle.FormatVersion, bundle.ExportedAtUtc, bundle.ApplicationVersion,
                 (External.LogicalDataCategoryV1)bundle.Categories, bundle.Feeds, bundle.AutomationPolicies,
                 bundle.FileNameRules, bundle.MetadataCorrections, bundle.PlaybackProgress, bundle.PlaybackPreferences),
-                External.AppJsonSerializerContext.Default.LogicalDataBundleV1)
-            : JsonSerializer.SerializeToUtf8Bytes(bundle,
-                External.AppJsonSerializerContext.Default.LogicalDataBundle);
+                External.AppJsonSerializerContext.Default.LogicalDataBundleV1),
+            2 => JsonSerializer.SerializeToUtf8Bytes(new External.LogicalDataBundleV2(
+                bundle.FormatVersion, bundle.ExportedAtUtc, bundle.ApplicationVersion,
+                (External.LogicalDataCategoryV2)bundle.Categories, bundle.Feeds, bundle.AutomationPolicies,
+                bundle.FileNameRules, bundle.MetadataCorrections, bundle.PlaybackProgress, bundle.PlaybackPreferences,
+                bundle.RecognitionRules), External.AppJsonSerializerContext.Default.LogicalDataBundleV2),
+            _ => JsonSerializer.SerializeToUtf8Bytes(bundle,
+                External.AppJsonSerializerContext.Default.LogicalDataBundle)
+        };
         return Convert.ToHexString(SHA256.HashData(bytes));
     }
 }

@@ -1,20 +1,59 @@
 using System.Text.RegularExpressions;
+using System.Globalization;
+using System.Text;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Framework.Feed;
 using SecondDimensionWatcherReDive.Framework.FileDownload;
 namespace SecondDimensionWatcherReDive.Utils.LibraryCompletion;
 
 public sealed partial class LibraryCompletionService(ILibraryCompletionRepository repository,
-    ISubscriptionAutomationPolicyRepository policies,
+    ISubscriptionAutomationPolicyRepository policies, IMultiSourceSubscriptionRepository sources,
     ISubscriptionAutomationMatcher matcher, IReleaseScoringService scoring,
     EpisodeAirCalendarService calendar, EpisodeDownloadService downloads)
 {
-    public static bool IsReliable(AnimationInfo info) => info.Season is > 0 && info.Episode is > 0 &&
-        info.MetadataStatus is MetadataReviewStatus.Identified or MetadataReviewStatus.Reviewed &&
-        !BatchTitle().IsMatch(info.Title);
+    public static bool IsReliable(AnimationInfo info) =>
+        IsReliable(info.Season, info.Episode, info.MetadataStatus, info.Title);
+
+    public static bool IsReliable(int? season, int? episode, MetadataReviewStatus metadataStatus, string title) =>
+        season is > 0 && episode is > 0 &&
+        metadataStatus is MetadataReviewStatus.Identified or MetadataReviewStatus.Reviewed &&
+        !BatchTitle().IsMatch(title);
 
     [GeneratedRegex(@"(?i)(?:\b(?:batch|complete|全集)\b|合集|全\s*\d+\s*[集話话]|(?:\[|\s)\d{1,3}\s*[-~～]\s*\d{1,3}(?:\]|\s))")]
     private static partial Regex BatchTitle();
+
+    internal static string PostgreSqlBatchTitlePattern { get; } = BuildPostgreSqlBatchTitlePattern();
+
+    private static string BuildPostgreSqlBatchTitlePattern()
+    {
+        // PostgreSQL \b is a backspace, and its locale-dependent word/digit/space
+        // classes differ from .NET. Match the same BMP character categories under
+        // COLLATE "C"; .NET regexes treat supplementary characters as UTF-16 units.
+        // .NET boundary word characters also include U+200C/U+200D:
+        // https://github.com/dotnet/runtime/blob/v10.0.0/src/libraries/System.Text.RegularExpressions/src/System/Text/RegularExpressions/RegexCharClass.cs
+        var word = CharacterClass(character => char.IsLetterOrDigit(character)
+            || char.GetUnicodeCategory(character) is UnicodeCategory.NonSpacingMark or UnicodeCategory.ConnectorPunctuation
+            || character is '\u200c' or '\u200d');
+        var digit = CharacterClass(char.IsDigit);
+        var space = CharacterClass(char.IsWhiteSpace);
+        // The ASCII keywords have no locale-sensitive extra case-fold equivalents.
+        return $@"(?:(?<!{word})(?:[bB][aA][tT][cC][hH]|[cC][oO][mM][pP][lL][eE][tT][eE]|全集)(?!{word})|合集|全{space}*{digit}+{space}*[集話话]|(?:\[|{space}){digit}{{1,3}}{space}*[-~～]{space}*{digit}{{1,3}}(?:\]|{space}))";
+    }
+
+    private static string CharacterClass(Func<char, bool> contains)
+    {
+        var result = new StringBuilder("[");
+        for (var value = 0; value <= char.MaxValue; value++)
+        {
+            if (!contains((char)value)) continue;
+            var start = value;
+            while (value < char.MaxValue && contains((char)(value + 1))) value++;
+            result.Append(@"\u").Append(start.ToString("X4", CultureInfo.InvariantCulture));
+            if (value != start)
+                result.Append(@"-\u").Append(value.ToString("X4", CultureInfo.InvariantCulture));
+        }
+        return result.Append(']').ToString();
+    }
 
     public async Task<EpisodeCompletionPlan> GetPlanAsync(string tmdbId, int season, CancellationToken cancellationToken)
     {
@@ -26,6 +65,7 @@ public sealed partial class LibraryCompletionService(ILibraryCompletionRepositor
         var expected = releases.Select(x => x.ExpectedEpisodeCount ?? 0).DefaultIfEmpty().Max();
         episodeNumbers = episodeNumbers.Concat(Enumerable.Range(1, Math.Clamp(expected, 0, 10000)));
         var policyByFeed = (await policies.GetAllOrderedAsync(cancellationToken)).ToDictionary(x => x.FeedId);
+        var group = (await sources.GetAllAsync(cancellationToken)).FirstOrDefault(x => x.TmdbId == tmdbId && x.Season == season);
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
         var items = new List<EpisodeCompletionItem>();
         foreach (var episode in episodeNumbers.Distinct().Order())
@@ -37,6 +77,7 @@ public sealed partial class LibraryCompletionService(ILibraryCompletionRepositor
             var candidates = episodeReleases.Where(IsReliable).Select(info =>
             {
                 var policy = info.SourceFeedId is { } feedId ? policyByFeed.GetValueOrDefault(feedId) : null;
+                if (group != null && info.SourceFeedId is { } linkedId && group.FeedIds.Contains(linkedId)) policy = group.ToPolicy(linkedId);
                 return Candidate(info, policy);
             }).OrderByDescending(x => x.Eligible).ThenByDescending(x => x.Score).ThenByDescending(x => x.PublishedAt).ThenBy(x => x.ReleaseId).ToList();
             var downloaded = episodeReleases.Any(x => x.IsDownloadFinished && mapped.Contains(x.Id));
@@ -51,7 +92,7 @@ public sealed partial class LibraryCompletionService(ILibraryCompletionRepositor
                 selected != null ? "highest_eligible_score" : downloaded || mappingPending || downloading || unaired ? state :
                 !hasAirDate ? "air_date_unknown" : candidates.Count > 0 ? "no_eligible_candidate" : state));
         }
-        return new(tmdbId, releases.FirstOrDefault()?.Animation?.Name ?? tmdbId, season,
+        return new(tmdbId, releases.FirstOrDefault()?.Animation?.Name ?? group?.Name ?? tmdbId, season,
             DateTimeOffset.UtcNow, air.CheckedAt, air.Source, releases.Count(x => !IsReliable(x)), items);
     }
 
@@ -62,15 +103,25 @@ public sealed partial class LibraryCompletionService(ILibraryCompletionRepositor
             info.SourceFeedId, info.ReleaseSizeBytes));
         var score = scoring.Score(new(info.ReleaseSubtitleGroup ?? info.Group?.Name, info.ReleaseResolution,
             info.ReleaseCodec, info.ReleaseLanguages ?? [], info.ReleaseSizeBytes), policy);
-        var reason = !IsReliable(info) ? "unidentified_or_batch" : info.DownloadType != FileDownloadTypes.TorrentDownload ? "unsupported_source" :
-            info.IsDownloadFinished ? "downloaded" : info.IsDownloadTracked ? "downloading" :
-            evaluation is { Matched: false } ? "policy_mismatch" : null;
+        var reason = GetIneligibilityReason(info, evaluation);
         return new(info.Id, info.Title, info.PublishTime, info.ReleaseSizeBytes, score.Value,
             score.Reasons.Concat(evaluation?.Explanations.Where(x => !x.Passed).Select(x => x.Message) ?? []).ToList(), reason == null, reason);
     }
 
-    public async Task<IReadOnlyList<CompletionSubmissionResult>> SubmitAsync(CompletionSubmissionRequest request,
-        CancellationToken cancellationToken)
+    internal static string? GetIneligibilityReason(AnimationInfo info, SubscriptionAutomationEvaluation? evaluation) =>
+        !IsReliable(info) ? "unidentified_or_batch" : info.DownloadType != FileDownloadTypes.TorrentDownload ? "unsupported_source" :
+        info.IsDownloadFinished ? "downloaded" : info.IsDownloadTracked ? "downloading" :
+        evaluation is { Matched: false } ? "policy_mismatch" : null;
+
+    public Task<IReadOnlyList<CompletionSubmissionResult>> SubmitAsync(CompletionSubmissionRequest request,
+        CancellationToken cancellationToken) => SubmitCoreAsync(request, null, cancellationToken);
+
+    public Task<IReadOnlyList<CompletionSubmissionResult>> SubmitConfirmedAsync(CompletionSubmissionRequest request,
+        MultiSourceSubscription subscription, CancellationToken cancellationToken) =>
+        SubmitCoreAsync(request, subscription, cancellationToken);
+
+    private async Task<IReadOnlyList<CompletionSubmissionResult>> SubmitCoreAsync(CompletionSubmissionRequest request,
+        MultiSourceSubscription? confirmationSubscription, CancellationToken cancellationToken)
     {
         var results = new List<CompletionSubmissionResult>();
         foreach (var selection in request.Selections)
@@ -93,7 +144,8 @@ public sealed partial class LibraryCompletionService(ILibraryCompletionRepositor
                 var info = (await repository.GetSeasonReleasesAsync(request.TmdbId, request.Season, cancellationToken))
                     .FirstOrDefault(x => x.Id == selection.ReleaseId && x.Episode == selection.Episode);
                 results.Add(info == null ? new(selection.Episode, selection.ReleaseId, "candidate_unavailable", false) :
-                    await downloads.SubmitAsync(info, cancellationToken));
+                    confirmationSubscription is null ? await downloads.SubmitAsync(info, cancellationToken) :
+                    await downloads.SubmitConfirmedAsync(info, confirmationSubscription, cancellationToken));
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
             catch (Exception)

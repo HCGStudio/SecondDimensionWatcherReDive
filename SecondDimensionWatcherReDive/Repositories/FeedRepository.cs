@@ -3,7 +3,8 @@ using SecondDimensionWatcherReDive.Framework.DataRepository;
 
 namespace SecondDimensionWatcherReDive.Repositories;
 
-public class FeedRepository(Models.ApplicationContext context) : IFeedRepository
+public class FeedRepository(Models.ApplicationContext context,
+    DbContextOptions<Models.ApplicationContext> options) : IFeedRepository
 {
     public async Task<IReadOnlyList<Feed>> GetAllOrderedAsync(CancellationToken cancellationToken)
     {
@@ -35,11 +36,48 @@ public class FeedRepository(Models.ApplicationContext context) : IFeedRepository
 
     public async Task RemoveAsync(Feed feed, CancellationToken cancellationToken)
     {
-        var entity = await context.Feeds.FindAsync([feed.Id], cancellationToken);
-        if (entity is not null)
+        await context.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
         {
-            context.Feeds.Remove(entity);
-            await context.SaveChangesAsync(cancellationToken);
-        }
+            await using var write = new Models.ApplicationContext(options);
+            await using var transaction = await write.Database.BeginTransactionAsync(cancellationToken);
+            await MappingTransactionLock.AcquireAsync(write, cancellationToken);
+            var entity = await write.Feeds.FindAsync([feed.Id], cancellationToken);
+            if (entity is null) return;
+            var subscription = await write.Set<Models.MultiSourceSubscription>().Include(value => value.Sources)
+                .SingleOrDefaultAsync(value => value.Sources.Any(source => source.FeedId == feed.Id), cancellationToken);
+            if (subscription is not null)
+            {
+                // A compensated multi-source failure must not become an orphaned
+                // standalone Todo when the feed FK is nulled by deletion. The
+                // completed cancellation id is retained only for idempotency.
+                var failed = write.AnimationInfo.Where(info => info.SourceFeedId == feed.Id
+                    && !info.IsDownloadTracked && !info.IsDownloadFinished
+                    && info.AutomationDisposition == SubscriptionAutomationDisposition.AutoDownloadFailed);
+                var todoKeys = failed.Select(info => "automation:" + info.Id.ToString());
+                await write.TodoItemStates.Where(state => todoKeys.Contains(state.Key))
+                    .ExecuteDeleteAsync(cancellationToken);
+                await failed.ExecuteUpdateAsync(setters => setters
+                    .SetProperty(info => info.AutomationDisposition, (SubscriptionAutomationDisposition?)null)
+                    .SetProperty(info => info.AutomationExplanationJson, (string?)null)
+                    .SetProperty(info => info.StandaloneAutomationPending, false)
+                    .SetProperty(info => info.StateVersion, info => info.StateVersion + 1), cancellationToken);
+                if (subscription.Sources.Count == 1)
+                    write.Remove(subscription);
+                else
+                {
+                    var source = subscription.Sources.Single(value => value.FeedId == feed.Id);
+                    subscription.Sources.Remove(source);
+                    write.Remove(source);
+                    var priority = 0;
+                    foreach (var remaining in subscription.Sources.OrderBy(value => value.Priority))
+                        remaining.Priority = priority++;
+                    subscription.UpdatedAt = DateTimeOffset.UtcNow;
+                    await MultiSourceSubscriptionRepository.ClearPendingDecisionsAsync(write, subscription.Id, cancellationToken);
+                }
+            }
+            write.Feeds.Remove(entity);
+            await write.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        });
     }
 }
