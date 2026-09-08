@@ -263,7 +263,7 @@ internal sealed partial class HlsTranscodingService : BackgroundService, IHlsTra
         try
         {
             await Task.WhenAll(workers.Append(cleanup).Append(RunReaderLeaseLoopAsync(stoppingToken))
-                .Append(RunDeferredJobsAsync(stoppingToken)));
+                .Append(RunQueuedJobsAsync(stoppingToken)));
         }
         finally
         {
@@ -294,18 +294,24 @@ internal sealed partial class HlsTranscodingService : BackgroundService, IHlsTra
 
     private async Task ProcessJobAsync(TranscodingJob job, CancellationToken stoppingToken)
     {
+        // Terminal jobs may still occupy a channel slot after the scheduler
+        // releases their admission budget, and a replacement can share the key.
+        if (!_jobs.TryGetValue(job.CacheKey, out var current) || !ReferenceEquals(current, job)
+            || !job.TryStartProcessing(_options.JobTimeout, out var remainingTime))
+            return;
+
         if (job.Cancellation.IsCancellationRequested)
         {
             MarkCanceled(job);
             return;
         }
 
-        var remainingTime = job.GetRemainingTimeout(_options.JobTimeout);
         if (remainingTime <= TimeSpan.Zero)
         {
             MarkFailed(job, "The transcoding job exceeded its configured timeout.");
             return;
         }
+        UpdateJobGauges();
         using var timeout = new CancellationTokenSource(remainingTime);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(
             stoppingToken,
@@ -320,8 +326,6 @@ internal sealed partial class HlsTranscodingService : BackgroundService, IHlsTra
             var prepared = job.GetPreparation();
             if (prepared is null)
             {
-                job.SetState(TranscodingJobState.Probing);
-                UpdateJobGauges();
                 MediaProbe initialProbe;
                 await using (var source = await OpenSourceStreamAsync(job.Source, cancellationToken))
                     initialProbe = await _processRunner.ProbeAsync(source, cancellationToken);
@@ -522,22 +526,29 @@ internal sealed partial class HlsTranscodingService : BackgroundService, IHlsTra
             : (false, null);
     }
 
-    private async Task RunDeferredJobsAsync(CancellationToken stoppingToken)
+    private async Task RunQueuedJobsAsync(CancellationToken stoppingToken)
     {
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
         while (await timer.WaitForNextTickAsync(stoppingToken))
         {
+            // A retry keeps its original deadline while waiting in either
+            // queue. Reading it must not start the clock for an unprobed job.
+            foreach (var job in _jobs.Values)
+            {
+                if (job.GetState() != TranscodingJobState.Queued) continue;
+                if (job.Cancellation.IsCancellationRequested)
+                    MarkCanceled(job, queuedOnly: true);
+                else if (job.GetRemainingTimeout(_options.JobTimeout) <= TimeSpan.Zero)
+                    MarkFailed(job, "The transcoding job exceeded its configured timeout.", queuedOnly: true);
+            }
+
             foreach (var pair in _deferredJobs.OrderBy(pair => pair.Value))
             {
                 var job = pair.Key;
-                if (job.Cancellation.IsCancellationRequested)
+                if (!_jobs.TryGetValue(job.CacheKey, out var current) || !ReferenceEquals(current, job)
+                    || job.GetState() != TranscodingJobState.Queued)
                 {
-                    if (_deferredJobs.TryRemove(pair)) MarkCanceled(job);
-                }
-                else if (job.GetRemainingTimeout(_options.JobTimeout) <= TimeSpan.Zero)
-                {
-                    if (_deferredJobs.TryRemove(pair))
-                        MarkFailed(job, "The transcoding job exceeded its configured timeout.");
+                    _deferredJobs.TryRemove(pair);
                 }
                 else if (pair.Value <= Stopwatch.GetTimestamp() && _queue.Writer.TryWrite(job))
                 {
@@ -820,18 +831,20 @@ internal sealed partial class HlsTranscodingService : BackgroundService, IHlsTra
             _jobs.TryRemove(new KeyValuePair<string, TranscodingJob>(candidate.Key, job));
     }
 
-    private void MarkCanceled(TranscodingJob job)
+    private void MarkCanceled(TranscodingJob job, bool queuedOnly = false)
     {
-        job.SetCanceled();
+        if (!job.TrySetCanceled(queuedOnly)) return;
+        _deferredJobs.TryRemove(job, out _);
         _jobs.TryRemove(new KeyValuePair<string, TranscodingJob>(job.CacheKey, job));
         _metrics.RecordCanceled();
         UpdateCacheBytes();
         UpdateJobGauges();
     }
 
-    private void MarkFailed(TranscodingJob job, string error)
+    private void MarkFailed(TranscodingJob job, string error, bool queuedOnly = false)
     {
-        job.SetFailed(error);
+        if (!job.TrySetFailed(error, queuedOnly)) return;
+        _deferredJobs.TryRemove(job, out _);
         _jobs.TryRemove(new KeyValuePair<string, TranscodingJob>(job.CacheKey, job));
         _metrics.RecordFailed();
         UpdateCacheBytes();
@@ -1128,11 +1141,23 @@ internal sealed partial class HlsTranscodingService : BackgroundService, IHlsTra
         {
             lock (_gate) { _probe = probe; _plan = plan; }
         }
+        public bool TryStartProcessing(TimeSpan maximum, out TimeSpan remainingTime)
+        {
+            lock (_gate)
+            {
+                remainingTime = TimeSpan.Zero;
+                if (_state != TranscodingJobState.Queued) return false;
+                if (_startedTimestamp == 0) _startedTimestamp = Stopwatch.GetTimestamp();
+                remainingTime = maximum - Stopwatch.GetElapsedTime(_startedTimestamp);
+                _state = TranscodingJobState.Probing;
+                _error = null;
+                return true;
+            }
+        }
         public TimeSpan GetRemainingTimeout(TimeSpan maximum)
         {
-            var now = Stopwatch.GetTimestamp();
-            var started = Interlocked.CompareExchange(ref _startedTimestamp, now, 0);
-            return maximum - Stopwatch.GetElapsedTime(started == 0 ? now : started);
+            lock (_gate)
+                return _startedTimestamp == 0 ? maximum : maximum - Stopwatch.GetElapsedTime(_startedTimestamp);
         }
         public void MarkPlayable() { lock (_gate) _isPlayable = true; }
         public void SetProgress(double? progress, double? speed)
@@ -1161,23 +1186,31 @@ internal sealed partial class HlsTranscodingService : BackgroundService, IHlsTra
             lock (_gate) _subtitles = subtitles;
         }
 
-        public void SetCanceled()
+        public bool TrySetCanceled(bool queuedOnly)
         {
             lock (_gate)
             {
+                if (_state is TranscodingJobState.Failed or TranscodingJobState.Canceled
+                    || queuedOnly && _state != TranscodingJobState.Queued)
+                    return false;
                 _state = TranscodingJobState.Canceled;
                 _isPlayable = false;
                 _error = "The transcoding job was canceled.";
+                return true;
             }
         }
 
-        public void SetFailed(string error)
+        public bool TrySetFailed(string error, bool queuedOnly)
         {
             lock (_gate)
             {
+                if (_state is TranscodingJobState.Failed or TranscodingJobState.Canceled
+                    || queuedOnly && _state != TranscodingJobState.Queued)
+                    return false;
                 _state = TranscodingJobState.Failed;
                 _isPlayable = false;
                 _error = error;
+                return true;
             }
         }
 
