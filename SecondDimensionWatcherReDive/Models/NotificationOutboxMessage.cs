@@ -1,3 +1,5 @@
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Framework.Notifications;
 
@@ -10,6 +12,8 @@ public sealed class NotificationOutboxMessage
     public string DeduplicationKey { get; set; } = string.Empty;
     public NotificationChannel Channel { get; set; }
     public Guid? WebPushSubscriptionId { get; set; }
+    public string? PluginProviderId { get; set; }
+    public string? PluginPublisherIdentity { get; set; }
     public NotificationEventType Type { get; set; }
     public string Title { get; set; } = string.Empty;
     public string Body { get; set; } = string.Empty;
@@ -22,4 +26,13 @@ public sealed class NotificationOutboxMessage
     public DateTimeOffset? LastAttemptAt { get; set; }
     public DateTimeOffset? DeliveredAt { get; set; }
     public string? LastError { get; set; }
+}
+
+internal sealed class PluginNotificationOutboxConfiguration : IEntityTypeConfiguration<NotificationOutboxMessage>
+{
+    public void Configure(EntityTypeBuilder<NotificationOutboxMessage> builder)
+    {
+        builder.Property(message => message.PluginProviderId).HasMaxLength(256);
+        builder.Property(message => message.PluginPublisherIdentity).HasMaxLength(128);
+    }
 }

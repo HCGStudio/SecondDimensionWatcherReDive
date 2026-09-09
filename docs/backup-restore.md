@@ -16,6 +16,8 @@
 
 命令读取标准 `PGHOST`、`PGPORT`、`PGUSER`、`PGPASSWORD`、`PGDATABASE`；在容器内也可直接解析已有的 `ConnectionStrings__sdw` 环境变量。创建期间会获取与应用迁移相同的 `SDWMIGR1` PostgreSQL advisory lease，并在 lease 内依次读取 schema、完成一致性 dump、再次核对 schema，然后复制 Data Protection 密钥环。密钥在数据库快照之后复制，因此归档包含 dump 内所有加密值所需密钥的安全超集。
 
+连接字符串的值支持 ADO.NET 单引号、双引号和成对引号转义；引号内的分号与空白会保留，例如 `Password="a;b"`。重复配置项采用最后一个值。格式错误会在连接数据库前终止，诊断不会回显凭据。显式提供完整的 `PGHOST`、`PGUSER`、`PGDATABASE` 时继续优先使用 PG 环境。
+
 ```bash
 export PGHOST=localhost PGPORT=5432 PGUSER=sdw PGDATABASE=sdw
 read -rsp 'PostgreSQL password: ' PGPASSWORD && export PGPASSWORD

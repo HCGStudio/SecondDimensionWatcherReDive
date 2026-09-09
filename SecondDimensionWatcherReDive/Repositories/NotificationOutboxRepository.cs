@@ -149,7 +149,11 @@ public sealed class NotificationOutboxRepository(Models.ApplicationContext conte
         message.NextAttemptAt,
         message.LastAttemptAt,
         message.DeliveredAt,
-        message.LastError);
+        message.LastError)
+    {
+        PluginProviderId = message.PluginProviderId,
+        PluginPublisherIdentity = message.PluginPublisherIdentity
+    };
 
     private static OutboxEntity ToEntity(NotificationOutboxMessage message) => new()
     {
@@ -158,6 +162,8 @@ public sealed class NotificationOutboxRepository(Models.ApplicationContext conte
         DeduplicationKey = message.DeduplicationKey,
         Channel = message.Channel,
         WebPushSubscriptionId = message.WebPushSubscriptionId,
+        PluginProviderId = message.PluginProviderId,
+        PluginPublisherIdentity = message.PluginPublisherIdentity,
         Type = message.Type,
         Title = message.Title,
         Body = message.Body,

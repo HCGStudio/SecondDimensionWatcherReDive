@@ -231,7 +231,8 @@
         "empty": "No delivery attempts yet.",
         "channel": {
           "Webhook": "Webhook",
-          "WebPush": "Web Push"
+          "WebPush": "Web Push",
+          "Plugin": "Plugin"
         },
         "status": {
           "Pending": "Pending",
@@ -239,6 +240,14 @@
           "Delivered": "Delivered",
           "Failed": "Failed"
         }
+      },
+      "plugins": {
+        "title": "Plugin notifications",
+        "description": "Enabled, compatible notification plugins receive the selected events and respect quiet hours. Queued notifications are retained while disabled and resume after re-enabling.",
+        "enabled": "Enabled",
+        "disabled": "Disabled or incompatible",
+        "empty": "No notification plugins are installed.",
+        "manage": "Manage plugins"
       }
     },
     "access": {

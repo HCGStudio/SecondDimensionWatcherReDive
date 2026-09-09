@@ -231,7 +231,8 @@
         "empty": "配信記録はまだありません。",
         "channel": {
           "Webhook": "Webhook",
-          "WebPush": "Web Push"
+          "WebPush": "Web Push",
+          "Plugin": "プラグイン"
         },
         "status": {
           "Pending": "待機中",
@@ -239,6 +240,14 @@
           "Delivered": "配信済み",
           "Failed": "失敗"
         }
+      },
+      "plugins": {
+        "title": "プラグイン通知",
+        "description": "有効で互換性のある通知プラグインに、選択したイベントを送信します。通知しない時間帯も適用されます。無効化中も送信待ちの通知を保持し、再度有効にすると送信を再開します。",
+        "enabled": "有効",
+        "disabled": "無効または非互換",
+        "empty": "通知プラグインはインストールされていません。",
+        "manage": "プラグインを管理"
       }
     },
     "access": {

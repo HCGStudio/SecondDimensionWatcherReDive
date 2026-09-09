@@ -97,7 +97,10 @@ public sealed record InstalledPlugin(
     IReadOnlyList<string> CompatibilityErrors,
     PluginHealth Health,
     JsonElement Configuration,
-    bool DataRetainedFromUninstall = false);
+    bool DataRetainedFromUninstall = false)
+{
+    public string PublisherIdentity { get; init; } = string.Empty;
+}
 
 /// <summary>
 /// Produces the unambiguous payload covered by an RSA-SHA256 publisher signature.

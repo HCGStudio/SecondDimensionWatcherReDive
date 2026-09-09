@@ -13,17 +13,10 @@ internal static class PlaybackSequence
                                                    && item.VirtualPath == virtualPath);
         if (current is null) return null;
 
-        // Prefer a continuous release from the same subgroup. If that subgroup only
-        // supplied the current episode, fall back to another available release.
-        var sameGroup = media
-            .Where(item => item.GroupId == current.GroupId)
-            .ToList();
         if (current.Season is not null && current.Episode is not null)
-        {
-            return FindNumberedSuccessor(sameGroup, current)
-                   ?? FindNumberedSuccessor(media, current);
-        }
+            return FindNumberedSuccessor(media, current);
 
+        var sameGroup = media.Where(item => item.GroupId == current.GroupId).ToList();
         return FindUnnumberedSuccessor(sameGroup, current)
                ?? FindUnnumberedSuccessor(media, current);
     }
@@ -38,6 +31,9 @@ internal static class PlaybackSequence
                                || item.Season == current.Season && item.Episode > current.Episode)
                 .OrderBy(item => item.Season)
                 .ThenBy(item => item.Episode)
+                // Subgroup preference selects a version of the next episode;
+                // it must never skip an earlier episode from another subgroup.
+                .ThenByDescending(item => item.GroupId == current.GroupId)
                 .ThenBy(item => item.PublishTime)
                 .ThenBy(item => item.VirtualPath, StringComparer.Ordinal)
                 .FirstOrDefault();

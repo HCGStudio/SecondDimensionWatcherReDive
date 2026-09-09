@@ -43,6 +43,24 @@ public interface IFileMappingRepository
         CancellationToken cancellationToken) =>
         Task.FromResult<FileSystemEntry?>(null);
 
+    async Task<long?> GetDirectoryGenerationAsync(
+        string parentPath,
+        CancellationToken cancellationToken) =>
+        (await GetImmediateChildrenPageAsync(parentPath, null, 1, cancellationToken))?.Generation;
+
+    async Task<IReadOnlyDictionary<string, long>> GetDirectoryGenerationsAsync(
+        IReadOnlyCollection<string> parentPaths,
+        CancellationToken cancellationToken)
+    {
+        var result = new Dictionary<string, long>(StringComparer.Ordinal);
+        foreach (var path in parentPaths.Distinct(StringComparer.Ordinal))
+        {
+            if (await GetDirectoryGenerationAsync(path, cancellationToken) is { } generation)
+                result[path] = generation;
+        }
+        return result;
+    }
+
     async Task<FileSystemDirectoryPage?> GetImmediateChildrenPageAsync(
         string parentPath,
         long? afterCookie,

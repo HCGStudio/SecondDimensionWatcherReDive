@@ -43,7 +43,13 @@
     "unidentified": "Unidentified",
     "score": "release score",
     "morePaths": "+{{count}} more paths",
-    "next": "Next page"
+    "next": "Next page",
+    "browseFiles": "Browse files and play",
+    "download": "Download this release",
+    "startingDownload": "Submitting…",
+    "downloadQueued": "Added to the download queue",
+    "downloadFailed": "Could not start the download. Refresh its status and try again.",
+    "viewDownload": "View download queue"
   },
   "integrity": {
     "title": "Completeness and upgrades",

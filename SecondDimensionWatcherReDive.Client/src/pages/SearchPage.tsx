@@ -1,6 +1,7 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { useSearchParams } from "react-router";
+import { Link, useSearchParams } from "react-router";
+import { mutate as mutateCache } from "swr";
 
 import {
   AlertTriangle,
@@ -8,15 +9,25 @@ import {
   ChevronRight,
   Download,
   FileQuestion,
+  FolderOpen,
   RefreshCw,
   Search,
 } from "lucide-react";
 
+import { submitDownload } from "../animation/utils";
 import { useAccess } from "../auth/hooks";
+import { FileBrowser } from "../components/FileBrowser";
 import { useToast } from "../components/ToastProvider";
 import { Button } from "../components/ui/Button";
 import { EmptyPrompt } from "../components/ui/EmptyPrompt";
 import { Input } from "../components/ui/Input";
+import {
+  Sheet,
+  SheetBody,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "../components/ui/Sheet";
 import { Spinner } from "../components/ui/Spinner";
 import { ApiError } from "../errors/apiError";
 import { cn } from "../lib/cn";
@@ -26,7 +37,7 @@ import {
   useLibraryIntegrity,
   useLibrarySearch,
 } from "../library/api";
-import { ReleaseUpgradeCandidate } from "../library/types";
+import { LibrarySearchItem, ReleaseUpgradeCandidate } from "../library/types";
 import { PageTemplate } from "./PageTemplate";
 
 const FILTER_KEYS = [
@@ -52,6 +63,11 @@ export const SearchPage: React.FC = () => {
   const { addToast } = useToast();
   const [params, setParams] = useSearchParams();
   const [query, setQuery] = React.useState(params.get("q") ?? "");
+  const [selectedFiles, setSelectedFiles] =
+    React.useState<LibrarySearchItem | null>(null);
+  const [startingDownloads, setStartingDownloads] = React.useState<Set<string>>(
+    new Set(),
+  );
   const [runningUpgrade, setRunningUpgrade] = React.useState<string | null>(
     null,
   );
@@ -121,6 +137,34 @@ export const SearchPage: React.FC = () => {
   };
 
   const activeFilterCount = FILTER_KEYS.filter((key) => params.has(key)).length;
+
+  const startDownload = async (item: LibrarySearchItem) => {
+    if (!canContentWrite || startingDownloads.has(item.animationInfoId)) return;
+    setStartingDownloads((current) =>
+      new Set(current).add(item.animationInfoId),
+    );
+    try {
+      await submitDownload(item.animationInfoId);
+      addToast({ title: t("results.downloadQueued"), color: "success" });
+      await Promise.allSettled([
+        mutateCache(
+          (key) =>
+            typeof key === "string" &&
+            (key.startsWith("/api/library/") ||
+              key.startsWith("/api/animationinfo") ||
+              key.startsWith("/api/download-capacity")),
+        ),
+      ]);
+    } catch {
+      addToast({ title: t("results.downloadFailed"), color: "danger" });
+    } finally {
+      setStartingDownloads((current) => {
+        const next = new Set(current);
+        next.delete(item.animationInfoId);
+        return next;
+      });
+    }
+  };
 
   return (
     <PageTemplate>
@@ -289,7 +333,16 @@ export const SearchPage: React.FC = () => {
                       </span>
                     </div>
                     <h3 className="mt-2 font-sans text-lg font-medium text-foreground">
-                      {item.animationName ?? item.title}
+                      {item.tmdbId ? (
+                        <Link
+                          to={`/anime/${encodeURIComponent(item.tmdbId)}`}
+                          className="rounded hover:text-brand hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+                        >
+                          {item.animationName ?? item.title}
+                        </Link>
+                      ) : (
+                        item.title
+                      )}
                     </h3>
                     {item.animationOriginalName ? (
                       <p className="text-sm text-muted">
@@ -314,12 +367,13 @@ export const SearchPage: React.FC = () => {
                         ))}
                     </div>
                     {item.virtualPaths.map((path) => (
-                      <p
+                      <Link
                         key={path}
-                        className="mt-2 break-all font-mono text-xs text-subtle"
+                        to={`/files?${new URLSearchParams({ path: path.slice(0, path.lastIndexOf("/")) || "/" })}`}
+                        className="mt-2 block break-all rounded font-mono text-xs text-subtle hover:text-brand hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
                       >
                         {path}
-                      </p>
+                      </Link>
                     ))}
                     {item.virtualPathCount > item.virtualPaths.length ? (
                       <p className="mt-2 text-xs text-subtle">
@@ -356,6 +410,44 @@ export const SearchPage: React.FC = () => {
                     ))}
                   </ul>
                 ) : null}
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {item.isDownloadFinished && item.virtualPathCount > 0 ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setSelectedFiles(item)}
+                    >
+                      <FolderOpen size={15} aria-hidden="true" />
+                      {t("results.browseFiles")}
+                    </Button>
+                  ) : null}
+                  {canContentWrite &&
+                  !item.isDownloadTracked &&
+                  !item.isDownloadFinished &&
+                  !item.isMediaLibraryImport ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={startingDownloads.has(item.animationInfoId)}
+                      onClick={() => void startDownload(item)}
+                    >
+                      <Download size={15} aria-hidden="true" />
+                      {t(
+                        startingDownloads.has(item.animationInfoId)
+                          ? "results.startingDownload"
+                          : "results.download",
+                      )}
+                    </Button>
+                  ) : null}
+                  {item.isDownloadTracked && !item.isDownloadFinished ? (
+                    <Link
+                      to="/downloading"
+                      className="rounded px-3 py-1.5 text-sm text-brand hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+                    >
+                      {t("results.viewDownload")}
+                    </Link>
+                  ) : null}
+                </div>
               </article>
             ))}
           </div>
@@ -511,6 +603,26 @@ export const SearchPage: React.FC = () => {
             ))}
         </div>
       </section>
+      <Sheet
+        open={selectedFiles !== null}
+        onOpenChange={(open) => {
+          if (!open) setSelectedFiles(null);
+        }}
+      >
+        <SheetContent aria-describedby={undefined}>
+          <SheetHeader>
+            <SheetTitle className="pr-8">{selectedFiles?.title}</SheetTitle>
+          </SheetHeader>
+          <SheetBody>
+            {selectedFiles ? (
+              <FileBrowser
+                key={selectedFiles.animationInfoId}
+                animationId={selectedFiles.animationInfoId}
+              />
+            ) : null}
+          </SheetBody>
+        </SheetContent>
+      </Sheet>
     </PageTemplate>
   );
 };

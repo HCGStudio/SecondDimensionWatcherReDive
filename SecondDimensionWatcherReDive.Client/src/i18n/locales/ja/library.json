@@ -43,7 +43,13 @@
     "unidentified": "未識別",
     "score": "リリーススコア",
     "morePaths": "他 {{count}} 件のパス",
-    "next": "次のページ"
+    "next": "次のページ",
+    "browseFiles": "ファイルを開いて再生",
+    "download": "このリリースをダウンロード",
+    "startingDownload": "送信中…",
+    "downloadQueued": "ダウンロードキューに追加しました",
+    "downloadFailed": "ダウンロードを開始できませんでした。状態を更新して再試行してください。",
+    "viewDownload": "ダウンロードキューを開く"
   },
   "integrity": {
     "title": "完全性とアップグレード",

@@ -13,7 +13,8 @@ public enum NotificationDeliveryStatus
 public enum NotificationChannel
 {
     Webhook,
-    WebPush
+    WebPush,
+    Plugin
 }
 
 public sealed record NotificationOutboxMessage(
@@ -33,7 +34,11 @@ public sealed record NotificationOutboxMessage(
     DateTimeOffset NextAttemptAt,
     DateTimeOffset? LastAttemptAt,
     DateTimeOffset? DeliveredAt,
-    string? LastError);
+    string? LastError)
+{
+    public string? PluginProviderId { get; init; }
+    public string? PluginPublisherIdentity { get; init; }
+}
 
 public interface INotificationOutboxRepository
 {

@@ -71,19 +71,23 @@ public sealed class DownloadCapacityService(
         if (enabled) await repository.RecoverTrackedAsync(cancellationToken);
         var entries = (await repository.ListAsync(cancellationToken)).ToList();
         if (entries.Count == 0) return false;
-        var current = new Dictionary<Guid, Framework.DataRepository.AnimationInfo>();
+        // Reconciliation needs attempt identities, not every torrent payload and
+        // metadata record. Load the selected submission's full record only below.
+        var current = (await repository.GetActiveAttemptsAsync(cancellationToken)).ToDictionary(info => info.ItemId);
         foreach (var entry in entries.ToArray())
         {
-            var info = await animations.FindByIdAsync(entry.ItemId, cancellationToken);
-            if (info is null || !info.IsDownloadTracked || info.IsDownloadFinished || info.DownloadAttemptId != entry.DownloadAttemptId)
+            if (!current.TryGetValue(entry.ItemId, out var info) || info.DownloadAttemptId != entry.DownloadAttemptId)
             {
                 await repository.RemoveAsync(entry.ItemId, cancellationToken);
                 entries.Remove(entry);
             }
-            else current[entry.ItemId] = info;
         }
 
         using var client = httpClientFactory.CreateClient(nameof(RemoteTorrentDownloadClient));
+        // Each hash batch and volume request gets the full configured timeout,
+        // including authentication and the shared HTTP request lock.
+        client.Timeout = TimeSpan.FromSeconds(Math.Clamp(
+            configuration.GetValue("Torrent:Polling:StatusTimeoutSeconds", 30), 1, 600));
         var now = DateTimeOffset.UtcNow;
         Dictionary<string, RemoteTorrentInfo> remote;
         long available;
@@ -149,17 +153,25 @@ public sealed class DownloadCapacityService(
         }
 
         var reserved = entries.FirstOrDefault(entry => entry.State == "Reserved" && !entry.Paused
-            && current[entry.ItemId].DownloadCancellationId is null
+            && !current[entry.ItemId].Cancelling
             && now - entry.UpdatedAt >= TimeSpan.FromSeconds(10));
         if (reserved is not null)
         {
-            var info = current[reserved.ItemId];
+            var info = await animations.FindByIdAsync(reserved.ItemId, cancellationToken);
+            if (info is null || !info.IsDownloadTracked || info.IsDownloadFinished
+                || info.DownloadAttemptId != reserved.DownloadAttemptId || info.DownloadCancellationId is not null)
+            {
+                await transaction.CommitAsync(cancellationToken);
+                return true;
+            }
             var downloader = serviceProvider.GetRequiredService<RemoteTorrentDownloadClient>();
             var submitted = false;
             try
             {
+                using var submissionDeadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                submissionDeadline.CancelAfter(TimeSpan.FromSeconds(90));
                 var accepted = await downloader.SubmitAdmittedAsync(info.Id, info.CachedDownloadData,
-                    info.AdditionalDownloadInfo, cancellationToken);
+                    info.AdditionalDownloadInfo, submissionDeadline.Token);
                 submitted = accepted;
                 if (accepted && !enabled)
                     await repository.RemoveAsync(reserved.ItemId, cancellationToken);
@@ -183,7 +195,7 @@ public sealed class DownloadCapacityService(
         }
 
         var waiting = entries.FirstOrDefault(entry => entry.State == "Waiting" && !entry.Paused
-            && current[entry.ItemId].DownloadCancellationId is null && (!enabled || entry.ExpectedBytes is > 0));
+            && !current[entry.ItemId].Cancelling && (!enabled || entry.ExpectedBytes is > 0));
         if (waiting is null)
         {
             await transaction.CommitAsync(cancellationToken);

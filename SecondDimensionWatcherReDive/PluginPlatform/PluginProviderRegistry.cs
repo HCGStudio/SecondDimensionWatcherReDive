@@ -11,14 +11,65 @@ internal static class PluginProviderIdentity
         => $"plugin:{pluginId}:{providerName}";
 }
 
+public sealed record PluginNotificationTarget(
+    string PluginId,
+    string ProviderName,
+    string PublisherIdentity,
+    bool IsEnabled,
+    bool IsCompatible,
+    DateTimeOffset? CircuitOpenUntil)
+{
+    public string Id => PluginProviderIdentity.Create(PluginId, ProviderName);
+    public bool AcceptsNotifications => IsEnabled && IsCompatible;
+}
+
+internal sealed class PluginNotificationTargetUnavailableException(
+    string reason,
+    bool isPermanent,
+    DateTimeOffset? retryAt = null) : InvalidOperationException(reason)
+{
+    public string Reason { get; } = reason;
+    public bool IsPermanent { get; } = isPermanent;
+    public DateTimeOffset? RetryAt { get; } = retryAt;
+}
+
 public interface IPluginProviderRegistry
 {
     IReadOnlyList<IFileStore> GetFileStores();
     IReadOnlyList<INotificationProvider> GetNotificationProviders();
+    IReadOnlyList<PluginNotificationTarget> GetNotificationTargets();
+    Task SendNotificationAsync(
+        PluginNotificationTarget target,
+        PluginNotification notification,
+        CancellationToken cancellationToken);
 }
 
 internal sealed class PluginProviderRegistry(IPluginManager manager) : IPluginProviderRegistry
 {
+    public IReadOnlyList<PluginNotificationTarget> GetNotificationTargets()
+        => manager.GetSnapshot()
+            .SelectMany(plugin => plugin.Manifest.Providers
+                .Where(provider => provider.Kind == "notification")
+                .Select(provider => new PluginNotificationTarget(
+                    plugin.Manifest.Id,
+                    provider.Name,
+                    plugin.PublisherIdentity,
+                    plugin.IsEnabled,
+                    plugin.CompatibilityErrors.Count == 0,
+                    plugin.Health.CircuitOpenUntil)))
+            .ToArray();
+
+    public async Task SendNotificationAsync(
+        PluginNotificationTarget target,
+        PluginNotification notification,
+        CancellationToken cancellationToken)
+    {
+        var result = await manager.InvokeNotificationAsync(target, notification, cancellationToken);
+        if (result.ValueKind == JsonValueKind.Object &&
+            result.TryGetProperty("success", out var success) && success.ValueKind == JsonValueKind.False)
+            throw new InvalidOperationException("The plugin rejected the notification.");
+    }
+
     public IReadOnlyList<IFileStore> GetFileStores()
         => manager.GetSnapshot()
             .Where(IsAvailable)

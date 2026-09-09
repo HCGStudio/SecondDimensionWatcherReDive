@@ -340,17 +340,14 @@ export const AccountPage: React.FC = () => {
                     className="rounded-md border border-border bg-surface px-2 py-1.5 text-sm"
                     value={user.role}
                     disabled={busy}
-                    onChange={(event) =>
+                    onChange={(event) => {
+                      const role = event.target.value as UserRole;
                       void run(async () => {
                         if (!(await stepUp())) return;
-                        await updateUserAccess(
-                          user.id,
-                          event.target.value as UserRole,
-                          user.isDisabled,
-                        );
+                        await updateUserAccess(user.id, role, user.isDisabled);
                         await mutateUsers();
-                      })
-                    }
+                      });
+                    }}
                   >
                     {roles.map((role) => (
                       <option key={role}>{role}</option>

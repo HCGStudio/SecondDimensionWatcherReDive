@@ -13,9 +13,9 @@ public sealed class DownloadCapacityBackgroundService(
             try
             {
                 await using var scope = scopeFactory.CreateAsyncScope();
-                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
-                timeout.CancelAfter(TimeSpan.FromSeconds(30));
-                more = await scope.ServiceProvider.GetRequiredService<DownloadCapacityService>().ProcessNextAsync(timeout.Token);
+                // Individual remote calls are bounded by the service. A shared
+                // deadline would repeatedly roll back large, otherwise healthy scans.
+                more = await scope.ServiceProvider.GetRequiredService<DownloadCapacityService>().ProcessNextAsync(stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
             catch (Exception exception) { logger.LogWarning(exception, "Download capacity reconciliation will retry"); }

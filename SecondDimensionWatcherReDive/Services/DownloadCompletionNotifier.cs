@@ -14,12 +14,14 @@ internal sealed class DownloadCompletionNotifier(
     {
         var info = await animationInfoRepository.FindByIdAsync(payload.ItemId, cancellationToken);
         if (info is null) return;
-        await notificationPublisher.PublishAsync(new NotificationEvent(
+        var outcome = await notificationPublisher.PublishDurablyAsync(new NotificationEvent(
             NotificationEventType.DownloadCompleted,
             $"download-completed:{info.Id}:{payload.DownloadAttemptId?.ToString() ?? "legacy"}",
             "Download completed",
             info.Title,
             "/downloaded",
             Id: eventId), cancellationToken);
+        if (outcome == NotificationPublicationOutcome.Failed)
+            throw new InvalidOperationException("Download completion notification could not be persisted for every destination.");
     }
 }

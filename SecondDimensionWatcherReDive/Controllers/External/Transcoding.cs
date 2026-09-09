@@ -9,7 +9,8 @@ internal sealed record PrepareTranscodingRequest(
     string? AudioLanguage,
     string? AudioTrackLabel,
     string? SubtitleLanguage,
-    string? SubtitleTrackLabel);
+    string? SubtitleTrackLabel,
+    bool ForceHls = false);
 
 internal sealed record TranscodingSubtitleResponse(
     string Path,

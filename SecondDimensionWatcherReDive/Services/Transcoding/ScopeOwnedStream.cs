@@ -9,6 +9,14 @@ internal sealed class ScopeOwnedStream(Stream inner, AsyncServiceScope scope) : 
 {
     private int _disposed;
 
+    internal string? LinuxFileDescriptorPath => inner is FileStream file
+        ? GetLinuxFileDescriptorPath(file) : null;
+
+    internal static string? GetLinuxFileDescriptorPath(FileStream file) =>
+        OperatingSystem.IsLinux() && file.CanSeek
+            ? $"/proc/{Environment.ProcessId}/fd/{file.SafeFileHandle.DangerousGetHandle().ToInt64()}"
+            : null;
+
     public override bool CanRead => inner.CanRead;
     public override bool CanSeek => inner.CanSeek;
     public override bool CanWrite => inner.CanWrite;

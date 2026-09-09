@@ -2,7 +2,7 @@ using System.ComponentModel.DataAnnotations;
 
 namespace SecondDimensionWatcherReDive.Controllers.External;
 
-internal sealed record FileLinkResultResponse(string Url, string? ExternalUrl = null);
+internal sealed record FileLinkResultResponse(string Url, string? ExternalUrl = null, DateTimeOffset? ExpiresAt = null);
 
 internal sealed record FileLinkResultRequest([Required] Guid Id, string Path);
 

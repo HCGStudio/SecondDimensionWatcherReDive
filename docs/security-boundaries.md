@@ -28,6 +28,8 @@ JWT 现在强制校验签名算法、`exp`、issuer 与 audience。Refresh token
 
 匿名播放资源票据默认 15 分钟过期，使用共享 Data Protection key ring 加密并绑定到虚拟路径、用户和当前 access-token 会话；URL 中的票据必须与单独的 HttpOnly、SameSite cookie 配对，单独复制 URL 不能播放。视频和字幕可并发签发并共用同一会话 cookie，负载均衡后的任意副本都能验证。所有副本必须挂载同一个 `DataProtection:KeyRingPath`；官方容器配置已将它放在应用数据持久卷中。响应禁止缓存与 Referer 传播，日志只会看到不可单独授权、不可还原路径的加密资源标识。
 
+网页播放器使用响应中的到期时间，在票据过期前通过需 JWT 认证的生成接口重新签发视频和字幕链接，并恢复播放位置及状态。该过程不改变旧票据的绝对期限；退出、撤销或切换用户/档案后不能继续为旧身份续签。文件页的原生下载仍沿用独立的短期入口与受限续传规则。
+
 注销成功时浏览器播放 cookie 会被删除。由于视频 Range 请求需要在有效期内重复读取，自包含票据不能做一次性消费；已经复制出的完整 URL+cookie 组合仍可能使用到其各自的最早过期时间（默认不超过 15 分钟），随后 fail closed。需要更短窗口时可降低 `Authentication:PlaybackLinkMinutes`。
 
 ## WebDAV/FUSE 设备 token

@@ -2,6 +2,8 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
+using SecondDimensionWatcherReDive.Framework.Plugin;
+using SecondDimensionWatcherReDive.PluginPlatform;
 using SecondDimensionWatcherReDive.Utils.Http;
 using WebPush;
 
@@ -11,7 +13,8 @@ public sealed partial class NotificationDeliveryBackgroundService(
     IServiceScopeFactory scopeFactory,
     IHttpClientFactory httpClientFactory,
     IConfiguration configuration,
-    ILogger<NotificationDeliveryBackgroundService> logger) : BackgroundService
+    ILogger<NotificationDeliveryBackgroundService> logger,
+    IPluginProviderRegistry pluginProviders) : BackgroundService
 {
     private const int MaxAttempts = 8;
     private const int BatchSize = 20;
@@ -103,6 +106,9 @@ public sealed partial class NotificationDeliveryBackgroundService(
                     now,
                     cancellationToken);
                 break;
+            case NotificationChannel.Plugin:
+                await DeliverPluginAsync(repository, message, now, cancellationToken);
+                break;
             default:
                 await repository.MarkFailedAsync(
                     message.Id,
@@ -113,6 +119,78 @@ public sealed partial class NotificationDeliveryBackgroundService(
                     "UnsupportedChannel",
                     cancellationToken);
                 break;
+        }
+    }
+
+    private async Task DeliverPluginAsync(
+        INotificationOutboxRepository repository,
+        NotificationOutboxMessage message,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        var attempt = message.AttemptCount + 1;
+        try
+        {
+            if (string.IsNullOrWhiteSpace(message.PluginProviderId)
+                || string.IsNullOrWhiteSpace(message.PluginPublisherIdentity))
+                throw new PluginNotificationTargetUnavailableException("PluginTargetMissing", true);
+            var target = pluginProviders.GetNotificationTargets()
+                .FirstOrDefault(target => target.Id == message.PluginProviderId);
+            if (target is null)
+                throw new PluginNotificationTargetUnavailableException("PluginProviderRemoved", true);
+            if (target.PublisherIdentity != message.PluginPublisherIdentity)
+                throw new PluginNotificationTargetUnavailableException("PluginPublisherChanged", true);
+            if (!target.AcceptsNotifications)
+                throw new PluginNotificationTargetUnavailableException("PluginDisabled", false);
+            if (target.CircuitOpenUntil is { } retryAt && retryAt > now)
+                throw new PluginNotificationTargetUnavailableException("PluginCircuitOpen", false, retryAt);
+
+            var metadata = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["eventId"] = message.EventId.ToString("D"),
+                ["type"] = char.ToLowerInvariant(message.Type.ToString()[0]) + message.Type.ToString()[1..],
+                ["deepLink"] = message.DeepLink,
+                ["occurredAt"] = message.OccurredAt.ToString("O", System.Globalization.CultureInfo.InvariantCulture)
+            };
+            if (message.PayloadJson is not null) metadata["payload"] = message.PayloadJson;
+            var notification = new PluginNotification(message.Title, message.Body, Metadata: metadata)
+            {
+                EventId = message.EventId
+            };
+            // Includes waiting for plugin lifecycle work, so a claimed batch cannot outlive its
+            // three-minute outbox lease even when installation/disable owns the manager gate.
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeout.CancelAfter(TimeSpan.FromMinutes(2));
+            await pluginProviders.SendNotificationAsync(target, notification, timeout.Token);
+            await repository.MarkDeliveredAsync(message.Id, message.NextAttemptAt, now, cancellationToken);
+            LogDelivered(logger, message.EventId, message.Channel, message.Type);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (PluginNotificationTargetUnavailableException exception) when (!exception.IsPermanent)
+        {
+            // Match disabled built-in channels: preserve queued events without spending retry
+            // attempts. Re-enabling or closing the circuit resumes them without reinstalling.
+            await repository.RescheduleAsync(message.Id, message.NextAttemptAt,
+                exception.RetryAt ?? now.AddMinutes(5), cancellationToken);
+        }
+        catch (Exception exception) when (exception is PluginCapacityExceededException or PluginInvocationInterruptedException)
+        {
+            await repository.RescheduleAsync(message.Id, message.NextAttemptAt, now.AddSeconds(30), cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            var retry = exception is not PluginNotificationTargetUnavailableException && attempt < MaxAttempts;
+            var error = exception is PluginNotificationTargetUnavailableException unavailable
+                ? unavailable.Reason
+                : exception.GetType().Name;
+            await repository.MarkFailedAsync(message.Id, message.NextAttemptAt, attempt, now,
+                retry ? now + RetryDelay(attempt) : null, error, cancellationToken);
+            // Plugin errors may contain configuration or request contents; expose only a bounded
+            // status token, just as the built-in transports do.
+            LogDeliveryFailed(logger, message.EventId, message.Channel, message.Type, error, retry);
         }
     }
 

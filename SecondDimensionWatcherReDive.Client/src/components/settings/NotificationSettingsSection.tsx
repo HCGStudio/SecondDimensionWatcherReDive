@@ -1,11 +1,13 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
+import { Link } from "react-router";
 
 import {
   BellRing,
   Clock3,
   History,
   MonitorSmartphone,
+  Plug,
   Send,
   Trash2,
   Webhook,
@@ -28,6 +30,7 @@ import {
   hashWebPushEndpoint,
   isWebPushSupported,
 } from "../../notifications/webPush";
+import { usePlugins } from "../../plugins/hooks";
 import {
   NotificationEventType,
   NotificationSettings,
@@ -75,6 +78,17 @@ export const NotificationSettingsSection: React.FC<
     useNotificationDeliveries();
   const { data: subscriptions, mutate: mutateSubscriptions } =
     useWebPushSubscriptions();
+  const { data: plugins } = usePlugins();
+  const pluginTargets = (plugins ?? []).flatMap((plugin) =>
+    plugin.manifest.providers
+      .filter((provider) => provider.kind === "notification")
+      .map((provider) => ({
+        id: `plugin:${plugin.manifest.id}:${provider.name}`,
+        name: `${plugin.manifest.name} / ${provider.name}`,
+        enabled: plugin.isEnabled && plugin.compatibilityErrors.length === 0,
+      })),
+  );
+  const pluginReady = pluginTargets.some((target) => target.enabled);
   const [draft, setDraft] = React.useState<NotificationSettings>(() => ({
     ...value,
     events: [...value.events],
@@ -415,12 +429,49 @@ export const NotificationSettingsSection: React.FC<
         </div>
       </Card>
 
+      <Card
+        className="mt-5"
+        icon={<Plug size={18} />}
+        title={t("system.notifications.plugins.title")}
+        description={t("system.notifications.plugins.description")}
+      >
+        {pluginTargets.length ? (
+          <ul className="space-y-2 text-sm">
+            {pluginTargets.map((target) => (
+              <li
+                key={target.id}
+                className="flex items-center justify-between gap-3"
+              >
+                <span>{target.name}</span>
+                <span className="text-xs text-muted">
+                  {t(
+                    `system.notifications.plugins.${target.enabled ? "enabled" : "disabled"}`,
+                  )}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-sm text-muted">
+            {t("system.notifications.plugins.empty")}
+          </p>
+        )}
+        <Link
+          className="mt-3 inline-block text-sm text-brand underline"
+          to="/settings?section=plugins"
+        >
+          {t("system.notifications.plugins.manage")}
+        </Link>
+      </Card>
+
       <div className="mt-5">
         <Button
           type="button"
           variant="outline"
           disabled={
-            testing || dirty || (!value.webhookEnabled && !value.webPushEnabled)
+            testing ||
+            dirty ||
+            (!value.webhookEnabled && !value.webPushEnabled && !pluginReady)
           }
           onClick={() => void test()}
         >
@@ -530,6 +581,11 @@ export const NotificationSettingsSection: React.FC<
                       `system.notifications.delivery.channel.${delivery.channel}`,
                     )}
                   </span>
+                  {delivery.target ? (
+                    <p className="break-all text-xs text-muted">
+                      {delivery.target}
+                    </p>
+                  ) : null}
                   {delivery.lastError ? (
                     <p className="text-xs text-error">{delivery.lastError}</p>
                   ) : null}
