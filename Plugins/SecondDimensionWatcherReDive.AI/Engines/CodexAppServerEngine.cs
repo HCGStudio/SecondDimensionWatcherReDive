@@ -60,6 +60,12 @@ public sealed partial class CodexAppServerEngine(
         var rpc = new RpcConnection(transport);
         await InitializeAsync(rpc, cancellationToken);
 
+        return await ReadModelsAsync(rpc, cancellationToken);
+    }
+
+    private static async Task<IReadOnlyList<AIModel>> ReadModelsAsync(
+        RpcConnection rpc, CancellationToken cancellationToken)
+    {
         var models = new List<AIModel>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
         var seenCursors = new HashSet<string>(StringComparer.Ordinal);
@@ -84,10 +90,23 @@ public sealed partial class CodexAppServerEngine(
             {
                 foreach (var model in data.EnumerateArray())
                 {
-                    var id = GetString(model, "id") ?? GetString(model, "model");
+                    var id = GetString(model, "model") ?? GetString(model, "id");
                     if (string.IsNullOrWhiteSpace(id) || !seen.Add(id)) continue;
                     var displayName = GetString(model, "displayName") ?? id;
-                    models.Add(new AIModel(id, displayName, EngineName));
+                    var efforts = new List<string>();
+                    if (model.TryGetProperty("supportedReasoningEfforts", out var supported) &&
+                        supported.ValueKind == JsonValueKind.Array)
+                        foreach (var effort in supported.EnumerateArray())
+                        {
+                            var value = effort.ValueKind == JsonValueKind.String
+                                ? effort.GetString() : GetString(effort, "reasoningEffort");
+                            if (!string.IsNullOrWhiteSpace(value)) efforts.Add(value);
+                        }
+                    models.Add(new AIModel(id, displayName, EngineName)
+                    {
+                        ProviderId = "codex",
+                        ReasoningEfforts = efforts.Distinct(StringComparer.Ordinal).ToList()
+                    });
                 }
             }
 
@@ -156,6 +175,16 @@ public sealed partial class CodexAppServerEngine(
         await EnsurePermissionProfileAvailableAsync(
             rpc, settings.PermissionProfile, cancellationToken);
 
+        var selectedModel = chatOptions?.Model ?? settings.Model;
+        var effort = chatOptions?.ReasoningEffort;
+        if (!string.IsNullOrWhiteSpace(effort))
+        {
+            var models = await ReadModelsAsync(rpc, cancellationToken);
+            var model = models.FirstOrDefault(model => model.Id == selectedModel)
+                ?? throw new ArgumentException($"Codex model '{selectedModel}' is unavailable; select a model before setting effort.");
+            effort = AIModelCapabilities.ValidateEffort(model.Id, effort, model.ReasoningEfforts);
+        }
+
         string? threadId = null;
         string? turnId = null;
         TurnState? state = null;
@@ -173,7 +202,6 @@ public sealed partial class CodexAppServerEngine(
             };
             if (!string.IsNullOrWhiteSpace(request.DeveloperInstructions))
                 threadStartParams["developerInstructions"] = request.DeveloperInstructions;
-            var selectedModel = chatOptions?.Model ?? settings.Model;
             if (!string.IsNullOrWhiteSpace(selectedModel))
                 threadStartParams["model"] = selectedModel;
             if (request.DynamicTools is not null)
@@ -214,6 +242,7 @@ public sealed partial class CodexAppServerEngine(
                 ["approvalPolicy"] = "never",
                 ["permissions"] = settings.PermissionProfile
             };
+            if (effort is not null) turnStartParams["effort"] = effort;
             if (chatOptions?.OutputSchema is { } outputSchema)
                 turnStartParams["outputSchema"] = ParseNode(outputSchema);
 

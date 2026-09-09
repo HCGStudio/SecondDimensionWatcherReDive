@@ -17,20 +17,30 @@ export interface SecretDraft {
   value: string;
 }
 
-export interface OpenAiSettings {
-  baseUrl: string;
-  apiMode: "responses" | "chatCompletions";
-  model: string;
-  maxTokens: number;
-  apiKey: SecretState;
+export type AiProtocol =
+  "openAIResponses" | "openAIChatCompletions" | "anthropic" | "codexAppServer";
+
+export interface AiProviderModel {
+  id: string;
+  name: string;
+  reasoningEfforts: string[];
 }
 
-export interface AnthropicSettings {
+export interface AiProviderSettings {
+  id: string;
+  name: string;
+  protocol: AiProtocol;
   baseUrl: string;
   model: string;
   maxTokens: number;
   apiVersion: string;
+  reasoningEffort: string | null;
+  models: AiProviderModel[];
   apiKey: SecretState;
+  endpoint: string;
+  permissionProfile: string;
+  timeoutSeconds: number;
+  token: SecretState;
 }
 
 export interface CodexAppServerSettings {
@@ -42,13 +52,13 @@ export interface CodexAppServerSettings {
 }
 
 export interface AiSettings {
-  executionMode: "builtIn" | "codexAppServer";
-  provider: "openAI" | "anthropic";
-  openAI: OpenAiSettings;
-  anthropic: AnthropicSettings;
-  codexAppServer: CodexAppServerSettings;
+  defaultProviderId: string | null;
+  providers: AiProviderSettings[];
   inference: {
     rateLimitDelayMs: number;
+    providerId: string | null;
+    model: string | null;
+    reasoningEffort: string | null;
   };
 }
 
@@ -127,15 +137,12 @@ export interface SystemSettings {
   notifications: NotificationSettings;
 }
 
-export interface OpenAiSettingsPatch extends Omit<OpenAiSettings, "apiKey"> {
-  apiKey?: SecretMutation | null;
-}
-
-export interface AnthropicSettingsPatch extends Omit<
-  AnthropicSettings,
-  "apiKey"
+export interface AiProviderSettingsPatch extends Omit<
+  AiProviderSettings,
+  "apiKey" | "token"
 > {
   apiKey?: SecretMutation | null;
+  token?: SecretMutation | null;
 }
 
 export interface CodexAppServerSettingsPatch extends Omit<
@@ -145,13 +152,8 @@ export interface CodexAppServerSettingsPatch extends Omit<
   token?: SecretMutation | null;
 }
 
-export interface AiSettingsPatch extends Omit<
-  AiSettings,
-  "openAI" | "anthropic" | "codexAppServer"
-> {
-  openAI: OpenAiSettingsPatch;
-  anthropic: AnthropicSettingsPatch;
-  codexAppServer: CodexAppServerSettingsPatch;
+export interface AiSettingsPatch extends Omit<AiSettings, "providers"> {
+  providers: AiProviderSettingsPatch[];
 }
 
 export interface TmdbSettingsPatch {

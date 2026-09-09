@@ -2,7 +2,9 @@ using System.Globalization;
 using System.Net;
 using System.Security.Cryptography;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.Configuration;
+using SecondDimensionWatcherReDive.AI.Models;
 using SecondDimensionWatcherReDive.Framework.Notifications;
 using SecondDimensionWatcherReDive.Framework.Networking;
 
@@ -36,6 +38,40 @@ internal enum OpenAiApiMode
 
     [JsonStringEnumMemberName("chatCompletions")]
     ChatCompletions
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter<AiProviderProtocol>))]
+internal enum AiProviderProtocol
+{
+    [JsonStringEnumMemberName("openAIResponses")]
+    OpenAIResponses,
+    [JsonStringEnumMemberName("openAIChatCompletions")]
+    OpenAIChatCompletions,
+    [JsonStringEnumMemberName("anthropic")]
+    Anthropic,
+    [JsonStringEnumMemberName("codexAppServer")]
+    CodexAppServer
+}
+
+internal sealed record AiModelSettingsValues(
+    string Id,
+    string? Name,
+    IReadOnlyList<string> ReasoningEfforts);
+
+internal sealed record AiProviderSettingsValues
+{
+    public string Id { get; init; } = string.Empty;
+    public string Name { get; init; } = string.Empty;
+    public AiProviderProtocol Protocol { get; init; }
+    public string BaseUrl { get; init; } = "https://api.openai.com/v1";
+    public string Model { get; init; } = "gpt-5.6-luna";
+    public int MaxTokens { get; init; } = 16384;
+    public string? ReasoningEffort { get; init; }
+    public string ApiVersion { get; init; } = "2023-06-01";
+    public string Endpoint { get; init; } = string.Empty;
+    public string PermissionProfile { get; init; } = ":read-only";
+    public int TimeoutSeconds { get; init; } = 300;
+    public IReadOnlyList<AiModelSettingsValues> Models { get; init; } = [];
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter<SecretMutationOperation>))]
@@ -95,7 +131,12 @@ internal sealed record CodexAppServerSettingsValues(
     string PermissionProfile,
     int TimeoutSeconds);
 
-internal sealed record InferenceSettingsValues(int RateLimitDelayMs);
+internal sealed record InferenceSettingsValues(int RateLimitDelayMs)
+{
+    public string? ProviderId { get; init; }
+    public string? Model { get; init; }
+    public string? ReasoningEffort { get; init; }
+}
 
 internal sealed record AiSettingsValues(
     AiExecutionMode ExecutionMode,
@@ -103,7 +144,12 @@ internal sealed record AiSettingsValues(
     OpenAiSettingsValues OpenAI,
     AnthropicSettingsValues Anthropic,
     CodexAppServerSettingsValues CodexAppServer,
-    InferenceSettingsValues Inference);
+    InferenceSettingsValues Inference)
+{
+    // Null represents the legacy single-provider configuration; an empty list is explicit.
+    public IReadOnlyList<AiProviderSettingsValues>? Providers { get; init; }
+    public string? DefaultProviderId { get; init; }
+}
 
 internal sealed record TorrentSettingsValues(
     string Url,
@@ -178,7 +224,7 @@ internal sealed record PersistedSecret(PersistedSecretMode Mode, string? Value);
 internal sealed record RuntimeSecretOverrides
 {
     public Dictionary<string, PersistedSecret> Values { get; init; } =
-        new(StringComparer.Ordinal);
+        new(StringComparer.OrdinalIgnoreCase);
 }
 
 internal sealed record SecretMutation(
@@ -189,7 +235,13 @@ internal sealed record AiSettingsUpdate(
     AiSettingsValues Values,
     SecretMutation? OpenAiApiKey,
     SecretMutation? AnthropicApiKey,
-    SecretMutation? CodexToken);
+    SecretMutation? CodexToken)
+{
+    public IReadOnlyDictionary<string, SecretMutation?> ProviderApiKeys { get; init; } =
+        new Dictionary<string, SecretMutation?>();
+    public IReadOnlyDictionary<string, SecretMutation?> ProviderTokens { get; init; } =
+        new Dictionary<string, SecretMutation?>();
+}
 
 internal sealed record TmdbSettingsUpdate(SecretMutation? ApiKey);
 
@@ -251,6 +303,19 @@ internal static class RuntimeSecretKeys
     public const string NotificationWebhookUrl = "Notifications:Webhook:Url";
     public const string NotificationVapidPrivateKey = "Notifications:WebPush:VapidPrivateKey";
 
+    public static string ProviderApiKey(string id) => $"AI:Providers:{id}:ApiKey";
+    public static string ProviderToken(string id) => $"AI:Providers:{id}:BearerToken";
+
+    public static bool IsProviderSecret(string key) =>
+        Regex.IsMatch(key, @"^AI:Providers:[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}:(ApiKey|BearerToken)$",
+            RegexOptions.CultureInvariant);
+
+    public static IEnumerable<string> ForProviders(AiSettingsValues ai) =>
+        RuntimeAiProviders.GetProviders(ai).SelectMany(provider => new[]
+        {
+            ProviderApiKey(provider.Id), ProviderToken(provider.Id)
+        });
+
     public static readonly string[] All =
     [
         OpenAiApiKey,
@@ -261,6 +326,55 @@ internal static class RuntimeSecretKeys
         NotificationWebhookUrl,
         NotificationVapidPrivateKey
     ];
+}
+
+internal static class RuntimeAiProviders
+{
+    public static IReadOnlyList<AiProviderSettingsValues> GetProviders(AiSettingsValues ai)
+    {
+        if (ai.Providers is not null)
+            return ai.Providers;
+        var providers = new List<AiProviderSettingsValues>
+        {
+            new()
+            {
+                Id = "openai", Name = "OpenAI",
+                Protocol = ai.OpenAI.ApiMode == OpenAiApiMode.ChatCompletions
+                    ? AiProviderProtocol.OpenAIChatCompletions : AiProviderProtocol.OpenAIResponses,
+                BaseUrl = ai.OpenAI.BaseUrl, Model = ai.OpenAI.Model, MaxTokens = ai.OpenAI.MaxTokens
+            },
+            new()
+            {
+                Id = "anthropic", Name = "Anthropic", Protocol = AiProviderProtocol.Anthropic,
+                BaseUrl = ai.Anthropic.BaseUrl, Model = ai.Anthropic.Model,
+                MaxTokens = ai.Anthropic.MaxTokens, ApiVersion = ai.Anthropic.ApiVersion
+            }
+        };
+        if (ai.ExecutionMode == AiExecutionMode.CodexAppServer
+            || !string.IsNullOrWhiteSpace(ai.CodexAppServer.Endpoint))
+            providers.Add(new AiProviderSettingsValues
+            {
+                Id = "codex", Name = "Codex", Protocol = AiProviderProtocol.CodexAppServer,
+                Model = ai.CodexAppServer.Model ?? string.Empty,
+                Endpoint = ai.CodexAppServer.Endpoint,
+                PermissionProfile = ai.CodexAppServer.PermissionProfile,
+                TimeoutSeconds = ai.CodexAppServer.TimeoutSeconds
+            });
+        return providers;
+    }
+
+    public static string? DefaultProviderId(AiSettingsValues ai) => ai.Providers is not null
+        ? ai.DefaultProviderId ?? ai.Providers.FirstOrDefault()?.Id
+        : ai.ExecutionMode == AiExecutionMode.CodexAppServer ? "codex"
+            : ai.Provider == BuiltInAiProvider.Anthropic ? "anthropic" : "openai";
+
+    public static string? LegacySecret(string key) => key switch
+    {
+        "AI:Providers:openai:ApiKey" => RuntimeSecretKeys.OpenAiApiKey,
+        "AI:Providers:anthropic:ApiKey" => RuntimeSecretKeys.AnthropicApiKey,
+        "AI:Providers:codex:BearerToken" => RuntimeSecretKeys.CodexToken,
+        _ => null
+    };
 }
 
 internal static class RuntimeSettingsDefaults
@@ -307,12 +421,18 @@ internal static class RuntimeSettingsDefaults
                 configuration.GetValue<TimeSpan?>("Notifications:QuietHours:End"),
                 configuration["Notifications:QuietHours:TimeZone"] ?? "UTC"));
 
-    public static IReadOnlyDictionary<string, string?> ReadDeploymentSecrets(
-        IConfiguration configuration) =>
-        RuntimeSecretKeys.All.ToDictionary(
-            key => key,
-            key => NullIfWhiteSpace(configuration[key]),
-            StringComparer.Ordinal);
+    public static IReadOnlyDictionary<string, string?> ReadDeploymentSecrets(IConfiguration configuration)
+    {
+        var ai = ReadAi(configuration);
+        var secrets = RuntimeSecretKeys.All.Concat(RuntimeSecretKeys.ForProviders(ai))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(key => key, key => NullIfWhiteSpace(configuration[key]), StringComparer.OrdinalIgnoreCase);
+        if (ai.Providers is null)
+            foreach (var key in RuntimeSecretKeys.ForProviders(ai))
+                if (RuntimeAiProviders.LegacySecret(key) is { } legacyKey)
+                    secrets[key] = secrets[legacyKey];
+        return secrets;
+    }
 
     private static AiSettingsValues ReadAi(IConfiguration configuration) =>
         new(
@@ -321,12 +441,12 @@ internal static class RuntimeSettingsDefaults
             new OpenAiSettingsValues(
                 configuration["AI:OpenAI:BaseUrl"] ?? "https://api.openai.com/v1",
                 ParseEnum(configuration["AI:OpenAI:ApiMode"], OpenAiApiMode.Responses),
-                configuration["AI:OpenAI:Model"] ?? "gpt-4o-mini",
-                configuration.GetValue<int?>("AI:OpenAI:MaxTokens") ?? 1024),
+                configuration["AI:OpenAI:Model"] ?? "gpt-5.6-luna",
+                configuration.GetValue<int?>("AI:OpenAI:MaxTokens") ?? 16384),
             new AnthropicSettingsValues(
                 configuration["AI:Anthropic:BaseUrl"] ?? "https://api.anthropic.com",
-                configuration["AI:Anthropic:Model"] ?? "claude-sonnet-4-20250514",
-                configuration.GetValue<int?>("AI:Anthropic:MaxTokens") ?? 1024,
+                configuration["AI:Anthropic:Model"] ?? "claude-sonnet-5",
+                configuration.GetValue<int?>("AI:Anthropic:MaxTokens") ?? 16384,
                 configuration["AI:Anthropic:ApiVersion"] ?? "2023-06-01"),
             new CodexAppServerSettingsValues(
                 configuration["AI:CodexAppServer:Endpoint"] ?? string.Empty,
@@ -334,7 +454,48 @@ internal static class RuntimeSettingsDefaults
                 configuration["AI:CodexAppServer:PermissionProfile"] ?? ":read-only",
                 configuration.GetValue<int?>("AI:CodexAppServer:TimeoutSeconds") ?? 300),
             new InferenceSettingsValues(
-                configuration.GetValue<int?>("Inference:RateLimitDelayMs") ?? 1000));
+                configuration.GetValue<int?>("Inference:RateLimitDelayMs") ?? 1000)
+            {
+                ProviderId = NullIfWhiteSpace(configuration["Inference:ProviderId"]),
+                Model = NullIfWhiteSpace(configuration["Inference:Model"]),
+                ReasoningEffort = NullIfWhiteSpace(configuration["Inference:ReasoningEffort"])
+            })
+        {
+            DefaultProviderId = NullIfWhiteSpace(configuration["AI:DefaultProviderId"]),
+            Providers = ReadProviders(configuration)
+        };
+
+    private static IReadOnlyList<AiProviderSettingsValues>? ReadProviders(IConfiguration configuration)
+    {
+        var children = configuration.GetSection("AI:Providers").GetChildren().ToArray();
+        if (children.Length == 0 && configuration.GetValue<bool?>("AI:ProvidersConfigured") != true)
+            return null;
+        return children.Select(section => new AiProviderSettingsValues
+        {
+            Id = section.Key,
+            Name = section["Name"] ?? section.Key,
+            Protocol = ParseEnum(section["Protocol"], AiProviderProtocol.OpenAIResponses),
+            BaseUrl = section["BaseUrl"] ?? (string.Equals(section["Protocol"], "Anthropic", StringComparison.OrdinalIgnoreCase)
+                ? "https://api.anthropic.com" : "https://api.openai.com/v1"),
+            Model = section["Model"] ?? (string.Equals(section["Protocol"], "Anthropic", StringComparison.OrdinalIgnoreCase)
+                ? "claude-sonnet-5" : string.Equals(section["Protocol"], "CodexAppServer", StringComparison.OrdinalIgnoreCase)
+                    ? string.Empty : "gpt-5.6-luna"),
+            MaxTokens = section.GetValue<int?>("MaxTokens") ?? 16384,
+            ReasoningEffort = NullIfWhiteSpace(section["ReasoningEffort"]),
+            ApiVersion = section["ApiVersion"] ?? "2023-06-01",
+            Endpoint = section["Endpoint"] ?? string.Empty,
+            PermissionProfile = section["PermissionProfile"] ?? ":read-only",
+            TimeoutSeconds = section.GetValue<int?>("TimeoutSeconds") ?? 300,
+            Models = section.GetSection("Models").GetChildren().Select(model =>
+                new AiModelSettingsValues(model["Id"] ?? string.Empty,
+                    NullIfWhiteSpace(model["Name"]),
+                    model.GetSection("ReasoningEfforts").Get<string[]>()
+                    ?? (model.GetValue<bool?>("ReasoningEffortsConfigured") == true ? []
+                        : AIModelCapabilities.GetReasoningEfforts(
+                            ParseEnum(section["Protocol"], AI.Configuration.AIProviderProtocol.OpenAIResponses),
+                            model["Id"] ?? string.Empty)))).ToArray()
+        }).ToArray();
+    }
 
     private static TimeSpan ReadTimeSpan(
         IConfiguration configuration,
@@ -378,36 +539,100 @@ internal static class RuntimeSettingsValidator
     {
         var errors = new Dictionary<string, List<string>>(StringComparer.Ordinal);
 
-        if (!Enum.IsDefined(values.Ai.ExecutionMode))
-            Add(errors, "ai.executionMode", "The AI execution mode is invalid.");
-        if (!Enum.IsDefined(values.Ai.Provider))
-            Add(errors, "ai.provider", "The built-in AI provider is invalid.");
-        if (!Enum.IsDefined(values.Ai.OpenAI.ApiMode))
-            Add(errors, "ai.openAI.apiMode", "The OpenAI API mode is invalid.");
-
-        ValidateHttpUri(errors, "ai.openAI.baseUrl", values.Ai.OpenAI.BaseUrl);
-        ValidateHttpUri(errors, "ai.anthropic.baseUrl", values.Ai.Anthropic.BaseUrl);
-        if (values.Ai.ExecutionMode == AiExecutionMode.CodexAppServer
-            || !string.IsNullOrWhiteSpace(values.Ai.CodexAppServer.Endpoint))
+        if (values.Ai.Providers is null)
         {
-            ValidateWebSocketUri(errors, "ai.codexAppServer.endpoint", values.Ai.CodexAppServer.Endpoint);
-            if (Uri.TryCreate(values.Ai.CodexAppServer.Endpoint, UriKind.Absolute, out var codexEndpoint)
-                && !codexEndpoint.IsLoopback
-                && !secrets[RuntimeSecretKeys.CodexToken].IsConfigured)
-                Add(errors, "ai.codexAppServer.token",
-                    "A bearer token is required for a remote Codex app-server endpoint.");
+            if (!Enum.IsDefined(values.Ai.ExecutionMode))
+                Add(errors, "ai.executionMode", "The AI execution mode is invalid.");
+            if (!Enum.IsDefined(values.Ai.Provider))
+                Add(errors, "ai.provider", "The built-in AI provider is invalid.");
+            if (!Enum.IsDefined(values.Ai.OpenAI.ApiMode))
+                Add(errors, "ai.openAI.apiMode", "The OpenAI API mode is invalid.");
+
+            ValidateHttpUri(errors, "ai.openAI.baseUrl", values.Ai.OpenAI.BaseUrl);
+            ValidateHttpUri(errors, "ai.anthropic.baseUrl", values.Ai.Anthropic.BaseUrl);
+            if (values.Ai.ExecutionMode == AiExecutionMode.CodexAppServer
+                || !string.IsNullOrWhiteSpace(values.Ai.CodexAppServer.Endpoint))
+            {
+                ValidateWebSocketUri(errors, "ai.codexAppServer.endpoint", values.Ai.CodexAppServer.Endpoint);
+                if (Uri.TryCreate(values.Ai.CodexAppServer.Endpoint, UriKind.Absolute, out var codexEndpoint)
+                    && !codexEndpoint.IsLoopback
+                    && !secrets[RuntimeSecretKeys.CodexToken].IsConfigured)
+                    Add(errors, "ai.codexAppServer.token",
+                        "A bearer token is required for a remote Codex app-server endpoint.");
+            }
+            RequireText(errors, "ai.openAI.model", values.Ai.OpenAI.Model);
+            RequireText(errors, "ai.anthropic.model", values.Ai.Anthropic.Model);
+            RequireText(errors, "ai.anthropic.apiVersion", values.Ai.Anthropic.ApiVersion);
+            RequireText(errors, "ai.codexAppServer.permissionProfile",
+                values.Ai.CodexAppServer.PermissionProfile);
+            RequireRange(errors, "ai.openAI.maxTokens", values.Ai.OpenAI.MaxTokens, 1, int.MaxValue);
+            RequireRange(errors, "ai.anthropic.maxTokens", values.Ai.Anthropic.MaxTokens, 1, int.MaxValue);
+            RequireRange(errors, "ai.codexAppServer.timeoutSeconds",
+                values.Ai.CodexAppServer.TimeoutSeconds, 1, 3600);
         }
-        RequireText(errors, "ai.openAI.model", values.Ai.OpenAI.Model);
-        RequireText(errors, "ai.anthropic.model", values.Ai.Anthropic.Model);
-        RequireText(errors, "ai.anthropic.apiVersion", values.Ai.Anthropic.ApiVersion);
-        RequireText(errors, "ai.codexAppServer.permissionProfile",
-            values.Ai.CodexAppServer.PermissionProfile);
-        RequireRange(errors, "ai.openAI.maxTokens", values.Ai.OpenAI.MaxTokens, 1, int.MaxValue);
-        RequireRange(errors, "ai.anthropic.maxTokens", values.Ai.Anthropic.MaxTokens, 1, int.MaxValue);
-        RequireRange(errors, "ai.codexAppServer.timeoutSeconds",
-            values.Ai.CodexAppServer.TimeoutSeconds, 1, 3600);
         RequireRange(errors, "ai.inference.rateLimitDelayMs",
             values.Ai.Inference.RateLimitDelayMs, 0, int.MaxValue);
+
+        var providerIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var providers = RuntimeAiProviders.GetProviders(values.Ai);
+        for (var index = 0; index < providers.Count; index++)
+        {
+            var provider = providers[index];
+            var path = $"ai.providers.{index}";
+            if (string.IsNullOrEmpty(provider.Id)
+                || !Regex.IsMatch(provider.Id, @"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$", RegexOptions.CultureInvariant))
+                Add(errors, path + ".id", "Use 1–64 letters, digits, underscores or hyphens, beginning with a letter or digit.");
+            else if (!providerIds.Add(provider.Id))
+                Add(errors, path + ".id", "The provider ID is duplicated.");
+            RequireText(errors, path + ".name", provider.Name);
+            if (!Enum.IsDefined(provider.Protocol))
+                Add(errors, path + ".protocol", "The provider protocol is invalid.");
+            if (provider.Protocol == AiProviderProtocol.CodexAppServer)
+            {
+                ValidateWebSocketUri(errors, path + ".endpoint", provider.Endpoint);
+                RequireText(errors, path + ".permissionProfile", provider.PermissionProfile);
+                RequireRange(errors, path + ".timeoutSeconds", provider.TimeoutSeconds, 1, 3600);
+                if (Uri.TryCreate(provider.Endpoint, UriKind.Absolute, out var endpoint)
+                    && !endpoint.IsLoopback
+                    && secrets.GetValueOrDefault(RuntimeSecretKeys.ProviderToken(provider.Id))?.IsConfigured != true)
+                    Add(errors, path + ".token", "A bearer token is required for a remote Codex app-server endpoint.");
+            }
+            else
+            {
+                ValidateHttpUri(errors, path + ".baseUrl", provider.BaseUrl);
+                RequireText(errors, path + ".model", provider.Model);
+                RequireRange(errors, path + ".maxTokens", provider.MaxTokens, 1, int.MaxValue);
+                if (provider.Protocol == AiProviderProtocol.Anthropic)
+                    RequireText(errors, path + ".apiVersion", provider.ApiVersion);
+            }
+            var modelIds = new HashSet<string>(StringComparer.Ordinal);
+            for (var modelIndex = 0; modelIndex < provider.Models.Count; modelIndex++)
+            {
+                var model = provider.Models[modelIndex];
+                var modelPath = $"{path}.models.{modelIndex}";
+                RequireText(errors, modelPath + ".id", model.Id);
+                if (!modelIds.Add(model.Id))
+                    Add(errors, modelPath + ".id", "The model ID is duplicated.");
+                if (model.ReasoningEfforts.Any(effort => !IsReasoningEffort(effort)))
+                    Add(errors, modelPath + ".reasoningEfforts", "The reasoning effort is invalid.");
+            }
+            ValidateProviderEffort(errors, path + ".reasoningEffort", provider, provider.Model, provider.ReasoningEffort);
+        }
+        var defaultProviderId = RuntimeAiProviders.DefaultProviderId(values.Ai);
+        if (providers.Count > 0 && (string.IsNullOrWhiteSpace(defaultProviderId) || !providerIds.Contains(defaultProviderId)))
+            Add(errors, "ai.defaultProviderId", "Select an existing default provider.");
+        if (providers.Count == 0 && !string.IsNullOrEmpty(defaultProviderId))
+            Add(errors, "ai.defaultProviderId", "The default provider does not exist.");
+        if (values.Ai.Inference.ProviderId is { Length: > 0 } inferenceProviderId
+            && !providerIds.Contains(inferenceProviderId))
+            Add(errors, "ai.inference.providerId", "The inference provider does not exist.");
+        var inferenceProvider = providers.FirstOrDefault(provider => string.Equals(provider.Id,
+            values.Ai.Inference.ProviderId ?? defaultProviderId, StringComparison.OrdinalIgnoreCase));
+        if (inferenceProvider is not null)
+            ValidateProviderEffort(errors, "ai.inference.reasoningEffort", inferenceProvider,
+                values.Ai.Inference.Model ?? inferenceProvider.Model, values.Ai.Inference.ReasoningEffort);
+        else
+            ValidateReasoningEffort(errors, "ai.inference.reasoningEffort", values.Ai.Inference.ReasoningEffort);
 
         ValidateHttpUri(errors, "torrent.url", values.Torrent.Url);
         ValidateUserAgent(errors, "torrent.userAgent", values.Torrent.UserAgent);
@@ -523,7 +748,7 @@ internal static class RuntimeSettingsValidator
                 values.Notifications.VapidPublicKey,
                 privateKey);
 
-        foreach (var key in RuntimeSecretKeys.All)
+        foreach (var key in secrets.Keys)
         {
             if (secrets.TryGetValue(key, out var secret)
                 && secret.IsConfigured
@@ -532,6 +757,40 @@ internal static class RuntimeSettingsValidator
         }
 
         return errors.ToDictionary(pair => pair.Key, pair => pair.Value.ToArray(), StringComparer.Ordinal);
+    }
+
+    private static void ValidateProviderEffort(
+        Dictionary<string, List<string>> errors,
+        string key,
+        AiProviderSettingsValues provider,
+        string model,
+        string? effort)
+    {
+        if (effort is null || !Enum.IsDefined(provider.Protocol))
+            return;
+        var configured = provider.Models.FirstOrDefault(item => item.Id == model)?.ReasoningEfforts;
+        var supported = configured ?? AIModelCapabilities.GetReasoningEfforts(
+            Enum.Parse<AI.Configuration.AIProviderProtocol>(provider.Protocol.ToString()), model);
+        // Codex can advertise additional capabilities when its model catalog is fetched.
+        if (provider.Protocol == AiProviderProtocol.CodexAppServer && configured is null && supported.Count == 0)
+        {
+            ValidateReasoningEffort(errors, key, effort);
+            return;
+        }
+        if (!supported.Contains(effort, StringComparer.Ordinal))
+            Add(errors, key, $"Model '{model}' does not support reasoning effort '{effort}'.");
+    }
+
+    private static bool IsReasoningEffort(string effort) =>
+        effort is "none" or "minimal" or "low" or "medium" or "high" or "xhigh" or "max";
+
+    private static void ValidateReasoningEffort(
+        Dictionary<string, List<string>> errors,
+        string key,
+        string? effort)
+    {
+        if (effort is not null && !IsReasoningEffort(effort))
+            Add(errors, key, "The reasoning effort is invalid.");
     }
 
     private static void ValidateHttpUri(
@@ -763,6 +1022,36 @@ internal static class RuntimeSettingsFlattener
         flattened["Inference:RateLimitDelayMs"] =
             ai.Inference.RateLimitDelayMs.ToString(CultureInfo.InvariantCulture);
 
+        flattened["AI:ProvidersConfigured"] = bool.TrueString;
+        flattened["AI:DefaultProviderId"] = RuntimeAiProviders.DefaultProviderId(ai);
+        flattened["Inference:ProviderId"] = ai.Inference.ProviderId;
+        flattened["Inference:Model"] = ai.Inference.Model;
+        flattened["Inference:ReasoningEffort"] = ai.Inference.ReasoningEffort;
+        foreach (var provider in RuntimeAiProviders.GetProviders(ai))
+        {
+            var prefix = $"AI:Providers:{provider.Id}";
+            flattened[prefix + ":Id"] = provider.Id;
+            flattened[prefix + ":Name"] = provider.Name;
+            flattened[prefix + ":Protocol"] = provider.Protocol.ToString();
+            flattened[prefix + ":BaseUrl"] = provider.BaseUrl;
+            flattened[prefix + ":Model"] = provider.Model;
+            flattened[prefix + ":MaxTokens"] = provider.MaxTokens.ToString(CultureInfo.InvariantCulture);
+            flattened[prefix + ":ReasoningEffort"] = provider.ReasoningEffort;
+            flattened[prefix + ":ApiVersion"] = provider.ApiVersion;
+            flattened[prefix + ":Endpoint"] = provider.Endpoint;
+            flattened[prefix + ":PermissionProfile"] = provider.PermissionProfile;
+            flattened[prefix + ":TimeoutSeconds"] = provider.TimeoutSeconds.ToString(CultureInfo.InvariantCulture);
+            for (var index = 0; index < provider.Models.Count; index++)
+            {
+                var model = provider.Models[index];
+                flattened[$"{prefix}:Models:{index}:Id"] = model.Id;
+                flattened[$"{prefix}:Models:{index}:Name"] = model.Name;
+                flattened[$"{prefix}:Models:{index}:ReasoningEffortsConfigured"] = bool.TrueString;
+                for (var effortIndex = 0; effortIndex < model.ReasoningEfforts.Count; effortIndex++)
+                    flattened[$"{prefix}:Models:{index}:ReasoningEfforts:{effortIndex}"] = model.ReasoningEfforts[effortIndex];
+            }
+        }
+
         flattened["Torrent:Remote:Url"] = values.Torrent.Url;
         flattened["Torrent:Remote:UserName"] = values.Torrent.UserName;
         flattened["Torrent:Remote:UserAgent"] = values.Torrent.UserAgent;
@@ -813,7 +1102,7 @@ internal static class RuntimeSettingsFlattener
             values.Notifications.QuietHoursEnd?.ToString("c", CultureInfo.InvariantCulture);
         flattened["Notifications:QuietHours:TimeZone"] = values.Notifications.TimeZoneId;
 
-        foreach (var key in RuntimeSecretKeys.All)
+        foreach (var key in RuntimeSecretKeys.All.Concat(RuntimeSecretKeys.ForProviders(ai)))
             flattened[key] = secrets.TryGetValue(key, out var secret) && secret.IsConfigured
                 ? secret.Value
                 : string.Empty;

@@ -1260,30 +1260,28 @@ let systemSettings = {
   revision: 1,
   pendingRestart: false,
   ai: {
-    executionMode: "builtIn",
-    provider: "openAI",
-    openAI: {
-      baseUrl: "https://api.openai.com/v1",
-      apiMode: "responses",
-      model: "gpt-4o-mini",
-      maxTokens: 1024,
-      apiKey: { isConfigured: true, source: "deployment" },
-    },
-    anthropic: {
-      baseUrl: "https://api.anthropic.com",
-      model: "claude-sonnet-4-20250514",
-      maxTokens: 1024,
-      apiVersion: "2023-06-01",
-      apiKey: { isConfigured: false, source: "none" },
-    },
-    codexAppServer: {
-      endpoint: "ws://127.0.0.1:4500",
-      model: "",
-      permissionProfile: ":read-only",
-      timeoutSeconds: 120,
-      token: { isConfigured: false, source: "none" },
-    },
-    inference: { rateLimitDelayMs: 1000 },
+    defaultProviderId: "openai",
+    providers: [
+      {
+        id: "openai", name: "OpenAI", protocol: "openAIResponses",
+        baseUrl: "https://api.openai.com/v1", model: "gpt-5.6-luna", maxTokens: 16384,
+        apiVersion: "2023-06-01", reasoningEffort: null,
+        models: [{ id: "gpt-5.6-luna", name: "GPT-5.6 Luna", reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"] }],
+        apiKey: { isConfigured: true, source: "deployment" },
+        endpoint: "", permissionProfile: ":read-only", timeoutSeconds: 120,
+        token: { isConfigured: false, source: "none" },
+      },
+      {
+        id: "anthropic", name: "Anthropic", protocol: "anthropic",
+        baseUrl: "https://api.anthropic.com", model: "claude-sonnet-5", maxTokens: 16384,
+        apiVersion: "2023-06-01", reasoningEffort: null,
+        models: [{ id: "claude-sonnet-5", name: "Claude Sonnet 5", reasoningEfforts: ["low", "medium", "high", "xhigh", "max"] }],
+        apiKey: { isConfigured: true, source: "deployment" },
+        endpoint: "", permissionProfile: ":read-only", timeoutSeconds: 120,
+        token: { isConfigured: false, source: "none" },
+      },
+    ],
+    inference: { rateLimitDelayMs: 1000, providerId: null, model: null, reasoningEffort: null },
   },
   tmdb: { apiKey: { isConfigured: true, source: "deployment" } },
   torrent: {
@@ -1396,9 +1394,7 @@ function mockInstalledPlugin(manifest = mockPluginManifest) {
 }
 
 const deploymentSecrets = {
-  openAi: { isConfigured: true, source: "deployment" },
-  anthropic: { isConfigured: false, source: "none" },
-  codex: { isConfigured: false, source: "none" },
+  providers: new Map(systemSettings.ai.providers.map((provider) => [provider.id, { apiKey: { ...provider.apiKey }, token: { ...provider.token } }])),
   tmdb: { isConfigured: true, source: "deployment" },
   torrent: { isConfigured: false, source: "none" },
   webhook: { isConfigured: false, source: "none" },
@@ -1438,14 +1434,39 @@ function requiresCredentialMutation(currentUrl, nextUrl, secret, mutation) {
   );
 }
 
+function isMockProviderConfigured(provider) {
+  if (provider.protocol === "codexAppServer") return Boolean(provider.endpoint && provider.permissionProfile);
+  return Boolean(provider.baseUrl && provider.model && (provider.apiKey.isConfigured || !["api.openai.com", "api.anthropic.com"].includes(new URL(provider.baseUrl).hostname)));
+}
+
 function isMockAiConfigured() {
-  const ai = systemSettings.ai;
-  if (ai.executionMode === "codexAppServer")
-    return Boolean(
-      ai.codexAppServer.endpoint && ai.codexAppServer.permissionProfile,
-    );
-  const provider = ai.provider === "openAI" ? ai.openAI : ai.anthropic;
-  return provider.apiKey.isConfigured && Boolean(provider.model);
+  return systemSettings.ai.providers.some(isMockProviderConfigured);
+}
+
+function mockAiModels() {
+  const providers = [...systemSettings.ai.providers].sort((a, b) => Number(b.id === systemSettings.ai.defaultProviderId) - Number(a.id === systemSettings.ai.defaultProviderId));
+  return providers.filter(isMockProviderConfigured).flatMap((provider) => {
+    const models = new Map(provider.models.map((model) => [model.id, model]));
+    if (!models.has(provider.model)) {
+      const reasoningEfforts = provider.model === "gpt-5.6-luna" && provider.protocol !== "anthropic"
+        ? ["none", "low", "medium", "high", "xhigh", "max"]
+        : provider.model === "claude-sonnet-5" && provider.protocol === "anthropic"
+          ? ["low", "medium", "high", "xhigh", "max"] : [];
+      models.set(provider.model, { id: provider.model, name: provider.model || "App-server default", reasoningEfforts });
+    }
+    return [...models.values()].map((model) => ({ ...model, provider: provider.name, providerId: provider.id }));
+  });
+}
+
+function mockAiSelectionError(selection, inference = false) {
+  const defaults = inference ? systemSettings.ai.inference : {};
+  const providerId = selection.providerId || defaults.providerId || systemSettings.ai.defaultProviderId;
+  const provider = systemSettings.ai.providers.find((item) => item.id === providerId);
+  if (!provider || !isMockProviderConfigured(provider)) return "AI provider is unavailable";
+  const model = selection.model || (!selection.providerId ? defaults.model : null) || provider.model;
+  const effort = selection.reasoningEffort;
+  if (effort && !mockAiModels().find((item) => item.providerId === providerId && item.id === model)?.reasoningEfforts.includes(effort)) return "Unsupported reasoning effort";
+  return null;
 }
 
 // Existing media-library import sources. Scans are asynchronous so the
@@ -2013,25 +2034,13 @@ async function route(method, pathname, searchParams, req, res) {
       return json(res, { error: "Settings revision conflict" }, 409);
 
     const unsafeCredentialChange =
-      (body.ai &&
-        (requiresCredentialMutation(
-          systemSettings.ai.openAI.baseUrl,
-          body.ai.openAI.baseUrl,
-          systemSettings.ai.openAI.apiKey,
-          body.ai.openAI.apiKey,
-        ) ||
-          requiresCredentialMutation(
-            systemSettings.ai.anthropic.baseUrl,
-            body.ai.anthropic.baseUrl,
-            systemSettings.ai.anthropic.apiKey,
-            body.ai.anthropic.apiKey,
-          ) ||
-          requiresCredentialMutation(
-            systemSettings.ai.codexAppServer.endpoint,
-            body.ai.codexAppServer.endpoint,
-            systemSettings.ai.codexAppServer.token,
-            body.ai.codexAppServer.token,
-          ))) ||
+      (body.ai?.providers && body.ai.providers.some((provider) => {
+        const previous = systemSettings.ai.providers.find((item) => item.id === provider.id);
+        return previous && (
+          requiresCredentialMutation(previous.protocol === "codexAppServer" ? previous.endpoint : previous.baseUrl, provider.protocol === "codexAppServer" ? provider.endpoint : provider.baseUrl, previous.apiKey, provider.apiKey) ||
+          requiresCredentialMutation(previous.protocol === "codexAppServer" ? previous.endpoint : previous.baseUrl, provider.protocol === "codexAppServer" ? provider.endpoint : provider.baseUrl, previous.token, provider.token)
+        );
+      })) ||
       (body.torrent &&
         requiresCredentialMutation(
           systemSettings.torrent.url,
@@ -2045,40 +2054,23 @@ async function route(method, pathname, searchParams, req, res) {
         { error: "A credential must be set or cleared after an origin change" },
         400,
       );
-    if (body.ai && !body.ai.codexAppServer.permissionProfile?.trim())
+    if (body.ai?.providers?.some((provider) => provider.protocol === "codexAppServer" && !provider.permissionProfile?.trim()))
       return json(res, { error: "A permission profile is required" }, 400);
 
     try {
       if (body.ai) {
-        systemSettings.ai = {
-          executionMode: body.ai.executionMode,
-          provider: body.ai.provider,
-          openAI: {
-            ...body.ai.openAI,
-            apiKey: applySecretMutation(
-              systemSettings.ai.openAI.apiKey,
-              body.ai.openAI.apiKey,
-              deploymentSecrets.openAi,
-            ),
-          },
-          anthropic: {
-            ...body.ai.anthropic,
-            apiKey: applySecretMutation(
-              systemSettings.ai.anthropic.apiKey,
-              body.ai.anthropic.apiKey,
-              deploymentSecrets.anthropic,
-            ),
-          },
-          codexAppServer: {
-            ...body.ai.codexAppServer,
-            token: applySecretMutation(
-              systemSettings.ai.codexAppServer.token,
-              body.ai.codexAppServer.token,
-              deploymentSecrets.codex,
-            ),
-          },
-          inference: { ...body.ai.inference },
-        };
+        const noSecret = { isConfigured: false, source: "none" };
+        const providers = body.ai.providers.map((provider) => {
+          const previous = systemSettings.ai.providers.find((item) => item.id === provider.id);
+          const deployment = deploymentSecrets.providers.get(provider.id);
+          return { ...provider,
+            apiKey: applySecretMutation(previous?.apiKey ?? noSecret, provider.apiKey, deployment?.apiKey ?? noSecret),
+            token: applySecretMutation(previous?.token ?? noSecret, provider.token, deployment?.token ?? noSecret),
+          };
+        });
+        if (providers.length && !providers.some((provider) => provider.id === body.ai.defaultProviderId)) throw new Error("Default provider does not exist");
+        if (new Set(providers.map((provider) => provider.id)).size !== providers.length) throw new Error("Duplicate provider ID");
+        systemSettings.ai = { defaultProviderId: body.ai.defaultProviderId, providers, inference: { ...body.ai.inference } };
       }
 
       if (body.tmdb)
@@ -3971,6 +3963,12 @@ async function route(method, pathname, searchParams, req, res) {
         (t) => t.id.toLowerCase() === id.toLowerCase(),
       );
       if (!task) return json(res, { message: `Task '${id}' not found` }, 404);
+      const selection = await readBody(req);
+      if (selection.providerId || selection.model || selection.reasoningEffort) {
+        const selectionError = mockAiSelectionError(selection, true);
+        if (selectionError) return json(res, { error: selectionError }, 400);
+        if (task.isRunning) return json(res, { error: "Task is already running" }, 409);
+      }
       task.lastRunAt = new Date().toISOString();
       console.log(`  Mock: task '${id}' executed`);
       return json(res, { message: `Task '${id}' completed` });
@@ -3987,12 +3985,7 @@ async function route(method, pathname, searchParams, req, res) {
   if (method === "GET" && pathname === "/api/chat/status") {
     return json(res, {
       aiEnabled: isMockAiConfigured(),
-      provider:
-        systemSettings.ai.executionMode === "codexAppServer"
-          ? "Codex App Server"
-          : systemSettings.ai.provider === "openAI"
-            ? "OpenAI"
-            : "Anthropic",
+      provider: systemSettings.ai.providers.find((provider) => provider.id === systemSettings.ai.defaultProviderId)?.name ?? null,
     });
   }
 
@@ -4000,18 +3993,7 @@ async function route(method, pathname, searchParams, req, res) {
   if (method === "GET" && pathname === "/api/chat/models") {
     if (!isMockAiConfigured())
       return json(res, { error: "AI is not configured" }, 503);
-    if (systemSettings.ai.executionMode === "codexAppServer")
-      return json(res, [
-        {
-          id: systemSettings.ai.codexAppServer.model || "app-server-default",
-          name: systemSettings.ai.codexAppServer.model || "App-server default",
-          provider: "Codex App Server",
-        },
-      ]);
-    return json(res, [
-      { id: "mock-gpt-4o", name: "Mock GPT-4o", provider: "MockAI" },
-      { id: "mock-claude", name: "Mock Claude", provider: "MockAI" },
-    ]);
+    return json(res, mockAiModels());
   }
 
   // GET /api/chat/conversations
@@ -4082,6 +4064,8 @@ async function route(method, pathname, searchParams, req, res) {
       if (!conv) return empty(res, 404);
 
       const body = await readBody(req);
+      const selectionError = mockAiSelectionError(body);
+      if (selectionError) return json(res, { error: selectionError }, 400);
       const msgs = chatMessages.get(convId) ?? [];
 
       // Save user message

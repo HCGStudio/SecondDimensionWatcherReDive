@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using SecondDimensionWatcherReDive.AI.Abstractions;
 using SecondDimensionWatcherReDive.AI.Models;
+using SecondDimensionWatcherReDive.Framework.AI;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 
 namespace SecondDimensionWatcherReDive.Chat;
@@ -63,11 +64,12 @@ internal sealed partial class ConversationTitleGenerator(
         var options = new ChatOptions
         {
             Model = model,
+            ProviderId = AIExecutionContext.Current?.ProviderId,
+            ReasoningEffort = AIExecutionContext.Current?.ReasoningEffort,
             ToolExecutor = null,
-            // Single round only. With no ToolExecutor the engine breaks out after the
-            // first response anyway; setting this to 0 would skip the provider call entirely.
             MaxToolRounds = 1,
-            MaxTokens = 64
+            // Reasoning tokens share the output budget; keep enough room for the title.
+            MaxTokens = 4096
         };
 
         var sb = new StringBuilder();

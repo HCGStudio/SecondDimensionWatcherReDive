@@ -67,5 +67,19 @@
       "Rejected": "已拒绝",
       "Expired": "已过期"
     }
+  },
+  "selectProvider": "Provider",
+  "configuredDefault": "使用已配置的默认值",
+  "providerDefault": "Provider 默认模型",
+  "customModel": "选择或输入模型 ID",
+  "reasoningEffort": "推理强度",
+  "efforts": {
+    "none": "关闭",
+    "minimal": "最低",
+    "low": "低",
+    "medium": "中",
+    "high": "高",
+    "xhigh": "更高",
+    "max": "最高"
   }
 }

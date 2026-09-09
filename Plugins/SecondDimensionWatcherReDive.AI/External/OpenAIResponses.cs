@@ -37,6 +37,14 @@ internal sealed class OpenAIResponsesRequest
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public int? MaxOutputTokens { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public OpenAIReasoningOptions? Reasoning { get; init; }
+}
+
+internal sealed class OpenAIReasoningOptions
+{
+    public required string Effort { get; init; }
 }
 
 /// <summary>

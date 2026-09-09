@@ -1,6 +1,10 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
+using SecondDimensionWatcherReDive.AI.Abstractions;
+using SecondDimensionWatcherReDive.AI.Models;
+using SecondDimensionWatcherReDive.Framework.AI;
 using SecondDimensionWatcherReDive.Framework.Authorization;
 using SecondDimensionWatcherReDive.Framework.Tasks;
 
@@ -37,7 +41,9 @@ internal class TasksController(
 
     [HttpPost("{id}/run")]
     [Authorize(Policy = AccessPolicies.Administrator)]
-    public IActionResult RunTask([FromRoute] string id)
+    public IActionResult RunTask(
+        [FromRoute] string id,
+        [FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] AIExecutionSelection? selection = null)
     {
         var task = scheduledTasks.FirstOrDefault(t =>
             string.Equals(t.Id, id, StringComparison.OrdinalIgnoreCase));
@@ -45,7 +51,35 @@ internal class TasksController(
         if (task == null)
             return NotFound(new { message = $"Task '{id}' not found" });
 
-        task.Enqueue();
+        if (selection is not null &&
+            (!string.IsNullOrWhiteSpace(selection.ProviderId) ||
+             !string.IsNullOrWhiteSpace(selection.Model) ||
+             !string.IsNullOrWhiteSpace(selection.ReasoningEffort)))
+        {
+            if (task is not ScheduledTaskBase selectableTask)
+                return BadRequest(new { message = "This task does not support AI execution overrides." });
+            try
+            {
+                HttpContext.RequestServices.GetRequiredService<IAISelectionValidator>()
+                    .ValidateSelection(new ChatOptions
+                    {
+                        ProviderId = selection.ProviderId,
+                        Model = selection.Model,
+                        ReasoningEffort = selection.ReasoningEffort
+                    }, requiresTools: true);
+            }
+            catch (Exception exception) when (exception is ArgumentException or InvalidOperationException)
+            {
+                return BadRequest(new { message = exception.Message });
+            }
+
+            if (!selectableTask.TryEnqueue(selection))
+                return Conflict(new { message = "The task already has a pending or running execution." });
+        }
+        else
+        {
+            task.Enqueue();
+        }
         return Accepted(new { message = $"Task '{id}' enqueued" });
     }
 }

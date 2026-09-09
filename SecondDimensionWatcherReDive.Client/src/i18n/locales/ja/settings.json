@@ -94,6 +94,29 @@
       "inference": {
         "title": "推論のレート制御",
         "rateLimitDelay": "AI リクエストの最小間隔（ミリ秒）"
+      },
+      "providers": {
+        "description": "複数の AI Provider を作成し、それぞれにプロトコル、接続先、認証情報、既定モデルを設定できます。タスクとチャットでは任意の Provider のモデルを選択できます。",
+        "title": "AI Provider",
+        "default": "既定の Provider",
+        "empty": "Provider がありません",
+        "add": "Provider を追加",
+        "newName": "Provider {{count}}",
+        "name": "名前",
+        "protocol": "プロトコル",
+        "remove": "削除",
+        "removeName": "Provider「{{name}}」を削除",
+        "defaultEffort": "既定の推論強度",
+        "automatic": "モデルの既定値を使用",
+        "models": "モデルと推論機能",
+        "modelsHelp": "任意のモデル ID を入力できます。検出されたモデルと統合されます。対応する推論強度をカンマ区切りで指定してください（例：low,medium,high）。空欄は推論強度に非対応を意味します。",
+        "modelId": "モデル ID",
+        "modelName": "表示名",
+        "efforts": "対応する推論強度",
+        "removeModel": "モデル「{{name}}」を削除",
+        "addModel": "モデルを追加",
+        "inferenceHelp": "バックグラウンドタスクの AI 設定です。空欄の場合は既定の Provider またはその既定モデルを使用します。手動タスクでは一時的に変更できます。",
+        "chatCompletionsHelp": "公式 OpenAI の GPT-5.6 モデルで Chat Completions のツールを使う場合、推論強度は none に設定してください。推論とツールの併用、または GPT-6 Astra には Responses を選択してください。互換サービスは独自の対応状況に従います。"
       }
     },
     "downloads": {

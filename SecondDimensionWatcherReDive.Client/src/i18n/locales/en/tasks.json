@@ -80,5 +80,9 @@
       "name": "ScanMediaLibraries",
       "description": "Scan monitored existing media-library directories"
     }
+  },
+  "ai": {
+    "title": "AI for manual tasks",
+    "description": "These choices apply when you click Run now. Leave blank to use task defaults. Only AI inference within the task is affected."
   }
 }

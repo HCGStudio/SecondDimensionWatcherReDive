@@ -1,4 +1,5 @@
 using System.Threading.Channels;
+using SecondDimensionWatcherReDive.Framework.AI;
 
 namespace SecondDimensionWatcherReDive.Framework.Tasks;
 
@@ -14,6 +15,7 @@ public abstract class ScheduledTaskBase : IScheduledTask
     private readonly object _sync = new();
     private TaskCompletionSource<bool>? _pendingRun;
     private bool _pendingForce;
+    private AIExecutionSelection? _pendingAiSelection;
     private volatile bool _isRunning;
     private DateTimeOffset? _lastRunAt;
 
@@ -44,6 +46,21 @@ public abstract class ScheduledTaskBase : IScheduledTask
     ///     pending signal exists while the current execution is in flight.
     /// </summary>
     public void Enqueue() => QueueRun(force: true);
+
+    /// <summary>
+    /// Queues a manual run with its own AI selection. An existing run is rejected
+    /// rather than coalescing away a caller's explicit provider/model choices.
+    /// </summary>
+    public bool TryEnqueue(AIExecutionSelection selection)
+    {
+        lock (_sync)
+        {
+            if (_pendingRun is { Task.IsCompleted: false })
+                return false;
+            QueueRun(force: true, selection);
+            return true;
+        }
+    }
 
     /// <summary>
     ///     Sequentially processes coalesced run requests. A PostgreSQL lease
@@ -108,6 +125,7 @@ public abstract class ScheduledTaskBase : IScheduledTask
                 _isRunning = true;
                 try
                 {
+                    using var aiScope = AIExecutionContext.Push(_pendingAiSelection);
                     await ExecuteTaskAsync(executionCancellation.Token);
                     _lastRunAt = DateTimeOffset.UtcNow;
                     await lease.CompleteAsync(true, null, cancellationToken);
@@ -153,7 +171,7 @@ public abstract class ScheduledTaskBase : IScheduledTask
 
     protected abstract Task ExecuteTaskAsync(CancellationToken cancellationToken);
 
-    private Task<bool> QueueRun(bool force)
+    private Task<bool> QueueRun(bool force, AIExecutionSelection? selection = null)
     {
         lock (_sync)
         {
@@ -164,6 +182,7 @@ public abstract class ScheduledTaskBase : IScheduledTask
             }
 
             _pendingForce = force;
+            _pendingAiSelection = selection;
             _pendingRun = new TaskCompletionSource<bool>(
                 TaskCreationOptions.RunContinuationsAsynchronously);
             _runQueue.Writer.TryWrite(0);
@@ -196,6 +215,7 @@ public abstract class ScheduledTaskBase : IScheduledTask
 
             _pendingRun = null;
             _pendingForce = false;
+            _pendingAiSelection = null;
             completion.TrySetResult(false);
             return false;
         }
@@ -209,6 +229,7 @@ public abstract class ScheduledTaskBase : IScheduledTask
             {
                 _pendingRun = null;
                 _pendingForce = false;
+                _pendingAiSelection = null;
             }
         }
     }

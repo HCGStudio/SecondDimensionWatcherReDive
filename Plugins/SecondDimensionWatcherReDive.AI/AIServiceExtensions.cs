@@ -69,7 +69,10 @@ public static class AIServiceExtensions
         services.AddScoped<IAIEngineBackend>(serviceProvider =>
             serviceProvider.GetRequiredService<CodexAppServerEngine>());
 
+        services.AddScoped<AIProviderRegistry>();
         services.AddScoped<AIEngineRouter>();
+        services.AddScoped<IAISelectionValidator>(serviceProvider =>
+            serviceProvider.GetRequiredService<AIEngineRouter>());
         services.AddScoped<IAIEngine>(serviceProvider =>
             serviceProvider.GetRequiredService<AIEngineRouter>());
         services.AddSingleton<IAIEngineStatus, AIEngineStatus>();

@@ -5,7 +5,7 @@ import {
   AuthIdentityChangedError,
   beginAuthBoundRequest,
 } from "../auth/httpClient";
-import { ChatAction } from "./types";
+import { AiSelection, ChatAction } from "./types";
 
 interface StreamingToolCall {
   id: string;
@@ -149,7 +149,11 @@ export function useStreamingChat() {
   const requestGenerationRef = useRef(0);
 
   const sendMessage = useCallback(
-    async (conversationId: string, content: string, model?: string) => {
+    async (
+      conversationId: string,
+      content: string,
+      selection: AiSelection = {},
+    ) => {
       activeRequestRef.current?.abort();
       activeRequestRef.current?.dispose();
       const generation = requestGenerationRef.current + 1;
@@ -168,7 +172,7 @@ export function useStreamingChat() {
               "Content-Type": "application/json",
               Authorization: `Bearer ${request.auth.token}`,
             },
-            body: JSON.stringify({ content, model: model ?? null }),
+            body: JSON.stringify({ content, ...selection }),
             signal: request.signal,
           },
         );

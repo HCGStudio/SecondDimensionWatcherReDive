@@ -3,6 +3,10 @@ using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Framework.Tasks;
 using SecondDimensionWatcherReDive.Framework.Notifications;
 using SecondDimensionWatcherReDive.AI.Abstractions;
+using SecondDimensionWatcherReDive.AI.Models;
+using SecondDimensionWatcherReDive.Framework.AI;
+using SecondDimensionWatcherReDive.Inference.AI.Configuration;
+using Microsoft.Extensions.Options;
 using SecondDimensionWatcherReDive.Inference.AI.Tools;
 using SecondDimensionWatcherReDive.Utils.FileStore;
 using SecondDimensionWatcherReDive.Utils.Incidents;
@@ -27,6 +31,7 @@ public partial class InferAnimationMetadata(
     private const int MaxRetryCount = 3;
     private const double LowConfidenceThreshold = 0.75;
     private const int MaxErrorLength = 1024;
+    private readonly AsyncLocal<bool?> _executionAiConfigured = new();
 
     public override string Id => "InferAnimationMetadata";
     public override TimeSpan Interval => TimeSpan.FromMinutes(30);
@@ -47,15 +52,45 @@ public partial class InferAnimationMetadata(
         var inferenceEngine = scope.ServiceProvider.GetRequiredService<IInferenceEngine>();
         var fileMapper = scope.ServiceProvider.GetRequiredService<IFileMapper>();
 
+        var aiConfigured = aiEngineStatus?.IsConfigured ?? true;
+        if (aiConfigured && scope.ServiceProvider.GetService<IAISelectionValidator>() is { } validator)
+        {
+            var inference = scope.ServiceProvider.GetService<IOptionsMonitor<InferenceOptions>>()?.CurrentValue;
+            var selection = AIExecutionContext.Current ?? new AIExecutionSelection(
+                inference?.ProviderId, inference?.Model, inference?.ReasoningEffort);
+            try
+            {
+                validator.ValidateSelection(new ChatOptions
+                {
+                    ProviderId = selection.ProviderId,
+                    Model = selection.Model,
+                    ReasoningEffort = selection.ReasoningEffort
+                }, requiresTools: true);
+            }
+            catch (Exception exception) when (exception is ArgumentException or InvalidOperationException)
+            {
+                aiConfigured = false;
+            }
+        }
+
         var pendingItems = await animationInfoRepository.GetPendingInferenceAsync(MaxRetryCount, cancellationToken);
 
         if (pendingItems.Count > 0)
             LogFoundPendingItems(logger, pendingItems.Count);
 
-        foreach (var item in pendingItems)
+        var previousAvailability = _executionAiConfigured.Value;
+        _executionAiConfigured.Value = aiConfigured;
+        try
         {
-            await ProcessItem(item, animationInfoRepository, animationRepository, animationGroupRepository,
-                inferenceEngine, fileMapper, cancellationToken);
+            foreach (var item in pendingItems)
+            {
+                await ProcessItem(item, animationInfoRepository, animationRepository, animationGroupRepository,
+                    inferenceEngine, fileMapper, cancellationToken);
+            }
+        }
+        finally
+        {
+            _executionAiConfigured.Value = previousAvailability;
         }
     }
 
@@ -78,7 +113,7 @@ public partial class InferAnimationMetadata(
         {
             var rule = MetadataRecognitionRuleService.Select(rules, item);
             var deterministic = rule is not null && MetadataRecognitionRuleService.CanResolveWithoutAi(rule, item);
-            if (!deterministic && aiEngineStatus?.IsConfigured == false)
+            if (!deterministic && !(_executionAiConfigured.Value ?? aiEngineStatus?.IsConfigured ?? true))
             {
                 // Missing AI configuration is temporary availability, not rule
                 // ambiguity. Keep the item pending without consuming a retry so

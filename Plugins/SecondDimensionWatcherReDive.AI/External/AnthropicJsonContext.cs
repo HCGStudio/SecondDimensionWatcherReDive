@@ -4,6 +4,7 @@ namespace SecondDimensionWatcherReDive.AI.External;
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower)]
 [JsonSerializable(typeof(AnthropicMessagesRequest))]
+[JsonSerializable(typeof(AnthropicContentBlock))]
 [JsonSerializable(typeof(AnthropicMessageStartData))]
 [JsonSerializable(typeof(AnthropicContentBlockStartData))]
 [JsonSerializable(typeof(AnthropicContentBlockDeltaData))]

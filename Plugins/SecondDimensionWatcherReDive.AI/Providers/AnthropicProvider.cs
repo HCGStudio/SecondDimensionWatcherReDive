@@ -2,6 +2,7 @@ using System.Net.ServerSentEvents;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -53,21 +54,46 @@ public sealed partial class AnthropicProvider : IAIProvider
     {
         var opts = Snapshot(GetConfiguredOptions());
         var client = _httpClientFactory.CreateClient(HttpClientName);
-        using var request = CreateRequest(HttpMethod.Get, opts, "v1/models");
-        using var response = await client.SendAsync(request, cancellationToken);
-        response.EnsureSuccessStatusCode();
-
-        var json = await response.Content.ReadAsStreamAsync(cancellationToken);
-        var result = await JsonSerializer.DeserializeAsync(json,
-            AnthropicJsonContext.Default.AnthropicModelsResponse, cancellationToken);
-
-        if (result?.Data is null) return [];
-
-        return result.Data
-            .Where(m => m.Id is not null)
-            .Select(m => new AIModel(m.Id!, m.DisplayName ?? m.Id!, "Anthropic"))
-            .ToList();
+        var models = new List<AIModel>();
+        var seenCursors = new HashSet<string>(StringComparer.Ordinal);
+        string? cursor = null;
+        do
+        {
+            var path = "v1/models?limit=100";
+            if (cursor is not null) path += "&after_id=" + Uri.EscapeDataString(cursor);
+            using var request = CreateRequest(HttpMethod.Get, opts, path);
+            using var response = await client.SendAsync(request, cancellationToken);
+            response.EnsureSuccessStatusCode();
+            await using var json = await response.Content.ReadAsStreamAsync(cancellationToken);
+            var result = await JsonSerializer.DeserializeAsync(json,
+                AnthropicJsonContext.Default.AnthropicModelsResponse, cancellationToken);
+            if (result?.Data is { } data)
+                models.AddRange(data.Where(m => !string.IsNullOrWhiteSpace(m.Id))
+                    .Select(m => new AIModel(m.Id!, m.DisplayName ?? m.Id!, "Anthropic")
+                    {
+                        ProviderId = "anthropic",
+                        ReasoningEfforts = AIModelCapabilities.GetReasoningEfforts(AIProviderProtocol.Anthropic, m.Id!)
+                    }));
+            cursor = result?.HasMore == true ? result.LastId ?? result.Data?.LastOrDefault()?.Id : null;
+            if (result?.HasMore == true && (cursor is null || !seenCursors.Add(cursor)))
+                throw new InvalidDataException("Anthropic repeated or omitted a model-list cursor.");
+        } while (cursor is not null);
+        models.Add(new AIModel(opts.Model, opts.Model, "Anthropic")
+        {
+            ProviderId = "anthropic",
+            ReasoningEfforts = AIModelCapabilities.GetReasoningEfforts(AIProviderProtocol.Anthropic, opts.Model)
+        });
+        return models.DistinctBy(model => model.Id).OrderByDescending(model => model.Id == opts.Model).ToList();
     }
+
+    public IAsyncEnumerable<IChatUpdate> StreamChatCompletionAsync(
+        IReadOnlyList<IMessage> messages,
+        IReadOnlyList<ToolDefinition>? tools,
+        string? model,
+        int? maxTokens,
+        IAIProviderContinuation? continuation,
+        CancellationToken cancellationToken)
+        => StreamChatCompletionAsync(messages, tools, model, maxTokens, continuation, null, cancellationToken);
 
     public async IAsyncEnumerable<IChatUpdate> StreamChatCompletionAsync(
         IReadOnlyList<IMessage> messages,
@@ -75,6 +101,7 @@ public sealed partial class AnthropicProvider : IAIProvider
         string? model,
         int? maxTokens,
         IAIProviderContinuation? continuation,
+        string? reasoningEffort,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         // Pin the endpoint and credential for every round of one conversation.
@@ -112,18 +139,33 @@ public sealed partial class AnthropicProvider : IAIProvider
             }
         }
 
+        if (continuation is AnthropicContinuation previous)
+        {
+            conversationMessages = new List<AnthropicMessage>(previous.Messages);
+            var trailingResults = messages.Reverse().TakeWhile(message => message is ToolResultMessage).Reverse();
+            foreach (var result in trailingResults.Cast<ToolResultMessage>())
+                AppendToolResult(conversationMessages, result);
+        }
+        var selectedModel = model ?? opts.Model;
+        var supportsAdaptiveThinking = AIModelCapabilities.GetReasoningEfforts(
+            AIProviderProtocol.Anthropic, selectedModel).Count > 0 &&
+            !AIModelCapabilities.IsModel(selectedModel, "claude-opus-4-5");
         var request = new AnthropicMessagesRequest
         {
-            Model = model ?? opts.Model,
+            Model = selectedModel,
             MaxTokens = maxTokens ?? opts.MaxTokens,
             System = systemPrompt,
             Messages = conversationMessages,
             Tools = BuildTools(tools),
-            Stream = true
+            Stream = true,
+            OutputConfig = string.IsNullOrWhiteSpace(reasoningEffort) ? null : new() { Effort = reasoningEffort },
+            Thinking = supportsAdaptiveThinking && !string.IsNullOrWhiteSpace(reasoningEffort) ? new() : null
         };
 
         var toolCallBuilders = new Dictionary<int, (string Id, string Name, StringBuilder Args)>();
         string? finishReason = null;
+        var outputBlocks = new SortedDictionary<int, JsonObject>();
+        var inputJson = new Dictionary<int, StringBuilder>();
 
         await foreach (var (eventType, data) in StreamRawAsync(request, opts, cancellationToken))
         {
@@ -135,6 +177,8 @@ public sealed partial class AnthropicProvider : IAIProvider
                         AnthropicJsonContext.Default.AnthropicContentBlockStartData);
                     if (parsed?.ContentBlock is { } block)
                     {
+                        using var raw = JsonDocument.Parse(data);
+                        outputBlocks[parsed.Index] = JsonNode.Parse(raw.RootElement.GetProperty("content_block").GetRawText())!.AsObject();
                         if (block.Type == "tool_use" && block.Id is not null && block.Name is not null)
                         {
                             toolCallBuilders[parsed.Index] = (block.Id, block.Name, new());
@@ -150,6 +194,26 @@ public sealed partial class AnthropicProvider : IAIProvider
                         AnthropicJsonContext.Default.AnthropicContentBlockDeltaData);
                     if (parsed?.Delta is { } delta)
                     {
+                        if (outputBlocks.TryGetValue(parsed.Index, out var output))
+                        {
+                            using var raw = JsonDocument.Parse(data);
+                            var rawDelta = raw.RootElement.GetProperty("delta");
+                            var property = delta.Type switch
+                            {
+                                "text_delta" => "text",
+                                "thinking_delta" => "thinking",
+                                "signature_delta" => "signature",
+                                _ => null
+                            };
+                            if (property is not null && rawDelta.TryGetProperty(property, out var fragment))
+                                output[property] = (output[property]?.GetValue<string>() ?? "") + fragment.GetString();
+                            if (delta.Type == "input_json_delta")
+                            {
+                                if (!inputJson.TryGetValue(parsed.Index, out var inputBuilder))
+                                    inputJson[parsed.Index] = inputBuilder = new StringBuilder();
+                                inputBuilder.Append(delta.PartialJson);
+                            }
+                        }
                         if (delta.Type == "text_delta" && delta.Text is not null)
                             yield return new TextDelta(delta.Text);
                         else if (delta.Type == "input_json_delta" && delta.PartialJson is not null)
@@ -164,6 +228,16 @@ public sealed partial class AnthropicProvider : IAIProvider
 
                     break;
                 }
+                case "content_block_stop":
+                {
+                    var parsed = JsonSerializer.Deserialize(data,
+                        AnthropicJsonContext.Default.AnthropicContentBlockStopData);
+                    if (parsed is not null && inputJson.TryGetValue(parsed.Index, out var arguments))
+                        outputBlocks[parsed.Index]["input"] = JsonNode.Parse(arguments.ToString());
+                    break;
+                }
+                case "error":
+                    throw new InvalidDataException("Anthropic reported a streaming error.");
                 case "message_delta":
                 {
                     var parsed = JsonSerializer.Deserialize(data,
@@ -174,10 +248,18 @@ public sealed partial class AnthropicProvider : IAIProvider
             }
         }
 
+        if (finishReason is null or "max_tokens")
+            throw new InvalidDataException("Anthropic response ended before completion; increase the output token limit if exhausted.");
+        conversationMessages.Add(new AnthropicMessage
+        {
+            Role = "assistant",
+            Content = outputBlocks.Values.Select(block => block.Deserialize(
+                AnthropicJsonContext.Default.AnthropicContentBlock)!).ToList()
+        });
         LogStreamComplete(_logger, finishReason, toolCallBuilders.Count);
         yield return new Finished(finishReason)
         {
-            Continuation = new AnthropicContinuation(opts)
+            Continuation = new AnthropicContinuation(opts, conversationMessages)
         };
     }
 
@@ -276,7 +358,8 @@ public sealed partial class AnthropicProvider : IAIProvider
         }).ToList();
     }
 
-    private sealed record AnthropicContinuation(AnthropicOptions Options) : IAIProviderContinuation;
+    private sealed record AnthropicContinuation(
+        AnthropicOptions Options, List<AnthropicMessage> Messages) : IAIProviderContinuation;
 
     private static AnthropicOptions Snapshot(AnthropicOptions options) => new()
     {

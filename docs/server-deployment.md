@@ -141,22 +141,18 @@ Transcoding:
 # TMDB API 密钥（用于海报和元数据）
 TmdbApiKey: "YOUR_TMDB_API_KEY"
 
-# AI 推断配置（可选，留空 ApiKey 则禁用）
+# AI 推断与 Chat：可添加多个命名实例，协议与实例名称无关。
 AI:
-  Engine: BuiltIn
-  Provider: OpenAI
-  OpenAI:
-    BaseUrl: https://api.openai.com/v1
-    ApiMode: Responses
-    ApiKey: ""
-    Model: gpt-4o-mini
-    MaxTokens: 1024
-  CodexAppServer:
-    Endpoint: ""
-    BearerToken: ""
-    Model: ""
-    PermissionProfile: ":read-only"
-    TimeoutSeconds: 300
+  ProvidersConfigured: true
+  DefaultProviderId: openai
+  Providers:
+    openai:
+      Name: OpenAI
+      Protocol: OpenAIResponses
+      BaseUrl: https://api.openai.com/v1
+      ApiKey: ""
+      Model: gpt-5.6-luna
+      MaxTokens: 16384
 Inference:
   RateLimitDelayMs: 1000
 

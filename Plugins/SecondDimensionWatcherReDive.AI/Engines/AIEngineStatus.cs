@@ -14,14 +14,16 @@ public sealed class AIEngineStatus(
     IOptionsMonitor<AnthropicOptions> anthropicOptions,
     IOptionsMonitor<CodexAppServerOptions> codexOptions) : IAIEngineStatus
 {
-    public string Name => aiOptions.CurrentValue.Engine switch
+    public string Name => aiOptions.CurrentValue.UsesNamedProviders ? "Providers" : aiOptions.CurrentValue.Engine switch
     {
         AIEngineKind.BuiltIn => $"BuiltIn/{aiOptions.CurrentValue.Provider}",
         AIEngineKind.CodexAppServer => "CodexAppServer",
         var kind => kind.ToString()
     };
 
-    public bool IsConfigured => aiOptions.CurrentValue.Engine switch
+    public bool IsConfigured => aiOptions.CurrentValue.UsesNamedProviders
+        ? aiOptions.CurrentValue.Providers.Values.Any(AIProviderRegistry.IsConfigured)
+        : aiOptions.CurrentValue.Engine switch
     {
         AIEngineKind.BuiltIn => IsBuiltInConfigured(aiOptions.CurrentValue.Provider),
         AIEngineKind.CodexAppServer => IsCodexConfigured(codexOptions.CurrentValue),
@@ -51,7 +53,7 @@ public sealed class AIEngineStatus(
            && !string.IsNullOrWhiteSpace(options.ApiVersion)
            && options.MaxTokens > 0;
 
-    private static bool IsCodexConfigured(CodexAppServerOptions options)
+    internal static bool IsCodexConfigured(CodexAppServerOptions options)
         => options.TimeoutSeconds > 0
            && !string.IsNullOrWhiteSpace(options.PermissionProfile)
            && Uri.TryCreate(options.Endpoint, UriKind.Absolute, out var endpoint)
@@ -62,7 +64,7 @@ public sealed class AIEngineStatus(
            && (endpoint.Scheme == "wss" || endpoint.IsLoopback)
            && (endpoint.IsLoopback || !string.IsNullOrWhiteSpace(options.BearerToken));
 
-    private static bool IsHttpEndpoint(string value)
+    internal static bool IsHttpEndpoint(string value)
         => Uri.TryCreate(value, UriKind.Absolute, out var endpoint)
            && endpoint.Scheme is "http" or "https"
            && string.IsNullOrEmpty(endpoint.UserInfo)

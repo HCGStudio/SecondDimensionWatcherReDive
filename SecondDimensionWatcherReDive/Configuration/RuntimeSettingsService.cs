@@ -81,7 +81,7 @@ public sealed partial class RuntimeSettingsService : IRuntimeSettingsInitializer
             var deploymentValues = DeploymentValues();
             UpdateAllowedRootSlotCount(deploymentValues, _appliedOverrides);
             _runningValues = Merge(deploymentValues, _appliedOverrides);
-            var resolvedSecrets = ResolveSecrets(_secretOverrides, DeploymentSecrets());
+            var resolvedSecrets = ResolveSecrets(_secretOverrides, DeploymentSecrets(), _runningValues.Ai);
             var errors = RuntimeSettingsValidator.Validate(_runningValues, resolvedSecrets);
             if (errors.Count > 0)
                 throw new InvalidOperationException(
@@ -141,7 +141,7 @@ public sealed partial class RuntimeSettingsService : IRuntimeSettingsInitializer
             var deploymentValues = DeploymentValues();
             var deploymentSecrets = DeploymentSecrets();
             var currentValues = Merge(deploymentValues, _persistedOverrides);
-            var currentSecrets = ResolveSecrets(_secretOverrides, deploymentSecrets);
+            var currentSecrets = ResolveSecrets(_secretOverrides, deploymentSecrets, currentValues.Ai);
             VapidDetails? generatedVapidKeys = null;
             if (patch.Notifications?.GenerateVapidKeys is true)
             {
@@ -168,7 +168,9 @@ public sealed partial class RuntimeSettingsService : IRuntimeSettingsInitializer
             var candidateSecrets = ApplySecrets(
                 _secretOverrides,
                 patch,
-                generatedVapidKeys?.PrivateKey);
+                generatedVapidKeys?.PrivateKey,
+                currentValues.Ai,
+                currentSecrets);
             var desiredValues = Merge(deploymentValues, candidateOverrides);
             candidateSecrets = PinEmptyCredentialsAcrossOriginChanges(
                 candidateSecrets,
@@ -176,7 +178,7 @@ public sealed partial class RuntimeSettingsService : IRuntimeSettingsInitializer
                 desiredValues,
                 deploymentSecrets,
                 patch);
-            var resolvedSecrets = ResolveSecrets(candidateSecrets, deploymentSecrets);
+            var resolvedSecrets = ResolveSecrets(candidateSecrets, deploymentSecrets, desiredValues.Ai);
             var validationErrors = MergeErrors(
                 RuntimeSettingsValidator.Validate(desiredValues, resolvedSecrets),
                 ValidateEndpointSecretChanges(
@@ -309,7 +311,7 @@ public sealed partial class RuntimeSettingsService : IRuntimeSettingsInitializer
         _configurationProvider.Replace(
             RuntimeSettingsFlattener.Flatten(
                 _runningValues,
-                ResolveSecrets(_secretOverrides, DeploymentSecrets()),
+                ResolveSecrets(_secretOverrides, DeploymentSecrets(), _runningValues.Ai),
                 _allowedRootSlotCount));
     }
 
@@ -325,7 +327,7 @@ public sealed partial class RuntimeSettingsService : IRuntimeSettingsInitializer
         return new RuntimeSettingsState(
             _revision,
             desired,
-            ResolveSecrets(_secretOverrides, DeploymentSecrets()),
+            ResolveSecrets(_secretOverrides, DeploymentSecrets(), desired.Ai),
             HasPendingRestart(desired));
     }
 
@@ -384,12 +386,41 @@ public sealed partial class RuntimeSettingsService : IRuntimeSettingsInitializer
     private static RuntimeSecretOverrides ApplySecrets(
         RuntimeSecretOverrides current,
         RuntimeSettingsPatch patch,
-        string? generatedVapidPrivateKey)
+        string? generatedVapidPrivateKey,
+        AiSettingsValues currentAi,
+        IReadOnlyDictionary<string, ResolvedSecret> currentSecrets)
     {
-        var values = new Dictionary<string, PersistedSecret>(current.Values, StringComparer.Ordinal);
+        var values = new Dictionary<string, PersistedSecret>(current.Values, StringComparer.OrdinalIgnoreCase);
         ApplySecret(values, RuntimeSecretKeys.OpenAiApiKey, patch.Ai?.OpenAiApiKey);
         ApplySecret(values, RuntimeSecretKeys.AnthropicApiKey, patch.Ai?.AnthropicApiKey);
         ApplySecret(values, RuntimeSecretKeys.CodexToken, patch.Ai?.CodexToken);
+        if (patch.Ai?.Values.Providers is { } providers)
+        {
+            // Transfer legacy credentials only on the first explicit provider-list save.
+            // Removed instances never regain credentials from the legacy singleton fields.
+            if (currentAi.Providers is null)
+            {
+                foreach (var key in RuntimeSecretKeys.ForProviders(currentAi))
+                    if (currentSecrets.GetValueOrDefault(key) is { Source: SecretConfigurationSource.Runtime } secret)
+                        values[key] = secret.IsConfigured
+                            ? new PersistedSecret(PersistedSecretMode.Set, secret.Value)
+                            : new PersistedSecret(PersistedSecretMode.Clear, null);
+            }
+            var activeKeys = RuntimeSecretKeys.ForProviders(patch.Ai.Values).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            foreach (var key in values.Keys.Where(RuntimeSecretKeys.IsProviderSecret).ToArray())
+                if (!activeKeys.Contains(key) && values[key].Mode != PersistedSecretMode.Clear)
+                    values.Remove(key);
+            foreach (var key in RuntimeSecretKeys.ForProviders(currentAi))
+                if (!activeKeys.Contains(key))
+                    values[key] = new PersistedSecret(PersistedSecretMode.Clear, null);
+            foreach (var provider in providers)
+            {
+                ApplySecret(values, RuntimeSecretKeys.ProviderApiKey(provider.Id),
+                    patch.Ai.ProviderApiKeys.GetValueOrDefault(provider.Id));
+                ApplySecret(values, RuntimeSecretKeys.ProviderToken(provider.Id),
+                    patch.Ai.ProviderTokens.GetValueOrDefault(provider.Id));
+            }
+        }
         ApplySecret(values, RuntimeSecretKeys.TmdbApiKey, patch.Tmdb?.ApiKey);
         ApplySecret(values, RuntimeSecretKeys.TorrentPassword, patch.Torrent?.Password);
         ApplySecret(values, RuntimeSecretKeys.NotificationWebhookUrl, patch.Notifications?.WebhookUrl);
@@ -409,7 +440,7 @@ public sealed partial class RuntimeSettingsService : IRuntimeSettingsInitializer
         IReadOnlyDictionary<string, string?> deploymentSecrets,
         RuntimeSettingsPatch patch)
     {
-        var values = new Dictionary<string, PersistedSecret>(candidate.Values, StringComparer.Ordinal);
+        var values = new Dictionary<string, PersistedSecret>(candidate.Values, StringComparer.OrdinalIgnoreCase);
         PinEmptyCredential(
             values,
             RuntimeSecretKeys.OpenAiApiKey,
@@ -438,6 +469,19 @@ public sealed partial class RuntimeSettingsService : IRuntimeSettingsInitializer
             desiredValues.Torrent.Url,
             deploymentSecrets,
             patch.Torrent?.Password);
+        foreach (var provider in RuntimeAiProviders.GetProviders(desiredValues.Ai))
+        {
+            var previous = RuntimeAiProviders.GetProviders(currentValues.Ai)
+                .FirstOrDefault(item => string.Equals(item.Id, provider.Id, StringComparison.OrdinalIgnoreCase));
+            if (previous is null)
+                continue;
+            PinEmptyCredential(values, RuntimeSecretKeys.ProviderApiKey(provider.Id),
+                ProviderEndpoint(previous), ProviderEndpoint(provider), deploymentSecrets,
+                patch.Ai?.ProviderApiKeys.GetValueOrDefault(provider.Id));
+            PinEmptyCredential(values, RuntimeSecretKeys.ProviderToken(provider.Id),
+                ProviderEndpoint(previous), ProviderEndpoint(provider), deploymentSecrets,
+                patch.Ai?.ProviderTokens.GetValueOrDefault(provider.Id));
+        }
         return new RuntimeSecretOverrides { Values = values };
     }
 
@@ -491,6 +535,13 @@ public sealed partial class RuntimeSettingsService : IRuntimeSettingsInitializer
         ValidateSecretMutation(errors, "ai.openAI.apiKey", patch.Ai?.OpenAiApiKey);
         ValidateSecretMutation(errors, "ai.anthropic.apiKey", patch.Ai?.AnthropicApiKey);
         ValidateSecretMutation(errors, "ai.codexAppServer.token", patch.Ai?.CodexToken);
+        if (patch.Ai is { } ai)
+        {
+            foreach (var (id, mutation) in ai.ProviderApiKeys)
+                ValidateSecretMutation(errors, $"ai.providers.{id}.apiKey", mutation);
+            foreach (var (id, mutation) in ai.ProviderTokens)
+                ValidateSecretMutation(errors, $"ai.providers.{id}.token", mutation);
+        }
         ValidateSecretMutation(errors, "tmdb.apiKey", patch.Tmdb?.ApiKey);
         ValidateSecretMutation(errors, "torrent.password", patch.Torrent?.Password);
         ValidateSecretMutation(errors, "notifications.webhook.url", patch.Notifications?.WebhookUrl);
@@ -532,8 +583,29 @@ public sealed partial class RuntimeSettingsService : IRuntimeSettingsInitializer
             candidate.Torrent.Url,
             candidateSecrets[RuntimeSecretKeys.TorrentPassword],
             patch.Torrent?.Password);
+        foreach (var provider in RuntimeAiProviders.GetProviders(candidate.Ai))
+        {
+            var previous = RuntimeAiProviders.GetProviders(current.Ai)
+                .FirstOrDefault(item => string.Equals(item.Id, provider.Id, StringComparison.OrdinalIgnoreCase));
+            if (previous is null)
+                continue;
+            RequireSecretRefreshForOriginChange(errors, $"ai.providers.{provider.Id}.apiKey",
+                ProviderEndpoint(previous), ProviderEndpoint(provider),
+                candidateSecrets[RuntimeSecretKeys.ProviderApiKey(provider.Id)],
+                candidate.Ai.Providers is null && provider.Id == "openai" ? patch.Ai?.OpenAiApiKey
+                    : candidate.Ai.Providers is null && provider.Id == "anthropic" ? patch.Ai?.AnthropicApiKey
+                    : patch.Ai?.ProviderApiKeys.GetValueOrDefault(provider.Id));
+            RequireSecretRefreshForOriginChange(errors, $"ai.providers.{provider.Id}.token",
+                ProviderEndpoint(previous), ProviderEndpoint(provider),
+                candidateSecrets[RuntimeSecretKeys.ProviderToken(provider.Id)],
+                candidate.Ai.Providers is null && provider.Id == "codex" ? patch.Ai?.CodexToken
+                    : patch.Ai?.ProviderTokens.GetValueOrDefault(provider.Id));
+        }
         return errors;
     }
+
+    private static string ProviderEndpoint(AiProviderSettingsValues provider) =>
+        provider.Protocol == AiProviderProtocol.CodexAppServer ? provider.Endpoint : provider.BaseUrl;
 
     private static void RequireSecretRefreshForOriginChange(
         IDictionary<string, string[]> errors,
@@ -619,11 +691,17 @@ public sealed partial class RuntimeSettingsService : IRuntimeSettingsInitializer
 
     private IReadOnlyDictionary<string, ResolvedSecret> ResolveSecrets(
         RuntimeSecretOverrides overrides,
-        IReadOnlyDictionary<string, string?> deploymentSecrets)
+        IReadOnlyDictionary<string, string?> deploymentSecrets,
+        AiSettingsValues ai)
     {
-        var result = new Dictionary<string, ResolvedSecret>(StringComparer.Ordinal);
-        foreach (var key in RuntimeSecretKeys.All)
+        var result = new Dictionary<string, ResolvedSecret>(StringComparer.OrdinalIgnoreCase);
+        foreach (var key in RuntimeSecretKeys.All.Concat(RuntimeSecretKeys.ForProviders(ai)))
         {
+            if (ai.Providers is null && RuntimeAiProviders.LegacySecret(key) is { } legacyKey)
+            {
+                result[key] = result[legacyKey];
+                continue;
+            }
             if (overrides.Values.TryGetValue(key, out var persisted))
             {
                 result[key] = persisted.Mode switch
@@ -670,14 +748,15 @@ public sealed partial class RuntimeSettingsService : IRuntimeSettingsInitializer
             var result = JsonSerializer.Deserialize<RuntimeSecretOverrides>(json, StorageJsonOptions)
                          ?? throw new InvalidOperationException("The secret settings document is empty.");
             var unknownKeys = result.Values.Keys
-                .Where(key => !RuntimeSecretKeys.All.Contains(key, StringComparer.Ordinal))
+                .Where(key => !RuntimeSecretKeys.All.Contains(key, StringComparer.Ordinal)
+                    && !RuntimeSecretKeys.IsProviderSecret(key))
                 .ToArray();
             if (unknownKeys.Length > 0)
                 throw new InvalidOperationException(
                     "Runtime setting secrets contain unsupported keys: " + string.Join(", ", unknownKeys));
             return result with
             {
-                Values = new Dictionary<string, PersistedSecret>(result.Values, StringComparer.Ordinal)
+                Values = new Dictionary<string, PersistedSecret>(result.Values, StringComparer.OrdinalIgnoreCase)
             };
         }
         catch (CryptographicException exception)
