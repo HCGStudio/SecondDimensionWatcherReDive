@@ -34,6 +34,14 @@ export interface AiModel {
   id: string;
   name: string;
   provider: string;
+  providerId: string;
+  reasoningEfforts: string[];
+}
+
+export interface AiSelection {
+  providerId?: string;
+  model?: string;
+  reasoningEffort?: string;
 }
 
 export interface ChatStatus {

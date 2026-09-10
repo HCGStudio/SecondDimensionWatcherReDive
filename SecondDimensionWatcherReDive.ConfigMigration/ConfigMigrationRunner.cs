@@ -226,7 +226,11 @@ public sealed class ConfigMigrationRunner
 
     private static void ValidateCurrent(JsonObject config)
     {
-        var obsolete = Migrations.MoveInferenceToAi.LegacyKeys.Select(key => $"Inference:{key}")
+        // Inference:Model is a per-inference override in the current schema.
+        // Its old provider-level meaning is still migrated by the historical Up.
+        var obsolete = Migrations.MoveInferenceToAi.LegacyKeys
+            .Where(key => key != "Model")
+            .Select(key => $"Inference:{key}")
             .Concat(["PasswordFile", "Password"])
             .Where(path => ConfigTree.Get(config, path) is not null).ToArray();
         if (obsolete.Length > 0)

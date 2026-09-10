@@ -1,4 +1,5 @@
 using System.Threading.Channels;
+using SecondDimensionWatcherReDive.Framework.AI;
 
 namespace SecondDimensionWatcherReDive.Framework.Tasks;
 
@@ -14,6 +15,7 @@ public abstract class ScheduledTaskBase : IScheduledTask
     private readonly object _sync = new();
     private TaskCompletionSource<bool>? _pendingRun;
     private bool _pendingForce;
+    private AIExecutionSelection? _pendingAiSelection;
     private volatile bool _isRunning;
     private DateTimeOffset? _lastRunAt;
 
@@ -46,6 +48,21 @@ public abstract class ScheduledTaskBase : IScheduledTask
     public void Enqueue() => QueueRun(force: true);
 
     /// <summary>
+    /// Queues a manual run with its own AI selection. An existing run is rejected
+    /// rather than coalescing away a caller's explicit provider/model choices.
+    /// </summary>
+    public bool TryEnqueue(AIExecutionSelection selection)
+    {
+        lock (_sync)
+        {
+            if (_pendingRun is { Task.IsCompleted: false })
+                return false;
+            QueueRun(force: true, selection);
+            return true;
+        }
+    }
+
+    /// <summary>
     ///     Sequentially processes coalesced run requests. A PostgreSQL lease
     ///     ensures only one application instance executes a task at a time.
     /// </summary>
@@ -63,11 +80,14 @@ public abstract class ScheduledTaskBase : IScheduledTask
             if (completion is null) continue;
 
             IScheduledTaskExecutionLease? lease = null;
+            var delayBeforeRetry = false;
             while (lease is null)
             {
                 var force = TakePendingForce(completion);
                 try
                 {
+                    if (delayBeforeRetry)
+                        await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken);
                     lease = await leaseManager.TryAcquireAsync(
                         Id,
                         Interval,
@@ -95,7 +115,10 @@ public abstract class ScheduledTaskBase : IScheduledTask
                 // database call is in flight. Retry that upgrade before completing
                 // the shared signal so a completed cooldown cannot swallow it.
                 if (CompleteLeaseDenialOrRetryForce(completion, force))
+                {
+                    delayBeforeRetry = force;
                     continue;
+                }
                 break;
             }
             if (lease is null) continue;
@@ -108,6 +131,7 @@ public abstract class ScheduledTaskBase : IScheduledTask
                 _isRunning = true;
                 try
                 {
+                    using var aiScope = AIExecutionContext.Push(_pendingAiSelection);
                     await ExecuteTaskAsync(executionCancellation.Token);
                     _lastRunAt = DateTimeOffset.UtcNow;
                     await lease.CompleteAsync(true, null, cancellationToken);
@@ -153,7 +177,7 @@ public abstract class ScheduledTaskBase : IScheduledTask
 
     protected abstract Task ExecuteTaskAsync(CancellationToken cancellationToken);
 
-    private Task<bool> QueueRun(bool force)
+    private Task<bool> QueueRun(bool force, AIExecutionSelection? selection = null)
     {
         lock (_sync)
         {
@@ -164,6 +188,7 @@ public abstract class ScheduledTaskBase : IScheduledTask
             }
 
             _pendingForce = force;
+            _pendingAiSelection = selection;
             _pendingRun = new TaskCompletionSource<bool>(
                 TaskCreationOptions.RunContinuationsAsynchronously);
             _runQueue.Writer.TryWrite(0);
@@ -191,11 +216,20 @@ public abstract class ScheduledTaskBase : IScheduledTask
         {
             if (!ReferenceEquals(_pendingRun, completion))
                 return false;
+            // An accepted explicit selection belongs to a distinct execution.
+            // Keep it pending while another replica owns the lease, and retain
+            // force so that replica's completed run does not impose a cooldown.
+            if (_pendingAiSelection is not null)
+            {
+                _pendingForce = true;
+                return true;
+            }
             if (!attemptedForce && _pendingForce)
                 return true;
 
             _pendingRun = null;
             _pendingForce = false;
+            _pendingAiSelection = null;
             completion.TrySetResult(false);
             return false;
         }
@@ -209,6 +243,7 @@ public abstract class ScheduledTaskBase : IScheduledTask
             {
                 _pendingRun = null;
                 _pendingForce = false;
+                _pendingAiSelection = null;
             }
         }
     }

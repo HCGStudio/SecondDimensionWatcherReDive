@@ -69,6 +69,7 @@ public sealed partial class AIEngine : IAIEngineBackend
                 nameof(ChatOptions.MaxToolRounds), "MaxToolRounds cannot be negative.");
 
         var tools = options?.ToolExecutor?.ToolDefinitions;
+        var reasoningEffort = options?.ReasoningEffort?.Trim().ToLowerInvariant();
         var conversation = new List<IMessage>(messages);
         IAIProviderContinuation? continuation = null;
         string? finishReason = null;
@@ -87,9 +88,13 @@ public sealed partial class AIEngine : IAIEngineBackend
             // otherwise the model can legitimately request work whose result we cannot return.
             var canExecuteTools = round < maxToolRounds;
             var roundTools = canExecuteTools ? tools : null;
-            await foreach (var update in provider.StreamChatCompletionAsync(
-                               conversation, roundTools, options?.Model, options?.MaxTokens, continuation,
-                               cancellationToken))
+            var updates = string.IsNullOrWhiteSpace(reasoningEffort)
+                ? provider.StreamChatCompletionAsync(
+                    conversation, roundTools, options?.Model, options?.MaxTokens, continuation, cancellationToken)
+                : provider.StreamChatCompletionAsync(
+                    conversation, roundTools, options?.Model, options?.MaxTokens, continuation,
+                    reasoningEffort, cancellationToken);
+            await foreach (var update in updates)
             {
                 switch (update)
                 {

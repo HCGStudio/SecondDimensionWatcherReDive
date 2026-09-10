@@ -29,7 +29,28 @@ internal sealed record CodexAppServerSettingsResponse(
     int TimeoutSeconds,
     SecretStateResponse Token);
 
-internal sealed record InferenceSettingsResponse(int RateLimitDelayMs);
+internal sealed record AiProviderSettingsResponse(
+    string Id,
+    string Name,
+    AiProviderProtocol Protocol,
+    string BaseUrl,
+    string Model,
+    int MaxTokens,
+    string? ReasoningEffort,
+    string ApiVersion,
+    string Endpoint,
+    string PermissionProfile,
+    int TimeoutSeconds,
+    IReadOnlyList<AiModelSettingsValues> Models,
+    SecretStateResponse ApiKey,
+    SecretStateResponse Token);
+
+internal sealed record InferenceSettingsResponse(int RateLimitDelayMs)
+{
+    public string? ProviderId { get; init; }
+    public string? Model { get; init; }
+    public string? ReasoningEffort { get; init; }
+}
 
 internal sealed record AiSettingsResponse(
     AiExecutionMode ExecutionMode,
@@ -37,7 +58,11 @@ internal sealed record AiSettingsResponse(
     OpenAiSettingsResponse OpenAI,
     AnthropicSettingsResponse Anthropic,
     CodexAppServerSettingsResponse CodexAppServer,
-    InferenceSettingsResponse Inference);
+    InferenceSettingsResponse Inference)
+{
+    public string? DefaultProviderId { get; init; }
+    public IReadOnlyList<AiProviderSettingsResponse> Providers { get; init; } = [];
+}
 
 internal sealed record TmdbSettingsResponse(SecretStateResponse ApiKey);
 
@@ -124,15 +149,42 @@ internal sealed record CodexAppServerSettingsPatchRequest(
     SecretMutationRequest? Token);
 
 internal sealed record InferenceSettingsPatchRequest(
-    [Required] int? RateLimitDelayMs);
+    [Required] int? RateLimitDelayMs)
+{
+    public string? ProviderId { get; init; }
+    public string? Model { get; init; }
+    public string? ReasoningEffort { get; init; }
+}
+
+internal sealed record AiProviderSettingsPatchRequest
+{
+    [Required] public string? Id { get; init; }
+    [Required] public string? Name { get; init; }
+    [Required] public AiProviderProtocol? Protocol { get; init; }
+    public string? BaseUrl { get; init; }
+    public string? Model { get; init; }
+    public int MaxTokens { get; init; } = 16384;
+    public string? ReasoningEffort { get; init; }
+    public string ApiVersion { get; init; } = "2023-06-01";
+    public string Endpoint { get; init; } = string.Empty;
+    public string PermissionProfile { get; init; } = ":read-only";
+    public int TimeoutSeconds { get; init; } = 300;
+    public IReadOnlyList<AiModelSettingsValues> Models { get; init; } = [];
+    public SecretMutationRequest? ApiKey { get; init; }
+    public SecretMutationRequest? Token { get; init; }
+}
 
 internal sealed record AiSettingsPatchRequest(
-    [Required] AiExecutionMode? ExecutionMode,
-    [Required] BuiltInAiProvider? Provider,
-    [Required] OpenAiSettingsPatchRequest? OpenAI,
-    [Required] AnthropicSettingsPatchRequest? Anthropic,
-    [Required] CodexAppServerSettingsPatchRequest? CodexAppServer,
-    [Required] InferenceSettingsPatchRequest? Inference);
+    AiExecutionMode? ExecutionMode,
+    BuiltInAiProvider? Provider,
+    OpenAiSettingsPatchRequest? OpenAI,
+    AnthropicSettingsPatchRequest? Anthropic,
+    CodexAppServerSettingsPatchRequest? CodexAppServer,
+    [Required] InferenceSettingsPatchRequest? Inference)
+{
+    public string? DefaultProviderId { get; init; }
+    public IReadOnlyList<AiProviderSettingsPatchRequest>? Providers { get; init; }
+}
 
 internal sealed record TmdbSettingsPatchRequest(SecretMutationRequest? ApiKey);
 

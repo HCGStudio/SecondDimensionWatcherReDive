@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using SecondDimensionWatcherReDive.AI.Abstractions;
 using SecondDimensionWatcherReDive.AI.Models;
+using SecondDimensionWatcherReDive.Framework.AI;
 using SecondDimensionWatcherReDive.Framework.Inference;
 using SecondDimensionWatcherReDive.Inference.AI.Configuration;
 using SecondDimensionWatcherReDive.Inference.AI.Tools;
@@ -112,6 +113,15 @@ public sealed partial class InferenceEngine(
 
     private static readonly SemaphoreSlim RateLimitSemaphore = new(1, 1);
     private static DateTime _lastCallTime = DateTime.MinValue;
+
+    private AIExecutionSelection GetSelection()
+    {
+        if (AIExecutionContext.Current is { } selection)
+            return selection;
+        var configured = options.CurrentValue;
+        return new AIExecutionSelection(
+            configured.ProviderId, configured.Model, configured.ReasoningEffort);
+    }
 
     public Task<InferenceResult?> InferAsync(string title, string description,
         CancellationToken cancellationToken) =>
@@ -243,8 +253,12 @@ public sealed partial class InferenceEngine(
             toolExecutor = new TargetedTmdbToolExecutor(toolExecutor,
                 int.Parse(tmdbId, System.Globalization.CultureInfo.InvariantCulture), targetSeason);
 
+        var selection = GetSelection();
         var chatOptions = new ChatOptions
         {
+            ProviderId = selection.ProviderId,
+            Model = selection.Model,
+            ReasoningEffort = selection.ReasoningEffort,
             ToolExecutor = toolExecutor,
             MaxToolRounds = MaxToolRounds,
             OutputSchema = MetadataOutputSchema
@@ -299,8 +313,12 @@ public sealed partial class InferenceEngine(
             ? fileNameInferenceContext.Push(request)
             : null;
 
+        var selection = GetSelection();
         var chatOptions = new ChatOptions
         {
+            ProviderId = selection.ProviderId,
+            Model = selection.Model,
+            ReasoningEffort = selection.ReasoningEffort,
             ToolExecutor = toolExecutor,
             MaxToolRounds = MaxToolRounds,
             OutputSchema = FileNameOutputSchema

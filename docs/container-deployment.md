@@ -137,15 +137,19 @@ podman logs qbittorrent 2>&1 | grep "temporary password"
 | `TmdbApiKey` | TMDB API 密钥 | 空（海报功能不可用） |
 | `DisableCors` | 允许跨域 | `true` |
 | `MikananiFeeds__0`, `__1`, ... | RSS 订阅源 URL | 空 |
-| `AI__Provider` | AI 推断提供商 (`OpenAI` / `Anthropic`) | `OpenAI` |
-| `AI__Engine` | `BuiltIn` 或 `CodexAppServer` | `BuiltIn` |
-| `AI__OpenAI__ApiKey` | OpenAI API 密钥 | 空（禁用推断） |
-| `AI__OpenAI__Model` | OpenAI 模型名称 | `gpt-4o-mini` |
-| `AI__OpenAI__BaseUrl` | OpenAI API 端点 | `https://api.openai.com/v1` |
-| `AI__OpenAI__ApiMode` | `Responses`；Ollama/vLLM 等兼容端点显式使用 `ChatCompletions` | `Responses`；迁移会显式保留旧协议 |
-| `AI__CodexAppServer__Endpoint` | 本地 Agent 的 WebSocket 地址 | 空 |
-| `AI__CodexAppServer__BearerToken` | app-server / 反向代理要求的 Bearer token | 空 |
-| `AI__CodexAppServer__PermissionProfile` | `:read-only` 或管理员定义的 permission profile id | `:read-only` |
+| `AI__ProvidersConfigured` | 使用命名 Provider 集合，包括显式空集合 | `false`（兼容旧配置） |
+| `AI__DefaultProviderId` | 默认实例 ID | 第一个配置的实例 |
+| `AI__Providers__openai__Name` | 实例显示名称；`openai` 可换成任意稳定 ID | `OpenAI` |
+| `AI__Providers__openai__Protocol` | `OpenAIResponses` / `OpenAIChatCompletions` / `Anthropic` / `CodexAppServer` | `OpenAIResponses` |
+| `AI__Providers__openai__ApiKey` | 此实例的 API 密钥 | 空 |
+| `AI__Providers__openai__Model` | 默认模型名称 | `gpt-5.6-luna` |
+| `AI__Providers__openai__BaseUrl` | API 端点 | `https://api.openai.com/v1` |
+| `AI__Providers__openai__MaxTokens` | 输出及推理 token 预算 | `16384` |
+| `AI__Providers__openai__ReasoningEffort` | 默认 effort；可选值由模型能力决定 | 空（模型默认） |
+| `Inference__ProviderId`, `Inference__Model`, `Inference__ReasoningEffort` | 自动推理任务的独立选择 | 空（继承默认） |
+| `AI__Providers__codex__Endpoint` | Codex 实例的 WebSocket 地址 | 空 |
+| `AI__Providers__codex__BearerToken` | 此 app-server 的 Bearer token | 空 |
+| `AI__Providers__codex__PermissionProfile` | `:read-only` 或管理员定义的 permission profile id | `:read-only` |
 
 镜像已包含 FFmpeg。浏览器会继续优先直放兼容源；只有不兼容轨道才进入有界服务端队列，
 首个 HLS 分片生成后立即开始播放。`appdata` 必须留有足够空间，缓存会按 TTL/LRU 自动清理。
@@ -182,15 +186,17 @@ services:
 在 `sdw-redive` 服务的 `environment` 中添加：
 
 ```yaml
-AI__Provider: "OpenAI"
-AI__OpenAI__ApiKey: "sk-your-api-key"
-AI__OpenAI__BaseUrl: "https://api.openai.com/v1"
-AI__OpenAI__ApiMode: "Responses"
-AI__OpenAI__Model: "gpt-4o-mini"
+AI__ProvidersConfigured: "true"
+AI__DefaultProviderId: "openai"
+AI__Providers__openai__Name: "OpenAI"
+AI__Providers__openai__Protocol: "OpenAIResponses"
+AI__Providers__openai__ApiKey: "sk-your-api-key"
+AI__Providers__openai__BaseUrl: "https://api.openai.com/v1"
+AI__Providers__openai__Model: "gpt-5.6-luna"
 TmdbApiKey: "your-tmdb-api-key"
 ```
 
-也可以不在 Compose 文件中写入密钥，启动后从网页「设置 → AI / 媒体」配置。
+也可以不在 Compose 文件中写入密钥，启动后从网页「设置 → AI / 媒体」配置。旧版 `AI:Engine`、`AI:Provider`、`AI:OpenAI` 等设置仍可读取；新版设置页保存后使用命名实例。模型发现、自定义模型和 effort 配置见 [AI Provider 配置](ai-providers.md)。
 
 ### 使用 Codex app-server
 

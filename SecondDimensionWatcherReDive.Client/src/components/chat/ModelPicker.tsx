@@ -1,57 +1,118 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
 
-import { ChevronDown } from "lucide-react";
-
-import { AiModel } from "../../chat/types";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "../ui/DropdownMenu";
+import { AiModel, AiSelection } from "../../chat/types";
+import "../../i18n/chatResources";
+import { cn } from "../../lib/cn";
+import { Select } from "../settings/SettingsControls";
+import { FormRow } from "../ui/FormRow";
+import { Input } from "../ui/Input";
 
 interface ModelPickerProps {
   models: AiModel[];
-  selectedModel: string | null;
-  onSelect: (modelId: string) => void;
+  selection: AiSelection;
+  onSelect: (selection: AiSelection) => void;
+  allowDefault?: boolean;
+  defaultProviderId?: string;
+  disabled?: boolean;
+  className?: string;
 }
 
 export const ModelPicker: React.FC<ModelPickerProps> = ({
   models,
-  selectedModel,
+  selection,
   onSelect,
+  allowDefault = false,
+  defaultProviderId,
+  disabled = false,
+  className,
 }) => {
   const { t } = useTranslation("chat");
-  const selected = models.find((m) => m.id === selectedModel);
+  const listId = React.useId();
+  const providers = [
+    ...new Map(
+      models.map((model) => [model.providerId, model.provider]),
+    ).entries(),
+  ];
+  const effectiveProviderId = selection.providerId ?? defaultProviderId;
+  const providerModels = models.filter(
+    (model) => model.providerId === effectiveProviderId,
+  );
+  const selected = selection.model
+    ? providerModels.find((model) => model.id === selection.model)
+    : providerModels[0];
+  const efforts = selected?.reasoningEfforts ?? [];
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          aria-label={t("selectModel")}
-          className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-muted transition-colors hover:text-foreground focus:outline-hidden focus:ring-2 focus:ring-focus"
+    <div className={cn("flex flex-wrap items-end gap-3", className)}>
+      <FormRow label={t("selectProvider")} className="min-w-36 flex-1">
+        <Select
+          value={selection.providerId ?? ""}
+          disabled={disabled}
+          onChange={(event) => {
+            const providerId = event.target.value || undefined;
+            const first = models.find(
+              (model) => model.providerId === providerId,
+            );
+            onSelect({
+              providerId,
+              model: allowDefault ? undefined : first?.id,
+            });
+          }}
         >
-          <span className="max-w-[200px] truncate">
-            {selected?.name ?? t("selectModel")}
-          </span>
-          <ChevronDown size={14} />
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="max-h-64 overflow-y-auto">
-        {models.map((model) => (
-          <DropdownMenuItem key={model.id} onSelect={() => onSelect(model.id)}>
-            <div className="flex flex-col">
-              <span className="text-sm">{model.name}</span>
-              <span className="text-xs text-subtle">{model.provider}</span>
-            </div>
-          </DropdownMenuItem>
-        ))}
-        {models.length === 0 && (
-          <div className="px-3 py-2 text-sm text-subtle">{t("noModels")}</div>
-        )}
-      </DropdownMenuContent>
-    </DropdownMenu>
+          <option value="" disabled={!allowDefault}>
+            {t(allowDefault ? "configuredDefault" : "selectProvider")}
+          </option>
+          {providers.map(([id, name]) => (
+            <option key={id} value={id}>
+              {name} · {id}
+            </option>
+          ))}
+        </Select>
+      </FormRow>
+      <FormRow label={t("selectModel")} className="min-w-44 flex-1">
+        <Input
+          list={listId}
+          value={selection.model ?? ""}
+          disabled={disabled || !effectiveProviderId}
+          placeholder={t(allowDefault ? "providerDefault" : "customModel")}
+          onChange={(event) =>
+            onSelect({
+              ...selection,
+              model: event.target.value || undefined,
+              reasoningEffort: undefined,
+            })
+          }
+        />
+        <datalist id={listId}>
+          {providerModels.map((model) => (
+            <option key={model.id} value={model.id}>
+              {model.name}
+            </option>
+          ))}
+        </datalist>
+      </FormRow>
+      {efforts.length > 0 && (
+        <FormRow label={t("reasoningEffort")} className="min-w-32">
+          <Select
+            value={selection.reasoningEffort ?? ""}
+            disabled={disabled}
+            onChange={(event) =>
+              onSelect({
+                ...selection,
+                reasoningEffort: event.target.value || undefined,
+              })
+            }
+          >
+            <option value="">{t("configuredDefault")}</option>
+            {efforts.map((effort) => (
+              <option key={effort} value={effort}>
+                {t(`efforts.${effort}`, { defaultValue: effort })}
+              </option>
+            ))}
+          </Select>
+        </FormRow>
+      )}
+    </div>
   );
 };

@@ -94,6 +94,29 @@
       "inference": {
         "title": "Inference throttling",
         "rateLimitDelay": "Minimum delay between AI requests (ms)"
+      },
+      "providers": {
+        "description": "Create multiple AI providers with independent protocols, endpoints, credentials, and default models. Tasks and chat can select any model from any provider.",
+        "title": "AI providers",
+        "default": "Default provider",
+        "empty": "No providers",
+        "add": "Add provider",
+        "newName": "Provider {{count}}",
+        "name": "Name",
+        "protocol": "Protocol",
+        "remove": "Remove",
+        "removeName": "Remove provider {{name}}",
+        "defaultEffort": "Default reasoning effort",
+        "automatic": "Use model default",
+        "models": "Models and reasoning support",
+        "modelsHelp": "Enter any model ID. These entries are merged with discovered models. Override supported reasoning efforts with comma-separated values (for example low,medium,high); leave empty for no reasoning support.",
+        "modelId": "Model ID",
+        "modelName": "Display name",
+        "efforts": "Supported reasoning efforts",
+        "removeModel": "Remove model {{name}}",
+        "addModel": "Add model",
+        "inferenceHelp": "Default AI selection for background tasks. Leave blank to use the default provider or its default model. Manual tasks can override these choices.",
+        "chatCompletionsHelp": "Official OpenAI GPT-5.6 models require reasoning effort none when using tools through Chat Completions. Use Responses for reasoning with tools or GPT-6 Astra. Compatible services depend on their own capabilities."
       }
     },
     "downloads": {

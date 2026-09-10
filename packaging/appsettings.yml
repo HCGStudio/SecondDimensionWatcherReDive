@@ -123,31 +123,34 @@ TmdbApiKey: ""
 # RSS 订阅源 URL 数组
 MikananiFeeds: []
 
-# AI 推断与对话配置（可选）。这里是部署默认值，登录后可在网页「设置」中覆盖。
-# Engine: BuiltIn 或 CodexAppServer；内置 Provider 支持 OpenAI / Anthropic。
+# AI 推断与对话配置（可选）。这里是部署默认值，也可在网页「设置」中管理多个实例。
+# Providers 的键是稳定的 ProviderId；任意实例可选择下列协议：
+# OpenAIResponses / OpenAIChatCompletions / Anthropic / CodexAppServer。
 AI:
-  Engine: "BuiltIn"
-  Provider: "OpenAI"
-  OpenAI:
-    BaseUrl: https://api.openai.com/v1
-    ApiMode: Responses
-    ApiKey: ""
-    Model: gpt-4o-mini
-    MaxTokens: 1024
-  Anthropic:
-    BaseUrl: https://api.anthropic.com
-    ApiKey: ""
-    Model: claude-sonnet-4-20250514
-    MaxTokens: 1024
-    ApiVersion: "2023-06-01"
-  CodexAppServer:
-    Endpoint: ""
-    BearerToken: ""
-    Model: ""
-    PermissionProfile: ":read-only"
-    TimeoutSeconds: 300
+  ProvidersConfigured: true
+  DefaultProviderId: openai
+  Providers:
+    openai:
+      Name: OpenAI
+      Protocol: OpenAIResponses
+      BaseUrl: https://api.openai.com/v1
+      ApiKey: ""
+      Model: gpt-5.6-luna
+      MaxTokens: 16384
+    anthropic:
+      Name: Anthropic
+      Protocol: Anthropic
+      BaseUrl: https://api.anthropic.com
+      ApiKey: ""
+      Model: claude-sonnet-5
+      MaxTokens: 16384
+      ApiVersion: "2023-06-01"
 
+# 留空继承默认 Provider / 模型；网页手动执行任务时可只覆盖当次运行。
 Inference:
+  ProviderId: ""
+  Model: ""
+  ReasoningEffort: ""
   RateLimitDelayMs: 1000
 
 # 异常收件箱检测阈值（TimeSpan 使用 hh:mm:ss）

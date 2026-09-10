@@ -9,8 +9,12 @@ import {
   RotateCcw,
 } from "lucide-react";
 
+import { useChatModels } from "../chat/hooks";
+import { AiSelection } from "../chat/types";
 import { useToast } from "../components/ToastProvider";
+import { ModelPicker } from "../components/chat/ModelPicker";
 import { Button } from "../components/ui/Button";
+import { Card } from "../components/ui/Card";
 import { EmptyPrompt } from "../components/ui/EmptyPrompt";
 import { Spinner } from "../components/ui/Spinner";
 import { Table, type TableColumn } from "../components/ui/Table";
@@ -50,6 +54,25 @@ export const TasksPage: React.FC = () => {
   const getTaskMetadata = useTaskMetadata();
   const formatInterval = useFormatInterval();
   const { data: tasks, error, mutate } = useTasks();
+  const { data: models } = useChatModels();
+  const [aiSelection, setAiSelection] = React.useState<AiSelection>({});
+  React.useEffect(() => {
+    if (!models || !aiSelection.providerId) return;
+    const providerModels = models.filter(
+      (model) => model.providerId === aiSelection.providerId,
+    );
+    if (!providerModels.length) setAiSelection({});
+    else if (aiSelection.reasoningEffort) {
+      const selected = aiSelection.model
+        ? providerModels.find((model) => model.id === aiSelection.model)
+        : providerModels[0];
+      if (!selected?.reasoningEfforts.includes(aiSelection.reasoningEffort))
+        setAiSelection((current) => ({
+          ...current,
+          reasoningEffort: undefined,
+        }));
+    }
+  }, [models, aiSelection]);
   const {
     data: deadLetters,
     error: deadLetterError,
@@ -71,7 +94,12 @@ export const TasksPage: React.FC = () => {
       );
       setRunningTasks((prev) => new Set(prev).add(id));
       try {
-        await runTask(id);
+        await runTask(
+          id,
+          tasks?.find((task) => task.id === id)?.supportsAiSelection
+            ? aiSelection
+            : undefined,
+        );
         await mutate();
         addToast({
           title: t("tasks:toast.success", { name: getTaskMetadata(id).name }),
@@ -91,7 +119,7 @@ export const TasksPage: React.FC = () => {
         });
       }
     },
-    [mutate, addToast, t, getTaskMetadata],
+    [mutate, addToast, t, getTaskMetadata, aiSelection, tasks],
   );
 
   const mutateJob = React.useCallback(
@@ -250,6 +278,20 @@ export const TasksPage: React.FC = () => {
       <h2 className="mb-6 font-sans text-xl font-medium text-foreground">
         {t("tasks:title")}
       </h2>
+      {!!models?.length && tasks?.some((task) => task.supportsAiSelection) && (
+        <Card
+          className="mb-6"
+          title={t("tasks:ai.title")}
+          description={t("tasks:ai.description")}
+        >
+          <ModelPicker
+            models={models}
+            selection={aiSelection}
+            onSelect={setAiSelection}
+            allowDefault
+          />
+        </Card>
+      )}
       {error ? (
         <EmptyPrompt
           role="alert"

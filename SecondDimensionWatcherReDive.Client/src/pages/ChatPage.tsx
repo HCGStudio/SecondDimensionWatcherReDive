@@ -12,6 +12,7 @@ import {
   useConversationMessages,
   useConversations,
 } from "../chat/hooks";
+import { AiSelection } from "../chat/types";
 import { useStreamingChat } from "../chat/useStreamingChat";
 import { AppHeader } from "../components/AppHeader";
 import { useToast } from "../components/ToastProvider";
@@ -37,7 +38,7 @@ export const ChatPage: React.FC = () => {
   const [selectedConvId, setSelectedConvId] = useState<string | null>(
     conversationId ?? null,
   );
-  const [selectedModel, setSelectedModel] = useState<string | null>(null);
+  const [selection, setSelection] = useState<AiSelection>({});
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const sidebarTriggerRef = React.useRef<HTMLButtonElement | null>(null);
   const { data: conversationDetail, mutate: mutateMessages } =
@@ -75,17 +76,26 @@ export const ChatPage: React.FC = () => {
     }
   }, [conversationId]);
 
-  // Auto-select the first model and recover when a settings change removes
-  // the previously selected model.
+  // Provider identity keeps identical model IDs at different endpoints distinct.
   useEffect(() => {
     if (!models) return;
-    if (models.length === 0) setSelectedModel(null);
-    else if (
-      !selectedModel ||
-      !models.some((model) => model.id === selectedModel)
-    )
-      setSelectedModel(models[0].id);
-  }, [models, selectedModel]);
+    if (!models.length) {
+      if (selection.providerId) setSelection({});
+    } else if (
+      !models.some((model) => model.providerId === selection.providerId)
+    ) {
+      setSelection({ providerId: models[0].providerId, model: models[0].id });
+    } else if (selection.reasoningEffort) {
+      const providerModels = models.filter(
+        (item) => item.providerId === selection.providerId,
+      );
+      const model = selection.model
+        ? providerModels.find((item) => item.id === selection.model)
+        : providerModels[0];
+      if (!model?.reasoningEfforts.includes(selection.reasoningEffort))
+        setSelection((current) => ({ ...current, reasoningEffort: undefined }));
+    }
+  }, [models, selection]);
 
   const handleCreateConversation = useCallback(async () => {
     try {
@@ -126,7 +136,7 @@ export const ChatPage: React.FC = () => {
       if (!selectedConvId) return;
 
       setPendingUserMessage(content);
-      await sendMessage(selectedConvId, content, selectedModel ?? undefined);
+      await sendMessage(selectedConvId, content, selection);
 
       // After streaming finishes, refresh messages and conversations
       await Promise.all([mutateMessages(), mutateConversations()]);
@@ -134,7 +144,7 @@ export const ChatPage: React.FC = () => {
     },
     [
       selectedConvId,
-      selectedModel,
+      selection,
       sendMessage,
       mutateMessages,
       mutateConversations,
@@ -211,7 +221,7 @@ export const ChatPage: React.FC = () => {
         </Sheet>
         <div className="flex min-w-0 flex-1 flex-col">
           {/* Chat header with model picker */}
-          <div className="flex min-w-0 items-center justify-between gap-2 border-b border-border-light px-3 py-2 sm:px-4">
+          <div className="flex min-w-0 flex-wrap items-center justify-between gap-3 border-b border-border-light px-3 py-2 sm:px-4">
             <div className="flex min-w-0 items-center gap-2 text-sm text-muted">
               <Button
                 variant="icon"
@@ -233,8 +243,10 @@ export const ChatPage: React.FC = () => {
             {models && models.length > 0 && (
               <ModelPicker
                 models={models}
-                selectedModel={selectedModel}
-                onSelect={setSelectedModel}
+                selection={selection}
+                onSelect={setSelection}
+                disabled={isStreaming}
+                className="w-full lg:w-auto"
               />
             )}
           </div>

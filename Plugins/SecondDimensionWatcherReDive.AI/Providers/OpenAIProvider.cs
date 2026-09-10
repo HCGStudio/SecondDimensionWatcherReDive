@@ -62,13 +62,32 @@ public sealed partial class OpenAIProvider : IAIProvider
         var result = await JsonSerializer.DeserializeAsync(json, OpenAIJsonContext.Default.OpenAIModelsResponse,
             cancellationToken);
 
-        if (result?.Data is null) return [];
-
-        return result.Data
-            .Where(m => m.Id is not null)
-            .Select(m => new AIModel(m.Id!, m.Id!, "OpenAI"))
+        return (result?.Data ?? [])
+            .Where(m => !string.IsNullOrWhiteSpace(m.Id))
+            .Select(m => new AIModel(m.Id!, m.Id!, "OpenAI")
+            {
+                ProviderId = "openai",
+                ReasoningEfforts = AIModelCapabilities.GetReasoningEfforts(
+                    opts.ApiMode == OpenAIApiMode.Responses ? AIProviderProtocol.OpenAIResponses : AIProviderProtocol.OpenAIChatCompletions, m.Id!)
+            })
+            .Append(new AIModel(opts.Model, opts.Model, "OpenAI")
+            {
+                ProviderId = "openai",
+                ReasoningEfforts = AIModelCapabilities.GetReasoningEfforts(AIProviderProtocol.OpenAIResponses, opts.Model)
+            })
+            .DistinctBy(model => model.Id)
+            .OrderByDescending(model => model.Id == opts.Model)
             .ToList();
     }
+
+    public IAsyncEnumerable<IChatUpdate> StreamChatCompletionAsync(
+        IReadOnlyList<IMessage> messages,
+        IReadOnlyList<ToolDefinition>? tools,
+        string? model,
+        int? maxTokens,
+        IAIProviderContinuation? continuation,
+        CancellationToken cancellationToken)
+        => StreamChatCompletionAsync(messages, tools, model, maxTokens, continuation, null, cancellationToken);
 
     public async IAsyncEnumerable<IChatUpdate> StreamChatCompletionAsync(
         IReadOnlyList<IMessage> messages,
@@ -76,6 +95,7 @@ public sealed partial class OpenAIProvider : IAIProvider
         string? model,
         int? maxTokens,
         IAIProviderContinuation? continuation,
+        string? reasoningEffort,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         // Keep one immutable endpoint/credential snapshot for the complete provider tool loop.
@@ -94,7 +114,7 @@ public sealed partial class OpenAIProvider : IAIProvider
         {
             await foreach (var update in StreamResponsesAsync(
                                messages, tools, model ?? opts.Model, maxTokens ?? opts.MaxTokens,
-                               continuation, opts, cancellationToken))
+                               continuation, opts, reasoningEffort, cancellationToken))
                 yield return update;
 
             yield break;
@@ -105,7 +125,7 @@ public sealed partial class OpenAIProvider : IAIProvider
 
         await foreach (var update in StreamChatCompletionsAsync(
                            messages, tools, model ?? opts.Model, maxTokens ?? opts.MaxTokens,
-                           opts, cancellationToken))
+                           opts, reasoningEffort, cancellationToken))
             yield return update;
     }
 
@@ -118,6 +138,7 @@ public sealed partial class OpenAIProvider : IAIProvider
         int maxTokens,
         IAIProviderContinuation? continuation,
         OpenAIOptions requestOptions,
+        string? reasoningEffort,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         var input = continuation switch
@@ -141,7 +162,8 @@ public sealed partial class OpenAIProvider : IAIProvider
             Tools = BuildResponsesTools(tools),
             Stream = true,
             Store = false,
-            MaxOutputTokens = maxTokens
+            MaxOutputTokens = maxTokens,
+            Reasoning = string.IsNullOrWhiteSpace(reasoningEffort) ? null : new() { Effort = reasoningEffort }
         };
 
         var toolCallBuilders = new Dictionary<int, (string Id, string Name, StringBuilder Args)>();
@@ -465,15 +487,25 @@ public sealed partial class OpenAIProvider : IAIProvider
         string model,
         int maxTokens,
         OpenAIOptions requestOptions,
+        string? reasoningEffort,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
+        AIModelCapabilities.ValidateToolProtocol(AIProviderProtocol.OpenAIChatCompletions,
+            requestOptions.BaseUrl, model, reasoningEffort, tools is { Count: > 0 });
+
+        var usesCompletionTokens = AIModelCapabilities.IsModel(model, "gpt-5") ||
+            model.StartsWith("gpt-5.", StringComparison.Ordinal) || model.StartsWith("gpt-6", StringComparison.Ordinal) ||
+            AIModelCapabilities.IsModel(model, "o1") || AIModelCapabilities.IsModel(model, "o3") ||
+            AIModelCapabilities.IsModel(model, "o4-mini");
         var request = new OpenAIChatRequest
         {
             Model = model,
             Messages = BuildChatMessages(messages),
             Tools = BuildChatTools(tools),
             Stream = true,
-            MaxTokens = maxTokens
+            MaxTokens = usesCompletionTokens ? null : maxTokens,
+            MaxCompletionTokens = usesCompletionTokens ? maxTokens : null,
+            ReasoningEffort = reasoningEffort
         };
 
         var toolCallBuilders = new Dictionary<int, (string Id, string Name, StringBuilder Args)>();
@@ -617,6 +649,7 @@ public sealed partial class OpenAIProvider : IAIProvider
     {
         BaseUrl = options.BaseUrl,
         ApiKey = options.ApiKey,
+        AllowAnonymous = options.AllowAnonymous,
         Model = options.Model,
         ApiMode = options.ApiMode,
         MaxTokens = options.MaxTokens
@@ -636,7 +669,7 @@ public sealed partial class OpenAIProvider : IAIProvider
            && string.IsNullOrEmpty(baseUri.UserInfo)
            && string.IsNullOrEmpty(baseUri.Query)
            && string.IsNullOrEmpty(baseUri.Fragment)
-           && !string.IsNullOrWhiteSpace(options.ApiKey)
+           && (options.AllowAnonymous || !string.IsNullOrWhiteSpace(options.ApiKey))
            && !string.IsNullOrWhiteSpace(options.Model)
            && options.MaxTokens > 0;
 
@@ -647,7 +680,8 @@ public sealed partial class OpenAIProvider : IAIProvider
     {
         var baseUri = new Uri(options.BaseUrl.TrimEnd('/') + "/", UriKind.Absolute);
         var request = new HttpRequestMessage(method, new Uri(baseUri, relativePath));
-        request.Headers.Authorization = new("Bearer", options.ApiKey);
+        if (!string.IsNullOrWhiteSpace(options.ApiKey))
+            request.Headers.Authorization = new("Bearer", options.ApiKey);
         return request;
     }
 

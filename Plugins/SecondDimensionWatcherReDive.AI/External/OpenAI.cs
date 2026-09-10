@@ -18,6 +18,12 @@ internal sealed class OpenAIChatRequest
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public int? MaxTokens { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? MaxCompletionTokens { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ReasoningEffort { get; init; }
 }
 
 internal sealed class OpenAIMessage

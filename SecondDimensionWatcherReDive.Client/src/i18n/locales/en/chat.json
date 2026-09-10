@@ -67,5 +67,19 @@
       "Rejected": "Rejected",
       "Expired": "Expired"
     }
+  },
+  "selectProvider": "Provider",
+  "configuredDefault": "Use configured default",
+  "providerDefault": "Provider default model",
+  "customModel": "Select or enter model ID",
+  "reasoningEffort": "Reasoning effort",
+  "efforts": {
+    "none": "None",
+    "minimal": "Minimal",
+    "low": "Low",
+    "medium": "Medium",
+    "high": "High",
+    "xhigh": "Extra high",
+    "max": "Maximum"
   }
 }

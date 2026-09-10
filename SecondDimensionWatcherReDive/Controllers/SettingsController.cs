@@ -40,7 +40,9 @@ internal sealed class SettingsController(IRuntimeSettingsService settingsService
             return ValidationProblem(ModelState);
         }
 
-        if (!TryMapPatch(request, out var patch))
+        var currentAi = request.Ai is null ? null
+            : (await settingsService.GetAsync(cancellationToken)).Desired.Ai;
+        if (!TryMapPatch(request, currentAi, out var patch))
             return ValidationProblem(ModelState);
 
         var result = await settingsService.UpdateAsync(patch, cancellationToken);
@@ -59,9 +61,10 @@ internal sealed class SettingsController(IRuntimeSettingsService settingsService
 
     private bool TryMapPatch(
         PatchApplicationSettingsRequest request,
+        AiSettingsValues? currentAi,
         out RuntimeSettingsPatch patch)
     {
-        var ai = MapAi(request.Ai);
+        var ai = MapAi(request.Ai, currentAi);
         var torrent = MapTorrent(request.Torrent);
         var mediaLibrary = MapMediaLibrary(request.MediaLibrary);
         var incidents = MapIncidents(request.Incidents);
@@ -82,10 +85,13 @@ internal sealed class SettingsController(IRuntimeSettingsService settingsService
         return ModelState.IsValid;
     }
 
-    private AiSettingsUpdate? MapAi(AiSettingsPatchRequest? request)
+    private AiSettingsUpdate? MapAi(AiSettingsPatchRequest? request, AiSettingsValues? current)
     {
         if (request is null)
             return null;
+
+        if (request.Providers is not null)
+            return MapProviderSettings(request, current!);
 
         if (request.ExecutionMode is null) AddRequired("ai.executionMode");
         if (request.Provider is null) AddRequired("ai.provider");
@@ -134,11 +140,76 @@ internal sealed class SettingsController(IRuntimeSettingsService settingsService
                     NullIfWhiteSpace(codex.Model),
                     codex.PermissionProfile!,
                     codex.TimeoutSeconds!.Value),
-                new InferenceSettingsValues(inference.RateLimitDelayMs!.Value)),
+                MapInference(inference)),
             MapSecret(openAi.ApiKey, "ai.openAI.apiKey"),
             MapSecret(anthropic.ApiKey, "ai.anthropic.apiKey"),
             MapSecret(codex.Token, "ai.codexAppServer.token"));
     }
+
+    private AiSettingsUpdate? MapProviderSettings(AiSettingsPatchRequest request, AiSettingsValues current)
+    {
+        if (request.Inference?.RateLimitDelayMs is null)
+            AddRequired("ai.inference.rateLimitDelayMs");
+        var providers = new List<AiProviderSettingsValues>();
+        var apiKeys = new Dictionary<string, SecretMutation?>(StringComparer.Ordinal);
+        var tokens = new Dictionary<string, SecretMutation?>(StringComparer.Ordinal);
+        for (var index = 0; index < request.Providers!.Count; index++)
+        {
+            var provider = request.Providers[index];
+            var path = $"ai.providers.{index}";
+            if (provider is null)
+            {
+                AddRequired(path);
+                continue;
+            }
+            if (provider.Id is null) AddRequired(path + ".id");
+            if (provider.Name is null) AddRequired(path + ".name");
+            if (provider.Protocol is null) AddRequired(path + ".protocol");
+            if (provider.Models is null) AddRequired(path + ".models");
+            if (provider.Models?.Any(model => model is null || model.Id is null || model.ReasoningEfforts is null) == true)
+                ModelState.AddModelError(path + ".models", "Each model requires an ID and a reasoning-effort list.");
+            providers.Add(new AiProviderSettingsValues
+            {
+                Id = provider.Id ?? string.Empty,
+                Name = provider.Name ?? string.Empty,
+                Protocol = provider.Protocol ?? AiProviderProtocol.OpenAIResponses,
+                BaseUrl = provider.BaseUrl ?? string.Empty,
+                Model = provider.Model ?? string.Empty,
+                MaxTokens = provider.MaxTokens,
+                ReasoningEffort = NullIfWhiteSpace(provider.ReasoningEffort),
+                ApiVersion = provider.ApiVersion,
+                Endpoint = provider.Endpoint,
+                PermissionProfile = provider.PermissionProfile,
+                TimeoutSeconds = provider.TimeoutSeconds,
+                Models = provider.Models ?? []
+            });
+            if (provider.Id is not null)
+            {
+                apiKeys[provider.Id] = MapSecret(provider.ApiKey, path + ".apiKey");
+                tokens[provider.Id] = MapSecret(provider.Token, path + ".token");
+            }
+        }
+        if (!ModelState.IsValid)
+            return null;
+        return new AiSettingsUpdate(current with
+        {
+            Providers = providers,
+            DefaultProviderId = NullIfWhiteSpace(request.DefaultProviderId),
+            Inference = MapInference(request.Inference!)
+        }, null, null, null)
+        {
+            ProviderApiKeys = apiKeys,
+            ProviderTokens = tokens
+        };
+    }
+
+    private static InferenceSettingsValues MapInference(InferenceSettingsPatchRequest request) =>
+        new(request.RateLimitDelayMs!.Value)
+        {
+            ProviderId = NullIfWhiteSpace(request.ProviderId),
+            Model = NullIfWhiteSpace(request.Model),
+            ReasoningEffort = NullIfWhiteSpace(request.ReasoningEffort)
+        };
 
     private TorrentSettingsUpdate? MapTorrent(TorrentSettingsPatchRequest? request)
     {
@@ -315,7 +386,23 @@ internal sealed class SettingsController(IRuntimeSettingsService settingsService
                     values.Ai.CodexAppServer.PermissionProfile,
                     values.Ai.CodexAppServer.TimeoutSeconds,
                     Secret(state, RuntimeSecretKeys.CodexToken)),
-                new InferenceSettingsResponse(values.Ai.Inference.RateLimitDelayMs)),
+                new InferenceSettingsResponse(values.Ai.Inference.RateLimitDelayMs)
+                {
+                    ProviderId = values.Ai.Inference.ProviderId,
+                    Model = values.Ai.Inference.Model,
+                    ReasoningEffort = values.Ai.Inference.ReasoningEffort
+                })
+            {
+                DefaultProviderId = RuntimeAiProviders.DefaultProviderId(values.Ai),
+                Providers = RuntimeAiProviders.GetProviders(values.Ai).Select(provider =>
+                    new AiProviderSettingsResponse(
+                        provider.Id, provider.Name, provider.Protocol, provider.BaseUrl,
+                        provider.Model, provider.MaxTokens, provider.ReasoningEffort, provider.ApiVersion,
+                        provider.Endpoint, provider.PermissionProfile, provider.TimeoutSeconds,
+                        provider.Models.Select(model => model with { Name = model.Name ?? model.Id }).ToArray(),
+                        Secret(state, RuntimeSecretKeys.ProviderApiKey(provider.Id)),
+                        Secret(state, RuntimeSecretKeys.ProviderToken(provider.Id)))).ToArray()
+            },
             new TmdbSettingsResponse(Secret(state, RuntimeSecretKeys.TmdbApiKey)),
             new TorrentSettingsResponse(
                 values.Torrent.Url,

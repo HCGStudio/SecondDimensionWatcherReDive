@@ -67,5 +67,19 @@
       "Rejected": "拒否済み",
       "Expired": "期限切れ"
     }
+  },
+  "selectProvider": "Provider",
+  "configuredDefault": "設定済みの既定値を使用",
+  "providerDefault": "Provider の既定モデル",
+  "customModel": "モデル ID を選択または入力",
+  "reasoningEffort": "推論強度",
+  "efforts": {
+    "none": "なし",
+    "minimal": "最小",
+    "low": "低",
+    "medium": "中",
+    "high": "高",
+    "xhigh": "より高い",
+    "max": "最大"
   }
 }

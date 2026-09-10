@@ -38,6 +38,7 @@ namespace SecondDimensionWatcherReDive.Controllers.External;
 [JsonSerializable(typeof(IReadOnlyList<Feed>))]
 [JsonSerializable(typeof(Feed))]
 [JsonSerializable(typeof(List<ScheduledTask>))]
+[JsonSerializable(typeof(SecondDimensionWatcherReDive.Framework.AI.AIExecutionSelection))]
 [JsonSerializable(typeof(SeasonResponse))]
 [JsonSerializable(typeof(List<Subgroup>))]
 [JsonSerializable(typeof(SubscribeRequest))]

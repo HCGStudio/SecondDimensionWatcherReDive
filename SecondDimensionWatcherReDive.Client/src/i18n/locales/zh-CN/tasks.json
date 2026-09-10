@@ -77,5 +77,9 @@
       "name": "ScanMediaLibraries",
       "description": "扫描持续监控的现有媒体库目录"
     }
+  },
+  "ai": {
+    "title": "本次手动任务的 AI",
+    "description": "以下选择用于点击“立即执行”启动的任务。留空使用任务配置的默认值，仅影响任务中的 AI 推断。"
   }
 }

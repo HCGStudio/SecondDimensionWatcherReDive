@@ -21,6 +21,8 @@ public sealed class OpenAIOptions
     [Required]
     public string ApiKey { get; set; } = string.Empty;
 
+    internal bool AllowAnonymous { get; set; }
+
     [Required]
     public string Model { get; set; } = string.Empty;
 

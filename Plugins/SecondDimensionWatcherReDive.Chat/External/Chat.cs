@@ -4,7 +4,11 @@ namespace SecondDimensionWatcherReDive.Chat.External;
 
 // --- Request DTOs ---
 
-internal sealed record SendMessageRequest(string Content, string? Model);
+internal sealed record SendMessageRequest(
+    string Content,
+    string? Model,
+    string? ProviderId = null,
+    string? ReasoningEffort = null);
 internal sealed record CreateConversationRequest(string? Title);
 internal sealed record UpdateConversationRequest(string Title);
 internal sealed record ApproveChatActionRequest(

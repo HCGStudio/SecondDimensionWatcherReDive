@@ -23,4 +23,8 @@ public sealed class ChatOptions
     ///     Optional model override. If set, the engine uses this model instead of the configured default.
     /// </summary>
     public string? Model { get; init; }
+
+    public string? ProviderId { get; init; }
+
+    public string? ReasoningEffort { get; init; }
 }

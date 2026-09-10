@@ -1,7 +1,12 @@
 import fetcher from "../auth/httpClient";
+import { AiSelection } from "../chat/types";
 
-export const runTask = async (id: string) => {
-  return await fetcher(`/api/tasks/${id}/run`, { method: "POST" });
+export const runTask = async (id: string, selection: AiSelection = {}) => {
+  return await fetcher(`/api/tasks/${id}/run`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(selection),
+  });
 };
 
 const mutateJobs = async (action: "retry" | "resolve", ids: string[]) =>

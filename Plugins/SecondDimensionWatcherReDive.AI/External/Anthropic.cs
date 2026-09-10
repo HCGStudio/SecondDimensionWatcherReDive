@@ -20,6 +20,22 @@ internal sealed class AnthropicMessagesRequest
     public List<AnthropicTool>? Tools { get; init; }
 
     public bool Stream { get; init; } = true;
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public AnthropicOutputConfig? OutputConfig { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public AnthropicThinkingConfig? Thinking { get; init; }
+}
+
+internal sealed class AnthropicOutputConfig
+{
+    public required string Effort { get; init; }
+}
+
+internal sealed class AnthropicThinkingConfig
+{
+    public string Type { get; init; } = "adaptive";
 }
 
 internal sealed class AnthropicMessage
@@ -52,6 +68,10 @@ internal sealed class AnthropicContentBlock
     [JsonPropertyName("content")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? ResultContent { get; init; }
+
+    /// <summary>Preserves signed thinking and redacted blocks verbatim for the next tool round.</summary>
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? AdditionalProperties { get; set; }
 }
 
 internal sealed class AnthropicTool
@@ -145,6 +165,8 @@ internal sealed class AnthropicModelsResponse
     public List<AnthropicModelEntry>? Data { get; set; }
 
     public bool HasMore { get; set; }
+
+    public string? LastId { get; set; }
 }
 
 internal sealed class AnthropicModelEntry

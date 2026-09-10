@@ -18,4 +18,16 @@ public interface IAIProvider
         int? maxTokens,
         IAIProviderContinuation? continuation,
         CancellationToken cancellationToken);
+
+    IAsyncEnumerable<IChatUpdate> StreamChatCompletionAsync(
+        IReadOnlyList<IMessage> messages,
+        IReadOnlyList<ToolDefinition>? tools,
+        string? model,
+        int? maxTokens,
+        IAIProviderContinuation? continuation,
+        string? reasoningEffort,
+        CancellationToken cancellationToken)
+        => string.IsNullOrWhiteSpace(reasoningEffort)
+            ? StreamChatCompletionAsync(messages, tools, model, maxTokens, continuation, cancellationToken)
+            : throw new ArgumentException($"Provider '{ProviderName}' does not support reasoning effort.");
 }

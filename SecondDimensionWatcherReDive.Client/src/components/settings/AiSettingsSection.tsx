@@ -2,10 +2,14 @@ import React from "react";
 import { useTranslation } from "react-i18next";
 import { useSWRConfig } from "swr";
 
-import { Bot, Cloud, ServerCog, SquareTerminal } from "lucide-react";
+import { Bot, Plus, ServerCog, Trash2 } from "lucide-react";
 
+import { useChatModels } from "../../chat/hooks";
+import { AiModel } from "../../chat/types";
 import { apiErrorStatus } from "../../errors/apiError";
 import {
+  AiProtocol,
+  AiProviderSettings,
   AiSettings,
   AiSettingsPatch,
   SecretDraft,
@@ -22,6 +26,8 @@ import {
   willSecretBeConfigured,
 } from "../../settings/validation";
 import { useToast } from "../ToastProvider";
+import { ModelPicker } from "../chat/ModelPicker";
+import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
 import { FormRow } from "../ui/FormRow";
 import { Input } from "../ui/Input";
@@ -32,25 +38,96 @@ import {
   SettingsSectionHeader,
 } from "./SettingsControls";
 
-interface AiDraft extends AiSettings {
-  openAiApiKey: SecretDraft;
-  anthropicApiKey: SecretDraft;
-  codexToken: SecretDraft;
+interface ProviderDraft extends AiProviderSettings {
+  apiKeyDraft: SecretDraft;
+  tokenDraft: SecretDraft;
+}
+interface AiDraft extends Omit<AiSettings, "providers"> {
+  providers: ProviderDraft[];
 }
 
+const emptySecret = { isConfigured: false, source: "none" as const };
 const createDraft = (value: AiSettings): AiDraft => ({
-  ...value,
-  openAI: { ...value.openAI },
-  anthropic: { ...value.anthropic },
-  codexAppServer: { ...value.codexAppServer },
+  defaultProviderId: value.defaultProviderId,
+  providers: value.providers.map((provider) => ({
+    ...provider,
+    models: provider.models.map((model) => ({
+      ...model,
+      name: model.name ?? model.id,
+      reasoningEfforts: [...model.reasoningEfforts],
+    })),
+    apiKeyDraft: createSecretDraft(),
+    tokenDraft: createSecretDraft(),
+  })),
   inference: { ...value.inference },
-  openAiApiKey: createSecretDraft(),
-  anthropicApiKey: createSecretDraft(),
-  codexToken: createSecretDraft(),
 });
-
 const isSecretDirty = (draft: SecretDraft) =>
-  draft.operation !== "keep" || draft.value.trim().length > 0;
+  draft.operation !== "keep" || !!draft.value.trim();
+const plainProvider = ({
+  apiKeyDraft: _apiKeyDraft,
+  tokenDraft: _tokenDraft,
+  ...provider
+}: ProviderDraft): AiProviderSettings => provider;
+
+const defaultEfforts = (protocol: AiProtocol, model: string): string[] => {
+  const isModel = (family: string) =>
+    model === family || model.startsWith(`${family}-`);
+  if (protocol === "anthropic") {
+    if (isModel("claude-opus-4-5")) return ["low", "medium", "high"];
+    if (
+      ["claude-opus-4-6", "claude-sonnet-4-6", "claude-mythos-preview"].some(
+        isModel,
+      )
+    )
+      return ["low", "medium", "high", "max"];
+    if (
+      [
+        "claude-opus-4-7",
+        "claude-opus-4-8",
+        "claude-opus-5",
+        "claude-sonnet-5",
+        "claude-fable-5",
+        "claude-mythos-5",
+      ].some(isModel)
+    )
+      return ["low", "medium", "high", "xhigh", "max"];
+    return [];
+  }
+  if (isModel("gpt-6-astra")) return ["low", "medium", "high", "xhigh", "max"];
+  if (isModel("gpt-5.6"))
+    return ["none", "low", "medium", "high", "xhigh", "max"];
+  if (model.includes("-chat") || model.includes("-pro")) return [];
+  if (["gpt-5.2", "gpt-5.3-codex", "gpt-5.4", "gpt-5.5"].some(isModel))
+    return model.includes("codex")
+      ? ["low", "medium", "high", "xhigh"]
+      : ["none", "low", "medium", "high", "xhigh"];
+  if (isModel("gpt-5.1"))
+    return model.includes("codex")
+      ? ["low", "medium", "high"]
+      : ["none", "low", "medium", "high"];
+  if (isModel("gpt-5")) return ["minimal", "low", "medium", "high"];
+  if (["o1", "o3", "o4-mini", "gpt-oss-20b", "gpt-oss-120b"].some(isModel))
+    return ["low", "medium", "high"];
+  return [];
+};
+
+const chatCompletionsDefaultEffort = (
+  protocol: AiProtocol,
+  model: string,
+): string | null =>
+  protocol === "openAIChatCompletions" &&
+  /^gpt-5\.6-(?:luna|sol|terra)(?:-|$)/.test(model)
+    ? "none"
+    : null;
+
+const protocolDefaults = (
+  protocol: AiProtocol,
+): Partial<AiProviderSettings> => {
+  if (protocol === "anthropic")
+    return { baseUrl: "https://api.anthropic.com", model: "claude-sonnet-5" };
+  if (protocol === "codexAppServer") return { model: "" };
+  return { baseUrl: "https://api.openai.com/v1", model: "gpt-5.6-luna" };
+};
 
 export interface AiSettingsSectionProps {
   value: AiSettings;
@@ -64,117 +141,262 @@ export const AiSettingsSection: React.FC<AiSettingsSectionProps> = ({
   const { t } = useTranslation("settings");
   const { addToast } = useToast();
   const { mutate: mutateGlobal } = useSWRConfig();
+  const { data: availableModels } = useChatModels();
   const [draft, setDraft] = React.useState<AiDraft>(() => createDraft(value));
   const [saving, setSaving] = React.useState(false);
   const [saved, setSaved] = React.useState(false);
-
-  React.useEffect(() => {
-    setDraft(createDraft(value));
-  }, [value]);
+  React.useEffect(() => setDraft(createDraft(value)), [value]);
 
   const plainDraft: AiSettings = {
-    executionMode: draft.executionMode,
-    provider: draft.provider,
-    openAI: draft.openAI,
-    anthropic: draft.anthropic,
-    codexAppServer: draft.codexAppServer,
+    defaultProviderId: draft.defaultProviderId,
+    providers: draft.providers.map(plainProvider),
     inference: draft.inference,
   };
+  const original: AiSettings = {
+    defaultProviderId: value.defaultProviderId,
+    providers: value.providers,
+    inference: value.inference,
+  };
   const dirty =
-    JSON.stringify(plainDraft) !== JSON.stringify(value) ||
-    isSecretDirty(draft.openAiApiKey) ||
-    isSecretDirty(draft.anthropicApiKey) ||
-    isSecretDirty(draft.codexToken);
-
-  const selectedBuiltIn =
-    draft.provider === "openAI" ? draft.openAI : draft.anthropic;
-  const openAiCredentialRequired = requiresCredentialChange(
-    value.openAI.baseUrl,
-    draft.openAI.baseUrl,
-    value.openAI.apiKey,
-    draft.openAiApiKey,
-  );
-  const anthropicCredentialRequired = requiresCredentialChange(
-    value.anthropic.baseUrl,
-    draft.anthropic.baseUrl,
-    value.anthropic.apiKey,
-    draft.anthropicApiKey,
-  );
-  const codexCredentialRequired = requiresCredentialChange(
-    value.codexAppServer.endpoint,
-    draft.codexAppServer.endpoint,
-    value.codexAppServer.token,
-    draft.codexToken,
-  );
-  const codexEndpoint = draft.codexAppServer.endpoint.trim();
-  const remoteCodexTokenRequired =
-    isRemoteWebSocketEndpoint(codexEndpoint) &&
-    !willSecretBeConfigured(value.codexAppServer.token, draft.codexToken);
+    JSON.stringify(plainDraft) !== JSON.stringify(original) ||
+    draft.providers.some(
+      (provider) =>
+        isSecretDirty(provider.apiKeyDraft) ||
+        isSecretDirty(provider.tokenDraft),
+    );
+  const credentialRequired = (provider: ProviderDraft) => {
+    const previous = value.providers.find((item) => item.id === provider.id);
+    return (
+      !!previous &&
+      (requiresCredentialChange(
+        previous.protocol === "codexAppServer"
+          ? previous.endpoint
+          : previous.baseUrl,
+        provider.protocol === "codexAppServer"
+          ? provider.endpoint
+          : provider.baseUrl,
+        previous.apiKey,
+        provider.apiKeyDraft,
+      ) ||
+        requiresCredentialChange(
+          previous.protocol === "codexAppServer"
+            ? previous.endpoint
+            : previous.baseUrl,
+          provider.protocol === "codexAppServer"
+            ? provider.endpoint
+            : provider.baseUrl,
+          previous.token,
+          provider.tokenDraft,
+        ))
+    );
+  };
   const invalid =
     !isIntegerInRange(draft.inference.rateLimitDelayMs, 0, 2_147_483_647) ||
-    !isHttpEndpoint(draft.openAI.baseUrl) ||
-    !draft.openAI.model.trim() ||
-    !isIntegerInRange(draft.openAI.maxTokens, 1, 2_147_483_647) ||
-    !isHttpEndpoint(draft.anthropic.baseUrl) ||
-    !draft.anthropic.model.trim() ||
-    !draft.anthropic.apiVersion.trim() ||
-    !isIntegerInRange(draft.anthropic.maxTokens, 1, 2_147_483_647) ||
-    !draft.codexAppServer.permissionProfile.trim() ||
-    !isIntegerInRange(draft.codexAppServer.timeoutSeconds, 1, 3600) ||
-    (!!codexEndpoint && !isCodexEndpoint(codexEndpoint)) ||
-    openAiCredentialRequired ||
-    anthropicCredentialRequired ||
-    codexCredentialRequired ||
-    remoteCodexTokenRequired ||
-    (draft.executionMode === "codexAppServer"
-      ? !codexEndpoint
-      : !selectedBuiltIn.baseUrl.trim());
+    (draft.providers.length > 0 &&
+      !draft.providers.some(
+        (provider) => provider.id === draft.defaultProviderId,
+      )) ||
+    (!!draft.inference.providerId &&
+      !draft.providers.some(
+        (provider) => provider.id === draft.inference.providerId,
+      )) ||
+    draft.providers.some(
+      (provider) =>
+        !provider.name.trim() ||
+        credentialRequired(provider) ||
+        new Set(provider.models.map((model) => model.id.trim())).size !==
+          provider.models.length ||
+        provider.models.some((model) => !model.id.trim()) ||
+        (provider.protocol === "codexAppServer"
+          ? !isCodexEndpoint(provider.endpoint) ||
+            !provider.permissionProfile.trim() ||
+            !isIntegerInRange(provider.timeoutSeconds, 1, 3600) ||
+            (isRemoteWebSocketEndpoint(provider.endpoint) &&
+              !willSecretBeConfigured(provider.token, provider.tokenDraft))
+          : !isHttpEndpoint(provider.baseUrl) ||
+            !provider.model.trim() ||
+            !isIntegerInRange(provider.maxTokens, 1, 2_147_483_647) ||
+            (provider.protocol === "anthropic" && !provider.apiVersion.trim())),
+    );
 
-  const reset = React.useCallback(() => {
-    setDraft(createDraft(value));
-    setSaved(false);
-  }, [value]);
+  const updateProvider = (id: string, change: Partial<ProviderDraft>) =>
+    setDraft((current) => {
+      const previous = current.providers.find((provider) => provider.id === id);
+      const capabilities = (models: AiProviderSettings["models"]) =>
+        JSON.stringify(
+          models.map(({ id, reasoningEfforts }) => ({ id, reasoningEfforts })),
+        );
+      const selectionChanged =
+        (change.protocol !== undefined &&
+          change.protocol !== previous?.protocol) ||
+        (change.model !== undefined && change.model !== previous?.model) ||
+        (change.models !== undefined &&
+          capabilities(change.models) !== capabilities(previous?.models ?? []));
+      return {
+        ...current,
+        providers: current.providers.map((provider) =>
+          provider.id === id ? { ...provider, ...change } : provider,
+        ),
+        inference:
+          selectionChanged &&
+          (current.inference.providerId ?? current.defaultProviderId) === id
+            ? { ...current.inference, reasoningEffort: null }
+            : current.inference,
+      };
+    });
+  const addProvider = () => {
+    const suffix =
+      typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : Array.from(crypto.getRandomValues(new Uint8Array(16)), (value) =>
+            value.toString(16).padStart(2, "0"),
+          ).join("");
+    const id = `provider-${suffix}`;
+    setDraft((current) => ({
+      ...current,
+      defaultProviderId: current.defaultProviderId || id,
+      providers: [
+        ...current.providers,
+        {
+          id,
+          name: t("system.ai.providers.newName", {
+            count: current.providers.length + 1,
+          }),
+          protocol: "openAIResponses",
+          baseUrl: "https://api.openai.com/v1",
+          model: "gpt-5.6-luna",
+          maxTokens: 16384,
+          apiVersion: "2023-06-01",
+          reasoningEffort: null,
+          models: [],
+          endpoint: "ws://127.0.0.1:4500",
+          permissionProfile: ":read-only",
+          timeoutSeconds: 120,
+          apiKey: emptySecret,
+          token: emptySecret,
+          apiKeyDraft: createSecretDraft(),
+          tokenDraft: createSecretDraft(),
+        },
+      ],
+    }));
+  };
+  const removeProvider = (id: string) =>
+    setDraft((current) => {
+      const providers = current.providers.filter(
+        (provider) => provider.id !== id,
+      );
+      return {
+        ...current,
+        providers,
+        defaultProviderId:
+          current.defaultProviderId === id
+            ? (providers[0]?.id ?? null)
+            : current.defaultProviderId,
+        inference:
+          (current.inference.providerId ?? current.defaultProviderId) === id
+            ? {
+                ...current.inference,
+                providerId: null,
+                model: null,
+                reasoningEffort: null,
+              }
+            : current.inference,
+      };
+    });
 
-  const save = React.useCallback(async () => {
-    if (saving || invalid) {
-      if (invalid) {
-        addToast({
-          title: t("system.ai.validationFailed"),
-          color: "warning",
-        });
-      }
+  const models: AiModel[] = draft.providers.flatMap((provider) => {
+    const originalProvider = value.providers.find(
+      (item) => item.id === provider.id,
+    );
+    const sameEndpoint =
+      originalProvider?.protocol === provider.protocol &&
+      (provider.protocol === "codexAppServer"
+        ? originalProvider.endpoint === provider.endpoint
+        : originalProvider.baseUrl === provider.baseUrl);
+    const discovered = (availableModels ?? []).filter(
+      (model) => sameEndpoint && model.providerId === provider.id,
+    );
+    const options = new Map(
+      discovered.map((model) => [
+        model.id,
+        {
+          ...model,
+          reasoningEfforts:
+            provider.protocol !== "codexAppServer" &&
+            originalProvider?.models.some((item) => item.id === model.id)
+              ? defaultEfforts(provider.protocol, model.id)
+              : model.reasoningEfforts,
+        },
+      ]),
+    );
+    for (const model of provider.models)
+      options.set(model.id, {
+        ...model,
+        reasoningEfforts:
+          provider.protocol === "codexAppServer"
+            ? (discovered.find((item) => item.id === model.id)
+                ?.reasoningEfforts ?? model.reasoningEfforts)
+            : model.reasoningEfforts,
+        provider: provider.name,
+        providerId: provider.id,
+      });
+    if (!options.has(provider.model))
+      options.set(provider.model, {
+        id: provider.model,
+        name: provider.model || t("system.ai.codex.modelPlaceholder"),
+        providerId: provider.id,
+        provider: provider.name,
+        reasoningEfforts: defaultEfforts(provider.protocol, provider.model),
+      });
+    return [...options.values()]
+      .sort(
+        (a, b) =>
+          Number(b.id === provider.model) - Number(a.id === provider.model),
+      )
+      .map((model) => ({ ...model, provider: provider.name }));
+  });
+
+  const save = async () => {
+    if (saving) return;
+    if (invalid) {
+      addToast({ title: t("system.ai.validationFailed"), color: "warning" });
       return;
     }
     setSaving(true);
     setSaved(false);
     try {
-      const patch: AiSettingsPatch = {
-        executionMode: draft.executionMode,
-        provider: draft.provider,
-        openAI: {
-          baseUrl: draft.openAI.baseUrl.trim(),
-          apiMode: draft.openAI.apiMode,
-          model: draft.openAI.model.trim(),
-          maxTokens: draft.openAI.maxTokens,
-          apiKey: toSecretMutation(draft.openAiApiKey),
+      await onSave({
+        ai: {
+          defaultProviderId: draft.defaultProviderId,
+          providers: draft.providers.map((provider) => ({
+            ...plainProvider(provider),
+            name: provider.name.trim(),
+            baseUrl: provider.baseUrl.trim(),
+            model: provider.model.trim(),
+            endpoint: provider.endpoint.trim(),
+            permissionProfile: provider.permissionProfile.trim(),
+            apiVersion: provider.apiVersion.trim(),
+            models: provider.models.map((model) => ({
+              ...model,
+              id: model.id.trim(),
+              name: model.name.trim() || model.id.trim(),
+              reasoningEfforts: [
+                ...new Set(
+                  model.reasoningEfforts
+                    .map((effort) => effort.trim())
+                    .filter(Boolean),
+                ),
+              ],
+            })),
+            apiKey: toSecretMutation(provider.apiKeyDraft),
+            token: toSecretMutation(provider.tokenDraft),
+          })),
+          inference: {
+            ...draft.inference,
+            model: draft.inference.model?.trim() || null,
+          },
         },
-        anthropic: {
-          baseUrl: draft.anthropic.baseUrl.trim(),
-          model: draft.anthropic.model.trim(),
-          maxTokens: draft.anthropic.maxTokens,
-          apiVersion: draft.anthropic.apiVersion.trim(),
-          apiKey: toSecretMutation(draft.anthropicApiKey),
-        },
-        codexAppServer: {
-          endpoint: draft.codexAppServer.endpoint.trim(),
-          model: draft.codexAppServer.model.trim(),
-          permissionProfile: draft.codexAppServer.permissionProfile.trim(),
-          timeoutSeconds: draft.codexAppServer.timeoutSeconds,
-          token: toSecretMutation(draft.codexToken),
-        },
-        inference: { ...draft.inference },
-      };
-      await onSave({ ai: patch });
+      });
       await Promise.allSettled([
         mutateGlobal("/api/chat/status"),
         mutateGlobal("/api/chat/models"),
@@ -192,444 +414,478 @@ export const AiSettingsSection: React.FC<AiSettingsSectionProps> = ({
     } finally {
       setSaving(false);
     }
-  }, [addToast, draft, invalid, mutateGlobal, onSave, saving, t]);
+  };
 
   return (
     <section>
       <SettingsSectionHeader
         eyebrow={t("system.ai.eyebrow")}
         title={t("system.ai.title")}
-        description={t("system.ai.description")}
+        description={t("system.ai.providers.description")}
       />
-
-      <Card icon={<Bot size={18} />} title={t("system.ai.engine.title")}>
-        <fieldset className="grid gap-3 md:grid-cols-2">
-          <legend className="sr-only">{t("system.ai.engine.title")}</legend>
-          <EngineOption
-            icon={<Cloud size={19} />}
-            title={t("system.ai.engine.builtIn.title")}
-            description={t("system.ai.engine.builtIn.description")}
-            selected={draft.executionMode === "builtIn"}
-            onSelect={() =>
-              setDraft((current) => ({
-                ...current,
-                executionMode: "builtIn",
-              }))
-            }
-          />
-          <EngineOption
-            icon={<SquareTerminal size={19} />}
-            title={t("system.ai.engine.codex.title")}
-            description={t("system.ai.engine.codex.description")}
-            selected={draft.executionMode === "codexAppServer"}
-            onSelect={() =>
-              setDraft((current) => ({
-                ...current,
-                executionMode: "codexAppServer",
-              }))
-            }
-          />
-        </fieldset>
-        <p className="mt-3 text-xs leading-body text-subtle">
-          {t("system.ai.engine.scope")}
-        </p>
-      </Card>
-
-      {draft.executionMode === "builtIn" ? (
-        <Card
-          className="mt-5"
-          icon={<ServerCog size={18} />}
-          title={t("system.ai.builtIn.title")}
-          description={t("system.ai.builtIn.description")}
-        >
-          <div className="grid gap-5 sm:grid-cols-2">
-            <FormRow label={t("system.ai.builtIn.provider")}>
-              <Select
-                value={draft.provider}
-                onChange={(event) =>
-                  setDraft((current) => ({
-                    ...current,
-                    provider: event.target.value as AiSettings["provider"],
-                  }))
-                }
-              >
-                <option value="openAI">OpenAI</option>
-                <option value="anthropic">Anthropic</option>
-              </Select>
-            </FormRow>
-            {draft.provider === "openAI" ? (
-              <FormRow label={t("system.ai.builtIn.apiMode")}>
-                <Select
-                  value={draft.openAI.apiMode}
-                  onChange={(event) =>
-                    setDraft((current) => ({
-                      ...current,
-                      openAI: {
-                        ...current.openAI,
-                        apiMode: event.target
-                          .value as AiSettings["openAI"]["apiMode"],
-                      },
-                    }))
-                  }
-                >
-                  <option value="responses">Responses</option>
-                  <option value="chatCompletions">Chat Completions</option>
-                </Select>
-              </FormRow>
-            ) : (
-              <FormRow label={t("system.ai.builtIn.apiVersion")}>
-                <Input
-                  value={draft.anthropic.apiVersion}
-                  isInvalid={!draft.anthropic.apiVersion.trim()}
-                  onChange={(event) =>
-                    setDraft((current) => ({
-                      ...current,
-                      anthropic: {
-                        ...current.anthropic,
-                        apiVersion: event.target.value,
-                      },
-                    }))
-                  }
-                />
-              </FormRow>
-            )}
-          </div>
-
-          {draft.provider === "openAI" ? (
-            <ProviderFields
-              prefix="openai"
-              baseUrl={draft.openAI.baseUrl}
-              model={draft.openAI.model}
-              maxTokens={draft.openAI.maxTokens}
-              credentialRequired={openAiCredentialRequired}
-              onBaseUrlChange={(baseUrl) =>
-                setDraft((current) => ({
-                  ...current,
-                  openAI: { ...current.openAI, baseUrl },
-                }))
-              }
-              onModelChange={(model) =>
-                setDraft((current) => ({
-                  ...current,
-                  openAI: { ...current.openAI, model },
-                }))
-              }
-              onMaxTokensChange={(maxTokens) =>
-                setDraft((current) => ({
-                  ...current,
-                  openAI: { ...current.openAI, maxTokens },
-                }))
-              }
-              secret={
-                <SecretField
-                  id="settings-openai-api-key"
-                  label={t("system.ai.builtIn.apiKey")}
-                  state={value.openAI.apiKey}
-                  draft={draft.openAiApiKey}
-                  onChange={(openAiApiKey) =>
-                    setDraft((current) => ({ ...current, openAiApiKey }))
-                  }
-                />
-              }
-            />
-          ) : (
-            <ProviderFields
-              prefix="anthropic"
-              baseUrl={draft.anthropic.baseUrl}
-              model={draft.anthropic.model}
-              maxTokens={draft.anthropic.maxTokens}
-              credentialRequired={anthropicCredentialRequired}
-              onBaseUrlChange={(baseUrl) =>
-                setDraft((current) => ({
-                  ...current,
-                  anthropic: { ...current.anthropic, baseUrl },
-                }))
-              }
-              onModelChange={(model) =>
-                setDraft((current) => ({
-                  ...current,
-                  anthropic: { ...current.anthropic, model },
-                }))
-              }
-              onMaxTokensChange={(maxTokens) =>
-                setDraft((current) => ({
-                  ...current,
-                  anthropic: { ...current.anthropic, maxTokens },
-                }))
-              }
-              secret={
-                <SecretField
-                  id="settings-anthropic-api-key"
-                  label={t("system.ai.builtIn.apiKey")}
-                  state={value.anthropic.apiKey}
-                  draft={draft.anthropicApiKey}
-                  onChange={(anthropicApiKey) =>
-                    setDraft((current) => ({ ...current, anthropicApiKey }))
-                  }
-                />
-              }
-            />
-          )}
-        </Card>
-      ) : (
-        <Card
-          className="mt-5"
-          icon={<SquareTerminal size={18} />}
-          title={t("system.ai.codex.title")}
-          description={t("system.ai.codex.description")}
-        >
-          <div className="grid gap-5 sm:grid-cols-2">
-            <FormRow label={t("system.ai.codex.endpoint")}>
-              <Input
-                type="url"
-                value={draft.codexAppServer.endpoint}
-                placeholder="ws://127.0.0.1:4500"
-                isInvalid={
-                  !!draft.codexAppServer.endpoint &&
-                  !isCodexEndpoint(draft.codexAppServer.endpoint)
-                }
-                onChange={(event) =>
-                  setDraft((current) => ({
-                    ...current,
-                    codexAppServer: {
-                      ...current.codexAppServer,
-                      endpoint: event.target.value,
-                    },
-                  }))
-                }
-              />
-              {draft.codexAppServer.endpoint &&
-              !isCodexEndpoint(draft.codexAppServer.endpoint) ? (
-                <p className="mt-1 text-xs text-error">
-                  {t("system.ai.codex.endpointError")}
-                </p>
-              ) : null}
-              {codexCredentialRequired ? (
-                <p className="mt-1 text-xs text-warning">
-                  {t("system.ai.originCredentialRequired")}
-                </p>
-              ) : null}
-            </FormRow>
-            <FormRow label={t("system.ai.codex.model")}>
-              <Input
-                value={draft.codexAppServer.model}
-                placeholder={t("system.ai.codex.modelPlaceholder")}
-                onChange={(event) =>
-                  setDraft((current) => ({
-                    ...current,
-                    codexAppServer: {
-                      ...current.codexAppServer,
-                      model: event.target.value,
-                    },
-                  }))
-                }
-              />
-              <p className="mt-1 text-xs leading-body text-subtle">
-                {t("system.ai.codex.modelHelp")}
-              </p>
-            </FormRow>
-            <FormRow label={t("system.ai.codex.permissionProfile")}>
-              <Input
-                value={draft.codexAppServer.permissionProfile}
-                placeholder=":read-only"
-                isInvalid={!draft.codexAppServer.permissionProfile.trim()}
-                onChange={(event) =>
-                  setDraft((current) => ({
-                    ...current,
-                    codexAppServer: {
-                      ...current.codexAppServer,
-                      permissionProfile: event.target.value,
-                    },
-                  }))
-                }
-              />
-              <p className="mt-1 text-xs leading-body text-subtle">
-                {t("system.ai.codex.permissionProfileHelp")}
-              </p>
-            </FormRow>
-            <FormRow label={t("system.ai.codex.timeout")}>
-              <Input
-                type="number"
-                min={1}
-                max={3600}
-                value={draft.codexAppServer.timeoutSeconds}
-                isInvalid={
-                  !isIntegerInRange(
-                    draft.codexAppServer.timeoutSeconds,
-                    1,
-                    3600,
-                  )
-                }
-                onChange={(event) =>
-                  setDraft((current) => ({
-                    ...current,
-                    codexAppServer: {
-                      ...current.codexAppServer,
-                      timeoutSeconds: Number(event.target.value),
-                    },
-                  }))
-                }
-              />
-            </FormRow>
-            <SecretField
-              id="settings-codex-token"
-              label={t("system.ai.codex.token")}
-              state={value.codexAppServer.token}
-              draft={draft.codexToken}
-              onChange={(codexToken) =>
-                setDraft((current) => ({ ...current, codexToken }))
-              }
-            />
-            {remoteCodexTokenRequired ? (
-              <p className="text-xs text-warning">
-                {t("system.ai.codex.remoteTokenRequired")}
-              </p>
-            ) : null}
-          </div>
-          <div className="mt-4 rounded-lg border border-warning/30 bg-warning/10 px-4 py-3 text-xs leading-body text-muted">
-            {t("system.ai.codex.serverAddressHelp")}
-          </div>
-        </Card>
-      )}
-
-      <Card className="mt-5" title={t("system.ai.inference.title")}>
-        <div className="max-w-sm">
-          <FormRow label={t("system.ai.inference.rateLimitDelay")}>
-            <Input
-              type="number"
-              min={0}
-              max={2_147_483_647}
-              value={draft.inference.rateLimitDelayMs}
-              isInvalid={
-                !isIntegerInRange(
-                  draft.inference.rateLimitDelayMs,
-                  0,
-                  2_147_483_647,
-                )
-              }
+      <Card icon={<Bot size={18} />} title={t("system.ai.providers.title")}>
+        <div className="flex flex-wrap items-end gap-4">
+          <FormRow
+            label={t("system.ai.providers.default")}
+            className="min-w-48 flex-1"
+          >
+            <Select
+              value={draft.defaultProviderId ?? ""}
               onChange={(event) =>
                 setDraft((current) => ({
                   ...current,
-                  inference: {
-                    rateLimitDelayMs: Number(event.target.value),
-                  },
+                  defaultProviderId: event.target.value || null,
+                  inference: current.inference.providerId
+                    ? current.inference
+                    : {
+                        ...current.inference,
+                        model: null,
+                        reasoningEffort: null,
+                      },
                 }))
               }
-            />
+            >
+              {!draft.providers.length && (
+                <option value="">{t("system.ai.providers.empty")}</option>
+              )}
+              {draft.providers.map((provider) => (
+                <option key={provider.id} value={provider.id}>
+                  {provider.name} · {provider.id}
+                </option>
+              ))}
+            </Select>
           </FormRow>
+          <Button variant="outline" onClick={addProvider}>
+            <Plus size={16} />
+            {t("system.ai.providers.add")}
+          </Button>
         </div>
       </Card>
-
+      {draft.providers.map((provider) => {
+        const codex = provider.protocol === "codexAppServer";
+        const efforts =
+          models.find(
+            (model) =>
+              model.providerId === provider.id && model.id === provider.model,
+          )?.reasoningEfforts ?? [];
+        const setModel = (
+          index: number,
+          change: Partial<AiProviderSettings["models"][number]>,
+        ) =>
+          updateProvider(provider.id, {
+            models: provider.models.map((model, modelIndex) =>
+              modelIndex === index ? { ...model, ...change } : model,
+            ),
+            reasoningEffort: null,
+          });
+        return (
+          <Card
+            key={provider.id}
+            className="mt-5"
+            icon={<ServerCog size={18} />}
+            title={provider.name || t("system.ai.providers.title")}
+          >
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <span className="break-all text-xs text-subtle">
+                {provider.id}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                color="danger"
+                onClick={() => removeProvider(provider.id)}
+                aria-label={t("system.ai.providers.removeName", {
+                  name: provider.name,
+                })}
+              >
+                <Trash2 size={14} />
+                {t("system.ai.providers.remove")}
+              </Button>
+            </div>
+            <div className="grid gap-5 sm:grid-cols-2">
+              <FormRow label={t("system.ai.providers.name")}>
+                <Input
+                  value={provider.name}
+                  isInvalid={!provider.name.trim()}
+                  onChange={(event) =>
+                    updateProvider(provider.id, { name: event.target.value })
+                  }
+                />
+              </FormRow>
+              <FormRow label={t("system.ai.providers.protocol")}>
+                <Select
+                  value={provider.protocol}
+                  onChange={(event) => {
+                    const protocol = event.target.value as AiProtocol;
+                    const sameOpenAiFamily =
+                      protocol.startsWith("openAI") &&
+                      provider.protocol.startsWith("openAI");
+                    const defaults = sameOpenAiFamily
+                      ? {}
+                      : protocolDefaults(protocol);
+                    updateProvider(provider.id, {
+                      protocol,
+                      ...defaults,
+                      reasoningEffort:
+                        chatCompletionsDefaultEffort(
+                          protocol,
+                          defaults.model ?? provider.model,
+                        ) ??
+                        (sameOpenAiFamily &&
+                        !(
+                          protocol === "openAIChatCompletions" &&
+                          /^gpt-6-astra(?:-|$)/.test(provider.model)
+                        )
+                          ? provider.reasoningEffort
+                          : null),
+                      models: sameOpenAiFamily ? provider.models : [],
+                      ...(protocol === "codexAppServer" &&
+                      provider.protocol !== "codexAppServer"
+                        ? {
+                            apiKeyDraft: {
+                              operation: "clear" as const,
+                              value: "",
+                            },
+                          }
+                        : provider.protocol === "codexAppServer" &&
+                            protocol !== "codexAppServer"
+                          ? {
+                              tokenDraft: {
+                                operation: "clear" as const,
+                                value: "",
+                              },
+                            }
+                          : {}),
+                    });
+                  }}
+                >
+                  <option value="openAIResponses">OpenAI Responses</option>
+                  <option value="openAIChatCompletions">
+                    OpenAI Chat Completions
+                  </option>
+                  <option value="anthropic">Anthropic Messages</option>
+                  <option value="codexAppServer">Codex App Server</option>
+                </Select>
+                {provider.protocol === "openAIChatCompletions" && (
+                  <p className="mt-1 text-xs leading-body text-subtle">
+                    {t("system.ai.providers.chatCompletionsHelp")}
+                  </p>
+                )}
+              </FormRow>
+              <FormRow
+                label={t(
+                  codex
+                    ? "system.ai.codex.endpoint"
+                    : "system.ai.builtIn.baseUrl",
+                )}
+              >
+                <Input
+                  type="url"
+                  value={codex ? provider.endpoint : provider.baseUrl}
+                  isInvalid={
+                    codex
+                      ? !isCodexEndpoint(provider.endpoint)
+                      : !isHttpEndpoint(provider.baseUrl)
+                  }
+                  onChange={(event) =>
+                    updateProvider(
+                      provider.id,
+                      codex
+                        ? { endpoint: event.target.value }
+                        : { baseUrl: event.target.value },
+                    )
+                  }
+                />
+                {credentialRequired(provider) && (
+                  <p className="mt-1 text-xs text-warning">
+                    {t("system.ai.originCredentialRequired")}
+                  </p>
+                )}
+                {codex && !isCodexEndpoint(provider.endpoint) && (
+                  <p className="mt-1 text-xs text-error">
+                    {t("system.ai.codex.endpointError")}
+                  </p>
+                )}
+              </FormRow>
+              <FormRow label={t("system.ai.builtIn.model")}>
+                <Input
+                  list={`models-${provider.id}`}
+                  value={provider.model}
+                  isInvalid={!codex && !provider.model.trim()}
+                  placeholder={
+                    codex ? t("system.ai.codex.modelPlaceholder") : undefined
+                  }
+                  onChange={(event) =>
+                    updateProvider(provider.id, {
+                      model: event.target.value,
+                      reasoningEffort: chatCompletionsDefaultEffort(
+                        provider.protocol,
+                        event.target.value,
+                      ),
+                    })
+                  }
+                />
+                <datalist id={`models-${provider.id}`}>
+                  {models
+                    .filter((model) => model.providerId === provider.id)
+                    .map((model) => (
+                      <option key={model.id} value={model.id}>
+                        {model.name}
+                      </option>
+                    ))}
+                </datalist>
+              </FormRow>
+              {codex ? (
+                <>
+                  <FormRow label={t("system.ai.codex.permissionProfile")}>
+                    <Input
+                      value={provider.permissionProfile}
+                      onChange={(event) =>
+                        updateProvider(provider.id, {
+                          permissionProfile: event.target.value,
+                        })
+                      }
+                    />
+                    <p className="mt-1 text-xs text-subtle">
+                      {t("system.ai.codex.permissionProfileHelp")}
+                    </p>
+                  </FormRow>
+                  <FormRow label={t("system.ai.codex.timeout")}>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={3600}
+                      value={provider.timeoutSeconds}
+                      onChange={(event) =>
+                        updateProvider(provider.id, {
+                          timeoutSeconds: Number(event.target.value),
+                        })
+                      }
+                    />
+                  </FormRow>
+                  <SecretField
+                    id={`token-${provider.id}`}
+                    label={t("system.ai.codex.token")}
+                    state={provider.token}
+                    draft={provider.tokenDraft}
+                    onChange={(tokenDraft) =>
+                      updateProvider(provider.id, { tokenDraft })
+                    }
+                  />
+                  {isRemoteWebSocketEndpoint(provider.endpoint) &&
+                    !willSecretBeConfigured(
+                      provider.token,
+                      provider.tokenDraft,
+                    ) && (
+                      <p className="text-xs text-warning">
+                        {t("system.ai.codex.remoteTokenRequired")}
+                      </p>
+                    )}
+                </>
+              ) : (
+                <>
+                  <FormRow label={t("system.ai.builtIn.maxTokens")}>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={2_147_483_647}
+                      value={provider.maxTokens}
+                      isInvalid={
+                        !isIntegerInRange(provider.maxTokens, 1, 2_147_483_647)
+                      }
+                      onChange={(event) =>
+                        updateProvider(provider.id, {
+                          maxTokens: Number(event.target.value),
+                        })
+                      }
+                    />
+                  </FormRow>
+                  {provider.protocol === "anthropic" && (
+                    <FormRow label={t("system.ai.builtIn.apiVersion")}>
+                      <Input
+                        value={provider.apiVersion}
+                        onChange={(event) =>
+                          updateProvider(provider.id, {
+                            apiVersion: event.target.value,
+                          })
+                        }
+                      />
+                    </FormRow>
+                  )}
+                  <SecretField
+                    id={`api-key-${provider.id}`}
+                    label={t("system.ai.builtIn.apiKey")}
+                    state={provider.apiKey}
+                    draft={provider.apiKeyDraft}
+                    onChange={(apiKeyDraft) =>
+                      updateProvider(provider.id, { apiKeyDraft })
+                    }
+                  />
+                </>
+              )}
+              {efforts.length > 0 && (
+                <FormRow label={t("system.ai.providers.defaultEffort")}>
+                  <Select
+                    value={provider.reasoningEffort ?? ""}
+                    onChange={(event) =>
+                      updateProvider(provider.id, {
+                        reasoningEffort: event.target.value || null,
+                      })
+                    }
+                  >
+                    <option value="">
+                      {t("system.ai.providers.automatic")}
+                    </option>
+                    {efforts.map((effort) => (
+                      <option key={effort} value={effort}>
+                        {effort}
+                      </option>
+                    ))}
+                  </Select>
+                </FormRow>
+              )}
+            </div>
+            {codex && (
+              <p className="mt-4 text-xs leading-body text-muted">
+                {t("system.ai.codex.serverAddressHelp")}
+              </p>
+            )}
+            <div className="mt-5 border-t border-border-light pt-4">
+              <h4 className="text-sm font-medium">
+                {t("system.ai.providers.models")}
+              </h4>
+              <p className="mt-1 text-xs leading-body text-muted">
+                {t("system.ai.providers.modelsHelp")}
+              </p>
+              {provider.models.map((model, index) => (
+                <div
+                  key={index}
+                  className="mt-4 grid items-end gap-3 sm:grid-cols-[1fr_1fr_1.5fr_auto]"
+                >
+                  <FormRow label={t("system.ai.providers.modelId")}>
+                    <Input
+                      value={model.id}
+                      onChange={(event) =>
+                        setModel(index, { id: event.target.value })
+                      }
+                    />
+                  </FormRow>
+                  <FormRow label={t("system.ai.providers.modelName")}>
+                    <Input
+                      value={model.name}
+                      onChange={(event) =>
+                        setModel(index, { name: event.target.value })
+                      }
+                    />
+                  </FormRow>
+                  <FormRow label={t("system.ai.providers.efforts")}>
+                    <Input
+                      value={model.reasoningEfforts.join(",")}
+                      placeholder="low,medium,high"
+                      onChange={(event) =>
+                        setModel(index, {
+                          reasoningEfforts: event.target.value
+                            .split(",")
+                            .map((value) => value.trim()),
+                        })
+                      }
+                    />
+                  </FormRow>
+                  <Button
+                    variant="icon"
+                    aria-label={t("system.ai.providers.removeModel", {
+                      name: model.name || model.id,
+                    })}
+                    onClick={() =>
+                      updateProvider(provider.id, {
+                        models: provider.models.filter(
+                          (_, modelIndex) => modelIndex !== index,
+                        ),
+                        reasoningEffort: null,
+                      })
+                    }
+                  >
+                    <Trash2 size={16} />
+                  </Button>
+                </div>
+              ))}
+              <Button
+                className="mt-3"
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  updateProvider(provider.id, {
+                    models: [
+                      ...provider.models,
+                      { id: "", name: "", reasoningEfforts: [] },
+                    ],
+                  })
+                }
+              >
+                <Plus size={14} />
+                {t("system.ai.providers.addModel")}
+              </Button>
+            </div>
+          </Card>
+        );
+      })}
+      <Card
+        className="mt-5"
+        title={t("system.ai.inference.title")}
+        description={t("system.ai.providers.inferenceHelp")}
+      >
+        <ModelPicker
+          models={models}
+          defaultProviderId={draft.defaultProviderId ?? undefined}
+          allowDefault
+          selection={{
+            providerId: draft.inference.providerId ?? undefined,
+            model: draft.inference.model ?? undefined,
+            reasoningEffort: draft.inference.reasoningEffort ?? undefined,
+          }}
+          onSelect={(selection) =>
+            setDraft((current) => ({
+              ...current,
+              inference: {
+                ...current.inference,
+                providerId: selection.providerId ?? null,
+                model: selection.model ?? null,
+                reasoningEffort: selection.reasoningEffort ?? null,
+              },
+            }))
+          }
+        />
+        <FormRow
+          className="mt-5 max-w-sm"
+          label={t("system.ai.inference.rateLimitDelay")}
+        >
+          <Input
+            type="number"
+            min={0}
+            max={2_147_483_647}
+            value={draft.inference.rateLimitDelayMs}
+            onChange={(event) =>
+              setDraft((current) => ({
+                ...current,
+                inference: {
+                  ...current.inference,
+                  rateLimitDelayMs: Number(event.target.value),
+                },
+              }))
+            }
+          />
+        </FormRow>
+      </Card>
       <SettingsSaveBar
         dirty={dirty}
         saving={saving}
         saved={saved}
-        onReset={reset}
+        onReset={() => {
+          setDraft(createDraft(value));
+          setSaved(false);
+        }}
         onSave={() => void save()}
       />
     </section>
-  );
-};
-
-interface EngineOptionProps {
-  icon: React.ReactNode;
-  title: string;
-  description: string;
-  selected: boolean;
-  onSelect: () => void;
-}
-
-const EngineOption: React.FC<EngineOptionProps> = ({
-  icon,
-  title,
-  description,
-  selected,
-  onSelect,
-}) => (
-  <label
-    className={`cursor-pointer rounded-lg border p-4 transition-colors focus-within:ring-2 focus-within:ring-focus ${
-      selected
-        ? "border-brand bg-brand/5 shadow-ring-brand"
-        : "border-border bg-surface hover:border-ring-deep"
-    }`}
-  >
-    <input
-      type="radio"
-      name="ai-execution-mode"
-      checked={selected}
-      className="sr-only"
-      onChange={onSelect}
-    />
-    <span className={selected ? "text-brand" : "text-muted"}>{icon}</span>
-    <span className="mt-3 block text-sm font-medium text-foreground">
-      {title}
-    </span>
-    <span className="mt-1 block text-xs leading-body text-muted">
-      {description}
-    </span>
-  </label>
-);
-
-interface ProviderFieldsProps {
-  prefix: string;
-  baseUrl: string;
-  model: string;
-  maxTokens: number;
-  credentialRequired: boolean;
-  onBaseUrlChange: (value: string) => void;
-  onModelChange: (value: string) => void;
-  onMaxTokensChange: (value: number) => void;
-  secret: React.ReactNode;
-}
-
-const ProviderFields: React.FC<ProviderFieldsProps> = ({
-  prefix,
-  baseUrl,
-  model,
-  maxTokens,
-  credentialRequired,
-  onBaseUrlChange,
-  onModelChange,
-  onMaxTokensChange,
-  secret,
-}) => {
-  const { t } = useTranslation("settings");
-  return (
-    <div className="mt-5 grid gap-5 sm:grid-cols-2">
-      <FormRow label={t("system.ai.builtIn.baseUrl")}>
-        <Input
-          id={`settings-${prefix}-base-url`}
-          type="url"
-          value={baseUrl}
-          isInvalid={!isHttpEndpoint(baseUrl)}
-          onChange={(event) => onBaseUrlChange(event.target.value)}
-        />
-        {credentialRequired ? (
-          <p className="mt-1 text-xs text-warning">
-            {t("system.ai.originCredentialRequired")}
-          </p>
-        ) : null}
-      </FormRow>
-      <FormRow label={t("system.ai.builtIn.model")}>
-        <Input
-          id={`settings-${prefix}-model`}
-          value={model}
-          isInvalid={!model.trim()}
-          onChange={(event) => onModelChange(event.target.value)}
-        />
-      </FormRow>
-      <FormRow label={t("system.ai.builtIn.maxTokens")}>
-        <Input
-          id={`settings-${prefix}-max-tokens`}
-          type="number"
-          min={1}
-          max={2_147_483_647}
-          value={maxTokens}
-          isInvalid={!isIntegerInRange(maxTokens, 1, 2_147_483_647)}
-          onChange={(event) => onMaxTokensChange(Number(event.target.value))}
-        />
-      </FormRow>
-      {secret}
-    </div>
   );
 };

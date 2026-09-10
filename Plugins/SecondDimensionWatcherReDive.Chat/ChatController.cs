@@ -16,6 +16,7 @@ using SecondDimensionWatcherReDive.AI.Abstractions;
 using SecondDimensionWatcherReDive.AI.Models;
 using SecondDimensionWatcherReDive.Chat.External;
 using SecondDimensionWatcherReDive.Chat.Tools;
+using SecondDimensionWatcherReDive.Framework.AI;
 using SecondDimensionWatcherReDive.Framework.Authorization;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 
@@ -280,6 +281,20 @@ internal sealed partial class ChatController(
         if (aiEngine is null || status is { IsConfigured: false })
             return TypedResults.StatusCode(503);
 
+        try
+        {
+            serviceProvider.GetService<IAISelectionValidator>()?.ValidateSelection(new ChatOptions
+            {
+                ProviderId = request.ProviderId,
+                Model = request.Model,
+                ReasoningEffort = request.ReasoningEffort
+            }, requiresTools: true);
+        }
+        catch (Exception exception) when (exception is ArgumentException or InvalidOperationException)
+        {
+            return TypedResults.BadRequest(new { message = exception.Message });
+        }
+
         var conversation = await chatRepository.GetConversationWithMessagesAsync(id, profileId, cancellationToken);
         if (conversation is not null)
         {
@@ -326,7 +341,9 @@ internal sealed partial class ChatController(
         {
             ToolExecutor = toolExecutor,
             MaxToolRounds = 8,
-            Model = request.Model
+            Model = request.Model,
+            ProviderId = request.ProviderId,
+            ReasoningEffort = request.ReasoningEffort
         };
 
         LogStreamingStarted(id, request.Model);
@@ -406,6 +423,8 @@ internal sealed partial class ChatController(
         var messagesToSave = new List<ChatMessageRecord>();
         var hasToolResults = false;
         string? firstAssistantContentForTitle = null;
+        using var aiScope = AIExecutionContext.Push(new AIExecutionSelection(
+            chatOptions.ProviderId, chatOptions.Model, chatOptions.ReasoningEffort));
 
         try
         {
