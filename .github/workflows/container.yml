@@ -90,6 +90,9 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$COMMIT_SHA"
           base_version=$(tr -d '[:space:]' < VERSION)
+          if [[ "$base_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+-rc[1-9][0-9]*$ ]]; then
+            base_version="${base_version%%-*}"
+          fi
           case "$PACKAGE_OWNER_TYPE" in
             Organization)
               package_versions="orgs/${PACKAGE_OWNER}/packages/container/sdw-redive/versions?per_page=100"

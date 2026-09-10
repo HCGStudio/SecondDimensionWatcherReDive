@@ -220,7 +220,7 @@ public sealed class ConfigMigrationRunner
     private static Version ParseVersion(string value)
     {
         if (!Version.TryParse(value, out var version) || version.Build < 0 || version.Revision >= 0)
-            throw new ConfigMigrationException("Configuration Version must be a three-part version such as 2.3.0.");
+            throw new ConfigMigrationException("Configuration Version must be a three-part version such as 3.0.0.");
         return version;
     }
 

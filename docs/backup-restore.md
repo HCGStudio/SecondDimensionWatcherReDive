@@ -94,6 +94,8 @@ podman-compose exec sdw-redive sdw-backup verify /app/backups/sdw-backup-....tar
 4. 配置、密码、密钥环和插件 manifest 在切换前同文件系统 staging；切换失败时自动恢复原状态。旧状态仍以 `.pre-restore-*` 保留。
 5. 修正文件所有者与权限，启动应用，检查 `/api/auth/allowRegister`、登录、加密运行时设置、订阅和文件浏览。
 
+以下示例针对应用 `3.0.0-rc1` 的备份恢复；`--expected-version` 是应用版本，不是配置结构版本。归档路径与 `--expected-schema` 均为示例，须替换为实际归档及目标应用构建要求的完整 migration id。
+
 ```bash
 sudo systemctl stop sdw-redive
 # /etc/sdw-redive 由 root 管理，因此完整恢复必须以 root 写入配置；
@@ -101,7 +103,7 @@ sudo systemctl stop sdw-redive
 sudo --preserve-env=PGHOST,PGPORT,PGUSER,PGPASSWORD,PGDATABASE,PGMAINTENANCEDATABASE \
   sdw-backup restore /var/lib/sdw-redive/backups/sdw-backup-....tar.gz \
   --confirm-replace \
-  --expected-version 2.3.0 \
+  --expected-version 3.0.0-rc1 \
   --expected-schema 20260801000000_ExpectedMigration \
   --postgres-available-bytes 21474836480 \
   --config-destination /etc/sdw-redive/appsettings.yml \
@@ -120,7 +122,7 @@ curl --fail http://127.0.0.1:5097/api/auth/allowRegister
 podman-compose stop sdw-redive
 podman-compose run --rm --no-deps --entrypoint sdw-backup sdw-redive \
   restore /app/backups/sdw-backup-....tar.gz \
-  --confirm-replace --expected-version 2.3.0 \
+  --confirm-replace --expected-version 3.0.0-rc1 \
   --expected-schema 20260801000000_ExpectedMigration \
   --postgres-available-bytes "$MEASURED_DATABASE_FREE_BYTES" \
   --config-destination /app/backups/restored/podman-compose.yml \

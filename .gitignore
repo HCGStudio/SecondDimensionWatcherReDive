@@ -482,3 +482,7 @@ $RECYCLE.BIN/
 password.json
 data-protection-keys/
 download/
+
+# Versioned release notes are source documentation.
+!docs/releases/
+!docs/releases/*.md

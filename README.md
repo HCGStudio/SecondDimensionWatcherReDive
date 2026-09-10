@@ -105,7 +105,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/HCGStudio/SecondDimensionWat
 
 | 配置项 | 说明 |
 |--------|------|
-| `Version` | 配置结构版本，当前为 `2.3.0`；与应用版本独立，缺省按 `2.2.0` 迁移；环境覆盖使用 `SDW_CONFIG_VERSION` |
+| `Version` | 配置结构版本，当前为 `3.0.0`；与应用版本独立，缺省按 `2.2.0` 迁移；环境覆盖使用 `SDW_CONFIG_VERSION` |
 | `StateDirectory` | 持久状态目录；密钥环、插件和转码缓存的默认路径位于此目录下 |
 | `ConnectionStrings:sdw` | PostgreSQL 连接字符串 |
 | `Migration:BackupExecutable` / `BackupArguments` / `BackupTimeout` / `RequireBackup` | schema/data migration 前的可选备份钩子与强制策略；详见[迁移运维手册](docs/migrations.md) |

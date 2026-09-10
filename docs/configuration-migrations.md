@@ -1,9 +1,9 @@
 # 配置版本迁移
 
-配置顶层的 `Version` 表示配置结构版本，与应用发布版本、EF Core schema 版本和数据库 data migration 版本独立。当前结构为 `2.3.0`；未声明版本的配置按 `2.2.0` 处理。不要通过手工修改 `Version` 跳过迁移。文件和命令行使用 `Version`；环境覆盖层使用专用的 `SDW_CONFIG_VERSION`，通用 `VERSION`/`Version` 环境变量仅表示应用发布信息，不参与配置迁移。未声明 `SDW_CONFIG_VERSION` 的应用环境覆盖按旧结构处理。
+配置顶层的 `Version` 表示配置结构版本，与应用发布版本、EF Core schema 版本和数据库 data migration 版本独立。当前结构为 `3.0.0`；未声明版本的配置按 `2.2.0` 处理。不要通过手工修改 `Version` 跳过迁移。文件和命令行使用 `Version`；环境覆盖层使用专用的 `SDW_CONFIG_VERSION`，通用 `VERSION`/`Version` 环境变量仅表示应用发布信息，不参与配置迁移。未声明 `SDW_CONFIG_VERSION` 的应用环境覆盖按旧结构处理。
 
 ```yaml
-Version: "2.3.0"
+Version: "3.0.0"
 StateDirectory: /var/lib/sdw-redive
 ```
 
@@ -48,7 +48,7 @@ Windows 压缩包提供 `sdw-cli.exe` 与 `install-clis.ps1`，解压后由脚�
 
 主程序在注册并启动应用服务之前检查配置版本。版本过旧时，迁移器按连续的 `Up` 链计算结果。整条链能够静默完成才允许继续启动；缺少迁移路径、需要用户决定或静默升级失败时，程序返回非零状态并报告错误，不会带着部分迁移的配置启动。
 
-启动按配置源的原有优先级逐层处理。已读取 JSON 来源的值与同一份文件字节快照绑定；后续 appsettings 或外部 Config 写入前，同样锁定这些底层文件并验证快照。底层文件已变更、消失或无法取得锁时，当前覆盖文件不会写入。每个参与迁移的源独立读取自己的 `Version`，缺省按 `2.2.0` 处理，不会被随程序附带的 `Version: "2.3.0"` 遮蔽。低优先级源中已明确指定的 Provider、AI 协议、状态目录和具体状态路径会作为继承值传给后续迁移；仅覆盖密钥或日志的高优先级层不会重置这些值。启动在改写旧字段前，先按原来的默认配置源及最后加载的外部 `Config` 确定最终 `PasswordFile`（缺省为 `password.json`）。旧密码文件原本在所有这些源之后加载；每个旧层迁移时保持该文件的最终权威，仅把绝对路径写入 `Authentication:BootstrapCredentialsFile`，不把文件中的哈希复制进 appsettings。来自旧内联设置的哈希仍在原配置层转换。凭据内容按 ContentRoot 定位；默认状态目录仍保留原进程工作目录下的解析结果。配置键沿用 IConfiguration 的大小写不敏感语义；扁平键与嵌套对象可按任意顺序混用，互不冲突的对象分支会合并，重复叶子键或标量/对象冲突会拒绝。
+启动按配置源的原有优先级逐层处理。已读取 JSON 来源的值与同一份文件字节快照绑定；后续 appsettings 或外部 Config 写入前，同样锁定这些底层文件并验证快照。底层文件已变更、消失或无法取得锁时，当前覆盖文件不会写入。每个参与迁移的源独立读取自己的 `Version`，缺省按 `2.2.0` 处理，不会被随程序附带的 `Version: "3.0.0"` 遮蔽。低优先级源中已明确指定的 Provider、AI 协议、状态目录和具体状态路径会作为继承值传给后续迁移；仅覆盖密钥或日志的高优先级层不会重置这些值。启动在改写旧字段前，先按原来的默认配置源及最后加载的外部 `Config` 确定最终 `PasswordFile`（缺省为 `password.json`）。旧密码文件原本在所有这些源之后加载；每个旧层迁移时保持该文件的最终权威，仅把绝对路径写入 `Authentication:BootstrapCredentialsFile`，不把文件中的哈希复制进 appsettings。来自旧内联设置的哈希仍在原配置层转换。凭据内容按 ContentRoot 定位；默认状态目录仍保留原进程工作目录下的解析结果。配置键沿用 IConfiguration 的大小写不敏感语义；扁平键与嵌套对象可按任意顺序混用，互不冲突的对象分支会合并，重复叶子键或标量/对象冲突会拒绝。
 
 | 配置源 | 启动时的迁移方式 |
 |--------|------------------|
@@ -71,7 +71,7 @@ CLI 只呈现迁移必需的破坏性选择，例如同一设置同时存在互�
 
 ## 2.2.0 → 2.3.0
 
-当前历史包含两层：`2.2.0 → 2.2.1` 迁移 AI 字段，随后 `2.2.1 → 2.3.0` 迁移状态目录、初始密码哈希和 AI 协议默认值。
+前两层历史为：`2.2.0 → 2.2.1` 迁移 AI 字段，随后 `2.2.1 → 2.3.0` 迁移状态目录、初始密码哈希和 AI 协议默认值。
 
 | 旧配置 | 迁移后的配置 |
 |--------|--------------|
@@ -83,11 +83,15 @@ CLI 只呈现迁移必需的破坏性选择，例如同一设置同时存在互�
 | 原配置中的 `Password:Value` | 在原层转换为 `Authentication:BootstrapPasswordHash` |
 | 受保护旧密码文件中的 BCrypt 哈希 | 仅保存 `Authentication:BootstrapCredentialsFile` 绝对路径；启动读取后放入最终内存层 |
 
-当前 `2.3.0` 配置中的 `Inference:Model` 表示自动推理的模型覆盖，与 `Inference:ProviderId` 和 `Inference:ReasoningEffort` 配合使用，迁移器保留它。旧版 `2.2.0`（含未声明版本）配置中的同名字段仍按上表迁移到 Provider 默认模型；使用新含义的环境覆盖须声明 `SDW_CONFIG_VERSION=2.3.0`。
+自 `2.3.0` 起（包括当前 `3.0.0`），配置中的 `Inference:Model` 表示自动推理的模型覆盖，与 `Inference:ProviderId` 和 `Inference:ReasoningEffort` 配合使用，迁移器保留它。旧版 `2.2.0`（含未声明版本）配置中的同名字段仍按上表迁移到 Provider 默认模型；使用新含义的环境覆盖须声明 `SDW_CONFIG_VERSION=3.0.0`。
 
 同一份配置中的 `StateDirectory` 与旧密码文件父目录不一致，且仍有状态路径依赖隐式默认值时，迁移会要求选择。高优先级覆盖层显式设置 `StateDirectory` 时同样核验，不因已经继承 bootstrap 哈希或没有旧密码而跳过；未提供状态目录的覆盖层继续保留底层设置。`legacy` 保留已有 `StateDirectory`，并把尚未明确配置的 `DataProtection:KeyRingPath`、`PluginPlatform:RootPath`、`Transcoding:CachePath` 显式指向旧目录下的对应位置；当前层或继承层中已经明确设置的路径保持原值。`current` 让隐式路径采用 `StateDirectory`，需要在重启前自行迁移对应状态文件。迁移器只修改配置，不移动密钥环、插件或缓存文件。
 
 迁移后的主程序只读取当前配置结构，不再隐式加载旧的 `Password`、`PasswordFile`、`Inference` 提供商字段或 `password.json`。只有显式设置 `Authentication:BootstrapCredentialsFile` 时，才读取该受保护 JSON 文件中的 `Authentication:BootstrapPasswordHash`（兼容旧 `Password:Value`），将哈希放入最终内存层；不会导入文件中的其他配置。凭据文件优先于内联哈希，空引用可显式禁用并遮蔽继承引用；交互选择当前内联哈希时会写入空引用。原凭据文件的内容和访问权限保持不变，迁移后需继续保留它。备份时将同一文件传给 `sdw-backup --password-file`，恢复到引用路径或同步调整引用。`Authentication:BootstrapPasswordHash` 只用于向数据库原子导入初始哈希；数据库已有密码时以数据库为准。新安装仍从网页注册管理员，无需填写此项。数据库中的旧家庭身份会在首次成功登录时继续迁移，此过程与配置结构迁移独立。
+
+## 2.3.0 → 3.0.0
+
+此步是独立新增的静默迁移，仅将配置结构版本推进到 `3.0.0`，不修改其他字段，不要求用户选择。已有 `2.2.0 → 2.2.1 → 2.3.0` 历史保留；旧配置依次经过完整的 `2.2.0 → 2.2.1 → 2.3.0 → 3.0.0` 链。即使这一步不改变其他字段，也应由迁移器更新版本并保存备份，不能手工修改 `Version` 跳过此前迁移。应用候选版本 `3.0.0-rc1` 使用配置结构版本 `3.0.0`。
 
 ## 添加下一个 Up
 
