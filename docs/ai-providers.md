@@ -10,10 +10,10 @@ Chat 发送时使用当前选中的 Provider、模型和 effort，自动标题�
 
 ## 部署配置
 
-配置文件的 `AI:Providers` 是以稳定 ID 为键的字典；设置 API 使用包含 `id` 的数组。配置文件应声明 `Version: "2.3.0"`；环境覆盖使用 `SDW_CONFIG_VERSION=2.3.0`，并将冒号替换为双下划线，例如 `AI__Providers__local__Protocol=OpenAIChatCompletions`。这也确保 `Inference__Model` 按当前推理覆盖含义保留，而不是按旧结构迁移到 Provider 默认模型。
+配置文件的 `AI:Providers` 是以稳定 ID 为键的字典；设置 API 使用包含 `id` 的数组。配置文件应声明 `Version: "3.0.0"`；环境覆盖使用 `SDW_CONFIG_VERSION=3.0.0`，并将冒号替换为双下划线，例如 `AI__Providers__local__Protocol=OpenAIChatCompletions`。这也确保 `Inference__Model` 按当前推理覆盖含义保留，而不是按旧结构迁移到 Provider 默认模型。
 
 ```yaml
-Version: "2.3.0"
+Version: "3.0.0"
 AI:
   ProvidersConfigured: true
   DefaultProviderId: openai

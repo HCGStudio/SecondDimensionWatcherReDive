@@ -1,7 +1,7 @@
 # 二次元观测器 Re:Dive 配置文件
 # 详细说明: https://github.com/mahoshojoHCG/SecondDimensionWatcherReDive/blob/main/docs/server-deployment.md
 
-Version: "2.3.0"
+Version: "3.0.0"
 StateDirectory: /var/lib/sdw-redive
 
 # PostgreSQL 连接字符串（必填）

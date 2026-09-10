@@ -92,7 +92,7 @@ sudo pacman -U sdw-redive-*.pkg.tar.zst
 编辑 `/etc/sdw-redive/appsettings.yml`，填写必要配置项：
 
 ```yaml
-Version: "2.3.0"
+Version: "3.0.0"
 StateDirectory: /var/lib/sdw-redive
 
 # PostgreSQL 连接字符串（必填）
@@ -167,7 +167,7 @@ OutboundHttp:
 
 ### 配置升级
 
-应用启动与包安装会尝试静默升级旧配置。版本缺省时按 `2.2.0` 处理；当前配置结构版本为 `2.3.0`。需要解决冲突等破坏性选择时，启动或安装会失败并提示运行：
+应用启动与包安装会尝试静默升级旧配置。版本缺省时按 `2.2.0` 处理；当前配置结构版本为 `3.0.0`。需要解决冲突等破坏性选择时，启动或安装会失败并提示运行：
 
 ```bash
 sudo sdw-migrate --config /etc/sdw-redive/appsettings.yml --working-directory /usr/lib/sdw-redive \
