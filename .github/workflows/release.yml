@@ -19,6 +19,7 @@ jobs:
       commit_sha: ${{ steps.metadata.outputs.commit_sha }}
       image_repository: ${{ steps.metadata.outputs.image_repository }}
       version: ${{ steps.metadata.outputs.version }}
+      prerelease: ${{ steps.metadata.outputs.prerelease }}
     steps:
       - uses: actions/checkout@v7
 
@@ -37,11 +38,16 @@ jobs:
           [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
 
           version=$(tr -d '[:space:]' < VERSION)
-          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
-          grep --fixed-strings --quiet "<AssemblyVersion>${version}</AssemblyVersion>" \
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-rc[1-9][0-9]*)?$ ]]
+          assembly_version="${version%%-*}"
+          grep --fixed-strings --quiet "<AssemblyVersion>${assembly_version}</AssemblyVersion>" \
             SecondDimensionWatcherReDive/SecondDimensionWatcherReDive.csproj
-          grep --fixed-strings --quiet "<FileVersion>${version}</FileVersion>" \
+          grep --fixed-strings --quiet "<FileVersion>${assembly_version}</FileVersion>" \
             SecondDimensionWatcherReDive/SecondDimensionWatcherReDive.csproj
+          prerelease=false
+          if [[ "$version" == *-rc* ]]; then
+            prerelease=true
+          fi
 
           tag="v${version}"
           if gh release view "$tag" >/dev/null 2>&1; then
@@ -57,6 +63,7 @@ jobs:
           echo "commit_sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
           echo "image_repository=$image_repository" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
 
   verify:
     name: Verify release commit
@@ -78,7 +85,7 @@ jobs:
       version: ${{ needs.metadata.outputs.version }}
 
   publish_version:
-    name: Publish immutable stable release
+    name: Publish immutable release
     needs: [metadata, build]
     permissions:
       contents: write
@@ -133,6 +140,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           IMAGE_DIGEST: ${{ needs.build.outputs.image_digest }}
           IMAGE_REPOSITORY: ${{ needs.metadata.outputs.image_repository }}
+          PRERELEASE: ${{ needs.metadata.outputs.prerelease }}
           SOURCE_SHA: ${{ needs.metadata.outputs.commit_sha }}
           VERSION: ${{ needs.metadata.outputs.version }}
         run: |
@@ -155,7 +163,7 @@ jobs:
           }
           test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
           [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
-          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-rc[1-9][0-9]*)?$ ]]
           [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
 
           release_tag="v${VERSION}"
@@ -410,11 +418,23 @@ jobs:
           fi
 
           require_release_source
-          gh release create "$release_tag" release/* \
-            --verify-tag \
-            --title "Release ${VERSION}" \
-            --generate-notes \
-            --notes "Container: ${IMAGE_REPOSITORY}@${IMAGE_DIGEST}"
+          release_notes="$RUNNER_TEMP/release-notes.md"
+          if [ -f "docs/releases/${VERSION}.md" ]; then
+            cp "docs/releases/${VERSION}.md" "$release_notes"
+          else
+            : > "$release_notes"
+          fi
+          printf '\n\nContainer: %s@%s\n' "$IMAGE_REPOSITORY" "$IMAGE_DIGEST" >> "$release_notes"
+          release_args=(
+            --verify-tag
+            --title "Release ${VERSION}"
+            --generate-notes
+            --notes-file "$release_notes"
+          )
+          if [ "$PRERELEASE" = true ]; then
+            release_args+=(--prerelease --latest=false)
+          fi
+          gh release create "$release_tag" release/* "${release_args[@]}"
 
           published_tag_sha=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/$release_tag" --jq '.object.sha')
           if [ "$published_tag_sha" != "$SOURCE_SHA" ]; then
@@ -429,6 +449,7 @@ jobs:
   promote_moving:
     name: Promote latest
     needs: [metadata, publish_version]
+    if: needs.metadata.outputs.prerelease == 'false'
     permissions:
       contents: read
       packages: write

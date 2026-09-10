@@ -25,9 +25,13 @@
 
 测试或制品构建失败时，不会执行镜像推广和 release job。run 专用的候选标签只用于定位中间产物；推广始终按不可变 digest 执行，候选标签不是部署接口。
 
-## 正式发布
+## 版本发布与 RC
 
-版本变更必须先通过普通 PR 同时更新根目录 `VERSION` 以及主项目的 `AssemblyVersion`、`FileVersion`。合并后，从 `main` 手动运行 `Release` workflow；workflow 不再自行提交版本或提前创建 tag。
+版本变更必须先通过普通 PR 同时更新根目录 `VERSION` 以及主项目的 `Version`、`AssemblyVersion`、`FileVersion`。`VERSION` 和 `Version` 使用完整版本号，支持 `X.Y.Z` 和 `X.Y.Z-rcN`（N 从 1 开始）；程序集 `AssemblyVersion`、`FileVersion` 始终使用不带 RC 后缀的 `X.Y.Z`。合并后，从 `main` 手动运行 `Release` workflow；workflow 不再自行提交版本或提前创建 tag。
+
+RC 与正式版使用相同验证和制品流程。RC 创建 `vX.Y.Z-rcN` tag、`X.Y.Z-rcN` 不可变镜像和标记为 prerelease 的 GitHub Release，不推广稳定版 `latest`，也不改变 GitHub 的最新正式版。`prerelease-latest` 仍由自动主线发布管理；主线发布从 `VERSION` 去掉 RC 后缀后继续分配 `pre-X.Y.Z.N`。安装指定候选时使用完整 RC 镜像标签或 digest。
+
+可在 `docs/releases/<完整版本号>.md` 中维护该版本发行说明。发布流程会把它与容器 digest、GitHub 自动生成的提交记录一起写入 Release；未提供该文件时保留自动生成的说明。
 
 正式流程会再次运行完整门禁，构建并检查所有目标制品与多架构镜像。构建期间若 `main` 已前进，发布会失败，避免给旧提交打新 tag。流程先通过 GitHub refs API 以 create-only 操作把正式 `v<version>` tag 原子绑定到已验证提交并校验目标 SHA，以此锁定版本命名空间；随后创建或安全复用并复核 `<version>` 镜像标签，最后使用 `--verify-tag` 创建包含全部制品的 Release。只有 Release 成功后，独立且串行的 promotion job 才更新 `latest`。若同名 bare tag 在构建期间出现，原子创建会失败；若制品上传失败，本次创建的 Release 和仍指向已验证提交的 tag 会被清理，以便安全重试。发布包附带 `SHA256SUMS`，release notes 记录容器 digest。
 

@@ -1,6 +1,6 @@
 # 3.0 发布目标
 
-制定日期：2026-09-07。目标版本：`v3.0.0`。当前状态：范围已扩展到本文列明的功能增量，代码已实现于功能 PR，合并与发布验收尚待完成；发布日期按完成情况确定，不预设日期。
+制定日期：2026-09-07。目标版本：`v3.0.0`。当前状态：本文列明的功能增量及 #55 文档同步已合并，正在交付首个候选 `v3.0.0-rc1`；正式版发布日期按候选验收完成情况确定，不预设日期。候选变化、升级与已知限制见 [3.0.0-rc1 发行说明](releases/3.0.0-rc1.md)。
 
 执行跟踪：[GitHub 3.0.0 里程碑](https://github.com/HCGStudio/SecondDimensionWatcherReDive/milestone/1)。#55 已纳入该里程碑；升级与候选交付状态记录在里程碑描述中。
 
@@ -49,7 +49,7 @@
 - 发布候选复用现有 [Verify 工作流](../.github/workflows/verify.yml)、[测试矩阵](testing.md) 与 [发布流程](release-process.md)，完成现有构建、类型、格式、测试、备份恢复及交付制品验证。遵守 [AGENTS.md](../AGENTS.md)：不新增回归测试、测试专用脚本、工作流断言或同类检查。
 - 发布说明覆盖新安装、升级、配置变化、已知限制与恢复方式；明确家庭档案各自保存播放/聊天状态，媒体库仍共享，NFS 依赖受信网络而非家庭账户认证。
 - 制品沿用现有工作流支持的 Linux 系统包、Windows/portable 包、Linux FUSE 客户端及 `linux/amd64`、`linux/arm64` 容器；同次发布绑定同一已验证提交和版本，提供 `SHA256SUMS` 与容器 digest。
-- 版本变更通过普通 PR 同步根目录 `VERSION` 和主项目 `AssemblyVersion`、`FileVersion`；正式发布由 `Release` workflow 创建 `v3.0.0` 与不可变版本镜像，并在成功后推广 `latest`。制定目标不提前改版本或触发发布。
+- 版本变更通过普通 PR 同步根目录 `VERSION` 和主项目 `Version`、`AssemblyVersion`、`FileVersion`；候选使用完整 `3.0.0-rcN` 版本与纯数字 `3.0.0` 程序集版本，由 `Release` workflow 创建 prerelease 和不可变候选镜像。正式发布创建 `v3.0.0` 与不可变版本镜像，并在成功后推广 `latest`；候选发布不推广 `latest`。
 
 ## 2.x 升级与恢复范围
 
