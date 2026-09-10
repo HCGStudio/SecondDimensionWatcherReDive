@@ -1435,8 +1435,22 @@ function requiresCredentialMutation(currentUrl, nextUrl, secret, mutation) {
 }
 
 function isMockProviderConfigured(provider) {
-  if (provider.protocol === "codexAppServer") return Boolean(provider.endpoint && provider.permissionProfile);
-  return Boolean(provider.baseUrl && provider.model && (provider.apiKey.isConfigured || !["api.openai.com", "api.anthropic.com"].includes(new URL(provider.baseUrl).hostname)));
+  try {
+    const endpoint = new URL(provider.protocol === "codexAppServer" ? provider.endpoint : provider.baseUrl);
+    if (endpoint.username || endpoint.password || endpoint.search || endpoint.hash) return false;
+    if (provider.protocol === "codexAppServer") {
+      const loopback = endpoint.hostname === "localhost" || endpoint.hostname === "[::1]" || /^127(?:\.\d{1,3}){3}$/.test(endpoint.hostname);
+      return Boolean(provider.permissionProfile && provider.timeoutSeconds > 0 &&
+        (endpoint.protocol === "wss:" || endpoint.protocol === "ws:" && loopback) &&
+        (loopback || provider.token.isConfigured));
+    }
+    const officialOpenAI = endpoint.hostname === "api.openai.com" || endpoint.hostname.endsWith(".api.openai.com");
+    const anonymous = ["openAIResponses", "openAIChatCompletions"].includes(provider.protocol) && !officialOpenAI;
+    return Boolean(["http:", "https:"].includes(endpoint.protocol) && provider.model && provider.maxTokens > 0 &&
+      (provider.apiKey.isConfigured || anonymous) && (provider.protocol !== "anthropic" || provider.apiVersion));
+  } catch {
+    return false;
+  }
 }
 
 function isMockAiConfigured() {
@@ -1454,7 +1468,9 @@ function mockAiModels() {
           ? ["low", "medium", "high", "xhigh", "max"] : [];
       models.set(provider.model, { id: provider.model, name: provider.model || "App-server default", reasoningEfforts });
     }
-    return [...models.values()].map((model) => ({ ...model, provider: provider.name, providerId: provider.id }));
+    return [...models.values()]
+      .sort((a, b) => Number(b.id === provider.model) - Number(a.id === provider.model))
+      .map((model) => ({ ...model, provider: provider.name, providerId: provider.id }));
   });
 }
 
@@ -1464,7 +1480,9 @@ function mockAiSelectionError(selection, inference = false) {
   const provider = systemSettings.ai.providers.find((item) => item.id === providerId);
   if (!provider || !isMockProviderConfigured(provider)) return "AI provider is unavailable";
   const model = selection.model || (!selection.providerId ? defaults.model : null) || provider.model;
-  const effort = selection.reasoningEffort;
+  const effort = selection.reasoningEffort ||
+    (!selection.providerId && !selection.model ? defaults.reasoningEffort : null) ||
+    (model === provider.model ? provider.reasoningEffort : null);
   if (effort && !mockAiModels().find((item) => item.providerId === providerId && item.id === model)?.reasoningEfforts.includes(effort)) return "Unsupported reasoning effort";
   return null;
 }
@@ -3883,6 +3901,7 @@ async function route(method, pathname, searchParams, req, res) {
       isEnabled: true,
       lastRunAt: new Date(Date.now() - 300_000).toISOString(),
       isRunning: false,
+      supportsAiSelection: false,
     },
     {
       id: "InferAnimationMetadata",
@@ -3890,6 +3909,7 @@ async function route(method, pathname, searchParams, req, res) {
       isEnabled: true,
       lastRunAt: new Date(Date.now() - 600_000).toISOString(),
       isRunning: false,
+      supportsAiSelection: true,
     },
     {
       id: "ScrapeSeasonBangumi",
@@ -3897,6 +3917,7 @@ async function route(method, pathname, searchParams, req, res) {
       isEnabled: true,
       lastRunAt: new Date(Date.now() - 86400_000).toISOString(),
       isRunning: false,
+      supportsAiSelection: false,
     },
     {
       id: "ScanMediaLibraries",
@@ -3904,6 +3925,7 @@ async function route(method, pathname, searchParams, req, res) {
       isEnabled: true,
       lastRunAt: new Date(Date.now() - 120_000).toISOString(),
       isRunning: false,
+      supportsAiSelection: false,
     },
   ];
 
@@ -3964,7 +3986,7 @@ async function route(method, pathname, searchParams, req, res) {
       );
       if (!task) return json(res, { message: `Task '${id}' not found` }, 404);
       const selection = await readBody(req);
-      if (selection.providerId || selection.model || selection.reasoningEffort) {
+      if (task.supportsAiSelection && (selection.providerId || selection.model || selection.reasoningEffort)) {
         const selectionError = mockAiSelectionError(selection, true);
         if (selectionError) return json(res, { error: selectionError }, 400);
         if (task.isRunning) return json(res, { error: "Task is already running" }, 409);

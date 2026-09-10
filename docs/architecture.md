@@ -107,6 +107,7 @@ The controlled platform in `PluginPlatform/` implements local package inspection
 Scheduled tasks extend `ScheduledTaskBase` (Framework/Tasks/). A bounded one-slot `Channel<byte>` coalesces local run requests; shared completion and force state use a lock. `IScheduledTaskLeaseManager` acquires and renews a PostgreSQL lease before execution, including forced runs, so replicas cannot own the same task concurrently. A generic `ScheduledTaskBackgroundService<TTask>` hosts each timer and queue loop. Tasks expose `IScheduledTask` for controller discovery.
 
 - `IScheduledTask` — interface with `Id`, `Interval`, `IsEnabled`, `LastRunAt`, `IsRunning`, `RunNowAsync`, `Enqueue`
+- `IAISelectableTask` — explicitly enables per-run AI overrides; currently implemented by `InferAnimationMetadata`. Task responses expose `supportsAiSelection`, and other tasks ignore AI overrides.
 - `ScheduledTaskBase` — coalesces pending requests and coordinates execution through renewable distributed leases; cancelling one waiting HTTP request does not cancel the shared execution
 - `ScheduledTaskBackgroundService<TTask>` — generic BackgroundService that hosts a single ScheduledTaskBase, runs `ProcessQueueAsync` + timer loop
 
@@ -295,7 +296,7 @@ Features include anime entries with TMDB poster paths and mixed download states,
 - `AI:ProvidersConfigured` — distinguishes an explicitly empty provider collection from legacy settings; deleting all providers disables AI instead of resurrecting old credentials.
 - `AI:DefaultProviderId` — default instance for Chat and inherited task settings.
 - `AI:Providers:<id>:Models` — optional models (`Id`, `Name`, `ReasoningEfforts`) supplement endpoint discovery and allow custom model aliases; duplicate model IDs across providers remain independent.
-- `Inference:ProviderId`, `Inference:Model`, `Inference:ReasoningEffort` — optional automatic inference defaults. `POST /api/tasks/{id}/run` accepts the same selection fields for one manual execution; the queue retains that selection through asynchronous work and DI scopes. A pending/running execution rejects an explicit override with HTTP 409 rather than discarding the selection.
+- `Inference:ProviderId`, `Inference:Model`, `Inference:ReasoningEffort` — optional automatic inference defaults. For AI-capable tasks, `POST /api/tasks/{id}/run` accepts the same selection fields for one manual execution; the queue retains that selection through asynchronous work and DI scopes, retrying distributed lease contention every second. A local pending/running execution rejects another explicit override with HTTP 409 rather than discarding the selection.
 - `Inference:RateLimitDelayMs` — Min interval between API calls (default: 1000ms).
 - Legacy `AI:Engine`, `AI:Provider`, `AI:OpenAI`, `AI:Anthropic`, and `AI:CodexAppServer` settings are still read. The settings UI presents them as named instances and transfers encrypted credentials on the first provider-list save. Existing explicitly configured model IDs and token budgets are preserved. New defaults are `gpt-5.6-luna` and `claude-sonnet-5`; see [provider configuration and model sources](ai-providers.md).
 - `DisableCors` — Enable permissive CORS policy

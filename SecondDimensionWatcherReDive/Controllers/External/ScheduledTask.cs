@@ -5,4 +5,5 @@ internal sealed record ScheduledTask(
     string Interval,
     bool IsEnabled,
     DateTimeOffset? LastRunAt,
-    bool IsRunning);
+    bool IsRunning,
+    bool SupportsAiSelection = false);

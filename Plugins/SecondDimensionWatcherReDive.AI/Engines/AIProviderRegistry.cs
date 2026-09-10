@@ -57,7 +57,7 @@ public sealed partial class AIProviderRegistry(
     public async Task<IReadOnlyList<AIModel>> GetAvailableModelsAsync(
         AIOptions options, CancellationToken cancellationToken)
     {
-        var providers = options.Providers.OrderByDescending(entry =>
+        var providers = options.Providers.Where(entry => IsConfigured(entry.Value)).OrderByDescending(entry =>
             string.Equals(entry.Key, options.DefaultProviderId, StringComparison.OrdinalIgnoreCase)).ToArray();
         var results = await Task.WhenAll(providers.Select(async entry =>
         {

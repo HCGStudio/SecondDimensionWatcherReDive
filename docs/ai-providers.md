@@ -4,15 +4,16 @@
 
 每个 Provider 设置默认模型和 token 预算，并可配置默认 effort。模型列表结合服务端发现、当前默认模型与手动配置的模型；兼容服务未实现模型发现时，仍可直接输入模型 ID。在自定义模型列表填写该端点实际支持的 effort，供选择器与请求校验使用。相同模型 ID 在不同 Provider 下分别处理。
 
-Chat 发送时使用当前选中的 Provider、模型和 effort，自动标题也沿用该选择。「任务」页的 AI 选择只影响随后手动启动的那一次任务，不修改全局设置。任务已有等待或正在执行的请求时，显式指定 AI 选择会返回冲突，请在本次执行完成后重试。没有 AI 调用的任务不使用这些选项。
+Chat 发送时使用当前选中的 Provider、模型和 effort，自动标题也沿用该选择。聊天模型列表只包含已配置的 Provider。「任务」页的 AI 选择只影响随后手动启动的那一次 AI 任务，不修改全局设置。当前实例的任务已有等待或正在执行的请求时，显式指定 AI 选择会返回冲突；若其他实例持有任务租约，已接受的选择会继续排队，每秒重试直至可执行。没有 AI 调用的任务不使用这些选项。
 
 自动元数据和文件名推理使用设置页的「推理任务」选择，对应 `Inference:ProviderId`、`Inference:Model` 和 `Inference:ReasoningEffort`；留空时继承默认 Provider 及其模型配置。任务的选择在异步执行期间独立保存，执行结束后恢复，不会串到其他并发请求。
 
 ## 部署配置
 
-配置文件的 `AI:Providers` 是以稳定 ID 为键的字典；设置 API 使用包含 `id` 的数组。环境变量将冒号替换为双下划线，例如 `AI__Providers__local__Protocol=OpenAIChatCompletions`。
+配置文件的 `AI:Providers` 是以稳定 ID 为键的字典；设置 API 使用包含 `id` 的数组。配置文件应声明 `Version: "2.3.0"`；环境覆盖使用 `SDW_CONFIG_VERSION=2.3.0`，并将冒号替换为双下划线，例如 `AI__Providers__local__Protocol=OpenAIChatCompletions`。这也确保 `Inference__Model` 按当前推理覆盖含义保留，而不是按旧结构迁移到 Provider 默认模型。
 
 ```yaml
+Version: "2.3.0"
 AI:
   ProvidersConfigured: true
   DefaultProviderId: openai
@@ -47,7 +48,7 @@ Inference:
 
 Codex 实例使用 `Endpoint`、`BearerToken`、`PermissionProfile` 和 `TimeoutSeconds`；隔离部署与连接要求见 [容器部署](container-deployment.md#使用-codex-app-server)。
 
-旧 `AI:Engine`、`AI:Provider`、`AI:OpenAI`、`AI:Anthropic` 和 `AI:CodexAppServer` 配置继续生效。首次从新版页面保存 Provider 列表后，已有凭据转为按实例 ID 保存。密钥继续使用 Data Protection 加密，GET 只返回是否配置及来源；改变凭据对应的服务源时须重新设置或清除该凭据。删除 Provider 会清除该实例的运行时凭据，显式空列表不会回退到旧配置。
+旧 `AI:Engine`、`AI:Provider`、`AI:OpenAI`、`AI:Anthropic` 和 `AI:CodexAppServer` 配置继续生效。首次从新版页面保存 Provider 列表后，已有凭据转为按实例 ID 保存；后续 AI 更新必须提交 Provider 列表，旧版单 Provider 请求不能将其降回旧配置。密钥继续使用 Data Protection 加密，GET 只返回是否配置及来源；改变凭据对应的服务源时须重新设置或清除该凭据。删除 Provider 会清除该实例的运行时凭据，显式空列表不会回退到旧配置。
 
 ## 默认模型依据（2026-09-09）
 

@@ -80,11 +80,14 @@ public abstract class ScheduledTaskBase : IScheduledTask
             if (completion is null) continue;
 
             IScheduledTaskExecutionLease? lease = null;
+            var delayBeforeRetry = false;
             while (lease is null)
             {
                 var force = TakePendingForce(completion);
                 try
                 {
+                    if (delayBeforeRetry)
+                        await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken);
                     lease = await leaseManager.TryAcquireAsync(
                         Id,
                         Interval,
@@ -112,7 +115,10 @@ public abstract class ScheduledTaskBase : IScheduledTask
                 // database call is in flight. Retry that upgrade before completing
                 // the shared signal so a completed cooldown cannot swallow it.
                 if (CompleteLeaseDenialOrRetryForce(completion, force))
+                {
+                    delayBeforeRetry = force;
                     continue;
+                }
                 break;
             }
             if (lease is null) continue;
@@ -210,6 +216,14 @@ public abstract class ScheduledTaskBase : IScheduledTask
         {
             if (!ReferenceEquals(_pendingRun, completion))
                 return false;
+            // An accepted explicit selection belongs to a distinct execution.
+            // Keep it pending while another replica owns the lease, and retain
+            // force so that replica's completed run does not impose a cooldown.
+            if (_pendingAiSelection is not null)
+            {
+                _pendingForce = true;
+                return true;
+            }
             if (!attemptedForce && _pendingForce)
                 return true;
 

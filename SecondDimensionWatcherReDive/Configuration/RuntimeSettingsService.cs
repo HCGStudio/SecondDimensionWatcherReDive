@@ -141,6 +141,14 @@ public sealed partial class RuntimeSettingsService : IRuntimeSettingsInitializer
             var deploymentValues = DeploymentValues();
             var deploymentSecrets = DeploymentSecrets();
             var currentValues = Merge(deploymentValues, _persistedOverrides);
+            if (currentValues.Ai.Providers is not null && patch.Ai is { Values.Providers: null })
+                return new RuntimeSettingsUpdateResult(
+                    RuntimeSettingsUpdateStatus.Invalid,
+                    CreateState(),
+                    new Dictionary<string, string[]>(StringComparer.Ordinal)
+                    {
+                        ["ai.providers"] = ["The provider list is required after named providers have been configured."]
+                    });
             var currentSecrets = ResolveSecrets(_secretOverrides, deploymentSecrets, currentValues.Ai);
             VapidDetails? generatedVapidKeys = null;
             if (patch.Notifications?.GenerateVapidKeys is true)
@@ -170,12 +178,14 @@ public sealed partial class RuntimeSettingsService : IRuntimeSettingsInitializer
                 patch,
                 generatedVapidKeys?.PrivateKey,
                 currentValues.Ai,
-                currentSecrets);
+                currentSecrets,
+                deploymentSecrets);
             var desiredValues = Merge(deploymentValues, candidateOverrides);
             candidateSecrets = PinEmptyCredentialsAcrossOriginChanges(
                 candidateSecrets,
                 currentValues,
                 desiredValues,
+                deploymentValues,
                 deploymentSecrets,
                 patch);
             var resolvedSecrets = ResolveSecrets(candidateSecrets, deploymentSecrets, desiredValues.Ai);
@@ -184,6 +194,7 @@ public sealed partial class RuntimeSettingsService : IRuntimeSettingsInitializer
                 ValidateEndpointSecretChanges(
                     currentValues,
                     desiredValues,
+                    deploymentValues,
                     resolvedSecrets,
                     patch));
             if (validationErrors.Count > 0)
@@ -388,7 +399,8 @@ public sealed partial class RuntimeSettingsService : IRuntimeSettingsInitializer
         RuntimeSettingsPatch patch,
         string? generatedVapidPrivateKey,
         AiSettingsValues currentAi,
-        IReadOnlyDictionary<string, ResolvedSecret> currentSecrets)
+        IReadOnlyDictionary<string, ResolvedSecret> currentSecrets,
+        IReadOnlyDictionary<string, string?> deploymentSecrets)
     {
         var values = new Dictionary<string, PersistedSecret>(current.Values, StringComparer.OrdinalIgnoreCase);
         ApplySecret(values, RuntimeSecretKeys.OpenAiApiKey, patch.Ai?.OpenAiApiKey);
@@ -400,8 +412,12 @@ public sealed partial class RuntimeSettingsService : IRuntimeSettingsInitializer
             // Removed instances never regain credentials from the legacy singleton fields.
             if (currentAi.Providers is null)
             {
+                // A deployment may already define named credentials while a persisted legacy
+                // override still uses the singleton values. Preserve the effective legacy secret.
                 foreach (var key in RuntimeSecretKeys.ForProviders(currentAi))
-                    if (currentSecrets.GetValueOrDefault(key) is { Source: SecretConfigurationSource.Runtime } secret)
+                    if (currentSecrets.GetValueOrDefault(key) is { } secret
+                        && (secret.Source == SecretConfigurationSource.Runtime
+                            || !string.Equals(secret.Value, deploymentSecrets.GetValueOrDefault(key), StringComparison.Ordinal)))
                         values[key] = secret.IsConfigured
                             ? new PersistedSecret(PersistedSecretMode.Set, secret.Value)
                             : new PersistedSecret(PersistedSecretMode.Clear, null);
@@ -437,6 +453,7 @@ public sealed partial class RuntimeSettingsService : IRuntimeSettingsInitializer
         RuntimeSecretOverrides candidate,
         RuntimeSettingsValues currentValues,
         RuntimeSettingsValues desiredValues,
+        RuntimeSettingsValues deploymentValues,
         IReadOnlyDictionary<string, string?> deploymentSecrets,
         RuntimeSettingsPatch patch)
     {
@@ -472,7 +489,9 @@ public sealed partial class RuntimeSettingsService : IRuntimeSettingsInitializer
         foreach (var provider in RuntimeAiProviders.GetProviders(desiredValues.Ai))
         {
             var previous = RuntimeAiProviders.GetProviders(currentValues.Ai)
-                .FirstOrDefault(item => string.Equals(item.Id, provider.Id, StringComparison.OrdinalIgnoreCase));
+                .FirstOrDefault(item => string.Equals(item.Id, provider.Id, StringComparison.OrdinalIgnoreCase))
+                ?? RuntimeAiProviders.GetProviders(deploymentValues.Ai)
+                    .FirstOrDefault(item => string.Equals(item.Id, provider.Id, StringComparison.OrdinalIgnoreCase));
             if (previous is null)
                 continue;
             PinEmptyCredential(values, RuntimeSecretKeys.ProviderApiKey(provider.Id),
@@ -551,6 +570,7 @@ public sealed partial class RuntimeSettingsService : IRuntimeSettingsInitializer
     private static IReadOnlyDictionary<string, string[]> ValidateEndpointSecretChanges(
         RuntimeSettingsValues current,
         RuntimeSettingsValues candidate,
+        RuntimeSettingsValues deployment,
         IReadOnlyDictionary<string, ResolvedSecret> candidateSecrets,
         RuntimeSettingsPatch patch)
     {
@@ -585,8 +605,12 @@ public sealed partial class RuntimeSettingsService : IRuntimeSettingsInitializer
             patch.Torrent?.Password);
         foreach (var provider in RuntimeAiProviders.GetProviders(candidate.Ai))
         {
+            // Runtime overrides can hide a newly deployed provider. Adding its ID must still
+            // validate the origin associated with any deployment credential it would inherit.
             var previous = RuntimeAiProviders.GetProviders(current.Ai)
-                .FirstOrDefault(item => string.Equals(item.Id, provider.Id, StringComparison.OrdinalIgnoreCase));
+                .FirstOrDefault(item => string.Equals(item.Id, provider.Id, StringComparison.OrdinalIgnoreCase))
+                ?? RuntimeAiProviders.GetProviders(deployment.Ai)
+                    .FirstOrDefault(item => string.Equals(item.Id, provider.Id, StringComparison.OrdinalIgnoreCase));
             if (previous is null)
                 continue;
             RequireSecretRefreshForOriginChange(errors, $"ai.providers.{provider.Id}.apiKey",

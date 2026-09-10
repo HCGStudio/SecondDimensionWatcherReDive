@@ -33,7 +33,8 @@ internal class TasksController(
                 task.Interval.ToString(),
                 task.IsEnabled,
                 status.LastRunAt,
-                status.IsRunning);
+                status.IsRunning,
+                task is IAISelectableTask);
         }).ToList();
 
         return Ok(tasks);
@@ -51,13 +52,11 @@ internal class TasksController(
         if (task == null)
             return NotFound(new { message = $"Task '{id}' not found" });
 
-        if (selection is not null &&
+        if (task is IAISelectableTask selectableTask && selection is not null &&
             (!string.IsNullOrWhiteSpace(selection.ProviderId) ||
              !string.IsNullOrWhiteSpace(selection.Model) ||
              !string.IsNullOrWhiteSpace(selection.ReasoningEffort)))
         {
-            if (task is not ScheduledTaskBase selectableTask)
-                return BadRequest(new { message = "This task does not support AI execution overrides." });
             try
             {
                 HttpContext.RequestServices.GetRequiredService<IAISelectionValidator>()

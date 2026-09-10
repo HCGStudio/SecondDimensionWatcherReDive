@@ -4,6 +4,7 @@ export interface ITask {
   isEnabled: boolean;
   lastRunAt: string | null;
   isRunning: boolean;
+  supportsAiSelection: boolean;
 }
 
 export interface IDurableJob {

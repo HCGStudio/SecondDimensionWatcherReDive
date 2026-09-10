@@ -70,10 +70,44 @@ const plainProvider = ({
 }: ProviderDraft): AiProviderSettings => provider;
 
 const defaultEfforts = (protocol: AiProtocol, model: string): string[] => {
-  if (protocol === "anthropic" && model === "claude-sonnet-5")
-    return ["low", "medium", "high", "xhigh", "max"];
-  if (protocol !== "anthropic" && model === "gpt-5.6-luna")
+  const isModel = (family: string) =>
+    model === family || model.startsWith(`${family}-`);
+  if (protocol === "anthropic") {
+    if (isModel("claude-opus-4-5")) return ["low", "medium", "high"];
+    if (
+      ["claude-opus-4-6", "claude-sonnet-4-6", "claude-mythos-preview"].some(
+        isModel,
+      )
+    )
+      return ["low", "medium", "high", "max"];
+    if (
+      [
+        "claude-opus-4-7",
+        "claude-opus-4-8",
+        "claude-opus-5",
+        "claude-sonnet-5",
+        "claude-fable-5",
+        "claude-mythos-5",
+      ].some(isModel)
+    )
+      return ["low", "medium", "high", "xhigh", "max"];
+    return [];
+  }
+  if (isModel("gpt-6-astra")) return ["low", "medium", "high", "xhigh", "max"];
+  if (isModel("gpt-5.6"))
     return ["none", "low", "medium", "high", "xhigh", "max"];
+  if (model.includes("-chat") || model.includes("-pro")) return [];
+  if (["gpt-5.2", "gpt-5.3-codex", "gpt-5.4", "gpt-5.5"].some(isModel))
+    return model.includes("codex")
+      ? ["low", "medium", "high", "xhigh"]
+      : ["none", "low", "medium", "high", "xhigh"];
+  if (isModel("gpt-5.1"))
+    return model.includes("codex")
+      ? ["low", "medium", "high"]
+      : ["none", "low", "medium", "high"];
+  if (isModel("gpt-5")) return ["minimal", "low", "medium", "high"];
+  if (["o1", "o3", "o4-mini", "gpt-oss-20b", "gpt-oss-120b"].some(isModel))
+    return ["low", "medium", "high"];
   return [];
 };
 
@@ -186,12 +220,30 @@ export const AiSettingsSection: React.FC<AiSettingsSectionProps> = ({
     );
 
   const updateProvider = (id: string, change: Partial<ProviderDraft>) =>
-    setDraft((current) => ({
-      ...current,
-      providers: current.providers.map((provider) =>
-        provider.id === id ? { ...provider, ...change } : provider,
-      ),
-    }));
+    setDraft((current) => {
+      const previous = current.providers.find((provider) => provider.id === id);
+      const capabilities = (models: AiProviderSettings["models"]) =>
+        JSON.stringify(
+          models.map(({ id, reasoningEfforts }) => ({ id, reasoningEfforts })),
+        );
+      const selectionChanged =
+        (change.protocol !== undefined &&
+          change.protocol !== previous?.protocol) ||
+        (change.model !== undefined && change.model !== previous?.model) ||
+        (change.models !== undefined &&
+          capabilities(change.models) !== capabilities(previous?.models ?? []));
+      return {
+        ...current,
+        providers: current.providers.map((provider) =>
+          provider.id === id ? { ...provider, ...change } : provider,
+        ),
+        inference:
+          selectionChanged &&
+          (current.inference.providerId ?? current.defaultProviderId) === id
+            ? { ...current.inference, reasoningEffort: null }
+            : current.inference,
+      };
+    });
   const addProvider = () => {
     const suffix =
       typeof crypto.randomUUID === "function"
@@ -241,7 +293,7 @@ export const AiSettingsSection: React.FC<AiSettingsSectionProps> = ({
             ? (providers[0]?.id ?? null)
             : current.defaultProviderId,
         inference:
-          current.inference.providerId === id
+          (current.inference.providerId ?? current.defaultProviderId) === id
             ? {
                 ...current.inference,
                 providerId: null,
@@ -253,13 +305,38 @@ export const AiSettingsSection: React.FC<AiSettingsSectionProps> = ({
     });
 
   const models: AiModel[] = draft.providers.flatMap((provider) => {
-    const discovered = (availableModels ?? []).filter(
-      (model) => model.providerId === provider.id,
+    const originalProvider = value.providers.find(
+      (item) => item.id === provider.id,
     );
-    const options = new Map(discovered.map((model) => [model.id, model]));
+    const sameEndpoint =
+      originalProvider?.protocol === provider.protocol &&
+      (provider.protocol === "codexAppServer"
+        ? originalProvider.endpoint === provider.endpoint
+        : originalProvider.baseUrl === provider.baseUrl);
+    const discovered = (availableModels ?? []).filter(
+      (model) => sameEndpoint && model.providerId === provider.id,
+    );
+    const options = new Map(
+      discovered.map((model) => [
+        model.id,
+        {
+          ...model,
+          reasoningEfforts:
+            provider.protocol !== "codexAppServer" &&
+            originalProvider?.models.some((item) => item.id === model.id)
+              ? defaultEfforts(provider.protocol, model.id)
+              : model.reasoningEfforts,
+        },
+      ]),
+    );
     for (const model of provider.models)
       options.set(model.id, {
         ...model,
+        reasoningEfforts:
+          provider.protocol === "codexAppServer"
+            ? (discovered.find((item) => item.id === model.id)
+                ?.reasoningEfforts ?? model.reasoningEfforts)
+            : model.reasoningEfforts,
         provider: provider.name,
         providerId: provider.id,
       });
@@ -358,6 +435,13 @@ export const AiSettingsSection: React.FC<AiSettingsSectionProps> = ({
                 setDraft((current) => ({
                   ...current,
                   defaultProviderId: event.target.value || null,
+                  inference: current.inference.providerId
+                    ? current.inference
+                    : {
+                        ...current.inference,
+                        model: null,
+                        reasoningEffort: null,
+                      },
                 }))
               }
             >

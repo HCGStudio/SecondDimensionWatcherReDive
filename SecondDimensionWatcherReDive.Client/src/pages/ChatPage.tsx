@@ -86,11 +86,12 @@ export const ChatPage: React.FC = () => {
     ) {
       setSelection({ providerId: models[0].providerId, model: models[0].id });
     } else if (selection.reasoningEffort) {
-      const model = models.find(
-        (item) =>
-          item.providerId === selection.providerId &&
-          item.id === selection.model,
+      const providerModels = models.filter(
+        (item) => item.providerId === selection.providerId,
       );
+      const model = selection.model
+        ? providerModels.find((item) => item.id === selection.model)
+        : providerModels[0];
       if (!model?.reasoningEfforts.includes(selection.reasoningEffort))
         setSelection((current) => ({ ...current, reasoningEffort: undefined }));
     }

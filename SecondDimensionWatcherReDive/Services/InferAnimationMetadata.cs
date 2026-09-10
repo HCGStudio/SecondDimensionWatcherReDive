@@ -26,7 +26,7 @@ public partial class InferAnimationMetadata(
     IAIEngineStatus? aiEngineStatus = null,
     INotificationPublisher? notificationPublisher = null,
     MetadataRecognitionRuleSupport? ruleSupport = null)
-    : ScheduledTaskBase
+    : ScheduledTaskBase, IAISelectableTask
 {
     private const int MaxRetryCount = 3;
     private const double LowConfidenceThreshold = 0.75;
