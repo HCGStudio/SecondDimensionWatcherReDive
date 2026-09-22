@@ -40,6 +40,25 @@ internal sealed class OpenAIResponsesRequest
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public OpenAIReasoningOptions? Reasoning { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public OpenAIResponsesTextOptions? Text { get; init; }
+}
+
+internal sealed class OpenAIResponsesTextOptions
+{
+    public required OpenAIResponsesJsonSchemaFormat Format { get; init; }
+}
+
+internal sealed class OpenAIResponsesJsonSchemaFormat
+{
+    public string Type { get; init; } = "json_schema";
+
+    public string Name { get; init; } = "inference_result";
+
+    public bool Strict { get; init; } = true;
+
+    public required JsonElement Schema { get; init; }
 }
 
 internal sealed class OpenAIReasoningOptions

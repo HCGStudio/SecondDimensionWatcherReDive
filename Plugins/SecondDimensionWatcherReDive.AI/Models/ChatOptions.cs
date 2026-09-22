@@ -16,7 +16,10 @@ public sealed class ChatOptions
 
     public int? MaxTokens { get; init; }
 
-    /// <summary>Optional JSON schema constraining the final assistant response.</summary>
+    /// <summary>
+    ///     Optional JSON schema constraining the final assistant response on OpenAI Responses and
+    ///     Codex app-server. Other backends retain their prompt-based output behavior.
+    /// </summary>
     public JsonElement? OutputSchema { get; init; }
 
     /// <summary>

@@ -88,12 +88,9 @@ public sealed partial class AIEngine : IAIEngineBackend
             // otherwise the model can legitimately request work whose result we cannot return.
             var canExecuteTools = round < maxToolRounds;
             var roundTools = canExecuteTools ? tools : null;
-            var updates = string.IsNullOrWhiteSpace(reasoningEffort)
-                ? provider.StreamChatCompletionAsync(
-                    conversation, roundTools, options?.Model, options?.MaxTokens, continuation, cancellationToken)
-                : provider.StreamChatCompletionAsync(
-                    conversation, roundTools, options?.Model, options?.MaxTokens, continuation,
-                    reasoningEffort, cancellationToken);
+            var updates = provider.StreamChatCompletionAsync(
+                conversation, roundTools, options?.Model, options?.MaxTokens, continuation,
+                reasoningEffort, options?.OutputSchema, cancellationToken);
             await foreach (var update in updates)
             {
                 switch (update)

@@ -8,6 +8,8 @@ Chat 发送时使用当前选中的 Provider、模型和 effort，自动标题�
 
 自动元数据和文件名推理使用设置页的「推理任务」选择，对应 `Inference:ProviderId`、`Inference:Model` 和 `Inference:ReasoningEffort`；留空时继承默认 Provider 及其模型配置。任务的选择在异步执行期间独立保存，执行结束后恢复，不会串到其他并发请求。
 
+元数据和文件名推理在 OpenAI Responses 下使用严格结构化输出：每轮请求通过 `text.format` 发送现有 JSON Schema，约束最终回答的字段、类型和可空值。工具参数仍使用各工具自己的定义。模型拒绝、输出被截断或流缺少完成事件时，该次推理失败，不会把拒绝文本或未完成 JSON 当作识别结果。普通聊天不附加该格式。Codex app-server 继续使用其输出 Schema；Chat Completions 和 Anthropic 继续依靠提示词与现有 JSON 解析。自定义 Responses 端点需要支持 `text.format` 的 `json_schema` 严格模式。[OpenAI 结构化输出说明](https://developers.openai.com/api/docs/guides/structured-outputs)
+
 ## 部署配置
 
 配置文件的 `AI:Providers` 是以稳定 ID 为键的字典；设置 API 使用包含 `id` 的数组。配置文件应声明 `Version: "3.0.0"`；环境覆盖使用 `SDW_CONFIG_VERSION=3.0.0`，并将冒号替换为双下划线，例如 `AI__Providers__local__Protocol=OpenAIChatCompletions`。这也确保 `Inference__Model` 按当前推理覆盖含义保留，而不是按旧结构迁移到 Provider 默认模型。

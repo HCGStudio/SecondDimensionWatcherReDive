@@ -89,6 +89,17 @@ public sealed partial class OpenAIProvider : IAIProvider
         CancellationToken cancellationToken)
         => StreamChatCompletionAsync(messages, tools, model, maxTokens, continuation, null, cancellationToken);
 
+    public IAsyncEnumerable<IChatUpdate> StreamChatCompletionAsync(
+        IReadOnlyList<IMessage> messages,
+        IReadOnlyList<ToolDefinition>? tools,
+        string? model,
+        int? maxTokens,
+        IAIProviderContinuation? continuation,
+        string? reasoningEffort,
+        CancellationToken cancellationToken)
+        => StreamChatCompletionAsync(messages, tools, model, maxTokens, continuation,
+            reasoningEffort, null, cancellationToken);
+
     public async IAsyncEnumerable<IChatUpdate> StreamChatCompletionAsync(
         IReadOnlyList<IMessage> messages,
         IReadOnlyList<ToolDefinition>? tools,
@@ -96,6 +107,7 @@ public sealed partial class OpenAIProvider : IAIProvider
         int? maxTokens,
         IAIProviderContinuation? continuation,
         string? reasoningEffort,
+        JsonElement? outputSchema,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         // Keep one immutable endpoint/credential snapshot for the complete provider tool loop.
@@ -114,7 +126,7 @@ public sealed partial class OpenAIProvider : IAIProvider
         {
             await foreach (var update in StreamResponsesAsync(
                                messages, tools, model ?? opts.Model, maxTokens ?? opts.MaxTokens,
-                               continuation, opts, reasoningEffort, cancellationToken))
+                               continuation, opts, reasoningEffort, outputSchema, cancellationToken))
                 yield return update;
 
             yield break;
@@ -139,6 +151,7 @@ public sealed partial class OpenAIProvider : IAIProvider
         IAIProviderContinuation? continuation,
         OpenAIOptions requestOptions,
         string? reasoningEffort,
+        JsonElement? outputSchema,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         var input = continuation switch
@@ -163,7 +176,8 @@ public sealed partial class OpenAIProvider : IAIProvider
             Stream = true,
             Store = false,
             MaxOutputTokens = maxTokens,
-            Reasoning = string.IsNullOrWhiteSpace(reasoningEffort) ? null : new() { Effort = reasoningEffort }
+            Reasoning = string.IsNullOrWhiteSpace(reasoningEffort) ? null : new() { Effort = reasoningEffort },
+            Text = outputSchema is { } schema ? new() { Format = new() { Schema = schema } } : null
         };
 
         var toolCallBuilders = new Dictionary<int, (string Id, string Name, StringBuilder Args)>();
@@ -192,9 +206,14 @@ public sealed partial class OpenAIProvider : IAIProvider
                     yield return new TextDelta(textDelta);
                     break;
 
-                case "response.refusal.delta" when evt.Delta is { } refusalDelta:
+                case "response.refusal.delta":
+                case "response.refusal.done":
                     refused = true;
-                    yield return new TextDelta(refusalDelta);
+                    if (outputSchema.HasValue)
+                        throw new InvalidOperationException(
+                            "Responses API refused to produce the requested structured output.");
+                    if (evt.Type == "response.refusal.delta" && evt.Delta is { } refusalDelta)
+                        yield return new TextDelta(refusalDelta);
                     break;
 
                 case "response.function_call_arguments.delta" when evt.Delta is { } argumentsDelta:
@@ -265,6 +284,11 @@ public sealed partial class OpenAIProvider : IAIProvider
         if (!string.Equals(completedResponse.Status, "completed", StringComparison.Ordinal))
             throw new InvalidOperationException(
                 $"Responses API ended with unexpected status '{completedResponse.Status ?? "unknown"}'.");
+
+        refused |= ContainsResponsesRefusal(completedResponse.Output);
+        if (refused && outputSchema.HasValue)
+            throw new InvalidOperationException(
+                "Responses API refused to produce the requested structured output.");
 
         ValidateCompletedToolCalls(toolCallBuilders, completedResponse.Output);
 
@@ -428,6 +452,29 @@ public sealed partial class OpenAIProvider : IAIProvider
 
         throw new InvalidDataException(
             "Responses API final function arguments did not match the streamed argument prefix.");
+    }
+
+    private static bool ContainsResponsesRefusal(IReadOnlyList<JsonElement>? output)
+    {
+        if (output is null) return false;
+
+        foreach (var item in output)
+        {
+            if (item.ValueKind != JsonValueKind.Object ||
+                !item.TryGetProperty("content", out var content) ||
+                content.ValueKind != JsonValueKind.Array)
+                continue;
+
+            foreach (var part in content.EnumerateArray())
+            {
+                if (part.ValueKind == JsonValueKind.Object &&
+                    part.TryGetProperty("type", out var type) &&
+                    type.ValueKind == JsonValueKind.String && type.GetString() == "refusal")
+                    return true;
+            }
+        }
+
+        return false;
     }
 
     private static void ValidateCompletedToolCalls(
