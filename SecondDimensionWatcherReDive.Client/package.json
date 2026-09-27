@@ -7,7 +7,7 @@
     "@tailwindcss/postcss": "^4.3.3",
     "@tailwindcss/typography": "^0.5.20",
     "artplayer": "^5.4.0",
-    "artplayer-proxy-mediabunny": "^1.2.0",
+    "artplayer-proxy-mediabunny": "patch:artplayer-proxy-mediabunny@npm%3A1.2.0#~/.yarn/patches/artplayer-proxy-mediabunny-npm-1.2.0-44361bb6c9.patch",
     "clsx": "^2.1.1",
     "dayjs": "^1.11.23",
     "hls.js": "^1.7.1",
@@ -29,8 +29,10 @@
     "tailwindcss": "^4.3.3"
   },
   "devDependencies": {
+    "@parcel/config-default": "2.16.4",
     "@parcel/core": "^2.16.4",
-    "@parcel/transformer-inline-string": "2.16.4",
+    "@parcel/packager-raw": "2.16.4",
+    "@parcel/transformer-raw": "2.16.4",
     "@playwright/test": "^1.62.1",
     "@trivago/prettier-plugin-sort-imports": "^6.0.2",
     "@types/node": "^24",

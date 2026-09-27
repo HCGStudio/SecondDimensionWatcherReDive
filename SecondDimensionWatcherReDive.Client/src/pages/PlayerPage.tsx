@@ -440,7 +440,9 @@ export const PlayerPage: React.FC = () => {
     setLinkLoading(true);
     setLinkError(null);
     setMkvStatus(null);
+    setSkippedSubtitleCount(0);
     setSubtitleDiscoveryComplete(false);
+    subtitleSelectionInitializedRef.current = false;
 
     const isCurrent = () =>
       !cancelled &&
@@ -571,11 +573,17 @@ export const PlayerPage: React.FC = () => {
             const extracted = await extractMkvSubtitles(videoLink.url, {
               signal: controller.signal,
               onProgress: (progress: MkvSubtitleDownloadProgress) => {
-                if (!cancelled) {
-                  setMkvStatus({
-                    stage: "extractingSubtitles",
-                    progress: progress.fraction ?? undefined,
-                  });
+                if (isCurrent()) {
+                  const fraction =
+                    progress.fraction == null
+                      ? undefined
+                      : Math.floor(progress.fraction * 100) / 100;
+                  setMkvStatus((current) =>
+                    current?.stage === "extractingSubtitles" &&
+                    current.progress === fraction
+                      ? current
+                      : { stage: "extractingSubtitles", progress: fraction },
+                  );
                 }
               },
             });
@@ -981,7 +989,8 @@ export const PlayerPage: React.FC = () => {
             })
           : undefined,
       lang: artplayerLang,
-      autoplay: isReload ? false : shouldAutoplay,
+      autoplay:
+        isReload || playbackMode === "mkvProxy" ? false : shouldAutoplay,
       fullscreen: true,
       fullscreenWeb: true,
       pip: playbackMode !== "mkvProxy",
@@ -1005,6 +1014,17 @@ export const PlayerPage: React.FC = () => {
     });
 
     artRef.current = art;
+    let autoplayAfterSeek = false;
+    const startPlayback = () => {
+      if (playbackMode === "mkvProxy" && art.video.seeking) {
+        autoplayAfterSeek = true;
+        return;
+      }
+      autoplayAfterSeek = false;
+      void art.play().catch(() => {
+        if (!disposed) art.notice.show = i18n.t("player:next.autoplayBlocked");
+      });
+    };
     let captionsRenderer: CaptionsRenderer | null = null;
     let captionsOverlay: HTMLDivElement | null = null;
     if (playbackMode === "mkvProxy") {
@@ -1020,6 +1040,9 @@ export const PlayerPage: React.FC = () => {
     const applyInitialSeek = () => {
       const context = contextRef.current;
       if (!context || initialSeekAppliedRef.current) return;
+      // The proxy emits metadata before its initial frame iterator is ready.
+      // Seeking there races with its reset to time zero and decodes twice.
+      if (playbackMode === "mkvProxy" && art.video.readyState < 2) return;
       const reload = playbackReloadRef.current;
       if (reload?.mediaKey === activeMediaKeyRef.current) {
         const duration = art.duration;
@@ -1037,9 +1060,7 @@ export const PlayerPage: React.FC = () => {
         playbackReloadRef.current = null;
         wantsPlaybackRef.current = reload.playing;
         if (reload.playing) {
-          void art.play().catch(() => {
-            art.notice.show = i18n.t("player:next.autoplayBlocked");
-          });
+          startPlayback();
         }
         return;
       }
@@ -1073,6 +1094,7 @@ export const PlayerPage: React.FC = () => {
     const onLoadedMetadata = () => {
       const context = contextRef.current;
       if (!context) return;
+      if (playbackMode === "mkvProxy" && art.video.readyState < 2) return;
       applyInitialSeek();
 
       const discoveredTracks = readAudioTracks(
@@ -1122,9 +1144,7 @@ export const PlayerPage: React.FC = () => {
       }
 
       if (shouldAutoplay && !isReload) {
-        void art.play().catch(() => {
-          art.notice.show = i18n.t("player:next.autoplayBlocked");
-        });
+        startPlayback();
       }
     };
 
@@ -1141,6 +1161,7 @@ export const PlayerPage: React.FC = () => {
         void sourceRefreshRef.current?.();
     };
     const onPause = () => {
+      autoplayAfterSeek = false;
       if (!disposed && !art.video.error && playbackReloadRef.current === null)
         wantsPlaybackRef.current = false;
       persistCurrentProgressRef.current(true);
@@ -1156,7 +1177,7 @@ export const PlayerPage: React.FC = () => {
       }
       const code = art.video.error?.code;
       if (
-        playbackMode === "native" &&
+        playbackMode !== "hls" &&
         !forceHlsRef.current &&
         (code === 3 || code === 4)
       ) {
@@ -1165,6 +1186,7 @@ export const PlayerPage: React.FC = () => {
       }
     };
     const onSeeked = () => {
+      if (autoplayAfterSeek) startPlayback();
       if (captionsRenderer) captionsRenderer.currentTime = art.currentTime;
       persistCurrentProgressRef.current(true);
       if (skippedEndingRef.current) skippedEndingRef.current.seeked = true;
@@ -1186,6 +1208,9 @@ export const PlayerPage: React.FC = () => {
     const onBeforeUnload = () => persistCurrentProgressRef.current(true, true);
 
     art.on("video:loadedmetadata", onLoadedMetadata);
+    if (playbackMode === "mkvProxy") {
+      art.on("video:loadeddata", onLoadedMetadata);
+    }
     art.on("video:durationchange", applyInitialSeek);
     art.on("video:timeupdate", onTimeUpdate);
     art.on("video:play", onPlay);
