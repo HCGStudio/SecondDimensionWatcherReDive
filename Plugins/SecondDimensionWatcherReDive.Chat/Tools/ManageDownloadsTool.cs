@@ -197,6 +197,10 @@ internal sealed partial class ManageDownloadsTool(
                 return new ToolFailureResult("Download state changed before cancellation");
         }
 
+        if (cancellationLease.SubmissionPending)
+            return new ToolSuccessResult<string>(
+                "Download cancellation accepted and pending background recovery");
+
         var remainingRemoteBudget = DownloadCancellationRemoteBudget -
                                     Stopwatch.GetElapsedTime(leaseRequestStartedAt);
         if (remainingRemoteBudget <= TimeSpan.Zero)

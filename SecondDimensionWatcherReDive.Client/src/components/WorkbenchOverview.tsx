@@ -20,7 +20,15 @@ const DownloadSummary: React.FC<{
   item: IAnimationInfo;
 }> = ({ item }) => {
   const { t } = useTranslation("animation");
-  const { data: status, error, mutate } = useAnimationDownloadStatus(item.id);
+  const cancellationRequested =
+    item.isDownloadTracked &&
+    !item.isDownloadFinished &&
+    item.automationDisposition === "DownloadCancelled";
+  const {
+    data: status,
+    error,
+    mutate,
+  } = useAnimationDownloadStatus(cancellationRequested ? null : item.id);
   const { canContentWrite } = useAccess();
   const { addToast } = useToast();
   const [pending, setPending] = React.useState(false);
@@ -63,6 +71,7 @@ const DownloadSummary: React.FC<{
           ) : null}
         </div>
         {canContentWrite &&
+        !cancellationRequested &&
         status &&
         (status.state === "Downloading" || paused) ? (
           <button
@@ -86,7 +95,11 @@ const DownloadSummary: React.FC<{
           </button>
         ) : null}
       </div>
-      {error && !status ? (
+      {cancellationRequested ? (
+        <p className="mt-3 text-xs text-muted" role="status">
+          {t("cancellationPending")}
+        </p>
+      ) : error && !status ? (
         <p className="mt-3 text-xs text-error" role="alert">
           {t("workbench.statusUnavailable")}
         </p>
