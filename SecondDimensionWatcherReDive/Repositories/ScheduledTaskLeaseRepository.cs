@@ -1,5 +1,4 @@
 using Microsoft.EntityFrameworkCore;
-using Npgsql;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 
 namespace SecondDimensionWatcherReDive.Repositories;
@@ -15,44 +14,27 @@ public sealed class ScheduledTaskLeaseRepository(Models.ApplicationContext conte
         bool force,
         CancellationToken cancellationToken)
     {
-        var affected = await context.ScheduledTaskStates
-            .Where(state => state.TaskId == taskId
-                            && (state.LeaseOwner == null
-                                || state.LeaseExpiresAt <= now
-                                || state.LeaseOwner == ownerId
-                                || (force
-                                    && state.LastCompletedAt != null
-                                    && (state.LastStartedAt == null
-                                        || state.LastCompletedAt >= state.LastStartedAt))))
-            .ExecuteUpdateAsync(setters => setters
-                .SetProperty(state => state.LeaseOwner, ownerId)
-                .SetProperty(state => state.LeaseExpiresAt, leaseUntil)
-                .SetProperty(state => state.LastStartedAt, now)
-                .SetProperty(state => state.RunCount, state => state.RunCount + 1),
-                cancellationToken);
-        if (affected == 1)
-            return true;
-
-        var state = new Models.ScheduledTaskState
-        {
-            TaskId = taskId,
-            LeaseOwner = ownerId,
-            LeaseExpiresAt = leaseUntil,
-            LastStartedAt = now,
-            RunCount = 1
-        };
-        await context.ScheduledTaskStates.AddAsync(state, cancellationToken);
-        try
-        {
-            await context.SaveChangesAsync(cancellationToken);
-            return true;
-        }
-        catch (DbUpdateException exception) when (
-            exception.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
-        {
-            context.ChangeTracker.Clear();
-            return false;
-        }
+        // A competing lease is an expected outcome, not an insert failure.
+        // Decide creation or takeover atomically, including concurrent first runs.
+        var affected = await context.Database.CreateExecutionStrategy().ExecuteAsync(
+            token => context.Database.ExecuteSqlInterpolatedAsync($"""
+                INSERT INTO "ScheduledTaskStates" AS state
+                    ("TaskId", "LeaseOwner", "LeaseExpiresAt", "LastStartedAt", "RunCount")
+                VALUES ({taskId}, {ownerId}, {leaseUntil}, {now}, 1)
+                ON CONFLICT ("TaskId") DO UPDATE
+                SET "LeaseOwner" = EXCLUDED."LeaseOwner",
+                    "LeaseExpiresAt" = EXCLUDED."LeaseExpiresAt",
+                    "LastStartedAt" = EXCLUDED."LastStartedAt",
+                    "RunCount" = state."RunCount" + 1
+                WHERE state."LeaseOwner" IS NULL
+                   OR state."LeaseExpiresAt" <= EXCLUDED."LastStartedAt"
+                   OR state."LeaseOwner" = EXCLUDED."LeaseOwner"
+                   OR ({force}
+                       AND state."LastCompletedAt" IS NOT NULL
+                       AND (state."LastStartedAt" IS NULL
+                            OR state."LastCompletedAt" >= state."LastStartedAt"))
+                """, token), cancellationToken);
+        return affected == 1;
     }
 
     public async Task<bool> RenewAsync(
