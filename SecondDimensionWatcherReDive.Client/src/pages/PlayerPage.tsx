@@ -16,8 +16,6 @@ import {
   ArrowLeft,
   CheckCircle2,
   ChevronRight,
-  Languages,
-  ListMusic,
   RotateCcw,
 } from "lucide-react";
 
@@ -31,7 +29,6 @@ import { ExternalPlayerButtons } from "../components/ExternalPlayerButtons";
 import { useToast } from "../components/ToastProvider";
 import { Button } from "../components/ui/Button";
 import { EmptyPrompt } from "../components/ui/EmptyPrompt";
-import { Select, SelectItem } from "../components/ui/Select";
 import { Spinner } from "../components/ui/Spinner";
 import { generatePlaybackLink } from "../file/utils";
 import {
@@ -42,13 +39,14 @@ import {
   type EndingProgressGuard,
   TimelineControls,
 } from "../playback/TimelineControls";
-import {
-  savePlaybackPreferences,
-  savePlaybackProgress,
-  setPlaybackWatched,
-} from "../playback/api";
+import { savePlaybackProgress, setPlaybackWatched } from "../playback/api";
 import "../playback/captions.css";
 import { usePlaybackContext } from "../playback/hooks";
+import {
+  getPreferredLanguage,
+  normalizeLanguage,
+} from "../playback/languagePreferences";
+import { getPreferredMkvAudioTrack } from "../playback/mkv/audioTracks";
 import {
   chooseMkvPlaybackPlan,
   isAbortError,
@@ -113,46 +111,11 @@ interface VideoWithAudioTracks extends HTMLVideoElement {
   readonly audioTracks?: BrowserAudioTrackList;
 }
 
-interface AudioTrackOption {
-  key: string;
-  label: string;
-  language: string | null;
-  trackIndex: number | null;
-}
-
 interface PendingProgressSave {
   request: Parameters<typeof savePlaybackProgress>[0];
   mediaKey: string;
   identityKey: string;
 }
-
-interface PendingPreferenceSave {
-  preferences: PlaybackPreferences;
-  version: number;
-  identityKey: string;
-}
-
-const preferenceAudioOptions: AudioTrackOption[] = [
-  { key: "preference:auto", label: "auto", language: null, trackIndex: null },
-  { key: "preference:ja", label: "ja", language: "ja", trackIndex: null },
-  { key: "preference:zh", label: "zh", language: "zh", trackIndex: null },
-  { key: "preference:en", label: "en", language: "en", trackIndex: null },
-];
-
-const normalizeLanguage = (value: string | null | undefined): string | null => {
-  if (!value) return null;
-  const normalized = value.trim().toLowerCase().replace("_", "-");
-  if (
-    normalized.startsWith("zh") ||
-    normalized === "chi" ||
-    normalized === "zho"
-  ) {
-    return "zh";
-  }
-  if (normalized.startsWith("ja") || normalized === "jpn") return "ja";
-  if (normalized.startsWith("en") || normalized === "eng") return "en";
-  return normalized.split("-")[0] || null;
-};
 
 const normalizeCaptionFormat = (format: string): CaptionsFileFormat => {
   const normalized = format.trim().toLowerCase();
@@ -166,16 +129,10 @@ const selectPreferredSubtitle = (
   preferences: PlaybackPreferences,
   interfaceLanguage: string,
 ): ResolvedSubtitle | null => {
-  if (normalizeLanguage(preferences.subtitleLanguage) === "off") return null;
-
-  if (preferences.subtitleTrackLabel) {
-    const exact = subtitles.find(
-      (subtitle) => subtitle.label === preferences.subtitleTrackLabel,
-    );
-    if (exact) return exact;
-  }
-
-  const preferredLanguage = normalizeLanguage(preferences.subtitleLanguage);
+  const preferredLanguage = getPreferredLanguage(
+    preferences,
+    interfaceLanguage,
+  );
   if (preferredLanguage) {
     const languageMatch = subtitles.find(
       (subtitle) => normalizeLanguage(subtitle.language) === preferredLanguage,
@@ -189,46 +146,6 @@ const selectPreferredSubtitle = (
       normalizeLanguage(interfaceLanguage),
   );
   return interfaceMatch ?? (subtitles.length === 1 ? subtitles[0] : null);
-};
-
-const readAudioTracks = (
-  video: VideoWithAudioTracks,
-  unknownLabel: string,
-): AudioTrackOption[] => {
-  const tracks = video.audioTracks;
-  if (!tracks || tracks.length === 0) return [];
-
-  return Array.from({ length: tracks.length }, (_, index) => {
-    const track = tracks[index];
-    const language = normalizeLanguage(track.language);
-    const label =
-      track.label?.trim() || language || `${unknownLabel} ${index + 1}`;
-    return {
-      key: `track:${track.id || index}`,
-      label,
-      language,
-      trackIndex: index,
-    };
-  });
-};
-
-const chooseAudioTrack = (
-  tracks: AudioTrackOption[],
-  preferences: PlaybackPreferences,
-): AudioTrackOption | null => {
-  if (preferences.audioTrackLabel) {
-    const exact = tracks.find(
-      (track) => track.label === preferences.audioTrackLabel,
-    );
-    if (exact) return exact;
-  }
-  const preferredLanguage = normalizeLanguage(preferences.audioLanguage);
-  return (
-    tracks.find((track) => track.language === preferredLanguage) ??
-    tracks.find((track) => track.trackIndex != null) ??
-    tracks[0] ??
-    null
-  );
 };
 
 const navigateToMedia = (
@@ -259,6 +176,13 @@ export const PlayerPage: React.FC = () => {
     mutate: mutateContext,
   } = usePlaybackContext(animationId, file);
 
+  const preferredLanguage = playbackContext
+    ? getPreferredLanguage(
+        playbackContext.preferences,
+        i18n.resolvedLanguage ?? i18n.language,
+      )
+    : null;
+
   const fileName =
     playbackContext?.media.path.split("/").pop() ??
     file?.split("/").pop() ??
@@ -267,6 +191,9 @@ export const PlayerPage: React.FC = () => {
     string | null
   >(null);
   const [playbackUrl, setPlaybackUrl] = React.useState<string | null>(null);
+  const [preparedLanguage, setPreparedLanguage] = React.useState<string | null>(
+    null,
+  );
   const [playbackMode, setPlaybackMode] =
     React.useState<PlaybackMode>("native");
   const [mkvProbe, setMkvProbe] = React.useState<MkvPlaybackProbe | null>(null);
@@ -283,10 +210,6 @@ export const PlayerPage: React.FC = () => {
   const [linkError, setLinkError] = React.useState<string | null>(null);
   const [subtitles, setSubtitles] = React.useState<ResolvedSubtitle[]>([]);
   const [selectedSubtitle, setSelectedSubtitle] = React.useState(OFF_TRACK);
-  const [audioTracks, setAudioTracks] = React.useState<AudioTrackOption[]>([]);
-  const [selectedAudio, setSelectedAudio] = React.useState("preference:auto");
-  const selectedAudioRef = React.useRef<AudioTrackOption | null>(null);
-  const [savingPreferences, setSavingPreferences] = React.useState(false);
   const [savingWatched, setSavingWatched] = React.useState(false);
   const [forceHls, setForceHls] = React.useState(false);
   const forceHlsRef = React.useRef(forceHls);
@@ -306,14 +229,12 @@ export const PlayerPage: React.FC = () => {
     rate: number;
     volume: number;
     muted: boolean;
-    audio: Pick<AudioTrackOption, "key" | "label" | "language"> | null;
   } | null>(null);
   const captionsRendererRef = React.useRef<CaptionsRenderer | null>(null);
   const nativeSubtitleSwitchesRef = React.useRef(
     new WeakMap<Artplayer, Promise<void>>(),
   );
   const contextRef = React.useRef(playbackContext);
-  const preferencesRef = React.useRef(playbackContext?.preferences);
   const lastSyncedTimeRef = React.useRef(-1);
   const skippedEndingRef = React.useRef<{
     targetSeconds: number;
@@ -322,12 +243,15 @@ export const PlayerPage: React.FC = () => {
   const endingProgressGuardRef = React.useRef<EndingProgressGuard | null>(null);
   const initialSeekAppliedRef = React.useRef(false);
   const subtitleSelectionInitializedRef = React.useRef(false);
+  const manualSubtitleRef = React.useRef<
+    | Pick<ResolvedSubtitle, "path" | "label" | "language">
+    | typeof OFF_TRACK
+    | null
+  >(null);
+  const preparedMediaKeyRef = React.useRef<string | null>(null);
   const audioSelectionInitializedRef = React.useRef(false);
   const pendingProgressRef = React.useRef<PendingProgressSave | null>(null);
   const progressSaveRunningRef = React.useRef(false);
-  const pendingPreferenceRef = React.useRef<PendingPreferenceSave | null>(null);
-  const preferenceSaveRunningRef = React.useRef(false);
-  const preferenceVersionRef = React.useRef(0);
   const playerIdentityRef = React.useRef(getAuthIdentityKey());
   const canPlaybackWriteRef = React.useRef(canPlaybackWrite);
   canPlaybackWriteRef.current = canPlaybackWrite;
@@ -355,7 +279,6 @@ export const PlayerPage: React.FC = () => {
       rate: art.playbackRate,
       volume: art.volume,
       muted: art.muted,
-      audio: selectedAudioRef.current,
     };
     initialSeekAppliedRef.current = false;
     audioSelectionInitializedRef.current = false;
@@ -372,17 +295,12 @@ export const PlayerPage: React.FC = () => {
   React.useEffect(() => {
     if (playbackContext) {
       contextRef.current = playbackContext;
-      if (!preferenceSaveRunningRef.current) {
-        preferencesRef.current = playbackContext.preferences;
-      }
     }
   }, [playbackContext]);
 
   React.useEffect(() => {
     if (canPlaybackWrite) return;
     pendingProgressRef.current = null;
-    pendingPreferenceRef.current = null;
-    preferenceVersionRef.current += 1;
   }, [canPlaybackWrite]);
 
   React.useEffect(
@@ -391,12 +309,9 @@ export const PlayerPage: React.FC = () => {
         if (auth && !profileChanged) return;
         // Keep the identity captured by this mounted player unchanged. Its
         // teardown callbacks will therefore discard rather than persist the
-        // old profile's position/preferences with a replacement token.
+        // old profile's position with a replacement token.
         pendingProgressRef.current = null;
-        pendingPreferenceRef.current = null;
-        preferenceVersionRef.current += 1;
         contextRef.current = undefined;
-        preferencesRef.current = undefined;
         lastSyncedTimeRef.current = -1;
         sourceRefreshRef.current = null;
         playbackReloadRef.current = null;
@@ -421,9 +336,7 @@ export const PlayerPage: React.FC = () => {
     setSubtitleDiscoveryComplete(false);
     setSubtitles([]);
     setSelectedSubtitle(OFF_TRACK);
-    setAudioTracks([]);
-    setSelectedAudio("preference:auto");
-    selectedAudioRef.current = null;
+    manualSubtitleRef.current = null;
     setLinkError(null);
     lastSyncedTimeRef.current = -1;
     initialSeekAppliedRef.current = false;
@@ -434,6 +347,11 @@ export const PlayerPage: React.FC = () => {
 
   React.useEffect(() => {
     if (!animationId || !playbackContext) return;
+    if (preparedMediaKeyRef.current === activeMediaKey) {
+      retainPlaybackForReload();
+      setPlaybackUrl(null);
+    }
+    preparedMediaKeyRef.current = activeMediaKey;
     let cancelled = false;
     let releasePreparedMedia: (() => void) | null = null;
     let cancelServerUrl: string | null = null;
@@ -538,6 +456,7 @@ export const PlayerPage: React.FC = () => {
     });
 
     const preparePlayback = async () => {
+      setPreparedLanguage(preferredLanguage);
       let generatedLinks = false;
       try {
         const { videoLink, subtitleLinks } = await loadSourceLinks();
@@ -545,6 +464,7 @@ export const PlayerPage: React.FC = () => {
 
         generatedLinks = true;
         setExternalPlaybackUrl(videoLink.externalUrl ?? null);
+        subtitleSelectionInitializedRef.current = false;
         setSubtitles(subtitleLinks);
         scheduleSourceRefresh(videoLink.expiresAt);
 
@@ -560,7 +480,11 @@ export const PlayerPage: React.FC = () => {
           setMkvStatus({ stage: "probing" });
           const { probeMkvPlayback } = await import("../playback/mkv/support");
           try {
-            probe = await probeMkvPlayback(videoLink.url, controller.signal);
+            probe = await probeMkvPlayback(
+              videoLink.url,
+              controller.signal,
+              preferredLanguage,
+            );
           } catch (error) {
             if (isAbortError(error)) throw error;
             // Failed browser probing can still use the server-side fallback.
@@ -638,10 +562,11 @@ export const PlayerPage: React.FC = () => {
             id: animationId,
             path: playbackContext.media.path,
             quality: "auto",
-            audioLanguage: playbackContext.preferences.audioLanguage,
-            audioTrackLabel: playbackContext.preferences.audioTrackLabel,
-            subtitleLanguage: playbackContext.preferences.subtitleLanguage,
-            subtitleTrackLabel: playbackContext.preferences.subtitleTrackLabel,
+            audioLanguage: preferredLanguage,
+            subtitleLanguage:
+              manualSubtitleRef.current === OFF_TRACK
+                ? "off"
+                : preferredLanguage,
             forceHls,
           },
           controller.signal,
@@ -740,6 +665,8 @@ export const PlayerPage: React.FC = () => {
   }, [
     animationId,
     playbackContext?.media.path,
+    activeMediaKey,
+    preferredLanguage,
     subtitleSignature,
     addToast,
     i18n,
@@ -748,45 +675,43 @@ export const PlayerPage: React.FC = () => {
   ]);
 
   React.useEffect(() => {
-    if (
-      !playbackContext ||
-      subtitleDiscoveryComplete ||
-      subtitleSelectionInitializedRef.current
-    ) {
+    if (!playbackContext || subtitleSelectionInitializedRef.current) return;
+    const manual = manualSubtitleRef.current;
+    if (manual === OFF_TRACK) {
+      setSelectedSubtitle(OFF_TRACK);
+      subtitleSelectionInitializedRef.current = true;
       return;
     }
-    const externalSubtitles = subtitles.filter(
-      (subtitle) => subtitle.source === "external",
-    );
-    const selected = selectPreferredSubtitle(
-      externalSubtitles,
-      playbackContext.preferences,
-      i18n.resolvedLanguage ?? i18n.language,
-    );
-    if (selected) setSelectedSubtitle(selected.path);
-  }, [
-    i18n.language,
-    i18n.resolvedLanguage,
-    playbackContext,
-    subtitleDiscoveryComplete,
-    subtitles,
-  ]);
-
-  React.useEffect(() => {
-    if (
-      !playbackContext ||
-      !subtitleDiscoveryComplete ||
-      subtitleSelectionInitializedRef.current
-    ) {
-      return;
+    const available = subtitleDiscoveryComplete
+      ? subtitles
+      : subtitles.filter((subtitle) => subtitle.source === "external");
+    // Embedded subtitle paths differ between browser extraction and HLS.
+    // Keep a manual choice through fallback, using its label/language to find it.
+    const selected = manual
+      ? (available.find((subtitle) => subtitle.path === manual.path) ??
+        available.find(
+          (subtitle) =>
+            subtitle.label === manual.label &&
+            normalizeLanguage(subtitle.language) ===
+              normalizeLanguage(manual.language),
+        ) ??
+        (normalizeLanguage(manual.language)
+          ? available.find(
+              (subtitle) =>
+                normalizeLanguage(subtitle.language) ===
+                normalizeLanguage(manual.language),
+            )
+          : null))
+      : selectPreferredSubtitle(
+          available,
+          playbackContext.preferences,
+          i18n.resolvedLanguage ?? i18n.language,
+        );
+    if (selected || subtitleDiscoveryComplete) {
+      setSelectedSubtitle(selected?.path ?? OFF_TRACK);
     }
-    const selected = selectPreferredSubtitle(
-      subtitles,
-      playbackContext.preferences,
-      i18n.resolvedLanguage ?? i18n.language,
-    );
-    setSelectedSubtitle(selected?.path ?? OFF_TRACK);
-    subtitleSelectionInitializedRef.current = true;
+    if (subtitleDiscoveryComplete)
+      subtitleSelectionInitializedRef.current = true;
   }, [
     i18n.language,
     i18n.resolvedLanguage,
@@ -991,6 +916,8 @@ export const PlayerPage: React.FC = () => {
       proxy:
         playbackMode === "mkvProxy"
           ? artplayerProxyMediabunny({
+              getAudioTrack: (input, videoTrack) =>
+                getPreferredMkvAudioTrack(input, preparedLanguage, videoTrack),
               preflightRange: true,
               dropLateFrames: true,
               loadTimeout: 30_000,
@@ -1115,47 +1042,18 @@ export const PlayerPage: React.FC = () => {
       if (playbackMode === "mkvProxy" && art.video.readyState < 2) return;
       applyInitialSeek();
 
-      const discoveredTracks = readAudioTracks(
-        art.video as VideoWithAudioTracks,
-        i18n.t("player:tracks.unknownAudio"),
-      );
-      setAudioTracks(discoveredTracks);
-      if (!audioSelectionInitializedRef.current) {
-        const available =
-          discoveredTracks.length > 0
-            ? discoveredTracks
-            : preferenceAudioOptions;
-        const previousAudio = reloadSnapshot?.audio;
-        const restoredAudio = previousAudio
-          ? (available.find((track) => track.key === previousAudio.key) ??
-            available.find(
-              (track) =>
-                track.label === previousAudio.label &&
-                track.language === previousAudio.language,
-            ) ??
-            (previousAudio.language
-              ? available.find(
-                  (track) => track.language === previousAudio.language,
-                )
-              : undefined))
+      const tracks = (art.video as VideoWithAudioTracks).audioTracks;
+      if (!audioSelectionInitializedRef.current && tracks?.length) {
+        const language = preparedLanguage;
+        const preferredIndex = language
+          ? Array.from({ length: tracks.length }, (_, index) => index).find(
+              (index) => normalizeLanguage(tracks[index].language) === language,
+            )
           : undefined;
-        const choice =
-          restoredAudio ??
-          chooseAudioTrack(
-            available,
-            preferencesRef.current ?? context.preferences,
-          );
-        if (choice) {
-          selectedAudioRef.current = choice;
-          setSelectedAudio(choice.key);
-          if (choice.trackIndex != null) {
-            const nativeTracks = (art.video as VideoWithAudioTracks)
-              .audioTracks;
-            if (nativeTracks) {
-              for (let index = 0; index < nativeTracks.length; index += 1) {
-                nativeTracks[index].enabled = index === choice.trackIndex;
-              }
-            }
+        // Leave the media's default audio enabled when no language matches.
+        if (preferredIndex !== undefined) {
+          for (let index = 0; index < tracks.length; index += 1) {
+            tracks[index].enabled = index === preferredIndex;
           }
         }
         audioSelectionInitializedRef.current = true;
@@ -1259,6 +1157,7 @@ export const PlayerPage: React.FC = () => {
   }, [
     playbackUrl,
     playbackMode,
+    preparedLanguage,
     playbackContext?.media.virtualPath,
     i18n,
     navigate,
@@ -1354,130 +1253,15 @@ export const PlayerPage: React.FC = () => {
     return () => controller.abort();
   }, [addToast, playbackMode, playbackUrl, selectedSubtitle, subtitles, t]);
 
-  const flushPreferenceQueue = React.useCallback(async () => {
-    if (preferenceSaveRunningRef.current) return;
-    preferenceSaveRunningRef.current = true;
-    setSavingPreferences(true);
-    try {
-      while (pendingPreferenceRef.current) {
-        const pending = pendingPreferenceRef.current;
-        pendingPreferenceRef.current = null;
-        if (
-          !canSendProfileMutation(
-            pending.identityKey,
-            canPlaybackWriteRef.current,
-          )
-        ) {
-          continue;
-        }
-        try {
-          const saved = await savePlaybackPreferences(pending.preferences);
-          if (
-            preferenceVersionRef.current !== pending.version ||
-            !canSendProfileMutation(
-              pending.identityKey,
-              canPlaybackWriteRef.current,
-            )
-          ) {
-            continue;
-          }
-          preferencesRef.current = saved;
-          void mutateContext(
-            (context) =>
-              context ? { ...context, preferences: saved } : context,
-            false,
-          );
-        } catch {
-          if (
-            preferenceVersionRef.current === pending.version &&
-            canSendProfileMutation(
-              pending.identityKey,
-              canPlaybackWriteRef.current,
-            )
-          ) {
-            addToast({
-              title: i18n.t("player:preferences.saveFailed"),
-              color: "danger",
-            });
-            void mutateContext();
-          }
-        }
-      }
-    } finally {
-      preferenceSaveRunningRef.current = false;
-      setSavingPreferences(false);
-    }
-  }, [addToast, i18n, mutateContext]);
-
-  const updatePreferences = React.useCallback(
-    (changes: Partial<PlaybackPreferences>) => {
-      const identityKey = playerIdentityRef.current;
-      if (
-        !identityKey ||
-        !canSendProfileMutation(identityKey, canPlaybackWriteRef.current)
-      ) {
-        pendingPreferenceRef.current = null;
-        return;
-      }
-      const current = preferencesRef.current;
-      if (!current) return;
-      const next: PlaybackPreferences = { ...current, ...changes };
-      preferencesRef.current = next;
-      const version = preferenceVersionRef.current + 1;
-      preferenceVersionRef.current = version;
-      pendingPreferenceRef.current = {
-        preferences: next,
-        version,
-        identityKey,
-      };
-      void mutateContext(
-        (context) => (context ? { ...context, preferences: next } : context),
-        false,
-      );
-      void flushPreferenceQueue();
-    },
-    [flushPreferenceQueue, mutateContext],
-  );
-
   const onSubtitleChange = React.useCallback(
     (path: string) => {
+      // A manual track choice belongs to this playback, not the profile default.
+      const subtitle = subtitles.find((item) => item.path === path);
+      manualSubtitleRef.current = subtitle ?? OFF_TRACK;
       subtitleSelectionInitializedRef.current = true;
       setSelectedSubtitle(path);
-      const subtitle = subtitles.find((item) => item.path === path);
-      void updatePreferences({
-        subtitleLanguage:
-          path === OFF_TRACK ? "off" : (subtitle?.language ?? null),
-        subtitleTrackLabel: subtitle?.label ?? null,
-      });
     },
-    [subtitles, updatePreferences],
-  );
-
-  const displayAudioTracks =
-    audioTracks.length > 0 ? audioTracks : preferenceAudioOptions;
-
-  const onAudioChange = React.useCallback(
-    (key: string) => {
-      setSelectedAudio(key);
-      const choice = displayAudioTracks.find((track) => track.key === key);
-      if (!choice) return;
-      selectedAudioRef.current = choice;
-
-      if (choice.trackIndex != null) {
-        const nativeTracks = (artRef.current?.video as VideoWithAudioTracks)
-          ?.audioTracks;
-        if (nativeTracks) {
-          for (let index = 0; index < nativeTracks.length; index += 1) {
-            nativeTracks[index].enabled = index === choice.trackIndex;
-          }
-        }
-      }
-      void updatePreferences({
-        audioLanguage: choice.language,
-        audioTrackLabel: choice.trackIndex != null ? choice.label : null,
-      });
-    },
-    [displayAudioTracks, updatePreferences],
+    [subtitles],
   );
 
   const onToggleWatched = React.useCallback(async () => {
@@ -1624,9 +1408,6 @@ export const PlayerPage: React.FC = () => {
             endingProgressGuardRef={endingProgressGuardRef}
             onTimelineResolved={() => persistCurrentProgressRef.current(true)}
             autoSkip={preferences?.autoSkip ?? false}
-            onAutoSkipChange={(enabled) =>
-              void updatePreferences({ autoSkip: enabled })
-            }
             onSkipEnding={(targetSeconds) => {
               skippedEndingRef.current = { targetSeconds, seeked: false };
             }}
@@ -1709,100 +1490,6 @@ export const PlayerPage: React.FC = () => {
                 ) : null}
               </div>
             </div>
-          </section>
-
-          <section className="mt-4 rounded-xl border border-border bg-surface p-4 shadow-ring">
-            <div className="mb-4 flex items-center justify-between gap-3">
-              <div>
-                <h2 className="font-sans text-base font-medium text-foreground">
-                  {t("preferences.title")}
-                </h2>
-                <p className="mt-0.5 text-xs text-muted">
-                  {t("preferences.crossDevice")}
-                </p>
-              </div>
-              {savingPreferences ? <Spinner size={16} /> : null}
-            </div>
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <label className="block">
-                <span className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-muted">
-                  <Languages size={14} />
-                  {t("tracks.subtitle")}
-                </span>
-                <Select
-                  value={selectedSubtitle}
-                  onValueChange={(value) => onSubtitleChange(value)}
-                  className="w-full rounded-md border border-border bg-canvas px-3 py-2 text-sm text-foreground focus:border-focus focus:outline-hidden focus:ring-2 focus:ring-focus"
-                >
-                  <SelectItem value={OFF_TRACK}>{t("tracks.off")}</SelectItem>
-                  {subtitles.map((subtitle) => (
-                    <SelectItem key={subtitle.path} value={subtitle.path}>
-                      {subtitle.label}
-                      {subtitle.language ? ` · ${subtitle.language}` : ""}
-                    </SelectItem>
-                  ))}
-                </Select>
-                <p className="mt-1 text-xs text-subtle">
-                  {subtitles.length > 0
-                    ? t("tracks.available", { count: subtitles.length })
-                    : subtitleDiscoveryComplete
-                      ? t("tracks.none")
-                      : t("mkv.stages.extractingSubtitles")}
-                </p>
-                {skippedSubtitleCount > 0 ? (
-                  <p className="mt-1 text-xs text-warning">
-                    {t("mkv.bitmapSubtitlesSkipped", {
-                      count: skippedSubtitleCount,
-                    })}
-                  </p>
-                ) : null}
-              </label>
-
-              <label className="block">
-                <span className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-muted">
-                  <ListMusic size={14} />
-                  {t("tracks.audio")}
-                </span>
-                <Select
-                  value={selectedAudio}
-                  onValueChange={(value) => onAudioChange(value)}
-                  className="w-full rounded-md border border-border bg-canvas px-3 py-2 text-sm text-foreground focus:border-focus focus:outline-hidden focus:ring-2 focus:ring-focus"
-                >
-                  {displayAudioTracks.map((track) => (
-                    <SelectItem key={track.key} value={track.key}>
-                      {track.trackIndex == null
-                        ? t(`tracks.audioLanguages.${track.label}`)
-                        : track.label}
-                    </SelectItem>
-                  ))}
-                </Select>
-                <p className="mt-1 text-xs text-subtle">
-                  {audioTracks.length > 0
-                    ? t("tracks.audioDetected", { count: audioTracks.length })
-                    : t("tracks.audioPreferenceOnly")}
-                </p>
-              </label>
-            </div>
-
-            <label className="mt-4 flex cursor-pointer items-start gap-3 border-t border-border-light pt-4">
-              <input
-                type="checkbox"
-                checked={preferences?.autoPlayNext ?? true}
-                disabled={!canPlaybackWrite}
-                onChange={(event) =>
-                  void updatePreferences({ autoPlayNext: event.target.checked })
-                }
-                className="mt-0.5 h-4 w-4 accent-brand"
-              />
-              <span>
-                <span className="block text-sm font-medium text-foreground">
-                  {t("next.autoPlay")}
-                </span>
-                <span className="mt-0.5 block text-xs text-muted">
-                  {t("next.autoPlayHint")}
-                </span>
-              </span>
-            </label>
           </section>
         </>
       ) : null}

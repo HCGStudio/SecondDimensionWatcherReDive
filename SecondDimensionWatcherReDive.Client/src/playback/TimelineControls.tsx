@@ -44,7 +44,6 @@ export const TimelineControls: React.FC<{
   path: string;
   playerRef: React.RefObject<Artplayer | null>;
   autoSkip: boolean;
-  onAutoSkipChange: (enabled: boolean) => void;
   onSkipEnding: (targetSeconds: number) => void;
   onTimelineResolved: () => void;
   endingProgressGuardRef: React.RefObject<EndingProgressGuard | null>;
@@ -53,13 +52,12 @@ export const TimelineControls: React.FC<{
   path,
   playerRef,
   autoSkip,
-  onAutoSkipChange,
   onSkipEnding,
   onTimelineResolved,
   endingProgressGuardRef,
 }) => {
   const { t } = useTranslation("player");
-  const { canContentWrite, canPlaybackWrite } = useAccess();
+  const { canContentWrite } = useAccess();
   const { addToast } = useToast();
   const query = new URLSearchParams({ animationInfoId, path });
   const { data, error, mutate, isLoading, isValidating } =
@@ -254,16 +252,6 @@ export const TimelineControls: React.FC<{
           {t("timeline.failed")}
         </p>
       )}
-      <label className="mt-3 flex items-center gap-2 text-sm">
-        <input
-          type="checkbox"
-          className="accent-brand"
-          checked={autoSkip}
-          disabled={!canPlaybackWrite}
-          onChange={(e) => onAutoSkipChange(e.target.checked)}
-        />
-        {t("timeline.autoSkip")}
-      </label>
       {effective && (
         <p className="mt-2 text-xs text-subtle">
           {t(

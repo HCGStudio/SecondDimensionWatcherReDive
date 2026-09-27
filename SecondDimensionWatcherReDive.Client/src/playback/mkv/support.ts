@@ -1,5 +1,7 @@
 import { Input, MATROSKA, UrlSource } from "mediabunny";
 
+import { getPreferredMkvAudioTrack } from "./audioTracks";
+
 export { isAbortError, isMkvPath } from "./runtime";
 
 export interface MkvPlaybackProbe {
@@ -38,6 +40,7 @@ export const canCopyVideoCodecToMp4 = (
 export const probeMkvPlayback = async (
   url: string,
   signal: AbortSignal,
+  preferredLanguage?: string | null,
 ): Promise<MkvPlaybackProbe> => {
   if (signal.aborted) throw abortError();
 
@@ -55,7 +58,11 @@ export const probeMkvPlayback = async (
     const videoTrack = await input.getPrimaryVideoTrack();
     if (!videoTrack) throw new Error("The MKV file has no video track");
 
-    const audioTrack = await videoTrack.getPrimaryPairableAudioTrack();
+    const audioTrack = await getPreferredMkvAudioTrack(
+      input,
+      preferredLanguage,
+      videoTrack,
+    );
     const [videoCodec, audioCodec, videoDecodable, audioDecodable] =
       await Promise.all([
         videoTrack.getCodec(),
