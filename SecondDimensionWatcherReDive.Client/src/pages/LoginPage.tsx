@@ -4,7 +4,7 @@ import { useNavigate } from "react-router";
 import { mutate } from "swr";
 
 import { useAllowRegister, useLoginStatus } from "../auth/hooks";
-import { setAuthResult } from "../auth/httpClient";
+import { getAuthResult, setAuthResult } from "../auth/httpClient";
 import { login, register } from "../auth/utils";
 import { BrandIcon } from "../components/BrandIcon";
 import { Button } from "../components/ui/Button";
@@ -16,7 +16,8 @@ import { PageTemplate } from "./PageTemplate";
 export const LoginPage: React.FC = () => {
   const { t } = useTranslation("auth");
   const { data: registerInfo } = useAllowRegister();
-  const { data: status } = useLoginStatus();
+  const { data: status, error: statusError } = useLoginStatus();
+  const isAuthenticated = Boolean(status && !statusError && getAuthResult());
   const [password, setPassword] = React.useState("");
   const [username, setUsername] = React.useState("admin");
   const [profileName, setProfileName] = React.useState("Home");
@@ -51,7 +52,6 @@ export const LoginPage: React.FC = () => {
         if (r?.success) {
           setAuthResult(r);
           await mutate("/api/auth/verify");
-          navigate("/");
         } else {
           setRegisterFailed(true);
         }
@@ -61,7 +61,7 @@ export const LoginPage: React.FC = () => {
         setIsSubmitting(false);
       }
     },
-    [password, passwordConfirm, isSubmitting, navigate, profileName, username],
+    [password, passwordConfirm, isSubmitting, profileName, username],
   );
 
   const onLogin = React.useCallback(
@@ -78,7 +78,6 @@ export const LoginPage: React.FC = () => {
         if (r?.success) {
           setAuthResult(r);
           await mutate("/api/auth/verify");
-          navigate("/");
         } else {
           setLoginFailed(true);
         }
@@ -88,18 +87,18 @@ export const LoginPage: React.FC = () => {
         setIsSubmitting(false);
       }
     },
-    [password, username, isSubmitting, navigate],
+    [password, username, isSubmitting],
   );
 
   React.useEffect(() => {
-    if (status) navigate("/");
-  }, [navigate, status]);
+    if (isAuthenticated) navigate("/", { replace: true });
+  }, [navigate, isAuthenticated]);
 
   return (
     <PageTemplate>
       <div className="mx-auto my-5 max-w-md rounded-xl border border-border bg-surface p-6 sm:my-10 sm:p-8">
         <BrandIcon className="mb-6 h-12 w-12" />
-        {status ? null : registerInfo?.allow ? (
+        {isAuthenticated ? null : registerInfo?.allow ? (
           <form onSubmit={onRegister}>
             <h2 className="font-sans text-2xl font-medium leading-heading">
               {t("setupTitle")}
