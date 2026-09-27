@@ -1,0 +1,12 @@
+{
+  "extends": "@parcel/config-default",
+  "transformers": {
+    "raw-url:*": ["@parcel/transformer-raw"]
+  },
+  "packagers": {
+    "raw-url:*": "@parcel/packager-raw"
+  },
+  "optimizers": {
+    "raw-url:*": []
+  }
+}
