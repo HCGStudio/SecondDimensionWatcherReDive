@@ -77,7 +77,9 @@ const extract = async (
   // contain static ES module imports. Keep text helpers in their own module.
   const { buildWebVtt, cleanSubtitleText, normalizeMkvSubtitleFormat } =
     await import("./subtitleText");
-  // This is an unmodified classic script. Parcel must not tree-shake its
+  // The Yarn patch makes the bundle's process.nextTick use globalThis so it
+  // also works in this worker, where window is unavailable.
+  // Parcel must preserve the classic script and must not tree-shake its
   // MatroskaSubtitles global assignment or turn it into a module-local value.
   workerScope.importScripts(options.parserScriptUrl);
   const library = workerScope.MatroskaSubtitles;
