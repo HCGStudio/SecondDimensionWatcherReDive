@@ -1840,6 +1840,27 @@ const VFS_TREE = {
   "/unknown": [vfsFile("[unsorted] random release.mkv", 700, 6)],
 };
 
+// Expose the playback fixtures through the same virtual paths in the file browser.
+// Keep the standalone VFS samples above for files without playable mappings.
+for (const animation of animations.values()) {
+  if (!animation.isDownloadFinished) continue;
+  for (const [relativeDirectory, entries] of Object.entries(FILE_TREE)) {
+    const directory = playbackVirtualPath(animation, relativeDirectory).replace(/\/+$/, "");
+    const segments = directory.split("/").filter(Boolean);
+    let parent = "/";
+    for (const segment of segments) {
+      const children = (VFS_TREE[parent] ??= []);
+      if (!children.some((entry) => entry.name === segment)) children.push(vfsDir(segment));
+      parent = parent === "/" ? `/${segment}` : `${parent}/${segment}`;
+    }
+    const children = (VFS_TREE[directory] ??= []);
+    for (const entry of entries) {
+      if (children.some((child) => child.name === entry.fileName)) continue;
+      children.push(entry.isDirectory ? vfsDir(entry.fileName) : vfsFile(entry.fileName, 700, 6));
+    }
+  }
+}
+
 function vfsResolve(rawPath) {
   // Returns { entry, isDirectory, parent } or null when missing.
   let p = rawPath || "/";
@@ -2469,6 +2490,22 @@ async function route(method, pathname, searchParams, req, res) {
         ),
       ),
     );
+  }
+
+  if (method === "GET" && pathname === "/api/playback/resolve") {
+    const virtualPath = searchParams.get("virtualPath");
+    if (
+      !virtualPath?.startsWith("/") ||
+      virtualPath.length > 2048 ||
+      /[\\\u0000-\u001f\u007f-\u009f]/.test(virtualPath) ||
+      virtualPath.slice(1).split("/").some((segment) => !segment || segment === "." || segment === "..")
+    ) return empty(res, 400);
+    for (const animation of animations.values()) {
+      if (!animation.isDownloadFinished) continue;
+      const path = playablePaths().find((candidate) => playbackVirtualPath(animation, candidate) === virtualPath);
+      if (path) return json(res, playbackMedia(animation, path));
+    }
+    return empty(res, 404);
   }
 
   if (method === "GET" && pathname === "/api/playback/context") {

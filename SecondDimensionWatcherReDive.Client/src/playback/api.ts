@@ -3,9 +3,20 @@ import {
   PlaybackContext,
   PlaybackPreferences,
   PlaybackState,
+  PlaybackTarget,
   SavePlaybackProgressRequest,
   SetWatchedRequest,
 } from "./types";
+
+export const resolvePlaybackMedia = async (
+  virtualPath: string,
+  signal?: AbortSignal,
+): Promise<PlaybackTarget> => {
+  const params = new URLSearchParams({ virtualPath });
+  return await fetcher(`/api/playback/resolve?${params.toString()}`, {
+    signal,
+  });
+};
 
 export const playbackContextKey = (
   animationInfoId: string,
