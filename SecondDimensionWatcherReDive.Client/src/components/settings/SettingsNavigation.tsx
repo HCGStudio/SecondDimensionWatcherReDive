@@ -10,6 +10,7 @@ import {
   Network,
   Palette,
   Puzzle,
+  ShieldCheck,
 } from "lucide-react";
 
 import { cn } from "../../lib/cn";
@@ -17,6 +18,7 @@ import { Select, SelectItem } from "./SettingsControls";
 
 export const settingsSectionIds = [
   "appearance",
+  "security",
   "ai",
   "downloads",
   "media",
@@ -30,6 +32,7 @@ export type SettingsSectionId = (typeof settingsSectionIds)[number];
 
 const sectionIcons: Record<SettingsSectionId, React.ReactNode> = {
   appearance: <Palette size={17} />,
+  security: <ShieldCheck size={17} />,
   ai: <Bot size={17} />,
   downloads: <Download size={17} />,
   media: <Database size={17} />,

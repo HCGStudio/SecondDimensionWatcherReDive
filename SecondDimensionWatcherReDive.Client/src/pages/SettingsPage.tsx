@@ -14,6 +14,7 @@ import { HealthSettingsSection } from "../components/settings/HealthSettingsSect
 import { MediaSettingsSection } from "../components/settings/MediaSettingsSection";
 import { NotificationSettingsSection } from "../components/settings/NotificationSettingsSection";
 import { PluginSettingsSection } from "../components/settings/PluginSettingsSection";
+import { SecuritySettingsSection } from "../components/settings/SecuritySettingsSection";
 import {
   SettingsNavigation,
   SettingsSectionId,
@@ -42,13 +43,19 @@ export const SettingsPage: React.FC = () => {
   const { isAdministrator } = useAccess();
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedSection = searchParams.get("section");
-  const activeSection: SettingsSectionId = !isAdministrator
-    ? "appearance"
-    : isSectionId(requestedSection)
+  const activeSection: SettingsSectionId =
+    isSectionId(requestedSection) &&
+    (isAdministrator ||
+      requestedSection === "appearance" ||
+      requestedSection === "security")
       ? requestedSection
-      : "ai";
+      : isAdministrator
+        ? "ai"
+        : "appearance";
   const { data, error, mutate } = useSystemSettings(
-    isAdministrator && activeSection !== "appearance",
+    isAdministrator &&
+      activeSection !== "appearance" &&
+      activeSection !== "security",
   );
 
   const selectSection = React.useCallback(
@@ -95,16 +102,20 @@ export const SettingsPage: React.FC = () => {
       <header className="mb-8">
         <h1 className="font-sans text-2xl font-medium text-foreground">
           {t(
-            isAdministrator
-              ? "settings:pageTitle"
-              : "settings:appearance.pageTitle",
+            activeSection === "security"
+              ? "settings:security.title"
+              : isAdministrator
+                ? "settings:pageTitle"
+                : "settings:appearance.pageTitle",
           )}
         </h1>
         <p className="mt-2 max-w-3xl text-sm leading-body text-muted">
           {t(
             activeSection === "appearance"
               ? "settings:appearance.pageDescription"
-              : "settings:system.pageDescription",
+              : activeSection === "security"
+                ? "settings:security.pageDescription"
+                : "settings:system.pageDescription",
           )}
         </p>
       </header>
@@ -127,13 +138,17 @@ export const SettingsPage: React.FC = () => {
         <aside>
           <SettingsNavigation
             active={activeSection}
-            sections={isAdministrator ? settingsSectionIds : ["appearance"]}
+            sections={
+              isAdministrator ? settingsSectionIds : ["appearance", "security"]
+            }
             onChange={selectSection}
           />
         </aside>
         <div className="min-w-0">
           {activeSection === "appearance" ? (
             <AppearanceSettingsSection />
+          ) : activeSection === "security" ? (
+            <SecuritySettingsSection />
           ) : error ? (
             <EmptyPrompt
               role="alert"

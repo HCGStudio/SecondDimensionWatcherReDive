@@ -7,6 +7,7 @@ public sealed class UserAccount
     public Guid Id { get; set; }
     public string Username { get; set; } = string.Empty;
     public string? PasswordHash { get; set; }
+    public bool PasswordRemoved { get; set; }
     public UserRole Role { get; set; }
     public bool IsDisabled { get; set; }
     public DateTimeOffset CreatedAt { get; set; }

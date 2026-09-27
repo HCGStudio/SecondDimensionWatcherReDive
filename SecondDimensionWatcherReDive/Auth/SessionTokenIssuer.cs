@@ -26,7 +26,8 @@ internal sealed class SessionTokenIssuer(
         UserAccount user,
         UserProfile profile,
         string? deviceName,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool passwordAuthentication = false)
     {
         var now = DateTimeOffset.UtcNow;
         var refreshToken = GenerateRefreshToken();
@@ -41,7 +42,7 @@ internal sealed class SessionTokenIssuer(
             now,
             now.AddDays((configuration.GetSection(TokenSecurityOptions.SectionName).Get<TokenSecurityOptions>() ?? new TokenSecurityOptions()).RefreshTokenDays),
             null);
-        await identityRepository.AddSessionAsync(session, cancellationToken);
+        await identityRepository.AddSessionAsync(session, passwordAuthentication, cancellationToken);
         return new IssuedSessionTokens(
             GenerateAccessToken(user, profile, session),
             refreshToken,
@@ -54,7 +55,8 @@ internal sealed class SessionTokenIssuer(
         UserProfile profile,
         string expectedRefreshToken,
         bool reauthenticated,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool passwordAuthentication = false)
     {
         var now = DateTimeOffset.UtcNow;
         var refreshToken = GenerateRefreshToken();
@@ -67,6 +69,7 @@ internal sealed class SessionTokenIssuer(
                 authenticatedAt,
                 now,
                 now.AddDays((configuration.GetSection(TokenSecurityOptions.SectionName).Get<TokenSecurityOptions>() ?? new TokenSecurityOptions()).RefreshTokenDays),
+                passwordAuthentication,
                 cancellationToken))
             return null;
 

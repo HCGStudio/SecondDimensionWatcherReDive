@@ -50,7 +50,8 @@
       "health": "ヘルス監視",
       "notifications": "通知",
       "access": "アクセスプロトコル",
-      "plugins": "プラグイン"
+      "plugins": "プラグイン",
+      "security": "アカウントのセキュリティ"
     },
     "pendingRestart": {
       "title": "再起動待ちの設定があります",
@@ -482,5 +483,30 @@
       "copied": "クリップボードにコピーしました",
       "copyFailed": "コピーに失敗しました。手動でコピーしてください"
     }
+  },
+  "security": {
+    "pageDescription": "アカウントへのログイン方法を管理します。",
+    "title": "アカウントのセキュリティ",
+    "description": "デバイスのパスキーでログインし、重要な操作を確認できます。",
+    "passkeysTitle": "パスキー",
+    "passkeysDescription": "指紋認証、顔認証、画面ロック、またはセキュリティキーで確認します。秘密鍵は認証器に保存されます。",
+    "noPasskeys": "パスキーはまだ追加されていません。",
+    "passkeyName": "パスキーの名前",
+    "namePlaceholder": "例：スマートフォン、セキュリティキー",
+    "addPasskey": "パスキーを追加",
+    "added": "パスキーを追加しました",
+    "createdAt": "追加日時：{{date}}",
+    "lastUsedAt": "最終使用：{{date}}",
+    "passwordTitle": "パスワード",
+    "passwordEnabled": "パスワードでのログインは有効です。",
+    "passwordDisabled": "パスワードでのログインは無効です。",
+    "addFirst": "パスワードを削除するには、先にパスキーを追加してください。",
+    "removeHelp": "保存済みのパスキーで確認してからパスワードを削除します。他のログイン中のセッションはログアウトされます。",
+    "removePassword": "パスワードを削除",
+    "removeConfirm": "削除後は、ログインと重要な操作にパスキーが必要です。HTTPS でのみ利用できます。パスキーにアクセスできることを確認してください。他のログイン中のセッションはログアウトされます。",
+    "verifyAndRemove": "パスキーで確認して削除",
+    "passwordRemoved": "パスワードを削除しました",
+    "passwordlessHelp": "保存済みのパスキーでログインし、重要な操作を確認してください。パスキーは HTTPS でのみ利用できます。",
+    "loadFailed": "セキュリティ設定を読み込めませんでした。"
   }
 }

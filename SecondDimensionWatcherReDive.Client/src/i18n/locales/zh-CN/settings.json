@@ -50,7 +50,8 @@
       "health": "健康监控",
       "notifications": "通知",
       "access": "访问协议",
-      "plugins": "插件"
+      "plugins": "插件",
+      "security": "账户安全"
     },
     "pendingRestart": {
       "title": "存在等待重启生效的设置",
@@ -482,5 +483,30 @@
       "copied": "已复制到剪贴板",
       "copyFailed": "复制失败，请手动复制"
     }
+  },
+  "security": {
+    "pageDescription": "管理账户的登录方式。",
+    "title": "账户安全",
+    "description": "使用设备上的通行密钥登录并确认敏感操作。",
+    "passkeysTitle": "通行密钥（Passkey）",
+    "passkeysDescription": "使用设备的指纹、面容、锁屏密码或安全密钥进行验证。私钥保存在你的验证器中。",
+    "noPasskeys": "尚未添加通行密钥。",
+    "passkeyName": "通行密钥名称",
+    "namePlaceholder": "例如：我的手机或安全密钥",
+    "addPasskey": "添加通行密钥",
+    "added": "通行密钥已添加",
+    "createdAt": "添加于 {{date}}",
+    "lastUsedAt": "上次使用于 {{date}}",
+    "passwordTitle": "密码",
+    "passwordEnabled": "已启用密码登录。",
+    "passwordDisabled": "已关闭密码登录。",
+    "addFirst": "添加通行密钥后才能删除密码。",
+    "removeHelp": "验证已保存的通行密钥后即可删除密码。其他已登录的会话将退出登录。",
+    "removePassword": "删除密码",
+    "removeConfirm": "删除后，登录及敏感操作均需使用通行密钥，且仅支持 HTTPS。请确保你能使用已保存的通行密钥。其他已登录的会话将退出登录。",
+    "verifyAndRemove": "验证通行密钥并删除",
+    "passwordRemoved": "密码已删除",
+    "passwordlessHelp": "使用已保存的通行密钥登录及确认敏感操作。通行密钥仅限 HTTPS 使用。",
+    "loadFailed": "无法加载账户安全设置。"
   }
 }

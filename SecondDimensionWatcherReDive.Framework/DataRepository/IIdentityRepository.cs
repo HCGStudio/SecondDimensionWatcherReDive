@@ -51,7 +51,7 @@ public interface IIdentityRepository
         DateTimeOffset now,
         CancellationToken cancellationToken);
 
-    Task AddSessionAsync(UserSession session, CancellationToken cancellationToken);
+    Task AddSessionAsync(UserSession session, bool requirePassword, CancellationToken cancellationToken);
 
     Task<AuthenticatedSession?> GetAuthenticatedSessionAsync(
         Guid sessionId,
@@ -66,6 +66,7 @@ public interface IIdentityRepository
         DateTimeOffset? authenticatedAt,
         DateTimeOffset now,
         DateTimeOffset expiresAt,
+        bool requirePassword,
         CancellationToken cancellationToken);
 
     Task<IReadOnlyList<UserSessionSummary>> GetSessionsAsync(

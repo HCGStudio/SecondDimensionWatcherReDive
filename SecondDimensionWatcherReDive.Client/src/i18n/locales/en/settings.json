@@ -50,7 +50,8 @@
       "health": "Health monitoring",
       "notifications": "Notifications",
       "access": "Access protocols",
-      "plugins": "Plugins"
+      "plugins": "Plugins",
+      "security": "Account security"
     },
     "pendingRestart": {
       "title": "Some settings are waiting for a restart",
@@ -482,5 +483,30 @@
       "copied": "Copied to clipboard",
       "copyFailed": "Copy failed — please copy manually"
     }
+  },
+  "security": {
+    "pageDescription": "Manage how you sign in to your account.",
+    "title": "Account security",
+    "description": "Use a passkey on your device to sign in and confirm sensitive actions.",
+    "passkeysTitle": "Passkeys",
+    "passkeysDescription": "A passkey uses your device’s fingerprint, face recognition, screen lock or security key. Your private key stays with your authenticator.",
+    "noPasskeys": "No passkeys have been added.",
+    "passkeyName": "Passkey name",
+    "namePlaceholder": "For example, my phone or security key",
+    "addPasskey": "Add passkey",
+    "added": "Passkey added",
+    "createdAt": "Added {{date}}",
+    "lastUsedAt": "Last used {{date}}",
+    "passwordTitle": "Password",
+    "passwordEnabled": "Password sign-in is enabled.",
+    "passwordDisabled": "Password sign-in is disabled.",
+    "addFirst": "Add a passkey before removing your password.",
+    "removeHelp": "Verify one of your saved passkeys to remove your password. Other signed-in sessions will be signed out.",
+    "removePassword": "Remove password",
+    "removeConfirm": "You will use passkeys for future sign-ins and sensitive actions, over HTTPS only. Confirm that you can access your passkey. Other signed-in sessions will be signed out.",
+    "verifyAndRemove": "Verify passkey and remove",
+    "passwordRemoved": "Password removed",
+    "passwordlessHelp": "Use a saved passkey to sign in and confirm sensitive actions. Passkeys are available only over HTTPS.",
+    "loadFailed": "Unable to load account security settings."
   }
 }

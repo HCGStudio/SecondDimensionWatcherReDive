@@ -43,4 +43,6 @@ internal sealed record AuthStateResponse(
     string Role,
     Guid SessionId,
     Guid ProfileId,
-    IReadOnlyList<AuthProfileResponse> Profiles);
+    IReadOnlyList<AuthProfileResponse> Profiles,
+    bool HasPassword = true,
+    bool HasPasskeys = false);
