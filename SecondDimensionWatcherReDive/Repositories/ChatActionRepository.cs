@@ -7,7 +7,9 @@ using DataPendingChatAction = SecondDimensionWatcherReDive.Framework.DataReposit
 
 namespace SecondDimensionWatcherReDive.Repositories;
 
-public sealed class ChatActionRepository(ApplicationContext context) : IChatActionRepository
+public sealed class ChatActionRepository(
+    ApplicationContext context,
+    DbContextOptions<ApplicationContext> contextOptions) : IChatActionRepository
 {
     public async Task AddAsync(
         PendingChatActionDraft action,
@@ -128,26 +130,30 @@ public sealed class ChatActionRepository(ApplicationContext context) : IChatActi
             return new(ChatActionClaimOutcome.ConfirmationRequired, ToRecord(action));
         }
 
-        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
-        var claimed = await context.ChatPendingActions
-            .Where(candidate => candidate.Id == action.Id && candidate.State == ChatActionState.Pending)
-            .ExecuteUpdateAsync(setters => setters
-                    .SetProperty(candidate => candidate.State, ChatActionState.Executing)
-                    .SetProperty(candidate => candidate.DecidedAt, now)
-                    .SetProperty(candidate => candidate.ExecutionStartedAt, now)
-                    .SetProperty(candidate => candidate.ProtectedApprovalToken, string.Empty),
-                cancellationToken) == 1;
+        var claimed = await ExecuteTransactionAsync(async (writeContext, token) =>
+        {
+            var updated = await writeContext.ChatPendingActions
+                .Where(candidate => candidate.Id == action.Id && candidate.State == ChatActionState.Pending)
+                .ExecuteUpdateAsync(setters => setters
+                        .SetProperty(candidate => candidate.State, ChatActionState.Executing)
+                        .SetProperty(candidate => candidate.DecidedAt, now)
+                        .SetProperty(candidate => candidate.ExecutionStartedAt, now)
+                        .SetProperty(candidate => candidate.ProtectedApprovalToken, string.Empty),
+                    token) == 1;
+            if (!updated)
+                return false;
+
+            await writeContext.ChatActionAudits.AddRangeAsync(
+                [
+                    CreateAudit(action, ChatActionAuditEvent.Approved, "Approval token consumed", now),
+                    CreateAudit(action, ChatActionAuditEvent.ExecutionStarted, "Execution claimed", now)
+                ],
+                token);
+            return true;
+        }, cancellationToken);
         if (!claimed)
             return new(ChatActionClaimOutcome.AlreadyProcessed);
 
-        await context.ChatActionAudits.AddRangeAsync(
-            [
-                CreateAudit(action, ChatActionAuditEvent.Approved, "Approval token consumed", now),
-                CreateAudit(action, ChatActionAuditEvent.ExecutionStarted, "Execution claimed", now)
-            ],
-            cancellationToken);
-        await context.SaveChangesAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
         action.State = ChatActionState.Executing;
         action.DecidedAt = now;
         action.ExecutionStartedAt = now;
@@ -226,31 +232,31 @@ public sealed class ChatActionRepository(ApplicationContext context) : IChatActi
         if (action is null)
             return false;
 
-        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
-        var targetState = succeeded ? ChatActionState.Succeeded : ChatActionState.Failed;
-        var updated = await context.ChatPendingActions
-            .Where(candidate => candidate.Id == actionId && candidate.State == ChatActionState.Executing)
-            .ExecuteUpdateAsync(setters => setters
-                    .SetProperty(candidate => candidate.State, targetState)
-                    .SetProperty(candidate => candidate.CompletedAt, completedAt)
-                    .SetProperty(candidate => candidate.ResultSummary, resultSummary)
-                    .SetProperty(candidate => candidate.ErrorSummary, errorSummary)
-                    .SetProperty(candidate => candidate.ToolResultJson, toolResultJson),
-                cancellationToken) == 1;
-        if (!updated)
-            return false;
+        return await ExecuteTransactionAsync(async (writeContext, token) =>
+        {
+            var targetState = succeeded ? ChatActionState.Succeeded : ChatActionState.Failed;
+            var updated = await writeContext.ChatPendingActions
+                .Where(candidate => candidate.Id == actionId && candidate.State == ChatActionState.Executing)
+                .ExecuteUpdateAsync(setters => setters
+                        .SetProperty(candidate => candidate.State, targetState)
+                        .SetProperty(candidate => candidate.CompletedAt, completedAt)
+                        .SetProperty(candidate => candidate.ResultSummary, resultSummary)
+                        .SetProperty(candidate => candidate.ErrorSummary, errorSummary)
+                        .SetProperty(candidate => candidate.ToolResultJson, toolResultJson),
+                    token) == 1;
+            if (!updated)
+                return false;
 
-        await ReplacePersistedToolResultAsync(action, toolResultJson, cancellationToken);
-        await context.ChatActionAudits.AddAsync(
-            CreateAudit(
-                action,
-                succeeded ? ChatActionAuditEvent.ExecutionSucceeded : ChatActionAuditEvent.ExecutionFailed,
-                succeeded ? resultSummary : errorSummary,
-                completedAt),
-            cancellationToken);
-        await context.SaveChangesAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
-        return true;
+            await ReplacePersistedToolResultAsync(writeContext, action, toolResultJson, token);
+            await writeContext.ChatActionAudits.AddAsync(
+                CreateAudit(
+                    action,
+                    succeeded ? ChatActionAuditEvent.ExecutionSucceeded : ChatActionAuditEvent.ExecutionFailed,
+                    succeeded ? resultSummary : errorSummary,
+                    completedAt),
+                token);
+            return true;
+        }, cancellationToken);
     }
 
     public async Task<int> RecoverAbandonedExecutionsAsync(
@@ -262,48 +268,47 @@ public sealed class ChatActionRepository(ApplicationContext context) : IChatActi
         DateTimeOffset recoveredAt,
         CancellationToken cancellationToken)
     {
-        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
-        var abandoned = await context.ChatPendingActions
-            .AsNoTracking()
-            .Where(action =>
-                action.ConversationId == conversationId
-                && action.UserId == userId
-                && action.State == ChatActionState.Executing
-                && action.ExecutionStartedAt <= executionStartedBefore)
-            .ToListAsync(cancellationToken);
-        var recovered = 0;
-        foreach (var action in abandoned)
+        return await ExecuteTransactionAsync(async (writeContext, token) =>
         {
-            var updated = await context.ChatPendingActions
-                .Where(candidate =>
-                    candidate.Id == action.Id
-                    && candidate.State == ChatActionState.Executing
-                    && candidate.ExecutionStartedAt <= executionStartedBefore)
-                .ExecuteUpdateAsync(setters => setters
-                        .SetProperty(candidate => candidate.State, ChatActionState.Failed)
-                        .SetProperty(candidate => candidate.CompletedAt, recoveredAt)
-                        .SetProperty(candidate => candidate.ResultSummary, (string?)null)
-                        .SetProperty(candidate => candidate.ErrorSummary, errorSummary)
-                        .SetProperty(candidate => candidate.ToolResultJson, toolResultJson),
-                    cancellationToken) == 1;
-            if (!updated)
-                continue;
+            var abandoned = await writeContext.ChatPendingActions
+                .AsNoTracking()
+                .Where(action =>
+                    action.ConversationId == conversationId
+                    && action.UserId == userId
+                    && action.State == ChatActionState.Executing
+                    && action.ExecutionStartedAt <= executionStartedBefore)
+                .ToListAsync(token);
+            var recovered = 0;
+            foreach (var action in abandoned)
+            {
+                var updated = await writeContext.ChatPendingActions
+                    .Where(candidate =>
+                        candidate.Id == action.Id
+                        && candidate.State == ChatActionState.Executing
+                        && candidate.ExecutionStartedAt <= executionStartedBefore)
+                    .ExecuteUpdateAsync(setters => setters
+                            .SetProperty(candidate => candidate.State, ChatActionState.Failed)
+                            .SetProperty(candidate => candidate.CompletedAt, recoveredAt)
+                            .SetProperty(candidate => candidate.ResultSummary, (string?)null)
+                            .SetProperty(candidate => candidate.ErrorSummary, errorSummary)
+                            .SetProperty(candidate => candidate.ToolResultJson, toolResultJson),
+                        token) == 1;
+                if (!updated)
+                    continue;
 
-            recovered++;
-            await ReplacePersistedToolResultAsync(action, toolResultJson, cancellationToken);
-            await context.ChatActionAudits.AddAsync(
-                CreateAudit(
-                    action,
-                    ChatActionAuditEvent.ExecutionFailed,
-                    errorSummary,
-                    recoveredAt),
-                cancellationToken);
-        }
+                recovered++;
+                await ReplacePersistedToolResultAsync(writeContext, action, toolResultJson, token);
+                await writeContext.ChatActionAudits.AddAsync(
+                    CreateAudit(
+                        action,
+                        ChatActionAuditEvent.ExecutionFailed,
+                        errorSummary,
+                        recoveredAt),
+                    token);
+            }
 
-        if (recovered > 0)
-            await context.SaveChangesAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
-        return recovered;
+            return recovered;
+        }, cancellationToken);
     }
 
     public async Task<IReadOnlyList<ChatActionAuditEntry>> GetAuditAsync(
@@ -358,30 +363,45 @@ public sealed class ChatActionRepository(ApplicationContext context) : IChatActi
         DateTimeOffset decidedAt,
         CancellationToken cancellationToken)
     {
-        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
-        var updated = await context.ChatPendingActions
-            .Where(candidate => candidate.Id == action.Id && candidate.State == ChatActionState.Pending)
-            .ExecuteUpdateAsync(setters => setters
-                    .SetProperty(candidate => candidate.State, state)
-                    .SetProperty(candidate => candidate.DecidedAt, decidedAt)
-                    .SetProperty(candidate => candidate.ProtectedApprovalToken, string.Empty),
-                cancellationToken) == 1;
-        if (!updated)
-            return false;
+        return await ExecuteTransactionAsync(async (writeContext, token) =>
+        {
+            var updated = await writeContext.ChatPendingActions
+                .Where(candidate => candidate.Id == action.Id && candidate.State == ChatActionState.Pending)
+                .ExecuteUpdateAsync(setters => setters
+                        .SetProperty(candidate => candidate.State, state)
+                        .SetProperty(candidate => candidate.DecidedAt, decidedAt)
+                        .SetProperty(candidate => candidate.ProtectedApprovalToken, string.Empty),
+                    token) == 1;
+            if (!updated)
+                return false;
 
-        await context.ChatActionAudits.AddAsync(
-            CreateAudit(action, auditEvent, detail, decidedAt), cancellationToken);
-        await context.SaveChangesAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
-        return true;
+            await writeContext.ChatActionAudits.AddAsync(
+                CreateAudit(action, auditEvent, detail, decidedAt), token);
+            return true;
+        }, cancellationToken);
     }
 
-    private async Task ReplacePersistedToolResultAsync(
+    private Task<TResult> ExecuteTransactionAsync<TResult>(
+        Func<ApplicationContext, CancellationToken, Task<TResult>> operation,
+        CancellationToken cancellationToken) =>
+        context.Database.CreateExecutionStrategy().ExecuteAsync(async token =>
+        {
+            // A retry must not reuse audit entities tracked by a rolled-back attempt.
+            await using var writeContext = new ApplicationContext(contextOptions);
+            await using var transaction = await writeContext.Database.BeginTransactionAsync(token);
+            var result = await operation(writeContext, token);
+            await writeContext.SaveChangesAsync(token);
+            await transaction.CommitAsync(token);
+            return result;
+        }, cancellationToken);
+
+    private static async Task ReplacePersistedToolResultAsync(
+        ApplicationContext writeContext,
         ChatPendingAction action,
         string toolResultJson,
         CancellationToken cancellationToken)
     {
-        await context.ChatMessages
+        await writeContext.ChatMessages
             .Where(message =>
                 message.ConversationId == action.ConversationId
                 && message.Role == "tool"
