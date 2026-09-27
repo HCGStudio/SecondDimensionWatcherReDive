@@ -1,3 +1,4 @@
+import { apiErrorFromResponse } from "../errors/apiError";
 import { IAuthResult } from "./IAuthResult";
 
 export const refreshJwtToken = async (
@@ -10,6 +11,6 @@ export const refreshJwtToken = async (
     },
     body: JSON.stringify(oldToken),
   });
-  if (!response.ok) throw new Error(`${response.status}`);
+  if (!response.ok) throw await apiErrorFromResponse(response);
   return (await response.json()) as IAuthResult;
 };

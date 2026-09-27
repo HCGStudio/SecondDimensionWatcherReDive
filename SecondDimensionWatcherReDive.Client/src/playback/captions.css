@@ -1,0 +1,4 @@
+/* media-captions declares sideEffects: false, so Parcel drops CSS imported
+   directly from JavaScript in production. Keep it in the app's CSS graph. */
+@import "media-captions/styles/captions.css";
+@import "media-captions/styles/regions.css";

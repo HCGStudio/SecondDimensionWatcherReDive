@@ -47,6 +47,7 @@ import {
 } from "./ui/DropdownMenu";
 import { Progress } from "./ui/Progress";
 import { Spinner } from "./ui/Spinner";
+import { confirmDialog } from "./ui/dialogService";
 
 const AnimationFileSheet = React.lazy(() => import("./AnimationFileSheet"));
 
@@ -214,7 +215,7 @@ const ActionButtons: React.FC<{
   }, [value.id, addToast, t]);
 
   const onReidentifyFilesWithAi = React.useCallback(async () => {
-    if (!window.confirm(t("confirm.forceAiReidentifyFiles"))) return;
+    if (!(await confirmDialog(t("confirm.forceAiReidentifyFiles")))) return;
 
     setIsReidentifyingFiles(true);
     try {
@@ -271,14 +272,15 @@ const ActionButtons: React.FC<{
     [addToast, isCancelling, t, value.id],
   );
 
-  const onDelete = React.useCallback(() => {
+  const onDelete = React.useCallback(async () => {
     if (
-      window.confirm(
+      await confirmDialog(
         t(
           value.isDownloadFinished
             ? "confirm.deleteFile"
             : "confirm.cancelAndDelete",
         ),
+        { destructive: true, confirmLabel: t("actions.delete") },
       )
     ) {
       void onCancelDownload(true);
@@ -479,8 +481,12 @@ const ActionButtons: React.FC<{
                     isCancelling ||
                     cancellationRequested
                   }
-                  onSelect={() => {
-                    if (window.confirm(t("confirm.cancel"))) {
+                  onSelect={async () => {
+                    if (
+                      await confirmDialog(t("confirm.cancel"), {
+                        destructive: true,
+                      })
+                    ) {
                       void onCancelDownload(false);
                     }
                   }}

@@ -28,6 +28,8 @@ import { Card } from "../components/ui/Card";
 import { FormRow } from "../components/ui/FormRow";
 import { Input } from "../components/ui/Input";
 import { PasswordInput } from "../components/ui/PasswordInput";
+import { Select, SelectItem } from "../components/ui/Select";
+import { confirmDialog, promptDialog } from "../components/ui/dialogService";
 import { PageTemplate } from "./PageTemplate";
 
 const roles: UserRole[] = ["Admin", "Member", "Viewer"];
@@ -76,7 +78,10 @@ export const AccountPage: React.FC = () => {
   );
 
   const stepUp = React.useCallback(async (): Promise<boolean> => {
-    const value = window.prompt(t("reauthPrompt"));
+    const value = await promptDialog(t("reauthPrompt"), {
+      inputType: "password",
+      autoComplete: "current-password",
+    });
     if (!value) return false;
     await reauthenticate(value);
     await mutateStatus();
@@ -85,7 +90,12 @@ export const AccountPage: React.FC = () => {
 
   const activate = (profile: IAuthProfile) =>
     run(async () => {
-      const pin = profile.hasPin ? window.prompt(t("pinPrompt")) : undefined;
+      const pin = profile.hasPin
+        ? await promptDialog(t("pinPrompt"), {
+            inputType: "password",
+            inputMode: "numeric",
+          })
+        : undefined;
       if (profile.hasPin && pin === null) return;
       await switchProfile(profile.id, pin || undefined);
       await mutateAll(() => true, undefined, { revalidate: false });
@@ -94,22 +104,33 @@ export const AccountPage: React.FC = () => {
 
   const saveCurrentProfile = (profile: IAuthProfile) =>
     run(async () => {
-      const name = window.prompt(t("profileName"), profile.name);
+      const name = await promptDialog(t("profileName"), {
+        defaultValue: profile.name,
+      });
       if (!name) return;
-      const avatar = window.prompt(t("avatar"), profile.avatar ?? "");
+      const avatar = await promptDialog(t("avatar"), {
+        defaultValue: profile.avatar ?? "",
+      });
       if (avatar === null) return;
-      const replacePin = window.confirm(t("replacePinPrompt"));
+      const replacePin = await confirmDialog(t("replacePinPrompt"));
       let currentPin: string | undefined;
       let pin: string | undefined;
       if (replacePin) {
         if (profile.hasPin) {
-          const value = window.prompt(t("currentPin"));
+          const value = await promptDialog(t("currentPin"), {
+            inputType: "password",
+            inputMode: "numeric",
+          });
           if (value === null) return;
           currentPin = value;
         } else if (!(await stepUp())) {
           return;
         }
-        const value = window.prompt(t("newPin"));
+        const value = await promptDialog(t("newPin"), {
+          inputType: "password",
+          inputMode: "numeric",
+          autoComplete: "new-password",
+        });
         if (value === null) return;
         pin = value;
       }
@@ -300,17 +321,17 @@ export const AccountPage: React.FC = () => {
                   />
                 </FormRow>
                 <FormRow label={t("role")}>
-                  <select
+                  <Select
                     className="rounded-lg border border-border bg-surface px-3 py-2 text-sm"
                     value={newUserRole}
-                    onChange={(event) =>
-                      setNewUserRole(event.target.value as UserRole)
-                    }
+                    onValueChange={(value) => setNewUserRole(value as UserRole)}
                   >
                     {roles.map((role) => (
-                      <option key={role}>{role}</option>
+                      <SelectItem key={role} value={role}>
+                        {role}
+                      </SelectItem>
                     ))}
-                  </select>
+                  </Select>
                 </FormRow>
                 <FormRow hasEmptyLabelSpace>
                   <Button
@@ -336,12 +357,13 @@ export const AccountPage: React.FC = () => {
                       {user.profiles.map((profile) => profile.name).join(", ")}
                     </div>
                   </div>
-                  <select
-                    className="rounded-md border border-border bg-surface px-2 py-1.5 text-sm"
+                  <Select
+                    className="w-auto rounded-md border border-border bg-surface px-2 py-1.5 text-sm"
                     value={user.role}
+                    aria-label={`${user.username} · ${t("role")}`}
                     disabled={busy}
-                    onChange={(event) => {
-                      const role = event.target.value as UserRole;
+                    onValueChange={(value) => {
+                      const role = value as UserRole;
                       void run(async () => {
                         if (!(await stepUp())) return;
                         await updateUserAccess(user.id, role, user.isDisabled);
@@ -350,9 +372,11 @@ export const AccountPage: React.FC = () => {
                     }}
                   >
                     {roles.map((role) => (
-                      <option key={role}>{role}</option>
+                      <SelectItem key={role} value={role}>
+                        {role}
+                      </SelectItem>
                     ))}
-                  </select>
+                  </Select>
                   <Button
                     variant="outline"
                     color={user.isDisabled ? "success" : "danger"}

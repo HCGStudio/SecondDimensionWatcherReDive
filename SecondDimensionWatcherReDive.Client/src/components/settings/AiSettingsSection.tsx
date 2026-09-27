@@ -34,6 +34,7 @@ import { Input } from "../ui/Input";
 import {
   SecretField,
   Select,
+  SelectItem,
   SettingsSaveBar,
   SettingsSectionHeader,
 } from "./SettingsControls";
@@ -431,10 +432,10 @@ export const AiSettingsSection: React.FC<AiSettingsSectionProps> = ({
           >
             <Select
               value={draft.defaultProviderId ?? ""}
-              onChange={(event) =>
+              onValueChange={(value) =>
                 setDraft((current) => ({
                   ...current,
-                  defaultProviderId: event.target.value || null,
+                  defaultProviderId: value || null,
                   inference: current.inference.providerId
                     ? current.inference
                     : {
@@ -446,12 +447,14 @@ export const AiSettingsSection: React.FC<AiSettingsSectionProps> = ({
               }
             >
               {!draft.providers.length && (
-                <option value="">{t("system.ai.providers.empty")}</option>
+                <SelectItem value="">
+                  {t("system.ai.providers.empty")}
+                </SelectItem>
               )}
               {draft.providers.map((provider) => (
-                <option key={provider.id} value={provider.id}>
+                <SelectItem key={provider.id} value={provider.id}>
                   {provider.name} · {provider.id}
-                </option>
+                </SelectItem>
               ))}
             </Select>
           </FormRow>
@@ -515,8 +518,8 @@ export const AiSettingsSection: React.FC<AiSettingsSectionProps> = ({
               <FormRow label={t("system.ai.providers.protocol")}>
                 <Select
                   value={provider.protocol}
-                  onChange={(event) => {
-                    const protocol = event.target.value as AiProtocol;
+                  onValueChange={(value) => {
+                    const protocol = value as AiProtocol;
                     const sameOpenAiFamily =
                       protocol.startsWith("openAI") &&
                       provider.protocol.startsWith("openAI");
@@ -559,12 +562,16 @@ export const AiSettingsSection: React.FC<AiSettingsSectionProps> = ({
                     });
                   }}
                 >
-                  <option value="openAIResponses">OpenAI Responses</option>
-                  <option value="openAIChatCompletions">
+                  <SelectItem value="openAIResponses">
+                    OpenAI Responses
+                  </SelectItem>
+                  <SelectItem value="openAIChatCompletions">
                     OpenAI Chat Completions
-                  </option>
-                  <option value="anthropic">Anthropic Messages</option>
-                  <option value="codexAppServer">Codex App Server</option>
+                  </SelectItem>
+                  <SelectItem value="anthropic">Anthropic Messages</SelectItem>
+                  <SelectItem value="codexAppServer">
+                    Codex App Server
+                  </SelectItem>
                 </Select>
                 {provider.protocol === "openAIChatCompletions" && (
                   <p className="mt-1 text-xs leading-body text-subtle">
@@ -611,24 +618,24 @@ export const AiSettingsSection: React.FC<AiSettingsSectionProps> = ({
                 <Select
                   value={provider.model}
                   aria-invalid={!codex && !provider.model.trim()}
-                  onChange={(event) =>
+                  onValueChange={(value) =>
                     updateProvider(provider.id, {
-                      model: event.target.value,
+                      model: value,
                       reasoningEffort: chatCompletionsDefaultEffort(
                         provider.protocol,
-                        event.target.value,
+                        value,
                       ),
                     })
                   }
                 >
                   {(codex || !provider.model.trim()) && (
-                    <option value="" disabled={!codex}>
+                    <SelectItem value="" disabled={!codex}>
                       {t(
                         codex
                           ? "system.ai.codex.defaultModel"
                           : "system.ai.builtIn.model",
                       )}
-                    </option>
+                    </SelectItem>
                   )}
                   {models
                     .filter(
@@ -636,11 +643,11 @@ export const AiSettingsSection: React.FC<AiSettingsSectionProps> = ({
                         model.providerId === provider.id && model.id.trim(),
                     )
                     .map((model) => (
-                      <option key={model.id} value={model.id}>
+                      <SelectItem key={model.id} value={model.id}>
                         {model.name && model.name !== model.id
                           ? `${model.name} · ${model.id}`
                           : model.id}
-                      </option>
+                      </SelectItem>
                     ))}
                 </Select>
               </FormRow>
@@ -736,19 +743,19 @@ export const AiSettingsSection: React.FC<AiSettingsSectionProps> = ({
                 <FormRow label={t("system.ai.providers.defaultEffort")}>
                   <Select
                     value={provider.reasoningEffort ?? ""}
-                    onChange={(event) =>
+                    onValueChange={(value) =>
                       updateProvider(provider.id, {
-                        reasoningEffort: event.target.value || null,
+                        reasoningEffort: value || null,
                       })
                     }
                   >
-                    <option value="">
+                    <SelectItem value="">
                       {t("system.ai.providers.automatic")}
-                    </option>
+                    </SelectItem>
                     {efforts.map((effort) => (
-                      <option key={effort} value={effort}>
+                      <SelectItem key={effort} value={effort}>
                         {effort}
-                      </option>
+                      </SelectItem>
                     ))}
                   </Select>
                 </FormRow>

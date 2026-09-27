@@ -4,6 +4,7 @@ import { SWRConfig } from "swr";
 
 import { Main } from "./Main";
 import fetcher from "./auth/httpClient";
+import { DialogHost } from "./components/DialogHost";
 import { ToastProvider } from "./components/ToastProvider";
 import i18n from "./i18n";
 import { refreshWebPushServiceWorker } from "./notifications/webPush";
@@ -24,6 +25,7 @@ root.render(
     <SWRConfig value={{ fetcher: fetcher }}>
       <ToastProvider>
         <Main />
+        <DialogHost />
       </ToastProvider>
     </SWRConfig>
   </React.StrictMode>,

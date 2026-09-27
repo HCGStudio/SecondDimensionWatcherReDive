@@ -24,6 +24,7 @@ import { useToast } from "../ToastProvider";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
 import { Spinner } from "../ui/Spinner";
+import { confirmDialog } from "../ui/dialogService";
 
 export const PluginSettingsSection: React.FC = () => {
   const { t } = useTranslation("settings");
@@ -267,12 +268,13 @@ export const PluginSettingsSection: React.FC = () => {
                     <Button
                       variant="outline"
                       disabled={busy}
-                      onClick={() => {
+                      onClick={async () => {
                         if (
-                          window.confirm(
+                          await confirmDialog(
                             t("system.plugins.installed.uninstallConfirm", {
                               name: plugin.manifest.name,
                             }),
+                            { destructive: true },
                           )
                         )
                           void run(
@@ -288,12 +290,13 @@ export const PluginSettingsSection: React.FC = () => {
                       variant="outline"
                       color="danger"
                       disabled={busy}
-                      onClick={() => {
+                      onClick={async () => {
                         if (
-                          window.confirm(
+                          await confirmDialog(
                             t("system.plugins.installed.deleteConfirm", {
                               name: plugin.manifest.name,
                             }),
+                            { destructive: true },
                           )
                         )
                           void run(

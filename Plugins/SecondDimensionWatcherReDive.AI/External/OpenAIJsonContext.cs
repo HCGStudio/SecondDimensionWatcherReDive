@@ -8,5 +8,6 @@ namespace SecondDimensionWatcherReDive.AI.External;
 [JsonSerializable(typeof(OpenAIModelsResponse))]
 [JsonSerializable(typeof(OpenAIResponsesRequest))]
 [JsonSerializable(typeof(OpenAIResponsesInputItem))]
+[JsonSerializable(typeof(OpenAIResponsesAssistantMessage))]
 [JsonSerializable(typeof(OpenAIResponsesStreamEvent))]
 internal partial class OpenAIJsonContext : JsonSerializerContext;
