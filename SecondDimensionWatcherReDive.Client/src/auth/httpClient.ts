@@ -1,4 +1,4 @@
-import { apiErrorFromResponse } from "../errors/apiError";
+import { ApiError, apiErrorFromResponse } from "../errors/apiError";
 import { IAuthResult } from "./IAuthResult";
 import { refreshJwtToken } from "./sessionApi";
 
@@ -296,8 +296,11 @@ export const refreshAuthSession = async (
     try {
       const refreshInput = current ?? staleAuth;
       const refreshed = await refreshJwtToken(refreshInput);
-      if (!refreshed.success || !refreshed.token || !refreshed.refreshToken) {
-        throw new Error("Unauthorized");
+      if (refreshed?.success === false) {
+        throw new ApiError("refresh_rejected", 401);
+      }
+      if (!refreshed?.success || !refreshed.token || !refreshed.refreshToken) {
+        throw new Error("Invalid refresh response");
       }
       if (!hasSameIdentity(refreshed, refreshInput)) {
         throw new AuthIdentityChangedError();
@@ -325,7 +328,11 @@ export const refreshAuthSession = async (
         authResult = latest;
         return latest;
       }
-      clearAuth(staleAuth.refreshToken);
+      // Network failures, rate limits and server errors do not revoke the
+      // session. Keep its credentials so a later request can retry refreshing.
+      if (error instanceof ApiError && error.status === 401) {
+        clearAuth(staleAuth.refreshToken);
+      }
       throw error;
     }
   });
