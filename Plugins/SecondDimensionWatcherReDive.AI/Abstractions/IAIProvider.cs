@@ -1,3 +1,4 @@
+using System.Text.Json;
 using SecondDimensionWatcherReDive.AI.Models;
 using SecondDimensionWatcherReDive.Framework.AI;
 
@@ -30,4 +31,20 @@ public interface IAIProvider
         => string.IsNullOrWhiteSpace(reasoningEffort)
             ? StreamChatCompletionAsync(messages, tools, model, maxTokens, continuation, cancellationToken)
             : throw new ArgumentException($"Provider '{ProviderName}' does not support reasoning effort.");
+
+    /// <summary>
+    ///     Supplies an optional final-response schema to providers that support structured outputs.
+    ///     Other providers retain their existing prompt-based output behavior.
+    /// </summary>
+    IAsyncEnumerable<IChatUpdate> StreamChatCompletionAsync(
+        IReadOnlyList<IMessage> messages,
+        IReadOnlyList<ToolDefinition>? tools,
+        string? model,
+        int? maxTokens,
+        IAIProviderContinuation? continuation,
+        string? reasoningEffort,
+        JsonElement? outputSchema,
+        CancellationToken cancellationToken)
+        => StreamChatCompletionAsync(messages, tools, model, maxTokens, continuation,
+            reasoningEffort, cancellationToken);
 }
