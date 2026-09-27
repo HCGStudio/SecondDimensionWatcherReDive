@@ -1565,6 +1565,29 @@ const FILE_TREE = {
   ],
 };
 
+const playbackFileTrees = new Map();
+const playbackFixtureCounts = new Map();
+
+function playbackFileTree(animation) {
+  if (playbackFileTrees.has(animation.id)) return playbackFileTrees.get(animation.id);
+  const root = playbackVirtualPath(animation, "");
+  const fixtureNumber = (playbackFixtureCounts.get(root) ?? 0) + 1;
+  playbackFixtureCounts.set(root, fixtureNumber);
+  // Keep each release addressable when it shares an anime/group root. Apply the
+  // same suffix to video and subtitle stems so their association is preserved.
+  const tree = Object.fromEntries(Object.entries(FILE_TREE).map(([directory, entries]) => [
+    directory,
+    entries.map((entry) => ({
+      ...entry,
+      fileName: entry.isDirectory || fixtureNumber === 1
+        ? entry.fileName
+        : entry.fileName.replace(/^([^.]+)/, `$1 (${fixtureNumber})`),
+    })),
+  ]));
+  playbackFileTrees.set(animation.id, tree);
+  return tree;
+}
+
 // Playback state is stored per household profile, matching the personal watchlist.
 const playbackProgress = new Map();
 let playbackPreferences = {
@@ -1584,9 +1607,9 @@ function playbackKey(animationInfoId, path) {
   return `${animationInfoId}:${path}`;
 }
 
-function playablePaths() {
+function playablePaths(animation) {
   const paths = [];
-  for (const [directory, entries] of Object.entries(FILE_TREE)) {
+  for (const [directory, entries] of Object.entries(playbackFileTree(animation))) {
     for (const entry of entries) {
       if (
         !entry.isDirectory &&
@@ -1647,7 +1670,7 @@ function findNextPlaybackMedia(animation) {
         candidate.episode > animation.episode,
     )
     .sort((a, b) => a.episode - b.episode)[0];
-  return next ? playbackMedia(next, "Season 1/EP01.mp4") : null;
+  return next ? playbackMedia(next, playablePaths(next)[0]) : null;
 }
 
 function associatedSubtitles(animation, videoPath) {
@@ -1655,7 +1678,7 @@ function associatedSubtitles(animation, videoPath) {
   const directory = slash >= 0 ? videoPath.slice(0, slash) : "";
   const videoName = slash >= 0 ? videoPath.slice(slash + 1) : videoPath;
   const stem = videoName.replace(/\.[^.]+$/, "");
-  const entries = FILE_TREE[directory] ?? [];
+  const entries = playbackFileTree(animation)[directory] ?? [];
   return entries
     .filter(
       (entry) =>
@@ -1687,7 +1710,7 @@ const finishedForPlayback = [...animations.values()].filter(
 );
 if (finishedForPlayback[0]) {
   const animation = finishedForPlayback[0];
-  const path = "Season 1/EP01.mp4";
+  const path = playablePaths(animation)[0];
   playbackProgress.set(playbackKey(animation.id, path), {
     positionSeconds: 812,
     durationSeconds: 1440,
@@ -1701,7 +1724,7 @@ const previousEpisode = finishedForPlayback.find(
     animation.animation?.tmdbId === "209867" && animation.episode === 27,
 );
 if (previousEpisode) {
-  const path = "Season 1/EP01.mp4";
+  const path = playablePaths(previousEpisode)[0];
   playbackProgress.set(playbackKey(previousEpisode.id, path), {
     positionSeconds: 420,
     durationSeconds: 1440,
@@ -1839,6 +1862,27 @@ const VFS_TREE = {
   ],
   "/unknown": [vfsFile("[unsorted] random release.mkv", 700, 6)],
 };
+
+// Expose the playback fixtures through the same virtual paths in the file browser.
+// Keep the standalone VFS samples above for files without playable mappings.
+for (const animation of animations.values()) {
+  if (!animation.isDownloadFinished) continue;
+  for (const [relativeDirectory, entries] of Object.entries(playbackFileTree(animation))) {
+    const directory = playbackVirtualPath(animation, relativeDirectory).replace(/\/+$/, "");
+    const segments = directory.split("/").filter(Boolean);
+    let parent = "/";
+    for (const segment of segments) {
+      const children = (VFS_TREE[parent] ??= []);
+      if (!children.some((entry) => entry.name === segment)) children.push(vfsDir(segment));
+      parent = parent === "/" ? `/${segment}` : `${parent}/${segment}`;
+    }
+    const children = (VFS_TREE[directory] ??= []);
+    for (const entry of entries) {
+      if (children.some((child) => child.name === entry.fileName)) continue;
+      children.push(entry.isDirectory ? vfsDir(entry.fileName) : vfsFile(entry.fileName, 700, 6));
+    }
+  }
+}
 
 function vfsResolve(rawPath) {
   // Returns { entry, isDirectory, parent } or null when missing.
@@ -2461,7 +2505,7 @@ async function route(method, pathname, searchParams, req, res) {
     if (!animation) return empty(res, 404);
     return json(
       res,
-      playablePaths().map((path) =>
+      playablePaths(animation).map((path) =>
         playbackState(
           animation,
           path,
@@ -2471,13 +2515,29 @@ async function route(method, pathname, searchParams, req, res) {
     );
   }
 
+  if (method === "GET" && pathname === "/api/playback/resolve") {
+    const virtualPath = searchParams.get("virtualPath");
+    if (
+      !virtualPath?.startsWith("/") ||
+      virtualPath.length > 2048 ||
+      /[\\\u0000-\u001f\u007f-\u009f]/.test(virtualPath) ||
+      virtualPath.slice(1).split("/").some((segment) => !segment || segment === "." || segment === "..")
+    ) return empty(res, 400);
+    for (const animation of animations.values()) {
+      if (!animation.isDownloadFinished) continue;
+      const path = playablePaths(animation).find((candidate) => playbackVirtualPath(animation, candidate) === virtualPath);
+      if (path) return json(res, playbackMedia(animation, path));
+    }
+    return empty(res, 404);
+  }
+
   if (method === "GET" && pathname === "/api/playback/context") {
     const animation = animations.get(searchParams.get("animationInfoId"));
     const path = searchParams.get("path");
     if (
       !animation ||
       !animation.isDownloadFinished ||
-      !playablePaths().includes(path)
+      !playablePaths(animation).includes(path)
     ) {
       return empty(res, 404);
     }
@@ -2499,7 +2559,7 @@ async function route(method, pathname, searchParams, req, res) {
   if (method === "PUT" && pathname === "/api/playback/progress") {
     const body = await readBody(req);
     const animation = animations.get(body.animationInfoId);
-    if (!animation || !playablePaths().includes(body.path))
+    if (!animation || !playablePaths(animation).includes(body.path))
       return empty(res, 404);
     const positionSeconds = Math.max(0, Number(body.positionSeconds) || 0);
     const durationSeconds = Math.max(0, Number(body.durationSeconds) || 0);
@@ -2526,7 +2586,7 @@ async function route(method, pathname, searchParams, req, res) {
   if (method === "PUT" && pathname === "/api/playback/watched") {
     const body = await readBody(req);
     const animation = animations.get(body.animationInfoId);
-    if (!animation || !playablePaths().includes(body.path))
+    if (!animation || !playablePaths(animation).includes(body.path))
       return empty(res, 404);
     const key = playbackKey(animation.id, body.path);
     const previous = playbackProgress.get(key) ?? {
@@ -3829,7 +3889,7 @@ async function route(method, pathname, searchParams, req, res) {
     const relativeDir = searchParams.get("relativeDir") ?? "";
     const anim = animations.get(id);
     if (!anim || !anim.isDownloadFinished) return empty(res, 404);
-    const listing = FILE_TREE[relativeDir];
+    const listing = playbackFileTree(anim)[relativeDir];
     if (!listing) return empty(res, 404);
     return json(res, listing);
   }

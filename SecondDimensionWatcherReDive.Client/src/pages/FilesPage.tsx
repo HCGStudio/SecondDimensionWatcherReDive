@@ -1,7 +1,7 @@
 import dayjs from "dayjs";
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { useSearchParams } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 
 import {
   AlertTriangle,
@@ -10,6 +10,7 @@ import {
   File,
   Folder,
   Home,
+  Play,
 } from "lucide-react";
 
 import { useToast } from "../components/ToastProvider";
@@ -19,6 +20,8 @@ import { Spinner } from "../components/ui/Spinner";
 import { IVfsEntry } from "../file/IVfsEntry";
 import { downloadVfsFile, useVfsList } from "../file/vfsHooks";
 import { cn } from "../lib/cn";
+import { resolvePlaybackMedia } from "../playback/api";
+import { preloadPlayerPage } from "../routes/pageLoaders";
 import { formatFileSize } from "../utils/formatBytes";
 import { PageTemplate } from "./PageTemplate";
 
@@ -148,16 +151,26 @@ interface FileRowProps {
   entry: IVfsEntry;
   fullPath: string;
   onDownloadError: () => void;
+  onPlay: (path: string) => Promise<void>;
+  openingPath: string | null;
 }
 
 const FileRow: React.FC<FileRowProps> = ({
   entry,
   fullPath,
   onDownloadError,
+  onPlay,
+  openingPath,
 }) => {
   const { t } = useTranslation("files");
   const [busy, setBusy] = React.useState(false);
   const { addToast } = useToast();
+  const openingPlayer = openingPath === fullPath;
+
+  // Match the video formats accepted by PlaybackController.
+  const canPlay = /\.(mkv|mp4|webm|avi|flv|wmv|mov|m4v|ts|m2ts)$/i.test(
+    entry.name,
+  );
 
   const onClick = React.useCallback(async () => {
     setBusy(true);
@@ -194,6 +207,20 @@ const FileRow: React.FC<FileRowProps> = ({
           <span title={entry.lastModifiedUtc ?? undefined}>{modifiedText}</span>
         ) : null}
       </div>
+      {canPlay ? (
+        <Button
+          variant="icon"
+          size="sm"
+          aria-label={t(openingPlayer ? "vfs.play.opening" : "browser.play")}
+          title={t("browser.play")}
+          onMouseEnter={preloadPlayerPage}
+          onFocus={preloadPlayerPage}
+          onClick={() => void onPlay(fullPath)}
+          disabled={openingPath !== null}
+        >
+          {openingPlayer ? <Spinner size={16} /> : <Play size={16} />}
+        </Button>
+      ) : null}
       <Button
         variant="icon"
         size="sm"
@@ -214,6 +241,37 @@ export const FilesPage: React.FC = () => {
   const path = normalizePath(searchParams.get("path"));
   const { data, error, isLoading } = useVfsList(path);
   const { addToast } = useToast();
+
+  const [openingPath, setOpeningPath] = React.useState<string | null>(null);
+  const playbackRequest = React.useRef<AbortController | null>(null);
+  const navigate = useNavigate();
+
+  React.useEffect(() => {
+    setOpeningPath(null);
+    return () => playbackRequest.current?.abort();
+  }, [path]);
+
+  const onPlay = React.useCallback(
+    async (fullPath: string) => {
+      playbackRequest.current?.abort();
+      const request = new AbortController();
+      playbackRequest.current = request;
+      setOpeningPath(fullPath);
+      try {
+        const media = await resolvePlaybackMedia(fullPath, request.signal);
+        if (request.signal.aborted) return;
+        const params = new URLSearchParams({ file: media.path });
+        navigate(`/play/${media.animationInfoId}?${params.toString()}`);
+      } catch {
+        if (!request.signal.aborted) {
+          addToast({ title: t("vfs.play.failed"), color: "danger" });
+        }
+      } finally {
+        if (!request.signal.aborted) setOpeningPath(null);
+      }
+    },
+    [navigate, addToast, t],
+  );
 
   const onNavigate = React.useCallback(
     (next: string) => {
@@ -269,7 +327,7 @@ export const FilesPage: React.FC = () => {
         ) : (
           <ul className="divide-y divide-border-light">
             {sorted.map((entry) => (
-              <li key={entry.name}>
+              <li key={joinPath(path, entry.name)}>
                 {entry.isDirectory ? (
                   <DirectoryRow
                     entry={entry}
@@ -280,6 +338,8 @@ export const FilesPage: React.FC = () => {
                     entry={entry}
                     fullPath={joinPath(path, entry.name)}
                     onDownloadError={onDownloadError}
+                    onPlay={onPlay}
+                    openingPath={openingPath}
                   />
                 )}
               </li>

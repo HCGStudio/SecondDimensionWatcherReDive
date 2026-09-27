@@ -110,6 +110,35 @@ internal sealed partial class PlaybackController(
         return Ok(response);
     }
 
+    [HttpGet("resolve")]
+    public async Task<IActionResult> ResolveMedia(
+        [FromQuery, Required] string? virtualPath,
+        CancellationToken cancellationToken)
+    {
+        if (!User.TryGetProfileId(out _)) return Unauthorized();
+        if (string.IsNullOrEmpty(virtualPath)
+            || virtualPath.Length > 2048
+            || !virtualPath.StartsWith('/')
+            || !TryNormalizeRelativePath(virtualPath[1..], out _))
+            return BadRequest();
+
+        var mapping = await fileMappingRepository.FindByVirtualPathAsync(virtualPath, cancellationToken);
+        if (mapping is null
+            || mapping.AnimationInfoId == Guid.Empty
+            || !IsVideo(mapping.VirtualPath))
+            return NotFound();
+
+        var info = await animationInfoRepository.FindByIdWithAnimationAsync(
+            mapping.AnimationInfoId, cancellationToken);
+        if (info is null
+            || !info.IsDownloadFinished
+            || !IsAddressable(info, mapping.VirtualPath))
+            return NotFound();
+
+        var media = CreateCurrentMedia(info, mapping.VirtualPath, GetRelativePath(info, mapping.VirtualPath));
+        return Ok(ToMediaResponse(media));
+    }
+
     [HttpPut("progress")]
     [Authorize(Policy = AccessPolicies.PlaybackWrite)]
     public async Task<IActionResult> UpdateProgress(

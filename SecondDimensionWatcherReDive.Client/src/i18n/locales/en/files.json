@@ -30,6 +30,10 @@
       "failed": "Download failed — please try again",
       "starting": "Starting download",
       "handedOff": "Handed to your browser. Check progress or cancel in the download manager."
+    },
+    "play": {
+      "opening": "Opening player",
+      "failed": "Unable to open the player. The file may have moved or may not be playable."
     }
   },
   "webdav": {
