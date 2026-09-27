@@ -123,6 +123,53 @@ internal partial class SyncFeed(
 
     private async Task ProcessSingle(AnimationAddRequest request, CancellationToken cancellationToken)
     {
+        try
+        {
+            await ProcessSingleCoreAsync(request, cancellationToken);
+
+            if (incidentReporter is not null)
+                await incidentReporter.ResolveAsync(
+                    IncidentType.FeedFailure,
+                    CreateDownloadIncidentSourceId(request.DownloadUrl),
+                    cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            var sourceId = CreateDownloadIncidentSourceId(request.DownloadUrl);
+            LogFeedItemFailed(logger, exception, request.Title, sourceId);
+            if (incidentReporter is null) return;
+
+            try
+            {
+                await incidentReporter.ReportAsync(new IncidentReport(
+                        IncidentType.FeedFailure,
+                        IncidentSeverity.Error,
+                        exception is InvalidTorrentDataException
+                            ? "Feed item contains invalid torrent data"
+                            : "Feed item cannot be synchronized",
+                        exception.Message,
+                        sourceId),
+                    cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception reportException)
+            {
+                // Incident persistence must not turn an item failure into a failed batch.
+                LogFeedItemReportFailed(logger, reportException, request.Title, sourceId);
+            }
+        }
+    }
+
+    private async Task ProcessSingleCoreAsync(AnimationAddRequest request, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
         await using var scope = scopeFactory.CreateAsyncScope();
         var animationInfoRepository = scope.ServiceProvider.GetRequiredService<IAnimationInfoRepository>();
 
@@ -154,143 +201,120 @@ internal partial class SyncFeed(
                 return;
         }
 
+        SubscriptionAutomationPolicy? policy = null;
+        MultiSourceSubscription? multiSource = null;
+        if (request.FeedId is { } feedId)
+        {
+            var policyRepository = scope.ServiceProvider
+                .GetRequiredService<ISubscriptionAutomationPolicyRepository>();
+            policy = await policyRepository.FindByFeedIdAsync(feedId, cancellationToken);
+            var multiSourceRepository = scope.ServiceProvider.GetService<IMultiSourceSubscriptionRepository>();
+            multiSource = multiSourceRepository == null ? null : await multiSourceRepository
+                .FindByFeedIdAsync(feedId, cancellationToken);
+            if (multiSource != null) policy = multiSource.ToPolicy(feedId);
+        }
+
+        var torrentData = request.DownloadType switch
+        {
+            FileDownloadTypes.TorrentDownload => await DownloadTorrentData(request, cancellationToken),
+            _ => new TorrentData(Array.Empty<byte>(), request.AdditionalDownloadInfo, request.ContentLength)
+        };
+
+        if (request.DownloadType == FileDownloadTypes.TorrentDownload &&
+            request.ContentLength is { } advertisedSize &&
+            advertisedSize != torrentData.PayloadSizeBytes)
+            throw new InvalidTorrentDataException(request.DownloadUrl, "advertised and declared payload sizes differ");
+
+        var releaseWithSize = request with { ContentLength = torrentData.PayloadSizeBytes };
+        SubscriptionAutomationEvaluation? evaluation = null;
+        if (policy is not null)
+        {
+            evaluation = automationMatcher.Evaluate(policy, releaseWithSize);
+            if (!evaluation.Matched && multiSource == null)
+            {
+                // Torrent fetching can overlap a new source association. Only
+                // discard after checking ownership again; linked releases are
+                // retained even when the shared policy does not match yet.
+                var subscriptions = scope.ServiceProvider.GetService<IMultiSourceSubscriptionRepository>();
+                if (request.FeedId is not { } currentFeedId || subscriptions is null) return;
+                multiSource = await subscriptions.FindByFeedIdAsync(currentFeedId, cancellationToken);
+                if (multiSource is null) return;
+                policy = multiSource.ToPolicy(currentFeedId);
+                evaluation = automationMatcher.Evaluate(policy, releaseWithSize);
+            }
+        }
+
+        var metadata = evaluation?.Metadata ?? metadataExtractor?.Extract(releaseWithSize) ??
+            new SubscriptionReleaseMetadata(null, null, null, [], torrentData.PayloadSizeBytes);
+        var score = releaseScoringService?.Score(metadata, policy) ?? new ReleaseScore(0, []);
+        var torrentInfoHash = request.DownloadType == FileDownloadTypes.TorrentDownload
+            ? torrentData.Hash
+            : null;
+
+        var info = new AnimationInfo(
+                Guid.NewGuid(),
+                request.Title,
+                request.Description,
+                request.PublishTime,
+                request.DownloadUrl,
+                request.DownloadType,
+                torrentData.CachedDownloadData,
+                torrentData.Hash,
+                IsDownloadTracked: false,
+                DownloadStartTime: default,
+                DownloadEndTime: default,
+                IsDownloadFinished: false,
+                FileStore: null,
+                StorePath: null,
+                Season: null,
+                Episode: null,
+                Group: null,
+                Animation: null,
+                IsAiProcessed: false,
+                AiRetryCount: 0,
+                SourceFeedId: request.FeedId,
+                ReleaseSizeBytes: torrentData.PayloadSizeBytes,
+                AutomationDisposition: multiSource != null ? null : policy?.Mode switch
+                {
+                    SubscriptionAutomationMode.NotifyOnly => SubscriptionAutomationDisposition.Notified,
+                    SubscriptionAutomationMode.ManualConfirm =>
+                        SubscriptionAutomationDisposition.PendingConfirmation,
+                    SubscriptionAutomationMode.AutoDownload => null,
+                    _ => null
+                },
+                AutomationExplanationJson: evaluation is null
+                    ? null
+                    : JsonSerializer.Serialize(evaluation.Explanations, AutomationJsonSerializerContext.Default.Explanations),
+                ReleaseIdentity: ReleaseIdentity.Create(
+                    request.FeedId,
+                    request.FeedItemGuid,
+                    request.EnclosureId,
+                    torrentInfoHash,
+                    request.DownloadUrl),
+                FeedItemGuid: request.FeedItemGuid,
+                EnclosureId: request.EnclosureId,
+                TorrentInfoHash: torrentInfoHash,
+                ReleaseSubtitleGroup: metadata.SubtitleGroup,
+                ReleaseResolution: metadata.Resolution,
+                ReleaseCodec: metadata.Codec,
+                ReleaseLanguages: metadata.Languages,
+                ReleaseScore: score.Value,
+                ReleaseScoreReasonsJson: JsonSerializer.Serialize(score.Reasons, AutomationJsonSerializerContext.Default.Reasons));
         try
         {
-            SubscriptionAutomationPolicy? policy = null;
-            MultiSourceSubscription? multiSource = null;
-            if (request.FeedId is { } feedId)
-            {
-                var policyRepository = scope.ServiceProvider
-                    .GetRequiredService<ISubscriptionAutomationPolicyRepository>();
-                policy = await policyRepository.FindByFeedIdAsync(feedId, cancellationToken);
-                var multiSourceRepository = scope.ServiceProvider.GetService<IMultiSourceSubscriptionRepository>();
-                multiSource = multiSourceRepository == null ? null : await multiSourceRepository
-                    .FindByFeedIdAsync(feedId, cancellationToken);
-                if (multiSource != null) policy = multiSource.ToPolicy(feedId);
-            }
-
-            var torrentData = request.DownloadType switch
-            {
-                FileDownloadTypes.TorrentDownload => await DownloadTorrentData(request, cancellationToken),
-                _ => new TorrentData(Array.Empty<byte>(), request.AdditionalDownloadInfo, request.ContentLength)
-            };
-
-            if (request.DownloadType == FileDownloadTypes.TorrentDownload &&
-                request.ContentLength is { } advertisedSize &&
-                advertisedSize != torrentData.PayloadSizeBytes)
-                throw new InvalidTorrentDataException(request.DownloadUrl, "advertised and declared payload sizes differ");
-
-            var releaseWithSize = request with { ContentLength = torrentData.PayloadSizeBytes };
-            SubscriptionAutomationEvaluation? evaluation = null;
-            if (policy is not null)
-            {
-                evaluation = automationMatcher.Evaluate(policy, releaseWithSize);
-                if (!evaluation.Matched && multiSource == null)
-                {
-                    // Torrent fetching can overlap a new source association. Only
-                    // discard after checking ownership again; linked releases are
-                    // retained even when the shared policy does not match yet.
-                    var subscriptions = scope.ServiceProvider.GetService<IMultiSourceSubscriptionRepository>();
-                    if (request.FeedId is not { } currentFeedId || subscriptions is null) return;
-                    multiSource = await subscriptions.FindByFeedIdAsync(currentFeedId, cancellationToken);
-                    if (multiSource is null) return;
-                    policy = multiSource.ToPolicy(currentFeedId);
-                    evaluation = automationMatcher.Evaluate(policy, releaseWithSize);
-                }
-            }
-
-            var metadata = evaluation?.Metadata ?? metadataExtractor?.Extract(releaseWithSize) ??
-                new SubscriptionReleaseMetadata(null, null, null, [], torrentData.PayloadSizeBytes);
-            var score = releaseScoringService?.Score(metadata, policy) ?? new ReleaseScore(0, []);
-            var torrentInfoHash = request.DownloadType == FileDownloadTypes.TorrentDownload
-                ? torrentData.Hash
-                : null;
-
-            var info = new AnimationInfo(
-                    Guid.NewGuid(),
-                    request.Title,
-                    request.Description,
-                    request.PublishTime,
-                    request.DownloadUrl,
-                    request.DownloadType,
-                    torrentData.CachedDownloadData,
-                    torrentData.Hash,
-                    IsDownloadTracked: false,
-                    DownloadStartTime: default,
-                    DownloadEndTime: default,
-                    IsDownloadFinished: false,
-                    FileStore: null,
-                    StorePath: null,
-                    Season: null,
-                    Episode: null,
-                    Group: null,
-                    Animation: null,
-                    IsAiProcessed: false,
-                    AiRetryCount: 0,
-                    SourceFeedId: request.FeedId,
-                    ReleaseSizeBytes: torrentData.PayloadSizeBytes,
-                    AutomationDisposition: multiSource != null ? null : policy?.Mode switch
-                    {
-                        SubscriptionAutomationMode.NotifyOnly => SubscriptionAutomationDisposition.Notified,
-                        SubscriptionAutomationMode.ManualConfirm =>
-                            SubscriptionAutomationDisposition.PendingConfirmation,
-                        SubscriptionAutomationMode.AutoDownload => null,
-                        _ => null
-                    },
-                    AutomationExplanationJson: evaluation is null
-                        ? null
-                        : JsonSerializer.Serialize(evaluation.Explanations, AutomationJsonSerializerContext.Default.Explanations),
-                    ReleaseIdentity: ReleaseIdentity.Create(
-                        request.FeedId,
-                        request.FeedItemGuid,
-                        request.EnclosureId,
-                        torrentInfoHash,
-                        request.DownloadUrl),
-                    FeedItemGuid: request.FeedItemGuid,
-                    EnclosureId: request.EnclosureId,
-                    TorrentInfoHash: torrentInfoHash,
-                    ReleaseSubtitleGroup: metadata.SubtitleGroup,
-                    ReleaseResolution: metadata.Resolution,
-                    ReleaseCodec: metadata.Codec,
-                    ReleaseLanguages: metadata.Languages,
-                    ReleaseScore: score.Value,
-                    ReleaseScoreReasonsJson: JsonSerializer.Serialize(score.Reasons, AutomationJsonSerializerContext.Default.Reasons));
-            try
-            {
-                await animationInfoRepository.AddAsync(info, cancellationToken);
-            }
-            catch (DuplicateReleaseException)
-            {
-                return;
-            }
-
-            // Source membership can change while fetching/parsing the torrent.
-            // Reconcile the persisted item under the ownership/policy locks so
-            // unlinking restores all standalone modes for this first ingestion.
-            var standaloneMode = await animationInfoRepository.RefreshStandaloneAutomationAsync(
-                info.Id, cancellationToken);
-            await ApplyStandaloneAutomationAsync(info, standaloneMode, scope.ServiceProvider, cancellationToken);
-
-            if (incidentReporter is not null)
-                await incidentReporter.ResolveAsync(
-                    IncidentType.FeedFailure,
-                    CreateDownloadIncidentSourceId(request.DownloadUrl),
-                    cancellationToken);
+            await animationInfoRepository.AddAsync(info, cancellationToken);
         }
-        catch (InvalidTorrentDataException e)
+        catch (DuplicateReleaseException)
         {
-            LogSyncFeedWarning(logger, e.Message);
-            if (incidentReporter is not null)
-            {
-                await incidentReporter.ReportAsync(new IncidentReport(
-                        IncidentType.FeedFailure,
-                        IncidentSeverity.Error,
-                        "Feed item contains invalid torrent data",
-                        e.Message,
-                        CreateDownloadIncidentSourceId(request.DownloadUrl)),
-                    cancellationToken);
-            }
+            return;
         }
+
+        // Source membership can change while fetching/parsing the torrent.
+        // Reconcile the persisted item under the ownership/policy locks so
+        // unlinking restores all standalone modes for this first ingestion.
+        var standaloneMode = await animationInfoRepository.RefreshStandaloneAutomationAsync(
+            info.Id, cancellationToken);
+        await ApplyStandaloneAutomationAsync(info, standaloneMode, scope.ServiceProvider, cancellationToken);
     }
 
     private async Task RestoreStandaloneAutomationAsync(CancellationToken cancellationToken)
@@ -574,7 +598,7 @@ internal partial class SyncFeed(
             if (incidentReporter is not null)
                 await incidentReporter.ResolveAsync(IncidentType.FeedFailure, sourceId, cancellationToken);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw;
         }
@@ -602,6 +626,16 @@ internal partial class SyncFeed(
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "{Message}")]
     private static partial void LogSyncFeedWarning(ILogger logger, string message);
+
+    [LoggerMessage(Level = LogLevel.Warning,
+        Message = "Failed to synchronize feed item '{Title}' ({SourceId})")]
+    private static partial void LogFeedItemFailed(
+        ILogger logger, Exception exception, string title, string sourceId);
+
+    [LoggerMessage(Level = LogLevel.Warning,
+        Message = "Failed to report synchronization failure for feed item '{Title}' ({SourceId})")]
+    private static partial void LogFeedItemReportFailed(
+        ILogger logger, Exception exception, string title, string sourceId);
 
     [LoggerMessage(
         Level = LogLevel.Warning,
