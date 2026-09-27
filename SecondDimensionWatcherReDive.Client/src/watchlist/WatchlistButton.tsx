@@ -1,7 +1,17 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
 
-import { BookmarkCheck, BookmarkPlus, Check, Loader2 } from "lucide-react";
+import {
+  Bookmark,
+  BookmarkCheck,
+  BookmarkPlus,
+  Check,
+  CircleCheck,
+  CircleX,
+  Eye,
+  Loader2,
+  Pause,
+} from "lucide-react";
 
 import { useAccess } from "../auth/hooks";
 import { useToast } from "../components/ToastProvider";
@@ -14,6 +24,14 @@ import {
   DropdownMenuTrigger,
 } from "../components/ui/DropdownMenu";
 import { saveWatchlist, useWatchlist, watchlistStatuses } from "./hooks";
+
+const statusIcons = {
+  planned: Bookmark,
+  watching: Eye,
+  onHold: Pause,
+  dropped: CircleX,
+  completed: CircleCheck,
+};
 
 export const WatchlistButton: React.FC<{
   tmdbId?: string;
@@ -76,14 +94,25 @@ export const WatchlistButton: React.FC<{
             }
           }}
         >
-          {watchlistStatuses.map((status) => (
-            <DropdownMenuRadioItem key={status} value={status} disabled={busy}>
-              <span className="h-4 w-4 shrink-0 text-brand" aria-hidden="true">
-                {item?.status === status ? <Check size={16} /> : null}
-              </span>
-              {t(`statuses.${status}`)}
-            </DropdownMenuRadioItem>
-          ))}
+          {watchlistStatuses.map((status) => {
+            const StatusIcon = statusIcons[status];
+            return (
+              <DropdownMenuRadioItem
+                key={status}
+                value={status}
+                disabled={busy}
+              >
+                <StatusIcon size={16} className="shrink-0" aria-hidden="true" />
+                <span className="flex-1">{t(`statuses.${status}`)}</span>
+                <span
+                  className="h-4 w-4 shrink-0 text-brand"
+                  aria-hidden="true"
+                >
+                  {item?.status === status ? <Check size={16} /> : null}
+                </span>
+              </DropdownMenuRadioItem>
+            );
+          })}
         </DropdownMenuRadioGroup>
       </DropdownMenuContent>
     </DropdownMenu>

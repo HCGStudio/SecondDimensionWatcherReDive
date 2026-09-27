@@ -226,7 +226,7 @@ The coordinator reuses episode claims and the existing download saga, so sources
 
 ### Personal Watchlist
 
-Season discovery cards and anime episode headers use a compact bookmark icon to open the five watchlist statuses. Saved entries show a checked bookmark and the current status in the localized tooltip; the menu marks the selected status and supports keyboard navigation. Saving disables the trigger and shows a spinner.
+Season discovery cards and anime episode headers use a compact bookmark icon to open the five watchlist statuses. Each menu item pairs its localized label with a distinct icon: bookmark (planned), eye (watching), pause (on hold), circled X (dropped), and circled check (completed). Saved entries show a checked bookmark and the current status in the localized tooltip; a separate trailing check marks the selected menu item, and the menu supports keyboard navigation. Saving disables the trigger and shows a spinner.
 
 `/watchlist` combines profile-owned tracking status, the Mikan weekday calendar, and unwatched library episodes through `IWatchlistRepository` and `/api/watchlist`. Saved TMDB IDs use canonical invariant decimal strings so links match library identities. Omitted link fields retain their current values, while explicit `null` clears a link; each entry must retain at least one TMDB or Mikan ID. Linking duplicate identities merges entries within the current profile. Playable mappings use the shared `MediaFileTypes` video extensions, and the notifications shortcut is visible only to administrators. `mock-watchlist-playback.mjs` mirrors the link update semantics for local development.
 
