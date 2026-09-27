@@ -220,11 +220,6 @@ internal partial class SyncFeed(
             _ => new TorrentData(Array.Empty<byte>(), request.AdditionalDownloadInfo, request.ContentLength)
         };
 
-        if (request.DownloadType == FileDownloadTypes.TorrentDownload &&
-            request.ContentLength is { } advertisedSize &&
-            advertisedSize != torrentData.PayloadSizeBytes)
-            throw new InvalidTorrentDataException(request.DownloadUrl, "advertised and declared payload sizes differ");
-
         var releaseWithSize = request with { ContentLength = torrentData.PayloadSizeBytes };
         SubscriptionAutomationEvaluation? evaluation = null;
         if (policy is not null)
