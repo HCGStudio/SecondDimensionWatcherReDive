@@ -71,7 +71,6 @@
   "selectProvider": "Provider",
   "configuredDefault": "使用已配置的默认值",
   "providerDefault": "Provider 默认模型",
-  "customModel": "选择或输入模型 ID",
   "reasoningEffort": "推理强度",
   "efforts": {
     "none": "关闭",

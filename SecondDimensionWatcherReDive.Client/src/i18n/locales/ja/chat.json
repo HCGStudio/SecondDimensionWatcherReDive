@@ -71,7 +71,6 @@
   "selectProvider": "Provider",
   "configuredDefault": "設定済みの既定値を使用",
   "providerDefault": "Provider の既定モデル",
-  "customModel": "モデル ID を選択または入力",
   "reasoningEffort": "推論強度",
   "efforts": {
     "none": "なし",

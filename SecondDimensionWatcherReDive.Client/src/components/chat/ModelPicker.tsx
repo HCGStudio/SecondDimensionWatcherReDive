@@ -6,7 +6,6 @@ import "../../i18n/chatResources";
 import { cn } from "../../lib/cn";
 import { Select } from "../settings/SettingsControls";
 import { FormRow } from "../ui/FormRow";
-import { Input } from "../ui/Input";
 
 interface ModelPickerProps {
   models: AiModel[];
@@ -28,7 +27,6 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
   className,
 }) => {
   const { t } = useTranslation("chat");
-  const listId = React.useId();
   const providers = [
     ...new Map(
       models.map((model) => [model.providerId, model.provider]),
@@ -42,6 +40,7 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
     ? providerModels.find((model) => model.id === selection.model)
     : providerModels[0];
   const efforts = selected?.reasoningEfforts ?? [];
+  const defaultModel = providerModels.find((model) => !model.id);
 
   return (
     <div className={cn("flex flex-wrap items-end gap-3", className)}>
@@ -71,11 +70,9 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
         </Select>
       </FormRow>
       <FormRow label={t("selectModel")} className="min-w-44 flex-1">
-        <Input
-          list={listId}
+        <Select
           value={selection.model ?? ""}
           disabled={disabled || !effectiveProviderId}
-          placeholder={t(allowDefault ? "providerDefault" : "customModel")}
           onChange={(event) =>
             onSelect({
               ...selection,
@@ -83,14 +80,25 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
               reasoningEffort: undefined,
             })
           }
-        />
-        <datalist id={listId}>
-          {providerModels.map((model) => (
-            <option key={model.id} value={model.id}>
-              {model.name}
-            </option>
-          ))}
-        </datalist>
+        >
+          <option value="" disabled={!allowDefault && !defaultModel}>
+            {allowDefault
+              ? t("providerDefault")
+              : (defaultModel?.name ?? t("selectModel"))}
+          </option>
+          {selection.model && !selected && (
+            <option value={selection.model}>{selection.model}</option>
+          )}
+          {providerModels
+            .filter((model) => model.id)
+            .map((model) => (
+              <option key={model.id} value={model.id}>
+                {model.name && model.name !== model.id
+                  ? `${model.name} · ${model.id}`
+                  : model.id}
+              </option>
+            ))}
+        </Select>
       </FormRow>
       {efforts.length > 0 && (
         <FormRow label={t("reasoningEffort")} className="min-w-32">
