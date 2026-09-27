@@ -1,5 +1,6 @@
 using System.Text;
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Text;
 
@@ -9,6 +10,8 @@ namespace SecondDimensionWatcherReDive.Analyzers;
 public sealed class ToolGenerator : IIncrementalGenerator
 {
     private const string ToolAttributeMetadataName = "SecondDimensionWatcherReDive.Framework.Attributes.ToolAttribute`1";
+    private const string SuccessHelperSignature =
+        "private static global::SecondDimensionWatcherReDive.AI.Models.ToolSuccessResult<T> Success<T>(T result)";
 
     private static readonly DiagnosticDescriptor MissingMetadata = new(
         "SDWTOOL001", "Tool JSON metadata must be source generated",
@@ -99,17 +102,52 @@ public sealed class ToolGenerator : IIncrementalGenerator
 
         var contextType = attributeData.ConstructorArguments[3].Value as INamedTypeSymbol;
         var missingMetadataType = HasMetadata(contextType, paramType) ? null : paramTypeFqn;
+
+        // Generator output is not part of the input compilation. Supply the helper signature
+        // for semantic binding so C# performs generic inference and overload resolution.
+        var helperDeclaration = (MethodDeclarationSyntax)SyntaxFactory.ParseMemberDeclaration(
+            SuccessHelperSignature + " => throw new global::System.NotSupportedException();")!;
+        var helperClass = classDecl.WithAttributeLists(default).WithBaseList(null)
+            .WithParameterList(null).WithMembers(SyntaxFactory.SingletonList<MemberDeclarationSyntax>(helperDeclaration));
+        MemberDeclarationSyntax helperContainer = helperClass;
+        if (namespaceName is not null)
+            helperContainer = SyntaxFactory.NamespaceDeclaration(SyntaxFactory.ParseName(namespaceName))
+                .AddMembers(helperClass);
+        var helperTree = CSharpSyntaxTree.Create(SyntaxFactory.CompilationUnit().AddMembers(helperContainer),
+            (CSharpParseOptions)classDecl.SyntaxTree.Options);
+        var compilation = context.SemanticModel.Compilation.AddSyntaxTrees(helperTree);
+        var helperModel = compilation.GetSemanticModel(helperTree);
+        IMethodSymbol? successHelper = null;
+        foreach (var node in helperTree.GetRoot(ct).DescendantNodes())
+        {
+            if (node is MethodDeclarationSyntax methodDeclaration)
+                successHelper = helperModel.GetDeclaredSymbol(methodDeclaration, ct);
+        }
+
+        // Symbols must come from the same augmented compilation for metadata comparisons.
+        INamedTypeSymbol? validationContextType = null;
+        var validationClass = compilation.GetSemanticModel(classDecl.SyntaxTree).GetDeclaredSymbol(classDecl, ct)!;
+        foreach (var attribute in validationClass.GetAttributes())
+        {
+            if (attribute.ApplicationSyntaxReference?.SyntaxTree == attributeData.ApplicationSyntaxReference?.SyntaxTree
+                && attribute.ApplicationSyntaxReference?.Span == attributeData.ApplicationSyntaxReference?.Span)
+            {
+                validationContextType = attribute.ConstructorArguments[3].Value as INamedTypeSymbol;
+                break;
+            }
+        }
         foreach (var syntaxReference in classSymbol.DeclaringSyntaxReferences)
         {
             var declaration = syntaxReference.GetSyntax(ct);
-            var model = context.SemanticModel.Compilation.GetSemanticModel(declaration.SyntaxTree);
+            var model = compilation.GetSemanticModel(declaration.SyntaxTree);
             foreach (var node in declaration.DescendantNodes())
             {
-                if (node is GenericNameSyntax genericName && genericName.Identifier.ValueText == "Success"
-                    && genericName.TypeArgumentList.Arguments.Count == 1)
+                if (node is InvocationExpressionSyntax invocation
+                    && model.GetSymbolInfo(invocation, ct).Symbol is IMethodSymbol method
+                    && SymbolEqualityComparer.Default.Equals(method.OriginalDefinition, successHelper))
                 {
-                    var resultType = model.GetTypeInfo(genericName.TypeArgumentList.Arguments[0], ct).Type;
-                    if (resultType is not null && !HasMetadata(contextType, resultType))
+                    var resultType = method.TypeArguments[0];
+                    if (resultType.TypeKind != TypeKind.Error && !HasMetadata(validationContextType, resultType))
                         missingMetadataType = resultType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
                 }
             }
@@ -215,7 +253,9 @@ public sealed class ToolGenerator : IIncrementalGenerator
         sb.AppendLine("    }");
 
         sb.AppendLine();
-        sb.AppendLine("    private static global::SecondDimensionWatcherReDive.AI.Models.ToolSuccessResult<T> Success<T>(T result) =>");
+        sb.Append("    ");
+        sb.Append(SuccessHelperSignature);
+        sb.AppendLine(" =>");
         sb.AppendLine("        new(result, (global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<T>?)");
         sb.Append("            ");
         sb.Append(info.ContextTypeFqn);
