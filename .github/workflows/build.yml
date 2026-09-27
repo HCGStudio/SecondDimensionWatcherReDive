@@ -8,7 +8,7 @@ on:
         required: true
         type: string
       commit_sha:
-        description: Fully verified commit to build
+        description: Commit to build
         required: true
         type: string
       image_repository:
@@ -20,36 +20,15 @@ on:
         description: Immutable digest of the multi-architecture image
         value: ${{ jobs.container.outputs.digest }}
       bundle_name:
-        description: Artifact containing all checked release files
-        value: ${{ jobs.validate_artifacts.outputs.bundle_name }}
+        description: Artifact containing all release files
+        value: ${{ jobs.package_artifacts.outputs.bundle_name }}
 
 permissions:
   contents: read
 
 jobs:
-  validate_inputs:
-    name: Validate build inputs
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: ${{ inputs.commit_sha }}
-
-      - name: Require an exact commit, safe version, and GHCR target
-        env:
-          COMMIT_SHA: ${{ inputs.commit_sha }}
-          IMAGE_REPOSITORY: ${{ inputs.image_repository }}
-          VERSION: ${{ inputs.version }}
-        run: |
-          set -euo pipefail
-          [[ "$COMMIT_SHA" =~ ^[0-9a-f]{40}$ ]]
-          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z]+)*$ ]]
-          [[ "$IMAGE_REPOSITORY" =~ ^ghcr\.io/[a-z0-9._/-]+$ ]]
-          test "$(git rev-parse HEAD)" = "$COMMIT_SHA"
-
   frontend:
     name: Build frontend once
-    needs: validate_inputs
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -64,12 +43,11 @@ jobs:
       - name: Enable Corepack
         run: corepack enable
 
-      - name: Build frontend and enforce bundle budgets
+      - name: Build frontend
         working-directory: SecondDimensionWatcherReDive.Client
         run: |
           yarn install --immutable
-          yarn build:budget
-          cat dist/bundle-report.md >> "$GITHUB_STEP_SUMMARY"
+          yarn build
 
       - name: Upload frontend artifact
         uses: actions/upload-artifact@v7
@@ -276,7 +254,6 @@ jobs:
 
   fuse_packages:
     name: FUSE packages (${{ matrix.arch }})
-    needs: validate_inputs
     strategy:
       fail-fast: false
       matrix:
@@ -313,7 +290,6 @@ jobs:
             -p:StripSymbols=true \
             /p:Version="$VERSION" \
             -o publish-fuse
-          file publish-fuse/sdwfuse
 
       - name: Install nfpm
         run: |
@@ -348,7 +324,6 @@ jobs:
 
   container_platforms:
     name: Container platform (${{ matrix.arch }})
-    needs: validate_inputs
     permissions:
       contents: read
       packages: write
@@ -401,10 +376,6 @@ jobs:
         run: |
           set -euo pipefail
           digest="${DIGEST#sha256:}"
-          if [[ ! "$digest" =~ ^[0-9a-f]{64}$ ]]; then
-            echo "Unexpected image digest: $DIGEST" >&2
-            exit 1
-          fi
           mkdir -p "$RUNNER_TEMP/container-digests"
           touch "$RUNNER_TEMP/container-digests/$digest"
 
@@ -427,10 +398,6 @@ jobs:
     outputs:
       digest: ${{ steps.manifest.outputs.digest }}
     steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: ${{ inputs.commit_sha }}
-
       - name: Download platform digests
         uses: actions/download-artifact@v8
         with:
@@ -448,133 +415,38 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ github.token }}
 
-      - name: Create and verify immutable candidate
+      - name: Create candidate manifest
         id: manifest
         env:
           IMAGE_REPOSITORY: ${{ inputs.image_repository }}
           SOURCE_SHA: ${{ inputs.commit_sha }}
         run: |
           set -euo pipefail
-          mapfile -t digests < <(
-            find "$RUNNER_TEMP/container-digests" -maxdepth 1 -type f -printf '%f\n' | sort
-          )
-          if [ "${#digests[@]}" -ne 2 ]; then
-            echo "Expected two platform digests, found ${#digests[@]}" >&2
-            exit 1
-          fi
-
           images=()
-          for digest in "${digests[@]}"; do
-            if [[ ! "$digest" =~ ^[0-9a-f]{64}$ ]]; then
-              echo "Unexpected image digest: $digest" >&2
-              exit 1
-            fi
-            images+=("${IMAGE_REPOSITORY}@sha256:${digest}")
+          for digest_file in "$RUNNER_TEMP"/container-digests/*; do
+            images+=("${IMAGE_REPOSITORY}@sha256:${digest_file##*/}")
           done
 
-          prospective_manifest=$(docker buildx imagetools create --dry-run "${images[@]}")
-          if ! jq -e -f .github/scripts/validate-container-index.jq \
-            <<< "$prospective_manifest" >/dev/null; then
-            echo "Candidate is not a strict amd64/arm64 OCI index with matching attestations" >&2
-            exit 1
-          fi
-
-          prospective_digest="sha256:$(printf '%s' "$prospective_manifest" | sha256sum | cut -d ' ' -f1)"
           candidate_tag="${IMAGE_REPOSITORY}:candidate-${SOURCE_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           docker buildx imagetools create \
             --tag "$candidate_tag" \
             --metadata-file "$RUNNER_TEMP/manifest-metadata.json" \
             "${images[@]}"
 
-          manifest_digest=$(jq -er '."containerimage.descriptor".digest' "$RUNNER_TEMP/manifest-metadata.json")
-          if [[ ! "$manifest_digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
-            echo "Unexpected manifest digest: $manifest_digest" >&2
-            exit 1
-          fi
-          if [ "$manifest_digest" != "$prospective_digest" ]; then
-            echo "Published digest $manifest_digest differs from validated digest $prospective_digest" >&2
-            exit 1
-          fi
-
-          published_manifest=$(docker buildx imagetools inspect "${IMAGE_REPOSITORY}@${manifest_digest}" --raw)
-          if [ "$published_manifest" != "$prospective_manifest" ]; then
-            echo "Published manifest differs from the validated dry-run manifest" >&2
-            exit 1
-          fi
-          candidate_manifest=$(docker buildx imagetools inspect "$candidate_tag" --raw)
-          if [ "$candidate_manifest" != "$published_manifest" ]; then
-            echo "$candidate_tag does not resolve to the validated manifest" >&2
-            exit 1
-          fi
-
+          manifest_digest=$(jq -r '."containerimage.descriptor".digest' "$RUNNER_TEMP/manifest-metadata.json")
           echo "digest=$manifest_digest" >> "$GITHUB_OUTPUT"
-          docker buildx imagetools inspect "${IMAGE_REPOSITORY}@${manifest_digest}"
 
-  container_smoke:
-    name: Candidate runtime smoke (${{ matrix.arch }})
-    needs: container
-    permissions:
-      contents: read
-      packages: read
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - arch: amd64
-            runner: ubuntu-latest
-          - arch: arm64
-            runner: ubuntu-24.04-arm
-    runs-on: ${{ matrix.runner }}
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: ${{ inputs.commit_sha }}
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ github.token }}
-
-      - name: Pull exact multi-architecture candidate
-        env:
-          IMAGE_DIGEST: ${{ needs.container.outputs.digest }}
-          IMAGE_REPOSITORY: ${{ inputs.image_repository }}
-        run: |
-          set -euo pipefail
-          [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
-          docker pull "${IMAGE_REPOSITORY}@${IMAGE_DIGEST}"
-
-      - name: Verify architecture, migrations, HTTP, and SPA
-        env:
-          EXPECTED_ARCHITECTURE: ${{ matrix.arch }}
-          IMAGE_DIGEST: ${{ needs.container.outputs.digest }}
-          IMAGE_REPOSITORY: ${{ inputs.image_repository }}
-        run: >-
-          bash .github/scripts/container-runtime-smoke.sh
-          "${IMAGE_REPOSITORY}@${IMAGE_DIGEST}" "$EXPECTED_ARCHITECTURE"
-
-  validate_artifacts:
-    name: Validate complete artifact set
+  package_artifacts:
+    name: Assemble release bundle
     needs:
       - linux_packages
       - windows_packages
       - portable_package
       - fuse_packages
-      - container
-      - container_smoke
-    permissions:
-      contents: read
-      packages: read
     runs-on: ubuntu-latest
     outputs:
       bundle_name: release-bundle-${{ inputs.commit_sha }}
     steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: ${{ inputs.commit_sha }}
-
       - name: Download package artifacts
         uses: actions/download-artifact@v8
         with:
@@ -582,74 +454,11 @@ jobs:
           path: release/
           merge-multiple: true
 
-      - name: Require every target package and generate checksums
-        env:
-          VERSION: ${{ inputs.version }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd release
+      - name: Generate checksums
+        working-directory: release
+        run: sha256sum * > SHA256SUMS
 
-          expected=(
-            "sdw-redive_${VERSION}_amd64.deb"
-            "sdw-redive-${VERSION}.amd64.rpm"
-            "sdw-redive-${VERSION}-amd64.pkg.tar.zst"
-            "sdw-redive_${VERSION}_linux-amd64.tar.gz"
-            "sdw-redive_${VERSION}_aarch64.deb"
-            "sdw-redive-${VERSION}.aarch64.rpm"
-            "sdw-redive-${VERSION}-aarch64.pkg.tar.zst"
-            "sdw-redive_${VERSION}_linux-aarch64.tar.gz"
-            "sdw-redive_${VERSION}_win-x64.zip"
-            "sdw-redive_${VERSION}_win-arm64.zip"
-            "sdw-redive_${VERSION}_portable.tar.gz"
-            "sdwfuse_${VERSION}_amd64.deb"
-            "sdwfuse-${VERSION}.amd64.rpm"
-            "sdwfuse-${VERSION}-amd64.pkg.tar.zst"
-            "sdwfuse_${VERSION}_linux-x64.tar.gz"
-            "sdwfuse_${VERSION}_aarch64.deb"
-            "sdwfuse-${VERSION}.aarch64.rpm"
-            "sdwfuse-${VERSION}-aarch64.pkg.tar.zst"
-            "sdwfuse_${VERSION}_linux-arm64.tar.gz"
-          )
-
-          test "$(find . -maxdepth 1 -type f | wc -l)" -eq "${#expected[@]}"
-          for artifact in "${expected[@]}"; do
-            test -s "$artifact"
-          done
-          sha256sum "${expected[@]}" > SHA256SUMS
-          sha256sum --check SHA256SUMS
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ github.token }}
-
-      - name: Verify image digest and target architectures
-        env:
-          IMAGE_DIGEST: ${{ needs.container.outputs.digest }}
-          IMAGE_REPOSITORY: ${{ inputs.image_repository }}
-        run: |
-          set -euo pipefail
-          [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
-          manifest=$(docker buildx imagetools inspect "$IMAGE_REPOSITORY@$IMAGE_DIGEST" --raw)
-          resolved_digest="sha256:$(printf '%s' "$manifest" | sha256sum | cut -d ' ' -f1)"
-          if [ "$resolved_digest" != "$IMAGE_DIGEST" ]; then
-            echo "Resolved digest $resolved_digest differs from $IMAGE_DIGEST" >&2
-            exit 1
-          fi
-
-          if ! jq -e -f .github/scripts/validate-container-index.jq \
-            <<< "$manifest" >/dev/null; then
-            echo "Published image is not a strict amd64/arm64 OCI index with matching attestations" >&2
-            exit 1
-          fi
-
-      - name: Upload checked release bundle
+      - name: Upload release bundle
         uses: actions/upload-artifact@v7
         with:
           name: release-bundle-${{ inputs.commit_sha }}

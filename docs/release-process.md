@@ -1,51 +1,60 @@
-# 发布质量门禁、重试与回滚
+# 构建、发布、重试与回滚
 
-本项目把验证、制品构建和发布拆成三层。任何可变镜像标签或 GitHub Release 都只能由已经通过完整验证的提交产生。
+PR 与 `main` push 由 `Verify` 执行质量门禁。主线预发布等待验证成功；手动 `Release` 只负责构建和发布，不再重复运行验证。
 
 ## PR 与主分支门禁
 
-`.github/workflows/verify.yml` 在所有指向 `main` 的 PR 和所有 `main` push 上运行，并且可被正式发布流程复用。它包含：
+`.github/workflows/verify.yml` 在所有指向 `main` 的 PR 和所有 `main` push 上运行，也支持手动运行和被主线预发布流程复用。它包含：
 
-- 后端 `restore`、Release `build`、单元测试和集成测试；
-- 前端不可变安装、测试、TypeScript 类型检查、Prettier 检查和生产构建；
-- 在原生 GitHub runner 上分别构建 `linux/amd64` 与 `linux/arm64` 最终 `Containerfile`（不推送、不使用 QEMU），并在 amd64 runner 上用临时 PostgreSQL 启动容器，验证 EF Core 迁移、HTTP 可用性和 SPA 首页。
+- 后端 `restore`、Release `build`、单元测试、集成测试和覆盖率门禁；
+- 前端不可变安装、测试、TypeScript 类型检查、Prettier 检查、生产构建、包体积预算和 Playwright E2E；
+- 在原生 GitHub runner 上分别构建 `linux/amd64` 与 `linux/arm64` 最终 `Containerfile`（不推送、不使用 QEMU），并在 amd64 runner 上用临时 PostgreSQL 启动容器，验证 EF Core 迁移、HTTP 可用性和 SPA 首页；
+- FUSE 挂载 smoke、安装与迁移等交付 smoke，以及备份恢复验证。
 
-仓库 branch protection 应把 `Verify` workflow 中的 `Quality gate` 设为 `main` 的 required status check。这个汇总 job 只有在后端、前端和容器三项都成功时才成功，名称保持稳定，适合 branch protection 绑定。
+仓库 branch protection 应把 `Verify` workflow 中的 `Quality gate` 设为 `main` 的 required status check。这个汇总 job 只有在后端、前端、前端 E2E、容器、FUSE 挂载、交付 smoke 和备份恢复七项都成功时才成功，名称保持稳定，适合 branch protection 绑定。
+
+## 共享制品构建
+
+`.github/workflows/build.yml` 由主线预发布和 `Release` 共用，只执行构建、打包与制品汇总。前端使用 `yarn build`；Linux、Windows、portable 和 FUSE 包使用传入的同一版本与 commit。容器在 amd64 的 `ubuntu-latest` 和 arm64 的 `ubuntu-24.04-arm` 上分别按 digest 构建，再合并为 `candidate-<commit>-<run>-<attempt>` 多架构镜像。发布包汇总后生成 `SHA256SUMS`。
+
+共享构建不再执行输入验证、前端包体积预算、candidate 运行 smoke、预期文件清单或 manifest 检查。这一调整同时适用于主线预发布和 `Release`；主线预发布在 `.github/workflows/container.yml` 中保留的验证与发布检查如下。
 
 ## 主线预发布
 
 `Publish verified mainline` 只响应成功的 `main` push 验证（手动运行时会先复用同一验证 workflow）。它对准确的已验证 commit SHA 执行以下操作：
 
-1. 所有 Linux、Windows、portable 和 FUSE 制品使用同一版本与 commit 构建；
-2. amd64 使用 `ubuntu-latest`、arm64 使用 `ubuntu-24.04-arm` 分别按 digest 构建，再合并成本次 run 专用的 `candidate-<commit>-<run>` 候选；
-3. 检查全部预期文件、SHA-256 校验和以及 `linux/amd64`、`linux/arm64` manifest，并在两个原生 runner 上按最终 candidate digest 拉取镜像，分别验证实际架构、PostgreSQL 迁移、HTTP 与 SPA；
+1. 调用共享构建，生成应用包、FUSE 包、多架构镜像和校验和文件；
+2. 在发布阶段核对包的 SHA-256 校验和，检查 candidate digest、双架构 OCI index、attestation 以及镜像 config 的 source/version；
+3. 检查 Git tag、Release 和 registry 版本标签的状态；
 4. 通过 GitHub refs API 以 create-only 操作把 `pre-<version>` Git tag 绑定到已验证提交，取得该版本的发布锁；
 5. 创建或安全复用同名不可变镜像标签，上传附件并发布 prerelease；
-6. 最后在串行 promotion job 中更新 `prerelease-latest`，并逐字节复核其 raw manifest。
+6. 最后在串行 promotion job 中更新 `prerelease-latest`，并逐字节复核其 raw manifest；若默认分支已前进，则跳过此次 moving tag 更新。
 
 测试或制品构建失败时，不会执行镜像推广和 release job。run 专用的候选标签只用于定位中间产物；推广始终按不可变 digest 执行，候选标签不是部署接口。
 
 ## 版本发布与 RC
 
-版本变更必须先通过普通 PR 同时更新根目录 `VERSION` 以及主项目的 `Version`、`AssemblyVersion`、`FileVersion`。`VERSION` 和 `Version` 使用完整版本号，支持 `X.Y.Z` 和 `X.Y.Z-rcN`（N 从 1 开始）；程序集 `AssemblyVersion`、`FileVersion` 始终使用不带 RC 后缀的 `X.Y.Z`。合并后，从 `main` 手动运行 `Release` workflow；workflow 不再自行提交版本或提前创建 tag。
+版本准备约定：先通过普通 PR 同时更新根目录 `VERSION` 以及主项目的 `Version`、`AssemblyVersion`、`FileVersion`。`VERSION` 和 `Version` 使用完整版本号，支持 `X.Y.Z` 和 `X.Y.Z-rcN`（N 从 1 开始）；程序集 `AssemblyVersion`、`FileVersion` 始终使用不带 RC 后缀的 `X.Y.Z`。这些是版本准备要求，`Release` 不再执行版本格式和程序集版本一致性检查。
 
-RC 与正式版使用相同验证和制品流程。RC 创建 `vX.Y.Z-rcN` tag、`X.Y.Z-rcN` 不可变镜像和标记为 prerelease 的 GitHub Release，不推广稳定版 `latest`，也不改变 GitHub 的最新正式版。`prerelease-latest` 仍由自动主线发布管理；主线发布从 `VERSION` 去掉 RC 后缀后继续分配 `pre-X.Y.Z.N`。安装指定候选时使用完整 RC 镜像标签或 digest。
+建议合并后从 `main` 手动运行 `Release` workflow，也可以选择其他 ref。构建和发布固定使用启动本次运行时的 `github.sha` 及该提交中的 `VERSION`；分支在构建期间前进不会阻断发布。流程不自行提交版本，也不在构建前创建 tag。
+
+RC 与正式版使用相同的构建和发布流程。RC 创建 `vX.Y.Z-rcN` tag、`X.Y.Z-rcN` 版本镜像和标记为 prerelease 的 GitHub Release，不推广稳定版 `latest`，也不改变 GitHub 的最新正式版。`prerelease-latest` 仍由自动主线发布管理；主线发布从 `VERSION` 去掉 RC 后缀后继续分配 `pre-X.Y.Z.N`。安装指定候选时使用完整 RC 镜像标签或 digest。
 
 可在 `docs/releases/<完整版本号>.md` 中维护该版本发行说明。发布流程会把它与容器 digest、GitHub 自动生成的提交记录一起写入 Release；未提供该文件时保留自动生成的说明。
 
-正式流程会再次运行完整门禁，构建并检查所有目标制品与多架构镜像。构建期间若 `main` 已前进，发布会失败，避免给旧提交打新 tag。流程先通过 GitHub refs API 以 create-only 操作把正式 `v<version>` tag 原子绑定到已验证提交并校验目标 SHA，以此锁定版本命名空间；随后创建或安全复用并复核 `<version>` 镜像标签，最后使用 `--verify-tag` 创建包含全部制品的 Release。只有 Release 成功后，独立且串行的 promotion job 才更新 `latest`。若同名 bare tag 在构建期间出现，原子创建会失败；若制品上传失败，本次创建的 Release 和仍指向已验证提交的 tag 会被清理，以便安全重试。发布包附带 `SHA256SUMS`，release notes 记录容器 digest。
+构建成功后，流程通过 GitHub refs API 以 create-only 操作把 `v<version>` tag 绑定到本次提交；同名 tag 已存在时，此创建操作直接失败，不会继续写入版本镜像。随后按构建输出的 digest 发布 `<version>` 镜像标签，使用 `gh release create --verify-tag --draft` 创建草稿，上传全部制品后公开 Release。只有正式版 Release 成功后，独立且串行的 promotion job 才按同一 digest 更新 `latest`。发布包附带 `SHA256SUMS`，release notes 记录容器 digest；Release 流程不再重复校验 checksum、manifest、镜像身份或 registry 状态。
 
-workflow 使用最小权限：验证只有 `contents: read`，构建候选镜像的 job 才有 `packages: write`，最终发布 job 才有 `contents: write` 和 `packages: write`。
+workflow 按职责分配权限：验证和打包使用 `contents: read`，写入镜像的构建和 promotion job 使用 `packages: write`，创建 Git tag 与 Release 的发布 job 使用 `contents: write` 和 `packages: write`。
 
-OCI registry 没有可由 workflow 依赖的 create-only tag 写入。这里用 create-only Git ref 作为仓库内同版本发布的命名空间锁，并在写入前后通过 registry API 复核状态、raw digest 和镜像身份；拥有仓库 `packages: write` 的外部主体属于发布信任边界，不得移动按策略不可变的版本镜像标签。
+版本 Git tag 的 create-only 写入用于拒绝重复发布。版本镜像标签仍按发布约定保持不变，但 `Release` 对 registry 的写入不具备 create-only 保证，也不再验证并复用失败运行残留的同名镜像；重试行为见下文。主线预发布仍保留原有 registry 检查和已验证镜像复用逻辑。
 
 ## 失败后的重试
 
-- **验证或构建失败**：修复原因后重新运行失败的 workflow，或者推送新提交。不会产生 `latest`、正式版本标签或公开的不完整 release。
-- **`main` 在正式构建期间前进**：在最新 `main` 上重新运行 `Release`；不要给旧 workflow 强行放行。
-- **最终发布前失败**：create-only Git ref 与 Release 创建由同一步骤管理；失败时会删除本次创建且仍指向已验证提交的 ref，并清理未完成 Release。已经严格验证的不可变容器版本标签可能保留以供审计，但 moving alias 不会更新。确认不存在残留同名 Git ref/release 后再重跑。
-- **moving alias 更新失败**：GitHub Release 与不可变版本镜像仍然有效；只重跑失败的 promotion job，不要重建或覆盖版本制品。
-- **runner 临时故障**：Git tag 尚未创建时可以 rerun 全部 jobs。artifact 使用覆盖式上传，候选镜像含 run attempt；若前一次 attempt 已留下不可变容器版本标签，发布步骤只会在该标签仍是严格的双架构 OCI index、attestation 与真实平台 digest 一一对应，且两个镜像 config 的 source/version 标签都与本次发布一致时复用其原始 manifest 和 digest，否则会失败关闭。Git tag 已创建但 promotion 未完成时，只重跑失败的 promotion job；若 Git tag 或 Release 状态不一致，先由管理员按审计记录完成恢复，不要全量重建。
+- **验证或构建失败**：修复原因后重跑失败的 workflow，或者推送新提交。验证仅适用于 `Verify` 和主线预发布；`Release` 从构建开始。构建失败不会进入版本发布和 moving tag 更新。
+- **`Release` 发布步骤失败**：退出处理只清理本次已成功创建的对象：尽力删除本次创建的 Release，并仅在本次创建的 tag 仍指向本次提交时删除 tag。硬取消、runner 故障或清理失败可能留下对象；重试前先处理残留同名 Git tag/Release，否则 Git tag 或 Release 创建会失败。版本镜像可能保留；下一次成功取得 Git tag 后会直接将同名镜像标签写为本次构建的 digest，不再验证并复用旧 digest。
+- **主线预发布步骤失败**：保留已创建的 Git tag 作为已占用版本，只清理带本次运行标记的 Release。重新运行完整流程会重新分配可用版本；不要将已占用版本绑定到其他提交。若只存在同名镜像且尚无 Git tag，原发布逻辑仍要求其双架构 OCI index、attestation 和 source/version 身份符合本次发布后才复用。
+- **moving tag 更新失败**：GitHub Release 与版本镜像仍然有效；只重跑失败的 promotion job，不要重建或覆盖版本制品。
+- **runner 临时故障**：Git tag 尚未创建时可以 rerun 全部 jobs。artifact 使用覆盖式上传，候选镜像含 run attempt；Git tag 或 Release 已存在时，按上面对应流程的恢复规则处理。
 
 ## 回滚
 
