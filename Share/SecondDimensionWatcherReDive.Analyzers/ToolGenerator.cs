@@ -142,8 +142,9 @@ public sealed class ToolGenerator : IIncrementalGenerator
             var model = compilation.GetSemanticModel(declaration.SyntaxTree);
             foreach (var node in declaration.DescendantNodes())
             {
-                if (node is InvocationExpressionSyntax invocation
-                    && model.GetSymbolInfo(invocation, ct).Symbol is IMethodSymbol method
+                // Bind the name to cover both direct calls and delegate method groups.
+                if (node is SimpleNameSyntax name && name.Identifier.ValueText == "Success"
+                    && model.GetSymbolInfo(name, ct).Symbol is IMethodSymbol method
                     && SymbolEqualityComparer.Default.Equals(method.OriginalDefinition, successHelper))
                 {
                     var resultType = method.TypeArguments[0];
