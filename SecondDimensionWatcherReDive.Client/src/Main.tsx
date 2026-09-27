@@ -12,6 +12,7 @@ import {
   loadChatPage,
   loadDownloadedPage,
   loadDownloadingPage,
+  loadEpisodeListPage,
   loadFeedsPage,
   loadFilesPage,
   loadIncidentsPage,
@@ -57,7 +58,7 @@ const MainPage = React.lazy(async () => ({
   default: (await loadMainPage()).MainPage,
 }));
 const EpisodeListPage = React.lazy(async () => ({
-  default: (await loadMainPage()).EpisodeListPage,
+  default: (await loadEpisodeListPage()).EpisodeListPage,
 }));
 const MetadataReviewPage = React.lazy(async () => ({
   default: (await loadMetadataReviewPage()).MetadataReviewPage,

@@ -83,7 +83,7 @@ const ResumeCard: React.FC<{
             {formatPlaybackTime(state.durationSeconds)}
           </p>
           {featured ? (
-            <span className="mt-4 inline-flex items-center gap-2 rounded-md bg-brand px-3 py-2 text-xs font-medium text-surface">
+            <span className="mt-4 inline-flex items-center gap-2 rounded-md bg-brand px-3 py-2 text-xs font-medium text-on-brand">
               <Play size={12} fill="currentColor" aria-hidden="true" />
               {t("continue.resume")}
             </span>

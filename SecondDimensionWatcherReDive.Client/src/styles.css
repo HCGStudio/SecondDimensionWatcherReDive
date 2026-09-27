@@ -3,8 +3,8 @@
 
 @layer base {
   html {
-    color-scheme: light;
     scrollbar-gutter: stable;
+    background: var(--theme-canvas);
   }
   body {
     @apply bg-canvas text-foreground font-sans antialiased;
@@ -13,8 +13,8 @@
     margin: 0;
   }
   ::selection {
-    background: #cce2d5;
-    color: #173f2f;
+    background: var(--theme-selection);
+    color: var(--theme-selection-foreground);
   }
   h1,
   h2,
@@ -32,7 +32,7 @@
     cursor: pointer;
   }
   :focus-visible {
-    outline: 2px solid #337b5f;
+    outline: 2px solid var(--theme-focus);
     outline-offset: 3px;
   }
   button,
@@ -46,7 +46,7 @@
   ::after,
   ::before,
   ::backdrop {
-    border-color: var(--color-border-light, currentColor);
+    border-color: var(--theme-border-light, currentColor);
   }
 }
 
