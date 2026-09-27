@@ -232,7 +232,7 @@ internal sealed partial class ChatController(
             cancellationToken);
         return outcome switch
         {
-            ChatActionRejectOutcome.Rejected => Ok(new { outcome = outcome.ToString() }),
+            ChatActionRejectOutcome.Rejected => Ok(new ChatActionRejectResponse(outcome.ToString())),
             ChatActionRejectOutcome.NotFound or ChatActionRejectOutcome.ConversationMissing => NotFound(),
             ChatActionRejectOutcome.Expired => StatusCode(StatusCodes.Status410Gone),
             ChatActionRejectOutcome.AlreadyProcessed => Conflict(),
@@ -292,7 +292,7 @@ internal sealed partial class ChatController(
         }
         catch (Exception exception) when (exception is ArgumentException or InvalidOperationException)
         {
-            return TypedResults.BadRequest(new { message = exception.Message });
+            return TypedResults.BadRequest(new ChatRequestError(exception.Message));
         }
 
         var conversation = await chatRepository.GetConversationWithMessagesAsync(id, profileId, cancellationToken);

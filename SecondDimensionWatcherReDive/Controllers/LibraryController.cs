@@ -36,12 +36,12 @@ internal sealed class LibraryController(
     {
         if (!TryGetUserId(out var userId)) return Unauthorized();
         if (take is < 1 or > 100 || season is < 0 or > 100 || episode is < 0 or > 100000)
-            return BadRequest(new { message = "Invalid pagination, season, or episode value." });
+            return BadRequest(new External.MessageResponse("Invalid pagination, season, or episode value."));
         if (!TryParse(downloadState, LibraryDownloadState.Any, out LibraryDownloadState parsedDownload) ||
             !TryParse(watchState, LibraryWatchState.Any, out LibraryWatchState parsedWatch) ||
             !TryParse(source, LibrarySourceKind.Any, out LibrarySourceKind parsedSource) ||
             !TryParse(sort, LibrarySearchSort.PublishedDescending, out LibrarySearchSort parsedSort))
-            return BadRequest(new { message = "One or more search enum values are invalid." });
+            return BadRequest(new External.MessageResponse("One or more search enum values are invalid."));
 
         try
         {
@@ -66,11 +66,7 @@ internal sealed class LibraryController(
         }
         catch (ArgumentException exception)
         {
-            return BadRequest(new
-            {
-                code = "library_cursor_invalidated",
-                message = exception.Message
-            });
+            return BadRequest(new External.CodedMessageResponse("library_cursor_invalidated", exception.Message));
         }
     }
 
@@ -80,7 +76,7 @@ internal sealed class LibraryController(
         [FromQuery] int? season,
         CancellationToken cancellationToken)
     {
-        if (season is < 0 or > 100) return BadRequest(new { message = "Invalid season." });
+        if (season is < 0 or > 100) return BadRequest(new External.MessageResponse("Invalid season."));
         var result = await searchRepository.GetIntegrityAsync(Normalize(tmdbId), season, cancellationToken);
         return Ok(result.Select(item => item.ToExternal()).ToList());
     }
@@ -91,7 +87,7 @@ internal sealed class LibraryController(
         [FromQuery] int take = 50,
         CancellationToken cancellationToken = default)
     {
-        if (take is < 1 or > 200) return BadRequest(new { message = "take must be between 1 and 200." });
+        if (take is < 1 or > 200) return BadRequest(new External.MessageResponse("take must be between 1 and 200."));
         var result = await upgradeRepository.GetCandidatesAsync(automaticOnly, take, cancellationToken);
         return Ok(result.Select(item => item.ToExternal()).ToList());
     }
@@ -107,7 +103,7 @@ internal sealed class LibraryController(
             request.CandidateReleaseId,
             cancellationToken);
         if (candidate is null)
-            return Conflict(new { message = "The requested release is no longer an available upgrade." });
+            return Conflict(new External.MessageResponse("The requested release is no longer an available upgrade."));
 
         var result = await upgradeCoordinator.ExecuteAsync(candidate, ReleaseUpgradeInvocation.Manual, request.DryRun, cancellationToken);
         var response = result.ToExternal();
@@ -131,7 +127,7 @@ internal sealed class LibraryController(
         [FromQuery] int take = 50,
         CancellationToken cancellationToken = default)
     {
-        if (take is < 1 or > 200) return BadRequest(new { message = "take must be between 1 and 200." });
+        if (take is < 1 or > 200) return BadRequest(new External.MessageResponse("take must be between 1 and 200."));
         var result = await upgradeRepository.GetHistoryAsync(take, cancellationToken);
         return Ok(result.Select(item => item.ToExternal()).ToList());
     }

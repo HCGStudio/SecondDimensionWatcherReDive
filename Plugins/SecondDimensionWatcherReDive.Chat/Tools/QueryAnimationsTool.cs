@@ -8,7 +8,7 @@ namespace SecondDimensionWatcherReDive.Chat.Tools;
 [Tool<QueryAnimationsParams>(
     "query_animations",
     "Query animation info list. Supports paged list, grouped by TMDB, downloading, downloaded, title search, and ID lookup. Grouped results return next_cursor when truncated; pass it back unchanged as grouped_cursor to continue.",
-    ToolRiskLevel.ReadOnly)]
+    ToolRiskLevel.ReadOnly, typeof(ChatToolJsonContext))]
 internal sealed partial class QueryAnimationsTool(
     IAnimationInfoRepository animationInfoRepository) : ITool
 {
@@ -17,12 +17,12 @@ internal sealed partial class QueryAnimationsTool(
     {
         return param.Action switch
         {
-            QueryAnimationsAction.List => new ToolSuccessResult<AnimationPagedResult>(
+            QueryAnimationsAction.List => Success<AnimationPagedResult>(
                 await QueryListAsync(param, cancellationToken)),
             QueryAnimationsAction.Grouped => await QueryGroupedAsync(param, cancellationToken),
-            QueryAnimationsAction.Downloading => new ToolSuccessResult<AnimationPagedResult>(
+            QueryAnimationsAction.Downloading => Success<AnimationPagedResult>(
                 await QueryDownloadingAsync(param, cancellationToken)),
-            QueryAnimationsAction.Downloaded => new ToolSuccessResult<AnimationPagedResult>(
+            QueryAnimationsAction.Downloaded => Success<AnimationPagedResult>(
                 await QueryDownloadedAsync(param, cancellationToken)),
             QueryAnimationsAction.SearchByTitle => await QueryByTitleAsync(param, cancellationToken),
             QueryAnimationsAction.GetById => await QueryByIdAsync(param, cancellationToken),
@@ -107,7 +107,7 @@ internal sealed partial class QueryAnimationsTool(
                 uncategorizedPage?.NextCursor,
                 animationsComplete,
                 uncategorizedComplete);
-        return new ToolSuccessResult<AnimationGroupedToolResult>(
+        return Success<AnimationGroupedToolResult>(
             new AnimationGroupedToolResult(
                 animations,
                 animations.Count,
@@ -139,7 +139,7 @@ internal sealed partial class QueryAnimationsTool(
             return new ToolFailureResult("title is required");
 
         var info = await animationInfoRepository.FindByTitleAsync(param.Title, cancellationToken);
-        return new ToolSuccessResult<AnimationSearchResult>(info is null
+        return Success<AnimationSearchResult>(info is null
             ? new AnimationSearchResult(false)
             : new AnimationSearchResult(true, ToSummary(info)));
     }
@@ -150,7 +150,7 @@ internal sealed partial class QueryAnimationsTool(
             return new ToolFailureResult("Invalid or missing id");
 
         var info = await animationInfoRepository.FindByIdAsync(id, cancellationToken);
-        return new ToolSuccessResult<AnimationSearchResult>(info is null
+        return Success<AnimationSearchResult>(info is null
             ? new AnimationSearchResult(false)
             : new AnimationSearchResult(true, ToSummary(info)));
     }

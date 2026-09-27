@@ -5,6 +5,8 @@ using SecondDimensionWatcherReDive.Framework.DataRepository;
 namespace SecondDimensionWatcherReDive.Chat.External;
 
 [JsonSerializable(typeof(ChatStatusResponse))]
+[JsonSerializable(typeof(ChatActionRejectResponse))]
+[JsonSerializable(typeof(ChatRequestError))]
 [JsonSerializable(typeof(SendMessageRequest))]
 [JsonSerializable(typeof(CreateConversationRequest))]
 [JsonSerializable(typeof(UpdateConversationRequest))]

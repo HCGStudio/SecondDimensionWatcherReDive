@@ -8,7 +8,7 @@ namespace SecondDimensionWatcherReDive.Chat.Tools;
 [Tool<SubscribeBangumiParams>(
     "subscribe_bangumi",
     "Subscribe to a bangumi on mikanani. Requires mikan_id, optionally accepts subgroup_id.",
-    ToolRiskLevel.Mutating)]
+    ToolRiskLevel.Mutating, typeof(ChatToolJsonContext))]
 internal sealed partial class SubscribeBangumiTool(
     ISeasonBangumiRepository seasonBangumiRepository,
     IFeedRepository feedRepository) : ITool
@@ -31,7 +31,7 @@ internal sealed partial class SubscribeBangumiTool(
         var feed = new Feed(Guid.NewGuid(), rssUrl, feedName, DateTimeOffset.Now);
         await feedRepository.AddAsync(feed, cancellationToken);
 
-        return new ToolSuccessResult<SubscribeResult>(new SubscribeResult(true, feed.Id, feedName, rssUrl));
+        return Success<SubscribeResult>(new SubscribeResult(true, feed.Id, feedName, rssUrl));
     }
 }
 

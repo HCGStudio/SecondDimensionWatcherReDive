@@ -74,7 +74,7 @@ public sealed partial class InferenceEngine(
     private const int MaxToolRounds = 8;
 
     private static readonly JsonElement MetadataOutputSchema =
-        JsonSerializer.Deserialize<JsonElement>("""
+        JsonSerializer.Deserialize("""
             {
               "type": "object",
               "additionalProperties": false,
@@ -87,10 +87,10 @@ public sealed partial class InferenceEngine(
               },
               "required": ["tmdb_id", "group_name", "season", "episode", "confidence"]
             }
-            """);
+            """, InferenceToolJsonContext.Default.JsonElement);
 
     private static readonly JsonElement FileNameOutputSchema =
-        JsonSerializer.Deserialize<JsonElement>("""
+        JsonSerializer.Deserialize("""
             {
               "type": "object",
               "additionalProperties": false,
@@ -111,7 +111,7 @@ public sealed partial class InferenceEngine(
               },
               "required": ["files"]
             }
-            """);
+            """, InferenceToolJsonContext.Default.JsonElement);
 
     private static readonly SemaphoreSlim RateLimitSemaphore = new(1, 1);
     private static DateTime _lastCallTime = DateTime.MinValue;
@@ -293,9 +293,9 @@ public sealed partial class InferenceEngine(
         FileNameInferenceRequest request,
         CancellationToken cancellationToken)
     {
-        var filesJson = JsonSerializer.Serialize(request.Files, ToolJsonOptions.Options);
+        var filesJson = JsonSerializer.Serialize(request.Files, InferenceToolJsonContext.Default.IReadOnlyListFileNameInferenceInput);
         var targets = request.TargetFilePaths ?? request.Files.Select(file => file.FilePath).ToList();
-        var targetsJson = JsonSerializer.Serialize(targets, ToolJsonOptions.Options);
+        var targetsJson = JsonSerializer.Serialize(targets, InferenceToolJsonContext.Default.IReadOnlyListString);
         var messages = new List<IMessage>
         {
             new SystemMessage(FileNameSystemPrompt),

@@ -8,7 +8,7 @@ namespace SecondDimensionWatcherReDive.Chat.Tools;
 [Tool<ManageFeedsParams>(
     "manage_feeds",
     "Manage RSS feed subscriptions. Supports listing all feeds, adding new feeds, and removing feeds.",
-    ToolRiskLevel.Destructive)]
+    ToolRiskLevel.Destructive, typeof(ChatToolJsonContext))]
 internal sealed partial class ManageFeedsTool(
     IFeedRepository feedRepository) : ITool
 {
@@ -17,7 +17,7 @@ internal sealed partial class ManageFeedsTool(
     {
         return param.Action switch
         {
-            ManageFeedsAction.List => new ToolSuccessResult<FeedListResult>(
+            ManageFeedsAction.List => Success<FeedListResult>(
                 await ListFeedsAsync(cancellationToken)),
             ManageFeedsAction.Add => await AddFeedAsync(param, cancellationToken),
             ManageFeedsAction.Remove => await RemoveFeedAsync(param, cancellationToken),
@@ -43,7 +43,7 @@ internal sealed partial class ManageFeedsTool(
 
         var feed = new Feed(Guid.NewGuid(), param.Url, param.Name, DateTimeOffset.Now);
         await feedRepository.AddAsync(feed, cancellationToken);
-        return new ToolSuccessResult<FeedAddResult>(new FeedAddResult(true, feed.Id, feed.Url, feed.Name));
+        return Success<FeedAddResult>(new FeedAddResult(true, feed.Id, feed.Url, feed.Name));
     }
 
     private async Task<IToolResult> RemoveFeedAsync(ManageFeedsParams param, CancellationToken cancellationToken)
@@ -56,7 +56,7 @@ internal sealed partial class ManageFeedsTool(
             return new ToolFailureResult("Feed not found");
 
         await feedRepository.RemoveAsync(feed, cancellationToken);
-        return new ToolSuccessResult<string>("Feed removed");
+        return Success<string>("Feed removed");
     }
 }
 

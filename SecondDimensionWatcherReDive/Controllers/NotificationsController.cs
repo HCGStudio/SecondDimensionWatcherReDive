@@ -33,7 +33,7 @@ internal sealed class NotificationsController(
                            && (await webPushSubscriptions.GetAllAsync(cancellationToken)).Count > 0;
         var pluginReady = pluginProviders.GetNotificationTargets().Any(target => target.AcceptsNotifications);
         if (!webhookReady && !webPushReady && !pluginReady)
-            return Conflict(new { message = "Enable and configure at least one notification destination first." });
+            return Conflict(new External.MessageResponse("Enable and configure at least one notification destination first."));
 
         var id = Guid.NewGuid();
         var outcome = await publisher.PublishDurablyAsync(new NotificationEvent(
@@ -46,7 +46,7 @@ internal sealed class NotificationsController(
         if (outcome != NotificationPublicationOutcome.Persisted)
             return StatusCode(
                 StatusCodes.Status503ServiceUnavailable,
-                new { message = "The test notification could not be persisted." });
+                new External.MessageResponse("The test notification could not be persisted."));
         return Accepted(new TestNotificationResponse(id));
     }
 

@@ -16,7 +16,7 @@ public sealed class LibrarySearchRepository(
 {
     private const int MaximumReturnedPathsPerRelease = 20;
 
-    private sealed record SearchCursor(
+    internal sealed record SearchCursor(
         DateTimeOffset SnapshotUtc,
         string Signature,
         long Revision,
@@ -491,7 +491,7 @@ public sealed class LibrarySearchRepository(
         if (string.IsNullOrWhiteSpace(json)) return [];
         try
         {
-            return JsonSerializer.Deserialize<string[]>(json) ?? [];
+            return JsonSerializer.Deserialize(json, RepositoryJsonSerializerContext.Default.StringArray) ?? [];
         }
         catch (JsonException)
         {
@@ -511,7 +511,7 @@ public sealed class LibrarySearchRepository(
 
     private static string EncodeCursor(SearchCursor cursor)
     {
-        var bytes = JsonSerializer.SerializeToUtf8Bytes(cursor);
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(cursor, RepositoryJsonSerializerContext.Default.SearchCursor);
         return Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
     }
 
@@ -523,7 +523,7 @@ public sealed class LibrarySearchRepository(
         {
             var normalized = value.Replace('-', '+').Replace('_', '/');
             normalized = normalized.PadRight((normalized.Length + 3) / 4 * 4, '=');
-            return JsonSerializer.Deserialize<SearchCursor>(Convert.FromBase64String(normalized))
+            return JsonSerializer.Deserialize(Convert.FromBase64String(normalized), RepositoryJsonSerializerContext.Default.SearchCursor)
                    ?? throw new ArgumentException("The search cursor is invalid.");
         }
         catch (Exception exception) when (exception is FormatException or JsonException)

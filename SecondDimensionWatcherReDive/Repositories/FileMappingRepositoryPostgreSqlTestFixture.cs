@@ -200,7 +200,7 @@ internal sealed class FileMappingRepositoryPostgreSqlTestFixture(string connecti
             .Where(job => job.Type == DurableJobType.DownloadCompletion)
             .ToListAsync(cancellationToken);
         var payload = System.Text.Json.JsonSerializer
-            .Deserialize<DownloadCompletionJobPayload>(jobs.Single().PayloadJson)!;
+            .Deserialize(jobs.Single().PayloadJson, RepositoryJsonSerializerContext.Default.DownloadCompletionJobPayload)!;
         return (finished, jobs.Count, payload);
     }
 

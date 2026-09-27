@@ -46,7 +46,7 @@ internal sealed class WebPushSubscriptionsController(
                 configuration["Notifications:WebPush:VapidPublicKey"])
             || string.IsNullOrWhiteSpace(
                 configuration["Notifications:WebPush:VapidPrivateKey"]))
-            return Conflict(new { message = "Enable and configure Web Push first." });
+            return Conflict(new External.MessageResponse("Enable and configure Web Push first."));
 
         if (!TryNormalizeEndpoint(request.Endpoint, out var endpoint, out var endpointUri))
             return ValidationError(
@@ -84,7 +84,7 @@ internal sealed class WebPushSubscriptionsController(
         }
         catch (WebPushSubscriptionLimitExceededException exception)
         {
-            return Conflict(new { message = exception.Message });
+            return Conflict(new External.MessageResponse(exception.Message));
         }
     }
 

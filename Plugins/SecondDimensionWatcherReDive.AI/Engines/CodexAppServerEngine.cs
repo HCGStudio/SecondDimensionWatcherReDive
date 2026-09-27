@@ -543,8 +543,7 @@ public sealed partial class CodexAppServerEngine(
             toolResult = new ToolFailureResult($"Tool '{toolName}' failed: {ex.Message}");
         }
 
-        var serializedResult = JsonSerializer.SerializeToElement(
-            toolResult, toolResult.GetType(), ToolJsonOptions.Options);
+        var serializedResult = toolResult.SerializeToElement();
         state.TryEnqueueUpdate(new ToolResultUpdate(callId, serializedResult));
 
         if (executionCanceled || cancellationToken.IsCancellationRequested)
@@ -1083,7 +1082,7 @@ public sealed partial class CodexAppServerEngine(
         }
 
         private async Task SendAsync(JsonObject message, CancellationToken cancellationToken)
-            => await transport.SendAsync(message.ToJsonString(), cancellationToken);
+            => await transport.SendAsync(JsonSerializer.Serialize(message, ToolJsonContext.Default.JsonNode), cancellationToken);
 
         private static bool IsResponseFor(JsonElement message, long id)
             => message.TryGetProperty("id", out var idElement) &&

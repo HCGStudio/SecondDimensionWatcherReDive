@@ -39,11 +39,11 @@ internal sealed class MediaLibraryController(
                 currentOptions.DownloadRoot,
                 out var path,
                 out var error))
-            return BadRequest(new { error });
+            return BadRequest(new External.ErrorResponse(error));
 
         var sources = await repository.GetAllAsync(cancellationToken);
         if (sources.Any(source => MediaLibraryPath.PathsOverlap(source.Path, path)))
-            return Conflict(new { error = "The path is already covered by a configured media library source." });
+            return Conflict(new External.ErrorResponse("The path is already covered by a configured media library source."));
 
         var source = new MediaLibrarySource(
             Guid.NewGuid(),
@@ -59,7 +59,7 @@ internal sealed class MediaLibraryController(
         try
         {
             if (!await repository.TryAddAsync(source, cancellationToken))
-                return Conflict(new { error = "The path is already covered by a configured media library source." });
+                return Conflict(new External.ErrorResponse("The path is already covered by a configured media library source."));
         }
         catch (DbUpdateException exception) when (
             exception.InnerException is PostgresException
@@ -67,7 +67,7 @@ internal sealed class MediaLibraryController(
                 SqlState: PostgresErrorCodes.UniqueViolation
             })
         {
-            return Conflict(new { error = "The media library source already exists." });
+            return Conflict(new External.ErrorResponse("The media library source already exists."));
         }
 
         scanQueue.Enqueue(source.Id);
@@ -106,17 +106,14 @@ internal sealed class MediaLibraryController(
         CancellationToken cancellationToken)
     {
         if (scanQueue.IsQueuedOrRunning(id))
-            return Conflict(new { error = "Wait for the active media library scan to finish before removing it." });
+            return Conflict(new External.ErrorResponse("Wait for the active media library scan to finish before removing it."));
 
         var result = await repository.TryRemoveByIdAsync(id, cancellationToken);
         return result switch
         {
             MediaLibrarySourceRemoveResult.Removed => NoContent(),
             MediaLibrarySourceRemoveResult.NotFound => NotFound(),
-            MediaLibrarySourceRemoveResult.Busy => Conflict(new
-            {
-                error = "Wait for the active media library scan to finish before removing it."
-            }),
+            MediaLibrarySourceRemoveResult.Busy => Conflict(new External.ErrorResponse("Wait for the active media library scan to finish before removing it.")),
             _ => throw new ArgumentOutOfRangeException(nameof(result), result, null)
         };
     }

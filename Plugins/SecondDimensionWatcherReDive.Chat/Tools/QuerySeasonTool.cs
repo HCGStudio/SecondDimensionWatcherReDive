@@ -8,7 +8,7 @@ namespace SecondDimensionWatcherReDive.Chat.Tools;
 [Tool<QuerySeasonParams>(
     "query_season",
     "Query seasonal anime info. View current/past season anime lists, or list subgroups for a specific bangumi.",
-    ToolRiskLevel.ReadOnly)]
+    ToolRiskLevel.ReadOnly, typeof(ChatToolJsonContext))]
 internal sealed partial class QuerySeasonTool(
     ISeasonBangumiRepository seasonBangumiRepository,
     IBangumiSubgroupRepository bangumiSubgroupRepository,
@@ -19,9 +19,9 @@ internal sealed partial class QuerySeasonTool(
     {
         return param.Action switch
         {
-            QuerySeasonAction.CurrentSeason => new ToolSuccessResult<SeasonListResult>(
+            QuerySeasonAction.CurrentSeason => Success<SeasonListResult>(
                 await QueryCurrentSeasonAsync(cancellationToken)),
-            QuerySeasonAction.BrowseSeason => new ToolSuccessResult<SeasonListResult>(
+            QuerySeasonAction.BrowseSeason => Success<SeasonListResult>(
                 await BrowseSeasonAsync(param, cancellationToken)),
             QuerySeasonAction.Subgroups => await QuerySubgroupsAsync(param, cancellationToken),
             _ => new ToolFailureResult($"Unknown action: {param.Action}")
@@ -58,7 +58,7 @@ internal sealed partial class QuerySeasonTool(
             return new ToolFailureResult("Bangumi not found");
 
         var subgroups = await bangumiSubgroupRepository.GetBySeasonBangumiIdAsync(bangumi.Id, cancellationToken);
-        return new ToolSuccessResult<SubgroupListResult>(new SubgroupListResult(
+        return Success<SubgroupListResult>(new SubgroupListResult(
             bangumi.Title,
             subgroups.Select(s => new SubgroupSummary(s.MikanSubgroupId, s.Name))));
     }

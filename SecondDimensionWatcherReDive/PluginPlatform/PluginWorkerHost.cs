@@ -69,14 +69,14 @@ internal static class PluginWorkerHost
                   return response.Result;
                 }
               });
-            })(globalThis[{{JsonSerializer.Serialize(bridgeName)}}]);
-            delete globalThis[{{JsonSerializer.Serialize(bridgeName)}}];
+            })(globalThis[{{JsonSerializer.Serialize(bridgeName, PluginWorkerJsonContext.Default.String)}}]);
+            delete globalThis[{{JsonSerializer.Serialize(bridgeName, PluginWorkerJsonContext.Default.String)}}];
             """);
         engine.Execute("plugin.js", invocation.Script);
 
-        var handlerJson = JsonSerializer.Serialize(invocation.Handler);
-        var inputJson = JsonSerializer.Serialize(invocation.Input.GetRawText());
-        var configurationJson = JsonSerializer.Serialize(invocation.Configuration.GetRawText());
+        var handlerJson = JsonSerializer.Serialize(invocation.Handler, PluginWorkerJsonContext.Default.String);
+        var inputJson = JsonSerializer.Serialize(invocation.Input.GetRawText(), PluginWorkerJsonContext.Default.String);
+        var configurationJson = JsonSerializer.Serialize(invocation.Configuration.GetRawText(), PluginWorkerJsonContext.Default.String);
         var maximumResponseBytes = Math.Clamp(invocation.MaximumResponseBytes, 1024, 8 * 1024 * 1024);
         var expression = $$"""
             (() => {

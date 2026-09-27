@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -50,8 +51,8 @@ internal class AnimationInfoController(
         [FromQuery] long? catalogRevision = null,
         CancellationToken cancellationToken = default)
     {
-        if (!TryDecodeCursor<AnimationCatalogCursor>(cursor, out var decoded))
-            return BadRequest(new { message = "Invalid catalog cursor." });
+        if (!TryDecodeCursor(cursor, External.CursorJsonSerializerContext.Default.AnimationCatalogCursor, out var decoded))
+            return BadRequest(new External.MessageResponse("Invalid catalog cursor."));
         var result = await animationInfoRepository.GetAnimationCatalogPageAsync(
             decoded,
             NormalizeTake(take),
@@ -61,7 +62,7 @@ internal class AnimationInfoController(
             return Conflict();
         return Ok(new External.AnimationCatalogResponse(
             result.Items.Select(item => item.ToExternal()).ToList(),
-            EncodeCursor(result.NextCursor),
+            EncodeCursor(result.NextCursor, External.CursorJsonSerializerContext.Default.AnimationCatalogCursor),
             result.Revision));
     }
 
@@ -81,8 +82,8 @@ internal class AnimationInfoController(
         [FromQuery] long? catalogRevision = null,
         CancellationToken cancellationToken = default)
     {
-        if (!TryDecodeCursor<AnimationInfoCursor>(cursor, out var decoded))
-            return BadRequest(new { message = "Invalid animation cursor." });
+        if (!TryDecodeCursor(cursor, External.CursorJsonSerializerContext.Default.AnimationInfoCursor, out var decoded))
+            return BadRequest(new External.MessageResponse("Invalid animation cursor."));
         var result = await animationInfoRepository.GetUncategorizedPageAsync(
             decoded,
             NormalizeTake(take),
@@ -92,7 +93,7 @@ internal class AnimationInfoController(
             return Conflict();
         return Ok(new External.AnimationInfoSummaryResponse(
             result.Items.Select(item => item.ToExternal()).ToList(),
-            EncodeCursor(result.NextCursor),
+            EncodeCursor(result.NextCursor, External.CursorJsonSerializerContext.Default.AnimationInfoCursor),
             result.Revision));
     }
 
@@ -104,8 +105,8 @@ internal class AnimationInfoController(
         [FromQuery] long? catalogRevision = null,
         CancellationToken cancellationToken = default)
     {
-        if (!TryDecodeCursor<AnimationInfoCursor>(cursor, out var decoded))
-            return BadRequest(new { message = "Invalid episode cursor." });
+        if (!TryDecodeCursor(cursor, External.CursorJsonSerializerContext.Default.AnimationInfoCursor, out var decoded))
+            return BadRequest(new External.MessageResponse("Invalid episode cursor."));
         var result = await animationInfoRepository.GetAnimationEpisodesPageAsync(
             tmdbId,
             decoded,
@@ -118,22 +119,22 @@ internal class AnimationInfoController(
         return Ok(new External.AnimationEpisodeResponse(
             result.Animation.ToExternal(),
             result.Episodes.Select(item => item.ToExternal()).ToList(),
-            EncodeCursor(result.NextCursor),
+            EncodeCursor(result.NextCursor, External.CursorJsonSerializerContext.Default.AnimationInfoCursor),
             result.Revision));
     }
 
     private static int NormalizeTake(int take) => Math.Clamp(take, 1, 100);
 
-    private static string? EncodeCursor<T>(T? cursor) where T : class
+    private static string? EncodeCursor<T>(T? cursor, JsonTypeInfo<T> typeInfo) where T : class
     {
         if (cursor is null) return null;
-        return Convert.ToBase64String(JsonSerializer.SerializeToUtf8Bytes(cursor))
+        return Convert.ToBase64String(JsonSerializer.SerializeToUtf8Bytes(cursor, typeInfo))
             .TrimEnd('=')
             .Replace('+', '-')
             .Replace('/', '_');
     }
 
-    private static bool TryDecodeCursor<T>(string? cursor, out T? value) where T : class
+    private static bool TryDecodeCursor<T>(string? cursor, JsonTypeInfo<T> typeInfo, out T? value) where T : class
     {
         value = null;
         if (string.IsNullOrEmpty(cursor)) return true;
@@ -141,7 +142,7 @@ internal class AnimationInfoController(
         {
             var base64 = cursor.Replace('-', '+').Replace('_', '/');
             base64 = base64.PadRight(base64.Length + (4 - base64.Length % 4) % 4, '=');
-            value = JsonSerializer.Deserialize<T>(Convert.FromBase64String(base64));
+            value = JsonSerializer.Deserialize(Convert.FromBase64String(base64), typeInfo);
             return value is not null;
         }
         catch (Exception exception) when (exception is FormatException or JsonException)
@@ -374,7 +375,7 @@ internal class AnimationInfoController(
                 info.DownloadType,
                 FileDownloadTypes.MediaLibraryImport,
                 StringComparison.Ordinal))
-            return Conflict(new { message = "Media library imports are read-only." });
+            return Conflict(new External.MessageResponse("Media library imports are read-only."));
 
         var downloadClient = fileDownloadClientProvider.GetRequiredClient(info.DownloadType);
         // A persisted cancellation id means an earlier request reached the

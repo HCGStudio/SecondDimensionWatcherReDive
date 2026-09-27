@@ -30,7 +30,7 @@ public sealed class ManageTasksToolTests
         var result = await tool.ExecuteAsync(
             JsonSerializer.SerializeToElement(
                 new ManageTasksParams(ManageTasksAction.List),
-                ToolJsonOptions.Options),
+                ChatToolJsonContext.Default.ManageTasksParams),
             CancellationToken.None);
 
         var success = result as ToolSuccessResult<TaskListResult>;

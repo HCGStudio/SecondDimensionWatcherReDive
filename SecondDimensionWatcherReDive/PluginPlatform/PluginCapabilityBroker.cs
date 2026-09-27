@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
+using SecondDimensionWatcherReDive.Framework.FileStore;
 
 namespace SecondDimensionWatcherReDive.PluginPlatform;
 
@@ -12,7 +13,6 @@ internal sealed class PluginCapabilityBroker(
     IOptions<PluginPlatformOptions> options,
     PluginSafeFileAccess fileAccess) : IPluginCapabilityBroker
 {
-    private static readonly JsonSerializerOptions WebJsonOptions = new(JsonSerializerDefaults.Web);
     private readonly PluginPlatformOptions _options = options.Value;
     private readonly string _dataRoot = Path.Combine(Path.GetFullPath(options.Value.RootPath), "data");
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _dataGates = new(StringComparer.Ordinal);
@@ -40,7 +40,7 @@ internal sealed class PluginCapabilityBroker(
         JsonElement payload,
         CancellationToken cancellationToken)
     {
-        var request = payload.Deserialize<NetworkCapabilityRequest>(WebJsonOptions)
+        var request = payload.Deserialize(PluginWebJsonContext.Default.NetworkCapabilityRequest)
                       ?? throw new InvalidDataException("Invalid network request.");
         if (!Uri.TryCreate(request.Url, UriKind.Absolute, out var uri) ||
             uri.Scheme is not ("http" or "https") || string.IsNullOrWhiteSpace(uri.Host))
@@ -59,12 +59,12 @@ internal sealed class PluginCapabilityBroker(
             cancellationToken);
         var body = await ReadBoundedAsync(await response.Content.ReadAsStreamAsync(cancellationToken),
             _options.MaximumResponseBytes, cancellationToken);
-        return JsonSerializer.SerializeToElement(new
-        {
-            status = (int)response.StatusCode,
-            contentType = response.Content.Headers.ContentType?.ToString(),
-            body = Encoding.UTF8.GetString(body)
-        });
+        return JsonSerializer.SerializeToElement(
+            new PluginNetworkResponse(
+                (int)response.StatusCode,
+                response.Content.Headers.ContentType?.ToString(),
+                Encoding.UTF8.GetString(body)),
+            PluginWebJsonContext.Default.PluginNetworkResponse);
     }
 
     private async Task<JsonElement> ReadFileAsync(
@@ -75,7 +75,8 @@ internal sealed class PluginCapabilityBroker(
         var path = GetRequiredString(payload, "path");
         var (root, resolved) = ResolveApprovedFilePath(path, plugin.ApprovedCapabilities.FileRoots);
         var bytes = await fileAccess.ReadAsync(root, resolved, _options.MaximumResponseBytes, cancellationToken);
-        return JsonSerializer.SerializeToElement(new { base64 = Convert.ToBase64String(bytes) });
+        return JsonSerializer.SerializeToElement(
+            new PluginBinaryResponse(Convert.ToBase64String(bytes)), PluginWebJsonContext.Default.PluginBinaryResponse);
     }
 
     private Task<JsonElement> ListFilesAsync(
@@ -87,13 +88,9 @@ internal sealed class PluginCapabilityBroker(
         var (root, path) = ResolveApprovedFilePath(GetRequiredString(payload, "path"),
             plugin.ApprovedCapabilities.FileRoots);
         var entries = fileAccess.List(root, path, 1_000)
-            .Select(item => new
-            {
-                name = item.Name,
-                isDirectory = item.IsDirectory
-            })
+            .Select(item => new PluginFileListEntry(item.Name, item.IsDirectory))
             .ToArray();
-        return Task.FromResult(JsonSerializer.SerializeToElement(entries));
+        return Task.FromResult(JsonSerializer.SerializeToElement(entries, PluginWebJsonContext.Default.PluginFileListEntryArray));
     }
 
     private async Task<JsonElement> ReadDataAsync(
@@ -105,7 +102,8 @@ internal sealed class PluginCapabilityBroker(
         var root = GetPluginDataRoot(plugin.Manifest.Id);
         var path = ResolvePluginDataPath(plugin.Manifest.Id, GetRequiredString(payload, "path"));
         var bytes = await fileAccess.ReadAsync(root, path, _options.MaximumResponseBytes, cancellationToken);
-        return JsonSerializer.SerializeToElement(new { base64 = Convert.ToBase64String(bytes) });
+        return JsonSerializer.SerializeToElement(
+            new PluginBinaryResponse(Convert.ToBase64String(bytes)), PluginWebJsonContext.Default.PluginBinaryResponse);
     }
 
     private async Task<JsonElement> WriteDataAsync(
@@ -146,7 +144,8 @@ internal sealed class PluginCapabilityBroker(
             gate.Release();
         }
 
-        return JsonSerializer.SerializeToElement(new { written = bytes.Length });
+        return JsonSerializer.SerializeToElement(
+            new PluginWriteResponse(bytes.Length), PluginWebJsonContext.Default.PluginWriteResponse);
     }
 
     private Task<JsonElement> ListDataAsync(
@@ -159,17 +158,10 @@ internal sealed class PluginCapabilityBroker(
         var root = GetPluginDataRoot(plugin.Manifest.Id);
         var path = ResolvePluginDataPath(plugin.Manifest.Id, GetRequiredString(payload, "path", allowEmpty: true));
         if (!fileAccess.Exists(root, path))
-            return Task.FromResult(JsonSerializer.SerializeToElement(Array.Empty<object>()));
-        var entries = fileAccess.List(root, path, 1_000)
-            .Select(item => new
-            {
-                name = item.Name,
-                isDirectory = item.IsDirectory,
-                length = item.Length,
-                lastModifiedUtc = item.LastModifiedUtc
-            })
-            .ToArray();
-        return Task.FromResult(JsonSerializer.SerializeToElement(entries));
+            return Task.FromResult(JsonSerializer.SerializeToElement(
+                Array.Empty<PluginFileEntry>(), PluginWebJsonContext.Default.PluginFileEntryArray));
+        var entries = fileAccess.List(root, path, 1_000).ToArray();
+        return Task.FromResult(JsonSerializer.SerializeToElement(entries, PluginWebJsonContext.Default.PluginFileEntryArray));
     }
 
     private Task<JsonElement> DataExistsAsync(
@@ -182,11 +174,9 @@ internal sealed class PluginCapabilityBroker(
         var root = GetPluginDataRoot(plugin.Manifest.Id);
         var path = ResolvePluginDataPath(plugin.Manifest.Id, GetRequiredString(payload, "path", allowEmpty: true));
         var info = fileAccess.Info(root, path);
-        return Task.FromResult(JsonSerializer.SerializeToElement(new
-        {
-            exists = info is not null,
-            isDirectory = info?.IsDirectory ?? false
-        }));
+        return Task.FromResult(JsonSerializer.SerializeToElement(
+            new PluginExistsResponse(info is not null, info?.IsDirectory ?? false),
+            PluginWebJsonContext.Default.PluginExistsResponse));
     }
 
     private Task<JsonElement> DataInfoAsync(
@@ -201,14 +191,9 @@ internal sealed class PluginCapabilityBroker(
         var path = ResolvePluginDataPath(plugin.Manifest.Id, relativePath);
         var info = fileAccess.Info(root, path)
                    ?? throw new FileNotFoundException("Plugin data path does not exist.");
-        return Task.FromResult(JsonSerializer.SerializeToElement(new
-        {
-            isDirectory = info.IsDirectory,
-            path = relativePath,
-            fileName = info.Name,
-            length = info.Length,
-            lastModifiedUtc = info.LastModifiedUtc
-        }));
+        return Task.FromResult(JsonSerializer.SerializeToElement(
+            new FileStoreInfo(info.IsDirectory, relativePath, info.Name, info.Length, info.LastModifiedUtc),
+            PluginWebJsonContext.Default.FileStoreInfo));
     }
 
     private (string Root, string Path) ResolveApprovedFilePath(string path, IReadOnlyList<string> approvedRoots)
@@ -306,12 +291,6 @@ internal sealed class PluginCapabilityBroker(
         }
         return memory.ToArray();
     }
-
-    private sealed record NetworkCapabilityRequest(
-        string Method,
-        string Url,
-        string? Body,
-        string? ContentType);
 
     private enum HttpMethodName
     {

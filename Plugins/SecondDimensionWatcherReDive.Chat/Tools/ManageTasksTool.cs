@@ -8,7 +8,7 @@ namespace SecondDimensionWatcherReDive.Chat.Tools;
 [Tool<ManageTasksParams>(
     "manage_tasks",
     "Manage background scheduled tasks. List all task statuses or manually trigger a specific task to run.",
-    ToolRiskLevel.Mutating)]
+    ToolRiskLevel.Mutating, typeof(ChatToolJsonContext))]
 internal sealed partial class ManageTasksTool(
     IEnumerable<IScheduledTask> scheduledTasks,
     IScheduledTaskLeaseManager leaseManager) : ITool
@@ -26,7 +26,7 @@ internal sealed partial class ManageTasksTool(
                 var statuses = await leaseManager.GetStatusesAsync(
                     taskList.Select(task => task.Id).ToArray(),
                     cancellationToken);
-                result = new ToolSuccessResult<TaskListResult>(new TaskListResult(
+                result = Success<TaskListResult>(new TaskListResult(
                     taskList.Select(task =>
                     {
                         var status = statuses.GetValueOrDefault(task.Id)
@@ -58,7 +58,7 @@ internal sealed partial class ManageTasksTool(
                 }
 
                 task.Enqueue();
-                result = new ToolSuccessResult<TaskRunResult>(
+                result = Success<TaskRunResult>(
                     new TaskRunResult(true, $"Task '{param.TaskId}' has been enqueued"));
                 break;
             }

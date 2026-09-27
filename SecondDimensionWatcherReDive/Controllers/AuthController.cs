@@ -185,11 +185,9 @@ internal partial class AuthController(
 
     [HttpGet("allowRegister")]
     public async Task<IActionResult> CanRegister(CancellationToken cancellationToken) =>
-        Ok(new
-        {
-            Allow = !await HasLegacyPasswordAsync(cancellationToken)
-                    && !await identityRepository.AnyUsersAsync(cancellationToken)
-        });
+        Ok(new External.RegistrationAvailabilityResponse(
+            !await HasLegacyPasswordAsync(cancellationToken)
+            && !await identityRepository.AnyUsersAsync(cancellationToken)));
 
     private async Task<AuthenticatedSession?> GetCurrentSessionAsync(
         CancellationToken cancellationToken)

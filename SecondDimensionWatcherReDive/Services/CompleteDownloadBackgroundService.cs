@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text.Json;
 using System.Threading.Channels;
 using SecondDimensionWatcherReDive.Data;
+using SecondDimensionWatcherReDive.Repositories;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Framework.Notifications;
 using SecondDimensionWatcherReDive.Framework.PluginParams;
@@ -123,7 +124,7 @@ public partial class CompleteDownloadBackgroundService(
             if (job.Type != DurableJobType.DownloadCompletion)
                 throw new NotSupportedException($"Unsupported durable job type: {job.Type}");
 
-            var payload = JsonSerializer.Deserialize<DownloadCompletionJobPayload>(job.PayloadJson)
+            var payload = JsonSerializer.Deserialize(job.PayloadJson, RepositoryJsonSerializerContext.Default.DownloadCompletionJobPayload)
                           ?? throw new JsonException("The durable job payload is empty.");
             itemId = payload.ItemId;
             var stage = job.Stage;

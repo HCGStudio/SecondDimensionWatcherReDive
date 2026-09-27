@@ -9,7 +9,7 @@ namespace SecondDimensionWatcherReDive.Chat.Tools;
 [Tool<QueryFilesParams>(
     "query_files",
     "Query the file list of downloaded animations. Supports browsing subdirectories.",
-    ToolRiskLevel.ReadOnly)]
+    ToolRiskLevel.ReadOnly, typeof(ChatToolJsonContext))]
 internal sealed partial class QueryFilesTool(
     IAnimationInfoRepository animationInfoRepository,
     IFileExplorer fileExplorer) : ITool
@@ -43,7 +43,7 @@ internal sealed partial class QueryFilesTool(
             _ => throw new InvalidOperationException()
         }).ToList();
 
-        return new ToolSuccessResult<FileListResult>(new FileListResult(info.Title, virtualPath, files));
+        return Success<FileListResult>(new FileListResult(info.Title, virtualPath, files));
     }
 
     private static string GetAnimationVirtualRoot(AnimationInfo info)

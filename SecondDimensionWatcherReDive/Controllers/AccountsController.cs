@@ -228,10 +228,7 @@ internal sealed partial class AccountsController(
         {
             UpdateUserAccessResult.Updated => NoContent(),
             UpdateUserAccessResult.NotFound => NotFound(),
-            UpdateUserAccessResult.LastAdministrator => Conflict(new
-            {
-                message = "At least one enabled administrator is required."
-            }),
+            UpdateUserAccessResult.LastAdministrator => Conflict(new External.MessageResponse("At least one enabled administrator is required.")),
             _ => throw new ArgumentOutOfRangeException(nameof(result), result, null)
         };
     }

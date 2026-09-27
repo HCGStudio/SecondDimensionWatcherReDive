@@ -24,7 +24,9 @@ internal static class ConfigTree
         if (node is null) return null;
         if (node is not JsonValue value)
             throw new ConfigMigrationException($"Configuration field '{path}' must be a scalar.");
-        return value.TryGetValue<string>(out var text) ? text : value.ToJsonString();
+        return value.TryGetValue<string>(out var text)
+            ? text
+            : JsonSerializer.Serialize(value, ConfigJsonSerializerContext.Default.JsonNode);
     }
 
     internal static void Set(JsonObject root, string path, JsonNode? value)
@@ -115,14 +117,10 @@ internal static class ConfigTree
         }
         else if (prefix.Length > 0)
         {
-            yield return new(prefix, node is JsonValue value && value.TryGetValue<string>(out var text)
-                ? text : node?.ToJsonString());
+            var scalar = node is JsonValue value && value.TryGetValue<string>(out var text)
+                ? text
+                : node is null ? null : JsonSerializer.Serialize(node, ConfigJsonSerializerContext.Default.JsonNode);
+            yield return new(prefix, scalar);
         }
     }
-
-    internal static readonly JsonDocumentOptions JsonOptions = new()
-    {
-        CommentHandling = JsonCommentHandling.Skip,
-        AllowTrailingCommas = true
-    };
 }

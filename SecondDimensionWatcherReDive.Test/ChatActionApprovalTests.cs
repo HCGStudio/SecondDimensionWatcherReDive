@@ -45,8 +45,7 @@ public sealed class ChatActionApprovalTests
             CancellationToken.None);
 
         Assert.IsInstanceOfType<ApprovalRequiredToolResult>(result);
-        var serialized = JsonSerializer.SerializeToElement(
-            result, result.GetType(), ToolJsonOptions.Options);
+        var serialized = result.SerializeToElement();
         var payload = serialized.GetProperty("result");
         Assert.IsTrue(payload.GetProperty("approval_required").GetBoolean());
         Assert.AreEqual(fixture.ConversationId,

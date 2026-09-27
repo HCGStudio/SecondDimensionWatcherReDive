@@ -1,6 +1,7 @@
 using System.Text.Json;
-using System.Text.Json.Schema;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
+using System.Text.Json.Schema;
 using System.Text.Json.Serialization.Metadata;
 
 namespace SecondDimensionWatcherReDive.Framework.AI;
@@ -11,13 +12,6 @@ public sealed record ToolDefinition(
     JsonElement ParametersSchema,
     ToolRiskLevel RiskLevel)
 {
-    private static readonly JsonSerializerOptions SchemaSerializerOptions = new()
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
-        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower) },
-        TypeInfoResolver = new DefaultJsonTypeInfoResolver()
-    };
-
     private static readonly JsonSchemaExporterOptions SchemaExporterOptions = new()
     {
         TreatNullObliviousAsNonNullable = true
@@ -29,11 +23,15 @@ public sealed record ToolDefinition(
     public static ToolDefinition Create<TParams>(
         string name,
         string description,
-        ToolRiskLevel riskLevel)
+        ToolRiskLevel riskLevel,
+        JsonTypeInfo<TParams> parameterTypeInfo)
     {
         var schemaNode = JsonSchemaExporter.GetJsonSchemaAsNode(
-            SchemaSerializerOptions, typeof(TParams), SchemaExporterOptions);
-        var schemaElement = JsonSerializer.Deserialize<JsonElement>(schemaNode.ToJsonString());
+            parameterTypeInfo, SchemaExporterOptions);
+        var schemaElement = JsonSerializer.SerializeToElement(schemaNode, ToolSchemaJsonContext.Default.JsonNode);
         return new(name, description, schemaElement, riskLevel);
     }
 }
+
+[JsonSerializable(typeof(JsonNode))]
+internal partial class ToolSchemaJsonContext : JsonSerializerContext;

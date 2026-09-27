@@ -21,7 +21,7 @@ internal static class ConfigFileFormat
                 node = ReadYaml(yaml.Documents[0].RootNode, 0);
             }
             else
-                node = JsonNode.Parse(text, documentOptions: ConfigTree.JsonOptions);
+                node = JsonSerializer.Deserialize(text, ConfigJsonSerializerContext.Configuration.JsonNode);
             return ConfigTree.Normalize(node) as JsonObject
                    ?? throw new ConfigMigrationException("Configuration must have an object at its root.");
         }
@@ -35,7 +35,8 @@ internal static class ConfigFileFormat
     internal static string Write(JsonObject configuration, string path)
     {
         if (!IsYaml(path))
-            return configuration.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + Environment.NewLine;
+            return JsonSerializer.Serialize(configuration, ConfigJsonSerializerContext.Configuration.JsonNode)
+                   + Environment.NewLine;
         var stream = new YamlStream(new YamlDocument(WriteYaml(configuration)));
         using var writer = new StringWriter();
         stream.Save(writer, assignAnchors: false);
@@ -77,7 +78,7 @@ internal static class ConfigFileFormat
             {
                 try
                 {
-                    var value = JsonNode.Parse(text);
+                    var value = JsonSerializer.Deserialize(text, ConfigJsonSerializerContext.Default.JsonNode);
                     if (value is JsonValue && value.GetValueKind() == JsonValueKind.Number) return value;
                 }
                 catch (JsonException) { }
@@ -97,6 +98,9 @@ internal static class ConfigFileFormat
         if (node is JsonArray array) return new YamlSequenceNode(array.Select(WriteYaml));
         if (node is JsonValue value && value.TryGetValue<string>(out var text))
             return new YamlScalarNode(text) { Style = ScalarStyle.DoubleQuoted };
-        return new YamlScalarNode(node?.ToJsonString() ?? "null") { Style = ScalarStyle.Plain };
+        return new YamlScalarNode(JsonSerializer.Serialize(node, ConfigJsonSerializerContext.Default.JsonNode))
+        {
+            Style = ScalarStyle.Plain
+        };
     }
 }

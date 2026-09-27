@@ -17,11 +17,6 @@ internal sealed class PluginManager(
 {
     private const string LifecycleJournalSuffix = ".journal.json";
 
-    private static readonly JsonSerializerOptions JournalJsonOptions = new(JsonSerializerDefaults.Web)
-    {
-        WriteIndented = true
-    };
-
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly PluginLifecycleCoordinator _lifecycle = new();
     private readonly Dictionary<string, PluginCatalogEntry> _entries = new(StringComparer.Ordinal);
@@ -311,7 +306,8 @@ internal sealed class PluginManager(
         PluginNotificationTarget target,
         PluginNotification notification,
         CancellationToken cancellationToken)
-        => InvokeCoreAsync(target.PluginId, null, JsonSerializer.SerializeToElement(notification),
+        => InvokeCoreAsync(target.PluginId, null,
+            JsonSerializer.SerializeToElement(notification, PluginWorkerJsonContext.Default.PluginNotification),
             target, cancellationToken);
 
     private async Task<JsonElement> InvokeCoreAsync(
@@ -717,7 +713,7 @@ internal sealed class PluginManager(
             using (var stream = new FileStream(temporaryPath, FileMode.CreateNew, FileAccess.Write,
                        FileShare.None, 16 * 1024, FileOptions.WriteThrough))
             {
-                JsonSerializer.Serialize(stream, journal, JournalJsonOptions);
+                JsonSerializer.Serialize(stream, journal, PluginJournalJsonContext.Default.PluginLifecycleJournal);
                 stream.Flush(flushToDisk: true);
             }
             RestrictFile(temporaryPath);
@@ -747,8 +743,8 @@ internal sealed class PluginManager(
 
             PluginLifecycleJournal? journal;
             await using (var stream = File.OpenRead(journalPath))
-                journal = await JsonSerializer.DeserializeAsync<PluginLifecycleJournal>(
-                    stream, JournalJsonOptions, cancellationToken);
+                journal = await JsonSerializer.DeserializeAsync(
+                    stream, PluginJournalJsonContext.Default.PluginLifecycleJournal, cancellationToken);
             ValidateLifecycleJournal(journal, transactionPath);
             pending.Add((transactionPath, journal!));
         }

@@ -35,7 +35,7 @@ internal sealed class MultiSourceSubscriptionsController(IMultiSourceSubscriptio
             !ValidList(input.SubtitleGroups) || !ValidList(input.Resolutions) || !ValidList(input.Codecs) ||
             !ValidList(input.Languages) || !ValidList(input.ExcludedKeywords)) return BadRequest();
         try { return Ok(await repository.SaveAsync(input with { Id = id, Name = input.Name.Trim(), TmdbId = tmdb.ToString(System.Globalization.CultureInfo.InvariantCulture) }, cancellationToken)); }
-        catch (ArgumentException error) { return Conflict(new { message = error.Message }); }
+        catch (ArgumentException error) { return Conflict(new External.MessageResponse(error.Message)); }
     }
     [HttpDelete("{id:guid}"), Authorize(Policy = AccessPolicies.ContentWrite)]
     public async Task<IActionResult> DeleteAsync(Guid id, CancellationToken cancellationToken) =>
