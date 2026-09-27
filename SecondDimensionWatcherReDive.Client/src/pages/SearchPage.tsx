@@ -151,8 +151,7 @@ export const SearchPage: React.FC = () => {
           (key) =>
             typeof key === "string" &&
             (key.startsWith("/api/library/") ||
-              key.startsWith("/api/animationinfo") ||
-              key.startsWith("/api/download-capacity")),
+              key.startsWith("/api/animationinfo")),
         ),
       ]);
     } catch {

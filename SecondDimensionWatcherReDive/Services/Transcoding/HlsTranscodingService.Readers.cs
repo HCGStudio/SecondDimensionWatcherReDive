@@ -22,7 +22,7 @@ internal sealed partial class HlsTranscodingService
     {
         var key = Path.GetFileName(directory);
         await using var scope = _scopeFactory.CreateAsyncScope();
-        var capacity = scope.ServiceProvider.GetService<IDownloadCapacityRepository>();
+        var capacity = scope.ServiceProvider.GetService<ITranscodeCapacityRepository>();
         if (capacity is null)
         {
             var local = await TryLoadManifestAsync(directory, cancellationToken);
@@ -35,8 +35,8 @@ internal sealed partial class HlsTranscodingService
         if (manifest is null) return null;
         var id = _readerLeases.TryGetValue(key, out var previous) ? previous.Id : Guid.NewGuid();
         var validUntil = Stopwatch.GetTimestamp() + TranscodeCapacityService.LeaseSeconds * Stopwatch.Frequency;
-        await scope.ServiceProvider.GetRequiredService<ITranscodeCapacityRepository>()
-            .RegisterReaderAsync(id, CapacityVolume.DirectoryIdentity(directory), TranscodeCapacityService.LeaseSeconds, cancellationToken);
+        await capacity.RegisterReaderAsync(id, CapacityVolume.DirectoryIdentity(directory),
+            TranscodeCapacityService.LeaseSeconds, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         lock (_readerStateGate) _readerLeases[key] = new CacheReadLease(id, validUntil);
         return manifest;
@@ -83,8 +83,8 @@ internal sealed partial class HlsTranscodingService
         CleanupExpiredSessions();
         if (!releaseAll)
         {
-            // Neither the global budget lock nor _creationGate may delay
-            // liveness: both can be held while a downloader request is slow.
+            // Neither the cache budget lock nor _creationGate may delay
+            // liveness while filesystem work holds either lock.
             await using var scope = _scopeFactory.CreateAsyncScope();
             var repository = scope.ServiceProvider.GetService<ITranscodeCapacityRepository>();
             foreach (var pair in _readerLeases)
@@ -121,9 +121,8 @@ internal sealed partial class HlsTranscodingService
             using var cleanupDeadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             cleanupDeadline.CancelAfter(TimeSpan.FromSeconds(2));
             await using var scope = _scopeFactory.CreateAsyncScope();
-            var capacity = scope.ServiceProvider.GetService<IDownloadCapacityRepository>();
-            await using var transaction = capacity is null ? null : await capacity.BeginAsync(cleanupDeadline.Token);
             var repository = scope.ServiceProvider.GetService<ITranscodeCapacityRepository>();
+            await using var transaction = repository is null ? null : await repository.BeginAsync(cleanupDeadline.Token);
             foreach (var pair in _readerLeases)
             {
                 var inUse = !releaseAll && _jobs.TryGetValue(pair.Key, out var job)

@@ -5,20 +5,10 @@ using SecondDimensionWatcherReDive.Utils.FileDownload;
 namespace SecondDimensionWatcherReDive.Services.Transcoding;
 
 internal sealed class TranscodeCapacityService(
-    IDownloadCapacityRepository downloads,
     ITranscodeCapacityRepository reservations,
-    IConfiguration configuration,
-    IOptions<TranscodingOptions> options) : ITranscodeCapacityBudget
+    IOptions<TranscodingOptions> options)
 {
     internal const int LeaseSeconds = 90;
-
-    // Called inside the download admission transaction; never begin another budget transaction here.
-    public async Task<long> GetRemainingBytesAsync(CancellationToken cancellationToken)
-    {
-        var rows = await reservations.ListActiveAsync(cancellationToken);
-        return Saturate(rows.Where(row => row.CountsAgainstDownloads)
-            .Sum(row => (decimal)Math.Max(0, row.BudgetBytes - row.WrittenBytes)));
-    }
 
     public async Task<Guid?> TryAcquireAsync(string directoryPath, CancellationToken cancellationToken)
     {
@@ -27,28 +17,18 @@ internal sealed class TranscodeCapacityService(
             throw new InvalidOperationException("Transcoding:MaxDiskBytesPerJob must be positive for capacity reservation.");
         var path = CapacityVolume.DirectoryIdentity(directoryPath);
         var cacheRoot = CapacityVolume.CanonicalPath(options.Value.CachePath);
-        var cacheVolume = CapacityVolume.Identity(cacheRoot);
-        var downloadPath = configuration["DownloadCapacity:LocalVolumePath"];
-        var downloadVolume = string.IsNullOrWhiteSpace(downloadPath) ? null : CapacityVolume.Identity(downloadPath);
-        var sharesDownloads = CapacityVolume.MayShare(cacheVolume, downloadVolume);
-        var safety = Math.Max(0, configuration.GetValue<long?>("DownloadCapacity:SafetyBytes")
-                                ?? 5L * 1024 * 1024 * 1024);
+        var safety = Math.Max(0, options.Value.SafetyBytes);
 
-        await using var transaction = await downloads.BeginAsync(cancellationToken);
+        await using var transaction = await reservations.BeginAsync(cancellationToken);
         await reservations.PruneExpiredAsync(cancellationToken);
-        var capacityEnabled = configuration.GetValue("DownloadCapacity:Enabled", true);
-        if (sharesDownloads && capacityEnabled) await downloads.RecoverTrackedAsync(cancellationToken);
         var active = await reservations.ListActiveAsync(cancellationToken);
         if (active.Any(row => row.DirectoryPath == path)
             || (await reservations.ListActiveReadersAsync(cancellationToken)).Any(row => row.DirectoryPath == path))
             return null;
-        var downloadRows = sharesDownloads && capacityEnabled ? await downloads.ListAsync(cancellationToken) : [];
         // Owner-published written bytes can lag, which retains extra reservation safely.
         // Across hosts filesystem device IDs are not comparable, so include all other HLS jobs conservatively.
-        var remaining = active.Sum(row => (decimal)Math.Max(0, row.BudgetBytes - row.WrittenBytes))
-                        + downloadRows.Where(row => row.State is "Reserved" or "Submitted")
-                            .Sum(row => (decimal)Math.Max(0, row.RemainingBytes));
-        var drive = DownloadCapacityService.FindDrive(cacheRoot)
+        var remaining = active.Sum(row => (decimal)Math.Max(0, row.BudgetBytes - row.WrittenBytes));
+        var drive = CapacityVolume.FindDrive(cacheRoot)
                     ?? throw new IOException("The transcoding cache volume could not be located.");
         var available = drive.AvailableFreeSpace;
         if ((decimal)available - safety - remaining < budget)
@@ -57,7 +37,7 @@ internal sealed class TranscodeCapacityService(
             return null;
         }
         var id = Guid.NewGuid();
-        await reservations.AddAsync(id, path, cacheVolume, sharesDownloads, budget, LeaseSeconds, cancellationToken);
+        await reservations.AddAsync(id, path, budget, LeaseSeconds, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return id;
     }
@@ -65,13 +45,13 @@ internal sealed class TranscodeCapacityService(
     public async Task<bool> RenewAsync(Guid id, string directoryPath, bool resetWritten,
         CancellationToken cancellationToken)
     {
-        // Liveness never waits for remote I/O performed under the global budget lock.
+        // Liveness never waits for filesystem work performed under the cache budget lock.
         if (!await ExtendLeaseAsync(id, cancellationToken)) return false;
         if (resetWritten)
         {
             // Deleting generated files must first restore the full reservation.
             // The independent heartbeat keeps this lease alive while the lock is busy.
-            await using var transaction = await downloads.BeginAsync(cancellationToken);
+            await using var transaction = await reservations.BeginAsync(cancellationToken);
             var renewed = await reservations.RenewAsync(id, 0, LeaseSeconds, cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             return renewed;
@@ -81,7 +61,7 @@ internal sealed class TranscodeCapacityService(
         publicationDeadline.CancelAfter(TimeSpan.FromSeconds(2));
         try
         {
-            await using var transaction = await downloads.BeginAsync(publicationDeadline.Token);
+            await using var transaction = await reservations.BeginAsync(publicationDeadline.Token);
             var written = GetWrittenBytes(directoryPath);
             var renewed = await reservations.RenewAsync(id, written, LeaseSeconds, publicationDeadline.Token);
             await transaction.CommitAsync(publicationDeadline.Token);
@@ -100,7 +80,7 @@ internal sealed class TranscodeCapacityService(
     {
         // Serialize ownership validation and deletion with takeover. No remote
         // request or outer capacity transaction is held by the caller.
-        await using var transaction = await downloads.BeginAsync(cancellationToken);
+        await using var transaction = await reservations.BeginAsync(cancellationToken);
         if (!await reservations.RenewAsync(id, 0, LeaseSeconds, cancellationToken)) return;
         cleanup();
         await transaction.CommitAsync(cancellationToken);
@@ -111,7 +91,7 @@ internal sealed class TranscodeCapacityService(
 
     public async Task ReleaseAsync(Guid id, CancellationToken cancellationToken)
     {
-        await using var transaction = await downloads.BeginAsync(cancellationToken);
+        await using var transaction = await reservations.BeginAsync(cancellationToken);
         await reservations.RemoveAsync(id, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
     }

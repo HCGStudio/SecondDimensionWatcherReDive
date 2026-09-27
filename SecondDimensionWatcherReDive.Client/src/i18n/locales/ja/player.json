@@ -42,6 +42,10 @@
   },
   "tracks": {
     "subtitle": "字幕トラック",
+    "subtitleMenu": "字幕",
+    "loadingSubtitles": "字幕を検索中…",
+    "externalSubtitle": "外部",
+    "embeddedSubtitle": "内蔵",
     "audio": "音声トラック",
     "off": "オフ",
     "available": "外部・内蔵字幕を合わせて {{count}} 件利用できます",

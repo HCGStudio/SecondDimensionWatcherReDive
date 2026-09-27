@@ -12,8 +12,7 @@ namespace SecondDimensionWatcherReDive.Utils.FileDownload;
 public class RemoteTorrentDownloadClient(
     IHttpClientFactory httpClientFactory,
     IConfiguration configuration,
-    Channel<RemoteTorrentTrackRequest> remoteTorrentTrackRequest,
-    DownloadCapacityService? capacity = null)
+    Channel<RemoteTorrentTrackRequest> remoteTorrentTrackRequest)
     : TorrentDownloadClient
 {
     public override string Name => FileDownloads.RemoteTorrentDownload;
@@ -25,17 +24,6 @@ public class RemoteTorrentDownloadClient(
         byte[] cachedDownloadData,
         string additionalDownloadInfo,
         CancellationToken cancellationToken)
-    {
-        if (capacity is { Enabled: true })
-        {
-            await capacity.EnqueueAsync(itemId, cancellationToken);
-            return true;
-        }
-        return await SubmitAdmittedAsync(itemId, cachedDownloadData, additionalDownloadInfo, cancellationToken);
-    }
-
-    internal async Task<bool> SubmitAdmittedAsync(
-        Guid itemId, byte[] cachedDownloadData, string additionalDownloadInfo, CancellationToken cancellationToken)
     {
         using var client = httpClientFactory.CreateClient(nameof(RemoteTorrentDownloadClient));
         var submission = await SubmitRemoteAsync(
@@ -62,11 +50,6 @@ public class RemoteTorrentDownloadClient(
         string additionalDownloadInfo,
         CancellationToken cancellationToken)
     {
-        if (capacity is { Enabled: true })
-        {
-            await capacity.EnqueueAsync(itemId, cancellationToken);
-            return DownloadTaskReconciliationOutcome.Confirmed;
-        }
         try
         {
             using var client = httpClientFactory.CreateClient(nameof(RemoteTorrentDownloadClient));
@@ -191,9 +174,6 @@ public class RemoteTorrentDownloadClient(
         string additionalDownloadInfo,
         CancellationToken cancellationToken)
     {
-        if (capacity is not null)
-            return await capacity.ControlAsync(itemId, "pause",
-                token => SetRemotePausedAsync(additionalDownloadInfo, true, token), cancellationToken);
         return await SetRemotePausedAsync(additionalDownloadInfo, true, cancellationToken);
     }
 
@@ -216,10 +196,7 @@ public class RemoteTorrentDownloadClient(
         string additionalDownloadInfo,
         CancellationToken cancellationToken)
     {
-        var result = capacity is not null
-            ? await capacity.ControlAsync(itemId, "resume",
-                token => SetRemotePausedAsync(additionalDownloadInfo, false, token), cancellationToken)
-            : await SetRemotePausedAsync(additionalDownloadInfo, false, cancellationToken);
+        var result = await SetRemotePausedAsync(additionalDownloadInfo, false, cancellationToken);
         if (result) Track(itemId, additionalDownloadInfo);
         return result;
     }
@@ -232,10 +209,7 @@ public class RemoteTorrentDownloadClient(
         bool removeFile,
         CancellationToken cancellationToken)
     {
-        var result = capacity is not null
-            ? await capacity.ControlAsync(itemId, "cancel",
-                token => DeleteRemoteAsync(additionalDownloadInfo, removeFile, token), cancellationToken)
-            : await DeleteRemoteAsync(additionalDownloadInfo, removeFile, cancellationToken);
+        var result = await DeleteRemoteAsync(additionalDownloadInfo, removeFile, cancellationToken);
         if (result)
             await remoteTorrentTrackRequest.Writer.WriteAsync(
                 new RemoteTorrentTrackRequest(itemId, additionalDownloadInfo, Remove: true), cancellationToken);

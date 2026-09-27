@@ -6,10 +6,6 @@ import { ArrowRight, Download, Pause, Play, Rss } from "lucide-react";
 
 import { IAnimationInfo } from "../animation/IAnimationInfo";
 import {
-  type CapacityEntry,
-  useDownloadCapacity,
-} from "../animation/downloadCapacity";
-import {
   useAnimationDownloadStatus,
   useDownloadingAnimations,
 } from "../animation/hooks";
@@ -22,23 +18,13 @@ import { Spinner } from "./ui/Spinner";
 
 const DownloadSummary: React.FC<{
   item: IAnimationInfo;
-  capacityEntry?: CapacityEntry;
-  capacityLoading: boolean;
-  refreshCapacity: () => Promise<unknown>;
-}> = ({ item, capacityEntry, capacityLoading, refreshCapacity }) => {
+}> = ({ item }) => {
   const { t } = useTranslation("animation");
-  const capacityOnly = capacityEntry && capacityEntry.state !== "Submitted";
-  const {
-    data: status,
-    error,
-    mutate,
-  } = useAnimationDownloadStatus(capacityOnly ? null : item.id);
-  const queued =
-    capacityEntry && (capacityOnly || !status) ? capacityEntry : undefined;
+  const { data: status, error, mutate } = useAnimationDownloadStatus(item.id);
   const { canContentWrite } = useAccess();
   const { addToast } = useToast();
   const [pending, setPending] = React.useState(false);
-  const paused = queued ? queued.paused : status?.state === "Paused";
+  const paused = status?.state === "Paused";
   const percent = Math.min(100, Math.max(0, (status?.progress ?? 0) * 100));
   const title = item.animation?.name ?? item.title;
 
@@ -46,7 +32,7 @@ const DownloadSummary: React.FC<{
     setPending(true);
     try {
       await (paused ? resumeDownload(item.id) : pauseDownload(item.id));
-      await Promise.allSettled([mutate(), refreshCapacity()]);
+      await Promise.allSettled([mutate()]);
     } catch {
       addToast({
         title: t(paused ? "toast.resumeFailed" : "toast.pauseFailed"),
@@ -77,9 +63,8 @@ const DownloadSummary: React.FC<{
           ) : null}
         </div>
         {canContentWrite &&
-        ((queued &&
-          ["Waiting", "Reserved", "Submitted"].includes(queued.state)) ||
-          (status && (status.state === "Downloading" || paused))) ? (
+        status &&
+        (status.state === "Downloading" || paused) ? (
           <button
             type="button"
             disabled={pending}
@@ -101,18 +86,7 @@ const DownloadSummary: React.FC<{
           </button>
         ) : null}
       </div>
-      {queued ? (
-        <div
-          className="mt-3 space-y-1 text-[11px] leading-body text-muted"
-          role="status"
-        >
-          <p>
-            {t(`capacity.states.${queued.state}`)}
-            {queued.paused ? ` · ${t("capacity.paused")}` : ""}
-          </p>
-          <p>{t(`capacity.reasons.${queued.reasonCode}`)}</p>
-        </div>
-      ) : error && !status && !capacityLoading ? (
+      {error && !status ? (
         <p className="mt-3 text-xs text-error" role="alert">
           {t("workbench.statusUnavailable")}
         </p>
@@ -156,7 +130,6 @@ const DownloadSummary: React.FC<{
 export const WorkbenchOverview: React.FC = () => {
   const { t } = useTranslation("animation");
   const downloads = useDownloadingAnimations(0, 3);
-  const capacity = useDownloadCapacity(Boolean(downloads.data?.data.length));
   const feeds = useFeeds();
 
   return (
@@ -197,15 +170,7 @@ export const WorkbenchOverview: React.FC = () => {
           </p>
         ) : (
           downloads.data.data.map((item) => (
-            <DownloadSummary
-              key={item.id}
-              item={item}
-              capacityEntry={capacity.data?.find(
-                (entry) => entry.itemId === item.id,
-              )}
-              capacityLoading={capacity.isLoading}
-              refreshCapacity={() => capacity.mutate()}
-            />
+            <DownloadSummary key={item.id} item={item} />
           ))
         )}
         <Link
