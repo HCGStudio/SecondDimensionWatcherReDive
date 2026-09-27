@@ -88,7 +88,7 @@ The codebase uses a three-tier model architecture with repository interfaces for
 
 **Repository implementations** (`Repositories/`): EF Core implementations registered as scoped services, sharing the same `ApplicationContext` per request.
 
-`ChatActionRepository` runs approval claims, rejection/expiry transitions, completion and abandoned-execution recovery through the configured EF execution strategy. Each transaction attempt uses a fresh context and commits action state, tool-message updates and audit entries together. Conditional state updates retain one-time execution semantics; actual tool execution remains outside the database retry delegate.
+`ChatActionRepository` runs approval claims, rejection/expiry transitions, completion and abandoned-execution recovery through the configured EF execution strategy. Each transaction attempt uses a fresh context and commits action state, tool-message updates and audit entries together. If commit acknowledgement is lost, the strategy verifies that attempt's generated audit ID with a fresh context and returns its original result when committed, rather than treating a replayed conditional update as a lost claim. Conditional state updates retain one-time execution semantics; actual tool execution remains outside the database retry delegate.
 
 **Design rules:**
 - Mutating methods (`AddAsync`, `RemoveAsync`, `UpdateAsync`) call `SaveChangesAsync` internally

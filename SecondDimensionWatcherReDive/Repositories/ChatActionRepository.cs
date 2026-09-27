@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
 using SecondDimensionWatcherReDive.Models;
 using DataPendingChatAction = SecondDimensionWatcherReDive.Framework.DataRepository.PendingChatAction;
@@ -383,17 +384,43 @@ public sealed class ChatActionRepository(
 
     private Task<TResult> ExecuteTransactionAsync<TResult>(
         Func<ApplicationContext, CancellationToken, Task<TResult>> operation,
-        CancellationToken cancellationToken) =>
-        context.Database.CreateExecutionStrategy().ExecuteAsync(async token =>
-        {
-            // A retry must not reuse audit entities tracked by a rolled-back attempt.
-            await using var writeContext = new ApplicationContext(contextOptions);
-            await using var transaction = await writeContext.Database.BeginTransactionAsync(token);
-            var result = await operation(writeContext, token);
-            await writeContext.SaveChangesAsync(token);
-            await transaction.CommitAsync(token);
-            return result;
-        }, cancellationToken);
+        CancellationToken cancellationToken)
+    {
+        (long AuditId, Guid ActionId, TResult Result)? pendingCommit = null;
+        return context.Database.CreateExecutionStrategy().ExecuteAsync(
+            operation,
+            async (_, execute, token) =>
+            {
+                pendingCommit = null;
+                // A retry must not reuse audit entities tracked by a rolled-back attempt.
+                await using var writeContext = new ApplicationContext(contextOptions);
+                await using var transaction = await writeContext.Database.BeginTransactionAsync(token);
+                var result = await execute(writeContext, token);
+                await writeContext.SaveChangesAsync(token);
+
+                // Every successful transition writes an audit in the same transaction.
+                // Its generated key identifies this attempt, unlike the action's target state,
+                // which could also have been written by a concurrent request.
+                var audit = writeContext.ChatActionAudits.Local.FirstOrDefault();
+                if (audit is not null)
+                    pendingCommit = (audit.Id, audit.ActionId, result);
+
+                await transaction.CommitAsync(token);
+                return result;
+            },
+            async (_, _, token) =>
+            {
+                if (pendingCommit is not { } attempt)
+                    return new ExecutionResult<TResult>(false, default!);
+
+                await using var verificationContext = new ApplicationContext(contextOptions);
+                var committed = await verificationContext.ChatActionAudits
+                    .AsNoTracking()
+                    .AnyAsync(audit => audit.Id == attempt.AuditId && audit.ActionId == attempt.ActionId, token);
+                return new ExecutionResult<TResult>(committed, attempt.Result);
+            },
+            cancellationToken);
+    }
 
     private static async Task ReplacePersistedToolResultAsync(
         ApplicationContext writeContext,
