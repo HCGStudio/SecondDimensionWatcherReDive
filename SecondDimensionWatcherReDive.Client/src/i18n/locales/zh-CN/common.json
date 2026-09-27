@@ -70,5 +70,22 @@
     "unavailableFor": "{{name}} 的图片暂不可用",
     "retry": "重新加载 {{name}} 的图片"
   },
-  "appTitle": "二次元观测器 Re:Dive"
+  "appTitle": "二次元观测器 Re:Dive",
+  "dialogs": {
+    "confirmTitle": "确认操作",
+    "inputTitle": "请输入",
+    "confirm": "确定",
+    "cancel": "取消"
+  },
+  "datePicker": {
+    "placeholder": "选择日期（可选）",
+    "title": "选择日期",
+    "keyboardHelp": "使用方向键移动日期，Home 或 End 移动到本周首尾，PageUp 或 PageDown 切换月份，按 Enter 选择日期。",
+    "previousMonth": "上个月",
+    "nextMonth": "下个月",
+    "month": "月份",
+    "year": "年份",
+    "clear": "清除日期",
+    "today": "今天"
+  }
 }

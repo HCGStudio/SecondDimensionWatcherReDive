@@ -46,6 +46,7 @@ import {
   SheetTitle,
 } from "./ui/Sheet";
 import { Spinner } from "./ui/Spinner";
+import { confirmDialog } from "./ui/dialogService";
 
 const MB = 1024 * 1024;
 
@@ -200,7 +201,12 @@ export const SubscriptionPolicySheet: React.FC<
 
   const handleDelete = React.useCallback(async () => {
     if (!feed || !hasSavedPolicy) return;
-    if (!window.confirm(t("automation.deleteConfirm"))) return;
+    if (
+      !(await confirmDialog(t("automation.deleteConfirm"), {
+        destructive: true,
+      }))
+    )
+      return;
 
     setSaving(true);
     try {

@@ -31,6 +31,7 @@ import { ExternalPlayerButtons } from "../components/ExternalPlayerButtons";
 import { useToast } from "../components/ToastProvider";
 import { Button } from "../components/ui/Button";
 import { EmptyPrompt } from "../components/ui/EmptyPrompt";
+import { Select, SelectItem } from "../components/ui/Select";
 import { Spinner } from "../components/ui/Spinner";
 import { generatePlaybackLink } from "../file/utils";
 import {
@@ -1730,19 +1731,19 @@ export const PlayerPage: React.FC = () => {
                   <Languages size={14} />
                   {t("tracks.subtitle")}
                 </span>
-                <select
+                <Select
                   value={selectedSubtitle}
-                  onChange={(event) => onSubtitleChange(event.target.value)}
+                  onValueChange={(value) => onSubtitleChange(value)}
                   className="w-full rounded-md border border-border bg-canvas px-3 py-2 text-sm text-foreground focus:border-focus focus:outline-hidden focus:ring-2 focus:ring-focus"
                 >
-                  <option value={OFF_TRACK}>{t("tracks.off")}</option>
+                  <SelectItem value={OFF_TRACK}>{t("tracks.off")}</SelectItem>
                   {subtitles.map((subtitle) => (
-                    <option key={subtitle.path} value={subtitle.path}>
+                    <SelectItem key={subtitle.path} value={subtitle.path}>
                       {subtitle.label}
                       {subtitle.language ? ` · ${subtitle.language}` : ""}
-                    </option>
+                    </SelectItem>
                   ))}
-                </select>
+                </Select>
                 <p className="mt-1 text-xs text-subtle">
                   {subtitles.length > 0
                     ? t("tracks.available", { count: subtitles.length })
@@ -1764,19 +1765,19 @@ export const PlayerPage: React.FC = () => {
                   <ListMusic size={14} />
                   {t("tracks.audio")}
                 </span>
-                <select
+                <Select
                   value={selectedAudio}
-                  onChange={(event) => onAudioChange(event.target.value)}
+                  onValueChange={(value) => onAudioChange(value)}
                   className="w-full rounded-md border border-border bg-canvas px-3 py-2 text-sm text-foreground focus:border-focus focus:outline-hidden focus:ring-2 focus:ring-focus"
                 >
                   {displayAudioTracks.map((track) => (
-                    <option key={track.key} value={track.key}>
+                    <SelectItem key={track.key} value={track.key}>
                       {track.trackIndex == null
                         ? t(`tracks.audioLanguages.${track.label}`)
                         : track.label}
-                    </option>
+                    </SelectItem>
                   ))}
-                </select>
+                </Select>
                 <p className="mt-1 text-xs text-subtle">
                   {audioTracks.length > 0
                     ? t("tracks.audioDetected", { count: audioTracks.length })

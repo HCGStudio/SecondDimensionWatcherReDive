@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 
 import { cn } from "../../lib/cn";
-import { Select } from "./SettingsControls";
+import { Select, SelectItem } from "./SettingsControls";
 
 export const settingsSectionIds = [
   "ai",
@@ -58,14 +58,12 @@ export const SettingsNavigation: React.FC<SettingsNavigationProps> = ({
         <Select
           id="settings-section"
           value={active}
-          onChange={(event) =>
-            onChange(event.target.value as SettingsSectionId)
-          }
+          onValueChange={(value) => onChange(value as SettingsSectionId)}
         >
           {settingsSectionIds.map((section) => (
-            <option key={section} value={section}>
+            <SelectItem key={section} value={section}>
               {t(`system.navigation.${section}`)}
-            </option>
+            </SelectItem>
           ))}
         </Select>
       </div>

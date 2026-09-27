@@ -4,8 +4,8 @@ import { useTranslation } from "react-i18next";
 import { AiModel, AiSelection } from "../../chat/types";
 import "../../i18n/chatResources";
 import { cn } from "../../lib/cn";
-import { Select } from "../settings/SettingsControls";
 import { FormRow } from "../ui/FormRow";
+import { Select, SelectItem } from "../ui/Select";
 
 interface ModelPickerProps {
   models: AiModel[];
@@ -48,8 +48,8 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
         <Select
           value={selection.providerId ?? ""}
           disabled={disabled}
-          onChange={(event) => {
-            const providerId = event.target.value || undefined;
+          onValueChange={(value) => {
+            const providerId = value || undefined;
             const first = models.find(
               (model) => model.providerId === providerId,
             );
@@ -59,13 +59,13 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
             });
           }}
         >
-          <option value="" disabled={!allowDefault}>
+          <SelectItem value="" disabled={!allowDefault}>
             {t(allowDefault ? "configuredDefault" : "selectProvider")}
-          </option>
+          </SelectItem>
           {providers.map(([id, name]) => (
-            <option key={id} value={id}>
+            <SelectItem key={id} value={id}>
               {name} · {id}
-            </option>
+            </SelectItem>
           ))}
         </Select>
       </FormRow>
@@ -73,30 +73,30 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
         <Select
           value={selection.model ?? ""}
           disabled={disabled || !effectiveProviderId}
-          onChange={(event) =>
+          onValueChange={(value) =>
             onSelect({
               ...selection,
-              model: event.target.value || undefined,
+              model: value || undefined,
               reasoningEffort: undefined,
             })
           }
         >
-          <option value="">
+          <SelectItem value="">
             {allowDefault
               ? t("providerDefault")
               : (defaultModel?.name ?? t("providerDefault"))}
-          </option>
+          </SelectItem>
           {selection.model && !selected && (
-            <option value={selection.model}>{selection.model}</option>
+            <SelectItem value={selection.model}>{selection.model}</SelectItem>
           )}
           {providerModels
             .filter((model) => model.id)
             .map((model) => (
-              <option key={model.id} value={model.id}>
+              <SelectItem key={model.id} value={model.id}>
                 {model.name && model.name !== model.id
                   ? `${model.name} · ${model.id}`
                   : model.id}
-              </option>
+              </SelectItem>
             ))}
         </Select>
       </FormRow>
@@ -105,18 +105,18 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
           <Select
             value={selection.reasoningEffort ?? ""}
             disabled={disabled}
-            onChange={(event) =>
+            onValueChange={(value) =>
               onSelect({
                 ...selection,
-                reasoningEffort: event.target.value || undefined,
+                reasoningEffort: value || undefined,
               })
             }
           >
-            <option value="">{t("configuredDefault")}</option>
+            <SelectItem value="">{t("configuredDefault")}</SelectItem>
             {efforts.map((effort) => (
-              <option key={effort} value={effort}>
+              <SelectItem key={effort} value={effort}>
                 {t(`efforts.${effort}`, { defaultValue: effort })}
-              </option>
+              </SelectItem>
             ))}
           </Select>
         </FormRow>

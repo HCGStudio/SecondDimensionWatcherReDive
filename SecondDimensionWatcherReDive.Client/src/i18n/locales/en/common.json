@@ -70,5 +70,22 @@
     "unavailableFor": "Image unavailable for {{name}}",
     "retry": "Retry image for {{name}}"
   },
-  "appTitle": "Second Dimension Re:Dive"
+  "appTitle": "Second Dimension Re:Dive",
+  "dialogs": {
+    "confirmTitle": "Confirm action",
+    "inputTitle": "Enter details",
+    "confirm": "Confirm",
+    "cancel": "Cancel"
+  },
+  "datePicker": {
+    "placeholder": "Choose a date (optional)",
+    "title": "Choose a date",
+    "keyboardHelp": "Use arrow keys to move between dates, Home or End for the start or end of the week, PageUp or PageDown to change months, and Enter to select.",
+    "previousMonth": "Previous month",
+    "nextMonth": "Next month",
+    "month": "Month",
+    "year": "Year",
+    "clear": "Clear date",
+    "today": "Today"
+  }
 }

@@ -6,6 +6,7 @@ import { useAccess } from "../auth/hooks";
 import fetcher from "../auth/httpClient";
 import { useToast } from "../components/ToastProvider";
 import { Button } from "../components/ui/Button";
+import { Select, SelectItem } from "../components/ui/Select";
 import { Spinner } from "../components/ui/Spinner";
 import {
   WatchlistItem,
@@ -72,23 +73,21 @@ export const WatchlistPage: React.FC = () => {
           <h2 className="font-serif text-lg">{item.title}</h2>
         )}
         <div className="flex flex-wrap gap-2">
-          <select
+          <Select
             aria-label={t("status")}
-            className="rounded border border-border bg-canvas p-2 text-sm"
+            className="w-auto rounded bg-canvas p-2"
             value={item.status}
             disabled={!canPlaybackWrite || busy === item.id}
-            onChange={(e) =>
-              void act(item.id, () =>
-                saveWatchlist({ ...item, status: e.target.value }),
-              )
+            onValueChange={(value) =>
+              void act(item.id, () => saveWatchlist({ ...item, status: value }))
             }
           >
             {watchlistStatuses.map((status) => (
-              <option key={status} value={status}>
+              <SelectItem key={status} value={status}>
                 {t(`statuses.${status}`)}
-              </option>
+              </SelectItem>
             ))}
-          </select>
+          </Select>
           {canPlaybackWrite && (
             <>
               <Button
@@ -240,19 +239,19 @@ export const WatchlistPage: React.FC = () => {
         >
           {t("thisWeek")}
         </Button>
-        <select
+        <Select
           aria-label={t("filter")}
-          className="rounded border border-border bg-surface p-2 text-sm"
+          className="w-auto rounded p-2"
           value={filter}
-          onChange={(e) => setFilter(e.target.value)}
+          onValueChange={(value) => setFilter(value)}
         >
-          <option value="all">{t("all")}</option>
+          <SelectItem value="all">{t("all")}</SelectItem>
           {watchlistStatuses.map((status) => (
-            <option key={status} value={status}>
+            <SelectItem key={status} value={status}>
               {t(`statuses.${status}`)}
-            </option>
+            </SelectItem>
           ))}
-        </select>
+        </Select>
       </div>
       {isLoading ? (
         <Spinner />

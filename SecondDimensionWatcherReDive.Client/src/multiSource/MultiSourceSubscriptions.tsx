@@ -6,6 +6,7 @@ import { useAccess } from "../auth/hooks";
 import fetcher from "../auth/httpClient";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
+import { Select, SelectItem } from "../components/ui/Select";
 import { Spinner } from "../components/ui/Spinner";
 import { IFeed } from "../feed/IFeed";
 import { CompletionPlanButton } from "../library/CompletionPlanButton";
@@ -236,16 +237,15 @@ export const MultiSourceSubscriptions: React.FC<{ feeds: IFeed[] }> = ({
                 </Button>
               </div>
             ))}
-            <select
+            <Select
               className={selectStyle}
               aria-label={t("multiSource.addSource")}
               value=""
-              onChange={(e) => {
-                if (e.target.value)
-                  update({ feedIds: [...draft.feedIds, e.target.value] });
+              onValueChange={(value) => {
+                if (value) update({ feedIds: [...draft.feedIds, value] });
               }}
             >
-              <option value="">{t("multiSource.addSource")}</option>
+              <SelectItem value="">{t("multiSource.addSource")}</SelectItem>
               {feeds
                 .filter(
                   (f) =>
@@ -257,28 +257,28 @@ export const MultiSourceSubscriptions: React.FC<{ feeds: IFeed[] }> = ({
                     ),
                 )
                 .map((f) => (
-                  <option key={f.id} value={f.id}>
+                  <SelectItem key={f.id} value={f.id}>
                     {f.name || f.url}
-                  </option>
+                  </SelectItem>
                 ))}
-            </select>
+            </Select>
           </fieldset>
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="text-sm">
               {t("multiSource.mode")}
-              <select
+              <Select
                 className={selectStyle}
                 value={draft.mode}
-                onChange={(e) =>
-                  update({ mode: e.target.value as Subscription["mode"] })
+                onValueChange={(value) =>
+                  update({ mode: value as Subscription["mode"] })
                 }
               >
                 {["NotifyOnly", "ManualConfirm", "AutoDownload"].map((mode) => (
-                  <option key={mode} value={mode}>
+                  <SelectItem key={mode} value={mode}>
                     {t(`multiSource.modes.${mode}`)}
-                  </option>
+                  </SelectItem>
                 ))}
-              </select>
+              </Select>
             </label>
             <label className="text-sm">
               {t("multiSource.wait")}

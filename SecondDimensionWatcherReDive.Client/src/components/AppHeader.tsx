@@ -44,6 +44,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "./ui/DropdownMenu";
+import { promptDialog } from "./ui/dialogService";
 
 type NavGroup = "library" | "watching" | "management";
 const navGroups: NavGroup[] = ["library", "watching", "management"];
@@ -364,10 +365,13 @@ const UserMenu: React.FC<{ status: IAuthState }> = ({ status }) => {
         {status.profiles.map((profile) => (
           <DropdownMenuItem
             key={profile.id}
-            onSelect={() => {
+            onSelect={async () => {
               if (profile.id === status.profileId) return;
               const pin = profile.hasPin
-                ? window.prompt(t("user.profilePin"))
+                ? await promptDialog(t("user.profilePin"), {
+                    inputType: "password",
+                    inputMode: "numeric",
+                  })
                 : undefined;
               if (profile.hasPin && pin === null) return;
               void switchProfile(profile.id, pin || undefined).then(() => {
