@@ -309,9 +309,7 @@ export const PlayerPage: React.FC = () => {
     audio: Pick<AudioTrackOption, "key" | "label" | "language"> | null;
   } | null>(null);
   const captionsRendererRef = React.useRef<CaptionsRenderer | null>(null);
-  const nativeSubtitleSwitchesRef = React.useRef(
-    new WeakMap<Artplayer, Promise<void>>(),
-  );
+  const subtitleOffsetRef = React.useRef(0);
   const contextRef = React.useRef(playbackContext);
   const preferencesRef = React.useRef(playbackContext?.preferences);
   const lastSyncedTimeRef = React.useRef(-1);
@@ -1043,17 +1041,30 @@ export const PlayerPage: React.FC = () => {
         if (!disposed) art.notice.show = i18n.t("player:next.autoplayBlocked");
       });
     };
-    let captionsRenderer: CaptionsRenderer | null = null;
-    let captionsOverlay: HTMLDivElement | null = null;
-    if (playbackMode === "mkvProxy") {
-      captionsOverlay = document.createElement("div");
-      captionsOverlay.className = "sdw-captions-overlay";
-      // media-captions defaults to z-index 1, below Artplayer's canvas (10).
-      captionsOverlay.style.zIndex = "20";
-      art.template.$player.appendChild(captionsOverlay);
-      captionsRenderer = new CaptionsRenderer(captionsOverlay);
-      captionsRendererRef.current = captionsRenderer;
-    }
+    const captionsOverlay = document.createElement("div");
+    captionsOverlay.className = "sdw-captions-overlay";
+    // Keep the shared subtitle layer above both the video and MKV canvas (10).
+    captionsOverlay.style.zIndex = "20";
+    art.template.$player.appendChild(captionsOverlay);
+    const captionsRenderer = new CaptionsRenderer(captionsOverlay);
+    captionsRendererRef.current = captionsRenderer;
+    subtitleOffsetRef.current = 0;
+    const syncCaptions = () => {
+      captionsRenderer.currentTime =
+        art.currentTime - subtitleOffsetRef.current;
+    };
+    // Artplayer's built-in offset only updates its own native text track.
+    art.setting.update({
+      name: "subtitle-offset",
+      html: art.i18n.get("Subtitle Offset"),
+      onChange(item) {
+        const offset = item.range?.[0] ?? 0;
+        subtitleOffsetRef.current = offset;
+        syncCaptions();
+        art.notice.show = `${art.i18n.get("Subtitle Offset")}: ${offset}s`;
+        return `${offset}s`;
+      },
+    });
 
     const applyInitialSeek = () => {
       const context = contextRef.current;
@@ -1167,7 +1178,7 @@ export const PlayerPage: React.FC = () => {
     };
 
     const onTimeUpdate = () => {
-      if (captionsRenderer) captionsRenderer.currentTime = art.currentTime;
+      syncCaptions();
       persistCurrentProgressRef.current(false);
     };
     const onPlay = () => {
@@ -1205,7 +1216,7 @@ export const PlayerPage: React.FC = () => {
     };
     const onSeeked = () => {
       if (autoplayAfterSeek) startPlayback();
-      if (captionsRenderer) captionsRenderer.currentTime = art.currentTime;
+      syncCaptions();
       persistCurrentProgressRef.current(true);
       if (skippedEndingRef.current) skippedEndingRef.current.seeked = true;
     };
@@ -1243,8 +1254,8 @@ export const PlayerPage: React.FC = () => {
       persistCurrentProgressRef.current(true, true);
       document.removeEventListener("visibilitychange", onVisibilityChange);
       window.removeEventListener("beforeunload", onBeforeUnload);
-      captionsRenderer?.destroy();
-      captionsOverlay?.remove();
+      captionsRenderer.destroy();
+      captionsOverlay.remove();
       disposed = true;
       hls?.destroy();
       if (captionsRendererRef.current === captionsRenderer) {
@@ -1275,44 +1286,14 @@ export const PlayerPage: React.FC = () => {
     const subtitle = subtitles.find((item) => item.path === selectedSubtitle);
     if (!subtitle) return;
 
-    if (playbackMode === "mkvProxy") {
-      const renderer = captionsRendererRef.current;
-      if (!renderer) return;
-      const controller = new AbortController();
-      void parseResponse(fetch(subtitle.url, { signal: controller.signal }), {
-        type: normalizeCaptionFormat(subtitle.format),
-        encoding: "utf-8",
-      })
-        .then((track) => {
-          if (
-            controller.signal.aborted ||
-            captionsRendererRef.current !== renderer
-          ) {
-            return;
-          }
-          renderer.changeTrack(track);
-          renderer.currentTime = art.currentTime;
-        })
-        .catch((error: unknown) => {
-          if (
-            !controller.signal.aborted &&
-            captionsRendererRef.current === renderer &&
-            !isAbortError(error)
-          ) {
-            addToast({
-              title: t("tracks.subtitleLoadFailed"),
-              color: "warning",
-            });
-          }
-        });
-      return () => controller.abort();
-    }
-
+    const renderer = captionsRendererRef.current;
+    if (!renderer) return;
     const controller = new AbortController();
     const isCurrent = () =>
-      !controller.signal.aborted && artRef.current === art;
+      !controller.signal.aborted &&
+      artRef.current === art &&
+      captionsRendererRef.current === renderer;
     const loadSubtitle = async () => {
-      let downloadedUrl: string | null = null;
       try {
         const response = await fetch(subtitle.url, {
           signal: controller.signal,
@@ -1320,34 +1301,17 @@ export const PlayerPage: React.FC = () => {
         if (!response.ok) {
           throw new Error(`Subtitle request failed: ${response.status}`);
         }
-        const content = await response.blob();
-        if (!isCurrent()) return;
-        const localUrl = URL.createObjectURL(content);
-        downloadedUrl = localUrl;
-        const previous =
-          nativeSubtitleSwitchesRef.current.get(art) ?? Promise.resolve();
-        // Artplayer cannot cancel switch(): serialize its local conversions so
-        // an older request cannot replace a newer track after it has loaded.
-        const pending = previous.then(async () => {
-          if (!isCurrent()) return;
-          const format = normalizeCaptionFormat(subtitle.format);
-          await art.subtitle.switch(localUrl, {
-            type: format === "ssa" ? "ass" : format,
-            encoding: "utf-8",
-          });
-          if (isCurrent()) art.subtitle.show = true;
+        const track = await parseResponse(response, {
+          type: normalizeCaptionFormat(subtitle.format),
+          encoding: "utf-8",
         });
-        nativeSubtitleSwitchesRef.current.set(
-          art,
-          pending.catch(() => undefined),
-        );
-        await pending;
+        if (!isCurrent()) return;
+        renderer.changeTrack(track);
+        renderer.currentTime = art.currentTime - subtitleOffsetRef.current;
       } catch (error: unknown) {
         if (isCurrent() && !isAbortError(error)) {
           addToast({ title: t("tracks.subtitleLoadFailed"), color: "warning" });
         }
-      } finally {
-        if (downloadedUrl) URL.revokeObjectURL(downloadedUrl);
       }
     };
     void loadSubtitle();
