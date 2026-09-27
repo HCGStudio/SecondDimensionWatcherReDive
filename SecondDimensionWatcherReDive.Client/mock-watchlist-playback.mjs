@@ -61,7 +61,7 @@ export async function handleWatchlistPlayback(context) {
         episodes: [...animations.values()]
           .filter((x) => x.animation?.tmdbId === item.tmdbId)
           .map((x) => {
-            const path = playablePaths()[0];
+            const path = playablePaths(x)[0];
             const state = playbackProgress.get(playbackKey(x.id, path));
             return state?.isWatched
               ? null
@@ -145,7 +145,10 @@ export async function handleWatchlistPlayback(context) {
       ? await readBody(req)
       : Object.fromEntries(searchParams);
     const animation = animations.get(body.animationInfoId);
-    if (!animation?.isDownloadFinished || !playablePaths().includes(body.path))
+    if (
+      !animation?.isDownloadFinished ||
+      !playablePaths(animation).includes(body.path)
+    )
       return done(404);
     const mediaVersion = createHash("sha256")
       .update(`${animation.id}:${body.path}`)

@@ -294,6 +294,8 @@ Frontend UI strings are localized via **react-i18next** with bundled translation
 
 Features include anime entries with TMDB poster paths and mixed download states, grouped listings, simulated progress, auth flow (any password), feed policies, season discovery, tasks, metadata review and file browsing. `mock-completion.mjs` and `mock-multi-source.mjs` supply local completion plans and multi-source CRUD/evaluation/confirmation using the same mock library; its dates and decisions are development examples rather than live TMDB or qBittorrent state. Listens on port 5097 (matching the Parcel proxy target).
 
+Playback fixtures have distinct file names for releases sharing an anime/group root. Numeric collision suffixes are applied to both video and subtitle stems; VFS listings, per-release file lists, playback state and watchlist links use those same paths so each release remains individually playable.
+
 ## Key Configuration (appsettings.example.json)
 
 - `ConnectionStrings:sdw` — PostgreSQL connection string
