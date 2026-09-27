@@ -1,5 +1,41 @@
 {
   "pageTitle": "System settings",
+  "appearance": {
+    "pageTitle": "Appearance settings",
+    "pageDescription": "Choose colors and a display mode for this browser.",
+    "eyebrow": "Personalization",
+    "title": "Appearance and themes",
+    "description": "Choose separate light and dark themes. Changes apply immediately and are saved automatically in this browser.",
+    "storageUnavailable": "Browser storage is unavailable. Changes still apply immediately, but will not be kept after reloading or closing this page.",
+    "mode": {
+      "title": "Display mode",
+      "description": "Always use light or dark mode, or switch automatically with your device’s system appearance.",
+      "light": "Light",
+      "dark": "Dark",
+      "system": "Automatic (system)"
+    },
+    "currentTheme": "Currently using: {{theme}} · {{mode}}",
+    "selection": {
+      "light": "Light theme",
+      "dark": "Dark theme"
+    },
+    "collection": {
+      "title": "Built-in themes",
+      "description": "Each theme includes a light variant on the left and a dark variant on the right. Apply both together, or mix themes using the selectors above.",
+      "apply": "Use for light and dark",
+      "applied": "Used for light and dark",
+      "applyLabel": "Use {{theme}} for light and dark themes",
+      "appliedLabel": "{{theme}} is used for light and dark themes"
+    },
+    "themes": {
+      "forest": "Forest",
+      "ocean": "Ocean",
+      "sakura": "Sakura",
+      "violet": "Violet",
+      "sand": "Sand",
+      "slate": "Slate"
+    }
+  },
   "system": {
     "pageDescription": "Configure AI execution, external services, media processing, health monitoring, and access protocols. Secret values are never displayed, and leaving a new value blank preserves the current setting.",
     "reauthenticatePrompt": "Enter your account password to confirm this sensitive action",
@@ -7,6 +43,7 @@
     "retry": "Reload",
     "navigation": {
       "label": "Settings category",
+      "appearance": "Appearance",
       "ai": "AI & agents",
       "downloads": "Downloads & storage",
       "media": "Media & metadata",

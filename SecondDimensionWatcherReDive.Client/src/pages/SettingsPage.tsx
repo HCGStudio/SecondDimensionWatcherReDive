@@ -4,9 +4,11 @@ import { useSearchParams } from "react-router";
 
 import { AlertTriangle, RefreshCw, RotateCw } from "lucide-react";
 
+import { useAccess } from "../auth/hooks";
 import { retryAfterReauthentication } from "../auth/utils";
 import { AccessSettingsSection } from "../components/settings/AccessSettingsSection";
 import { AiSettingsSection } from "../components/settings/AiSettingsSection";
+import { AppearanceSettingsSection } from "../components/settings/AppearanceSettingsSection";
 import { DownloadSettingsSection } from "../components/settings/DownloadSettingsSection";
 import { HealthSettingsSection } from "../components/settings/HealthSettingsSection";
 import { MediaSettingsSection } from "../components/settings/MediaSettingsSection";
@@ -37,12 +39,17 @@ type SettingsPatchWithoutRevision = Omit<
 
 export const SettingsPage: React.FC = () => {
   const { t } = useTranslation(["settings", "errors"]);
+  const { isAdministrator } = useAccess();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { data, error, mutate } = useSystemSettings();
   const requestedSection = searchParams.get("section");
-  const activeSection: SettingsSectionId = isSectionId(requestedSection)
-    ? requestedSection
-    : "ai";
+  const activeSection: SettingsSectionId = !isAdministrator
+    ? "appearance"
+    : isSectionId(requestedSection)
+      ? requestedSection
+      : "ai";
+  const { data, error, mutate } = useSystemSettings(
+    isAdministrator && activeSection !== "appearance",
+  );
 
   const selectSection = React.useCallback(
     (section: SettingsSectionId) => {
@@ -80,17 +87,25 @@ export const SettingsPage: React.FC = () => {
         throw saveError;
       }
     },
-    [data, mutate],
+    [data, mutate, t],
   );
 
   return (
     <PageTemplate>
       <header className="mb-8">
         <h1 className="font-sans text-2xl font-medium text-foreground">
-          {t("settings:pageTitle")}
+          {t(
+            isAdministrator
+              ? "settings:pageTitle"
+              : "settings:appearance.pageTitle",
+          )}
         </h1>
         <p className="mt-2 max-w-3xl text-sm leading-body text-muted">
-          {t("settings:system.pageDescription")}
+          {t(
+            activeSection === "appearance"
+              ? "settings:appearance.pageDescription"
+              : "settings:system.pageDescription",
+          )}
         </p>
       </header>
 
@@ -110,10 +125,16 @@ export const SettingsPage: React.FC = () => {
 
       <div className="grid gap-8 xl:grid-cols-[12rem_minmax(0,1fr)]">
         <aside>
-          <SettingsNavigation active={activeSection} onChange={selectSection} />
+          <SettingsNavigation
+            active={activeSection}
+            sections={isAdministrator ? settingsSectionIds : ["appearance"]}
+            onChange={selectSection}
+          />
         </aside>
         <div className="min-w-0">
-          {error ? (
+          {activeSection === "appearance" ? (
+            <AppearanceSettingsSection />
+          ) : error ? (
             <EmptyPrompt
               role="alert"
               icon={<AlertTriangle size={48} />}
