@@ -46,7 +46,7 @@
 ## 发布条件与交付物
 
 - #55 已完成，升级说明、release notes 与候选验证记录齐备；影响核心下载、播放、权限隔离或数据完整性的已知阻断问题已解决。文档 issue 关闭本身不等于版本可发布；未验证或被跳过的环境能力如实记录，不能计为通过。
-- 发布候选复用现有 [Verify 工作流](../.github/workflows/verify.yml)、[测试矩阵](testing.md) 与 [发布流程](release-process.md)，完成现有构建、类型、格式、测试、备份恢复及交付制品验证。遵守 [AGENTS.md](../AGENTS.md)：不新增回归测试、测试专用脚本、工作流断言或同类检查。
+- 发布候选分别查看独立运行的 [Verify 工作流](../.github/workflows/verify.yml) 和 [Backup Restore Drill 工作流](../.github/workflows/backup-restore.yml) 结果，并结合[测试矩阵](testing.md)与[发布流程](release-process.md)，完成现有构建、类型、格式、测试、备份恢复及交付制品验收；这些验证不由发布流程串联。遵守 [AGENTS.md](../AGENTS.md)：不新增回归测试、测试专用脚本、工作流断言或同类检查。
 - 发布说明覆盖新安装、升级、配置变化、已知限制与恢复方式；明确家庭档案各自保存播放/聊天状态，媒体库仍共享，NFS 依赖受信网络而非家庭账户认证。
 - 制品沿用现有工作流支持的 Linux 系统包、Windows/portable 包、Linux FUSE 客户端及 `linux/amd64`、`linux/arm64` 容器；同次发布绑定同一已验证提交和版本，提供 `SHA256SUMS` 与容器 digest。
 - 版本变更通过普通 PR 同步根目录 `VERSION` 和主项目 `Version`、`AssemblyVersion`、`FileVersion`；候选使用完整 `3.0.0-rcN` 版本与纯数字 `3.0.0` 程序集版本，由 `Release` workflow 创建 prerelease 和不可变候选镜像。正式发布创建 `v3.0.0` 与不可变版本镜像，并在成功后推广 `latest`；候选发布不推广 `latest`。
