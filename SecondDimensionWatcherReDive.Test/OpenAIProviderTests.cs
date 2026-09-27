@@ -150,18 +150,18 @@ public sealed class OpenAIProviderTests
             item.GetProperty("type").GetString() is "function_call" or "function_call_output"),
             "Historical call/result pairs must not be replayed without their original reasoning items.");
         Assert.AreEqual("I'll check.",
-            input[1].GetProperty("content")[0].GetProperty("text").GetString());
-        Assert.AreEqual("input_text",
-            input[1].GetProperty("content")[0].GetProperty("type").GetString());
+            input[1].GetProperty("content").GetString());
+        Assert.AreEqual(JsonValueKind.String,
+            input[1].GetProperty("content").ValueKind);
         Assert.AreEqual("commentary", input[1].GetProperty("phase").GetString());
         StringAssert.Contains(
-            input[2].GetProperty("content")[0].GetProperty("text").GetString(),
+            input[2].GetProperty("content").GetString(),
             "lookup");
         StringAssert.Contains(
-            input[3].GetProperty("content")[0].GetProperty("text").GetString(),
+            input[3].GetProperty("content").GetString(),
             "old result");
         Assert.AreEqual("The previous answer.",
-            input[4].GetProperty("content")[0].GetProperty("text").GetString());
+            input[4].GetProperty("content").GetString());
         Assert.AreEqual("final_answer", input[4].GetProperty("phase").GetString());
     }
 

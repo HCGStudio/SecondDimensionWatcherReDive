@@ -102,6 +102,21 @@ internal sealed class OpenAIResponsesContentPart
     public required string Text { get; init; }
 }
 
+/// <summary>
+///     Reconstructed assistant history uses the easy-input string form, avoiding input_text blocks
+///     on endpoints that distinguish assistant content without inventing stored output-message ids.
+/// </summary>
+internal sealed class OpenAIResponsesAssistantMessage
+{
+    public string Type { get; init; } = "message";
+
+    public string Role { get; init; } = "assistant";
+
+    public required string Content { get; init; }
+
+    public required string Phase { get; init; }
+}
+
 /// <summary>Responses function tools use a flat shape rather than a nested function object.</summary>
 internal sealed class OpenAIResponsesTool
 {
