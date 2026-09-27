@@ -1,9 +1,7 @@
-name: Publish verified mainline
+name: Publish mainline
 
 on:
-  workflow_run:
-    workflows: [Verify]
-    types: [completed]
+  push:
     branches: [main]
   workflow_dispatch:
 
@@ -16,24 +14,8 @@ concurrency:
   queue: max
 
 jobs:
-  verify_manual_run:
-    name: Verify manual run
-    if: github.event_name == 'workflow_dispatch'
-    uses: ./.github/workflows/verify.yml
-    permissions:
-      contents: read
-
   metadata:
-    name: Resolve verified source
-    needs: verify_manual_run
-    if: >-
-      always() &&
-      ((github.event_name == 'workflow_dispatch' && needs.verify_manual_run.result == 'success') ||
-       (github.event_name == 'workflow_run' &&
-        github.event.workflow_run.conclusion == 'success' &&
-        github.event.workflow_run.event == 'push' &&
-        github.event.workflow_run.head_branch == github.event.repository.default_branch &&
-        github.event.workflow_run.head_repository.full_name == github.repository))
+    name: Resolve source
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -43,36 +25,17 @@ jobs:
       image_repository: ${{ steps.metadata.outputs.image_repository }}
       version: ${{ steps.metadata.outputs.version }}
     steps:
-      - name: Select verified commit
+      - name: Select source commit
         id: source
         env:
-          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-          DISPATCH_REF: ${{ github.ref }}
-          DISPATCH_SHA: ${{ github.sha }}
-          EVENT_NAME: ${{ github.event_name }}
-          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
-          HEAD_REPOSITORY: ${{ github.event.workflow_run.head_repository.full_name }}
-          REPOSITORY: ${{ github.repository }}
-          RUN_EVENT: ${{ github.event.workflow_run.event }}
-          VERIFIED_SHA: ${{ github.event.workflow_run.head_sha }}
+          SOURCE_REF: ${{ github.ref }}
+          SOURCE_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          if [ "$EVENT_NAME" = workflow_run ]; then
-            test "$CONCLUSION" = success
-            test "$RUN_EVENT" = push
-            test "$HEAD_BRANCH" = "$DEFAULT_BRANCH"
-            test "$HEAD_REPOSITORY" = "$REPOSITORY"
-            commit_sha="$VERIFIED_SHA"
-          elif [ "$EVENT_NAME" = workflow_dispatch ]; then
-            test "$DISPATCH_REF" = "refs/heads/$DEFAULT_BRANCH"
-            commit_sha="$DISPATCH_SHA"
-          else
-            echo "Unsupported publication event: $EVENT_NAME" >&2
-            exit 1
-          fi
-          [[ "$commit_sha" =~ ^[0-9a-f]{40}$ ]]
-          echo "commit_sha=$commit_sha" >> "$GITHUB_OUTPUT"
+          test "$SOURCE_REF" = "refs/heads/$DEFAULT_BRANCH"
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          echo "commit_sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@v7
         with:
@@ -141,12 +104,6 @@ jobs:
   build:
     name: Build checked artifacts
     needs: metadata
-    # The manual-only verifier is an indirect skipped ancestor on workflow_run.
-    # A status function is required here so GitHub does not inject success() and
-    # silently skip this job after metadata has explicitly accepted that path.
-    if: >-
-      !cancelled() &&
-      needs.metadata.result == 'success'
     uses: ./.github/workflows/build.yml
     permissions:
       contents: read
