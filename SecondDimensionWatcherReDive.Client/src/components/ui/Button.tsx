@@ -14,7 +14,7 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
 }
 
 const variantClasses: Record<ButtonVariant, string> = {
-  solid: "text-white",
+  solid: "",
   outline:
     "border border-border bg-surface hover:border-brand/30 hover:bg-tint",
   ghost: "bg-transparent hover:bg-tint",
@@ -22,10 +22,10 @@ const variantClasses: Record<ButtonVariant, string> = {
 };
 
 const solidColorClasses: Record<ButtonColor, string> = {
-  default: "bg-brand hover:bg-accent",
-  danger: "bg-error hover:opacity-90 shadow-ring-error",
-  warning: "bg-warning hover:opacity-90 shadow-ring-warning",
-  success: "bg-success hover:opacity-90 shadow-ring-success",
+  default: "bg-brand text-on-brand hover:bg-accent",
+  danger: "bg-error text-on-error hover:opacity-90 shadow-ring-error",
+  warning: "bg-warning text-on-warning hover:opacity-90 shadow-ring-warning",
+  success: "bg-success text-on-success hover:opacity-90 shadow-ring-success",
 };
 
 const textColorClasses: Record<ButtonColor, string> = {
@@ -60,7 +60,7 @@ export const Button: React.FC<ButtonProps> = ({
   const isIcon = variant === "icon";
 
   const classes = cn(
-    "inline-flex items-center justify-center gap-2 rounded-md font-sans font-medium transition-colors focus:outline-hidden focus:ring-2 focus:ring-focus focus:ring-offset-1 disabled:opacity-50 disabled:pointer-events-none cursor-pointer",
+    "inline-flex items-center justify-center gap-2 rounded-md font-sans font-medium transition-colors focus:outline-hidden focus:ring-2 focus:ring-focus focus:ring-offset-1 focus:ring-offset-surface disabled:opacity-50 disabled:pointer-events-none cursor-pointer",
     isIcon ? iconSizeClasses[size] : sizeClasses[size],
     variantClasses[variant],
     variant === "solid" ? solidColorClasses[color] : "",

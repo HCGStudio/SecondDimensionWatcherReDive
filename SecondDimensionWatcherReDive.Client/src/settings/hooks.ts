@@ -8,5 +8,5 @@ import { SystemSettings } from "./systemTypes";
 export const useWebDavTokens = () =>
   useSWR<IWebDavToken[]>("/api/webdav-tokens", fetcher);
 
-export const useSystemSettings = () =>
-  useSWR<SystemSettings>(systemSettingsUrl, fetcher);
+export const useSystemSettings = (enabled = true) =>
+  useSWR<SystemSettings>(enabled ? systemSettingsUrl : null, fetcher);

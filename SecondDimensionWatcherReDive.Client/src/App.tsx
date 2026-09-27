@@ -9,6 +9,7 @@ import { ToastProvider } from "./components/ToastProvider";
 import i18n from "./i18n";
 import { refreshWebPushServiceWorker } from "./notifications/webPush";
 import "./styles.css";
+import { ThemeProvider } from "./theme/ThemeProvider";
 import { setDayjsLocale } from "./utils/initDayjs";
 
 setDayjsLocale(i18n.language);
@@ -22,11 +23,13 @@ void refreshWebPushServiceWorker().catch(() => undefined);
 const root = createRoot(document.getElementById("app")!);
 root.render(
   <React.StrictMode>
-    <SWRConfig value={{ fetcher: fetcher }}>
-      <ToastProvider>
-        <Main />
-        <DialogHost />
-      </ToastProvider>
-    </SWRConfig>
+    <ThemeProvider>
+      <SWRConfig value={{ fetcher: fetcher }}>
+        <ToastProvider>
+          <Main />
+          <DialogHost />
+        </ToastProvider>
+      </SWRConfig>
+    </ThemeProvider>
   </React.StrictMode>,
 );

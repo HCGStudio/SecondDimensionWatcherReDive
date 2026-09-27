@@ -149,7 +149,6 @@ const createNavItems = (
       labelKey: "nav.settings",
       path: "/settings",
       group: "management",
-      administratorOnly: true,
     },
   ];
   return items.filter(
