@@ -10,6 +10,14 @@ Chat 发送时使用当前选中的 Provider、模型和 effort，自动标题�
 
 元数据和文件名推理在 OpenAI Responses 下使用严格结构化输出：每轮请求通过 `text.format` 发送现有 JSON Schema，约束最终回答的字段、类型和可空值。工具参数仍使用各工具自己的定义。模型拒绝、输出被截断或流缺少完成事件时，该次推理失败，不会把拒绝文本或未完成 JSON 当作识别结果。普通聊天不附加该格式。Codex app-server 继续使用其输出 Schema；Chat Completions 和 Anthropic 继续依靠提示词与现有 JSON 解析。自定义 Responses 端点需要支持 `text.format` 的 `json_schema` 严格模式。[OpenAI 结构化输出说明](https://developers.openai.com/api/docs/guides/structured-outputs)
 
+## Responses 历史消息与 HTTP 错误排查
+
+已有聊天继续发送消息时，数据库重建的 assistant 历史使用 EasyInputMessage 的字符串 `content`，保留 `role` 和 `phase`；历史工具调用及结果仍作为带标签的文字记录。这种形式减少兼容端点对 assistant 分段内容的解析歧义。一次回复中的工具后续轮次继续原样重放完整的 Responses 输出条目，包括加密推理，不受历史消息格式调整影响。[OpenAI 手动管理对话状态](https://developers.openai.com/api/docs/guides/conversation-state#manually-manage-conversation-state)
+
+OpenAI 模型发现、Responses 和 Chat Completions 请求失败时，异常保留 HTTP 状态，并从最多 16 KiB 的标准 JSON 错误体中提取 `error.message`、`error.type`、`error.code`、`error.param`，同时附带可用的 `x-request-id`。字段有长度限制，已配置的 API key 会脱敏；不记录请求正文或未知格式的原始错误体。错误体读取最多等待 5 秒；非 JSON、过大、超时或读取失败时，仍返回 HTTP 状态及可用的请求 ID，调用方取消仍正常传播。
+
+如果已有对话在第二轮出现 HTTP 400，先查看异常中的 `param` 和 `message` 确认端点拒绝的字段，并保留请求 ID 供服务提供方定位。仅有 `400 (Bad Request)` 无法确定具体原因；历史消息兼容性调整不意味着所有 400 都由同一参数引起。
+
 ## 部署配置
 
 配置文件的 `AI:Providers` 是以稳定 ID 为键的字典；设置 API 使用包含 `id` 的数组。配置文件应声明 `Version: "3.0.0"`；环境覆盖使用 `SDW_CONFIG_VERSION=3.0.0`，并将冒号替换为双下划线，例如 `AI__Providers__local__Protocol=OpenAIChatCompletions`。这也确保 `Inference__Model` 按当前推理覆盖含义保留，而不是按旧结构迁移到 Provider 默认模型。
