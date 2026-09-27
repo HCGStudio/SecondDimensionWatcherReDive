@@ -68,7 +68,7 @@ internal sealed class ChatActionRepositoryPostgreSqlTestFixture(string connectio
         });
         await context.SaveChangesAsync(cancellationToken);
 
-        var repository = new ChatActionRepository(context);
+        var repository = new ChatActionRepository(context, _contextOptions);
         await repository.AddAsync(
             new PendingChatActionDraft(
                 actionId,
@@ -116,7 +116,7 @@ internal sealed class ChatActionRepositoryPostgreSqlTestFixture(string connectio
         CancellationToken cancellationToken)
     {
         await using var context = new Models.ApplicationContext(_contextOptions);
-        var repository = new ChatActionRepository(context);
+        var repository = new ChatActionRepository(context, _contextOptions);
         return await repository.TryClaimForExecutionAsync(
             seed.ActionId,
             seed.ConversationId,
@@ -136,7 +136,7 @@ internal sealed class ChatActionRepositoryPostgreSqlTestFixture(string connectio
         CancellationToken cancellationToken)
     {
         await using var context = new Models.ApplicationContext(_contextOptions);
-        var repository = new ChatActionRepository(context);
+        var repository = new ChatActionRepository(context, _contextOptions);
         return await repository.CompleteExecutionAsync(
             seed.ActionId,
             succeeded,
@@ -156,7 +156,7 @@ internal sealed class ChatActionRepositoryPostgreSqlTestFixture(string connectio
         CancellationToken cancellationToken)
     {
         await using var context = new Models.ApplicationContext(_contextOptions);
-        var repository = new ChatActionRepository(context);
+        var repository = new ChatActionRepository(context, _contextOptions);
         return await repository.RecoverAbandonedExecutionsAsync(
             seed.ConversationId,
             seed.UserId,
@@ -194,7 +194,7 @@ internal sealed class ChatActionRepositoryPostgreSqlTestFixture(string connectio
         CancellationToken cancellationToken)
     {
         await using var context = new Models.ApplicationContext(_contextOptions);
-        var repository = new ChatActionRepository(context);
+        var repository = new ChatActionRepository(context, _contextOptions);
         return await repository.FindAsync(
             seed.ActionId, seed.ConversationId, seed.UserId, cancellationToken);
     }
@@ -204,7 +204,7 @@ internal sealed class ChatActionRepositoryPostgreSqlTestFixture(string connectio
         CancellationToken cancellationToken)
     {
         await using var context = new Models.ApplicationContext(_contextOptions);
-        var repository = new ChatActionRepository(context);
+        var repository = new ChatActionRepository(context, _contextOptions);
         return await repository.GetAuditAsync(
             seed.ConversationId, seed.UserId, cancellationToken);
     }
