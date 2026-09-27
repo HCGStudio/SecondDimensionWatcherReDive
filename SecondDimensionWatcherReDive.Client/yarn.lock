@@ -2864,10 +2864,10 @@ __metadata:
 
 "artplayer-proxy-mediabunny@patch:artplayer-proxy-mediabunny@npm%3A1.2.0#~/.yarn/patches/artplayer-proxy-mediabunny-npm-1.2.0-44361bb6c9.patch":
   version: 1.2.0
-  resolution: "artplayer-proxy-mediabunny@patch:artplayer-proxy-mediabunny@npm%3A1.2.0#~/.yarn/patches/artplayer-proxy-mediabunny-npm-1.2.0-44361bb6c9.patch::version=1.2.0&hash=a88cf3"
+  resolution: "artplayer-proxy-mediabunny@patch:artplayer-proxy-mediabunny@npm%3A1.2.0#~/.yarn/patches/artplayer-proxy-mediabunny-npm-1.2.0-44361bb6c9.patch::version=1.2.0&hash=805447"
   dependencies:
     mediabunny: "npm:^1.43.1"
-  checksum: 10/d1aae0b5fe8dff56b6d3f38509e2d372cb7779a6bced5de3b2c9a74842c548716ccc2261c23b3c0d5efe85922f0c1059d042ce29d0163cd7542376ca4dec4dd5
+  checksum: 10/6f9064eb1cb9ce1603adcdbf2c2e31c05bb3e357922d33052a9a303a2a5c40548f71e56b9e9a5c4db32a1accb04677facf7022ae716ca2476246ede15a413ff2
   languageName: node
   linkType: hard
 

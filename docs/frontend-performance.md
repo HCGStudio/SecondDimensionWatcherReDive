@@ -23,6 +23,8 @@ queue of at most two frames backed by three reusable canvases, while
 the A/V tolerance window: painting several frames between browser refreshes
 otherwise makes only the last one visible. Frames within the lateness tolerance
 remain in order so audio-clock jitter does not discard normal 60 fps frames.
+Catch-up reads stay bounded to eight frames per batch; an overdue final frame
+is discarded before yielding instead of being queued for presentation.
 Pause/resume preserves queued
 frames; seek and teardown invalidate pending reads. Decoder errors use the
 existing server-side HLS fallback. Keep these behaviors when updating the
