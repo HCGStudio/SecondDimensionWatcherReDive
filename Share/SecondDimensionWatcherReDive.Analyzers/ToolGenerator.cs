@@ -145,6 +145,7 @@ public sealed class ToolGenerator : IIncrementalGenerator
                 // Bind the name to cover both direct calls and delegate method groups.
                 if (node is SimpleNameSyntax name && name.Identifier.ValueText == "Success"
                     && model.GetSymbolInfo(name, ct).Symbol is IMethodSymbol method
+                    && !method.IsDefinition // nameof(Success) has no constructed result type.
                     && SymbolEqualityComparer.Default.Equals(method.OriginalDefinition, successHelper))
                 {
                     var resultType = method.TypeArguments[0];
