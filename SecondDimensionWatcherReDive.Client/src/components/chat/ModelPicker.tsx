@@ -81,10 +81,10 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
             })
           }
         >
-          <option value="" disabled={!allowDefault && !defaultModel}>
+          <option value="">
             {allowDefault
               ? t("providerDefault")
-              : (defaultModel?.name ?? t("selectModel"))}
+              : (defaultModel?.name ?? t("providerDefault"))}
           </option>
           {selection.model && !selected && (
             <option value={selection.model}>{selection.model}</option>
