@@ -17,7 +17,15 @@ The worker and its fetch are terminated on cancellation.
 The Yarn patch for `artplayer-proxy-mediabunny` limits scheduled audio to a
 short buffer ahead of the playback clock, preventing the proxy from decoding
 and retaining the entire audio track in advance. Pause, seek and speed changes
-discard the previous audio schedule. Keep this behavior when updating the
+discard the previous audio schedule. Video decoding fills a bounded lookahead
+queue of at most two frames backed by three reusable canvases, while
+`requestAnimationFrame` presents at most one due frame using the audio clock. Future frames stay queued rather than being painted early within
+the A/V tolerance window: painting several frames between browser refreshes
+otherwise makes only the last one visible. Frames within the lateness tolerance
+remain in order so audio-clock jitter does not discard normal 60 fps frames.
+Pause/resume preserves queued
+frames; seek and teardown invalidate pending reads. Decoder errors use the
+existing server-side HLS fallback. Keep these behaviors when updating the
 proxy dependency.
 
 ## Historical baseline
