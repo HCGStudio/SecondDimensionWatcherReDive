@@ -1,5 +1,41 @@
 {
   "pageTitle": "系统设置",
+  "appearance": {
+    "pageTitle": "外观设置",
+    "pageDescription": "为当前浏览器选择适合你的配色与显示模式。",
+    "eyebrow": "个性化",
+    "title": "外观与主题",
+    "description": "分别选择亮色和暗色主题，修改即时生效，并自动保存在当前浏览器中。",
+    "storageUnavailable": "浏览器存储不可用。主题仍会即时生效，但刷新或关闭页面后无法保留本次修改。",
+    "mode": {
+      "title": "显示模式",
+      "description": "固定使用亮色或暗色，或自动跟随设备的系统外观切换。",
+      "light": "亮色",
+      "dark": "暗色",
+      "system": "自动（跟随系统）"
+    },
+    "currentTheme": "当前显示：{{theme}} · {{mode}}",
+    "selection": {
+      "light": "亮色主题",
+      "dark": "暗色主题"
+    },
+    "collection": {
+      "title": "内置主题",
+      "description": "每组主题都包含亮色与暗色变体，预览左侧为亮色，右侧为暗色。可以一键同时设置，也可以在上方自由搭配。",
+      "apply": "同时设为亮色与暗色",
+      "applied": "已用于亮色与暗色",
+      "applyLabel": "将{{theme}}同时设为亮色与暗色主题",
+      "appliedLabel": "{{theme}}已用于亮色与暗色主题"
+    },
+    "themes": {
+      "forest": "森林",
+      "ocean": "海洋",
+      "sakura": "樱花",
+      "violet": "紫罗兰",
+      "sand": "沙丘",
+      "slate": "岩灰"
+    }
+  },
   "system": {
     "pageDescription": "配置 AI 执行引擎、外部服务、媒体处理、健康监控和访问协议。敏感值不会回显，未填写新值时会保留当前配置。",
     "reauthenticatePrompt": "请输入账户密码以确认此敏感操作",
@@ -7,6 +43,7 @@
     "retry": "重新加载",
     "navigation": {
       "label": "设置分类",
+      "appearance": "外观与主题",
       "ai": "AI 与 Agent",
       "downloads": "下载与存储",
       "media": "媒体与元数据",

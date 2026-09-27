@@ -292,7 +292,7 @@ export const IncidentsPage: React.FC = () => {
             className={cn(
               "rounded-full px-3 py-1.5 text-xs font-medium transition-colors",
               type == null
-                ? "bg-brand text-surface"
+                ? "bg-brand text-on-brand"
                 : "bg-surface-muted text-muted hover:text-foreground",
             )}
           >
@@ -308,7 +308,7 @@ export const IncidentsPage: React.FC = () => {
               className={cn(
                 "rounded-full px-3 py-1.5 text-xs font-medium transition-colors",
                 type === incidentType
-                  ? "bg-brand text-surface"
+                  ? "bg-brand text-on-brand"
                   : "bg-surface-muted text-muted hover:text-foreground",
               )}
             >

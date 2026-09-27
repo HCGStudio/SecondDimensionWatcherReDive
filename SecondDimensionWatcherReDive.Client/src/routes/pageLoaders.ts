@@ -1,6 +1,7 @@
 export const loadAccountPage = () => import("../pages/AccountPage");
 export const loadWatchlistPage = () => import("../pages/WatchlistPage");
 export const loadMainPage = () => import("../pages/MainPage");
+export const loadEpisodeListPage = () => import("../pages/EpisodeListPage");
 export const loadDownloadingPage = () => import("../pages/DownloadingPage");
 export const loadDownloadedPage = () => import("../pages/DownloadedPage");
 export const loadFilesPage = () => import("../pages/FilesPage");

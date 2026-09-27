@@ -318,7 +318,7 @@ export const SubscriptionPolicySheet: React.FC<
                             className={selected ? "text-brand" : "text-muted"}
                           />
                           {selected ? (
-                            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-brand text-surface">
+                            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-brand text-on-brand">
                               <Check size={12} strokeWidth={3} />
                             </span>
                           ) : null}

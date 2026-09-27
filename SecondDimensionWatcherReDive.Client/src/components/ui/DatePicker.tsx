@@ -248,9 +248,9 @@ export function DatePicker({
                         aria-label={dateFormatter.format(date)}
                         aria-current={key === today ? "date" : undefined}
                         className={cn(
-                          "h-10 w-full rounded-md text-sm outline-hidden focus:ring-2 focus:ring-focus focus:ring-offset-1",
+                          "h-10 w-full rounded-md text-sm outline-hidden focus:ring-2 focus:ring-focus focus:ring-offset-1 focus:ring-offset-surface",
                           key === value
-                            ? "bg-brand text-white"
+                            ? "bg-brand text-on-brand"
                             : "hover:bg-tint",
                           key === today &&
                             key !== value &&
