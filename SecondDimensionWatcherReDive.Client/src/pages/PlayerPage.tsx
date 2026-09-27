@@ -46,6 +46,7 @@ import {
   savePlaybackProgress,
   setPlaybackWatched,
 } from "../playback/api";
+import "../playback/captions.css";
 import { usePlaybackContext } from "../playback/hooks";
 import {
   chooseMkvPlaybackPlan,
@@ -68,9 +69,6 @@ import {
 } from "../playback/types";
 import { PageTemplate } from "./PageTemplate";
 import { PlaybackErrorActions } from "./PlaybackErrorActions";
-
-import "media-captions/styles/captions.css";
-import "media-captions/styles/regions.css";
 
 const PLAYER_ACCENT = "#7fc7a2";
 const PROGRESS_SYNC_INTERVAL_SECONDS = 10;
