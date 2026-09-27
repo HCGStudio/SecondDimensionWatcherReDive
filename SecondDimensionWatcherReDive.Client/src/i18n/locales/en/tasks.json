@@ -10,9 +10,10 @@
   },
   "runNow": "Run now",
   "running": "Running",
+  "submitting": "Submitting",
   "idle": "Idle",
   "announcements": {
-    "started": "Task {{name}} started"
+    "submitting": "Submitting task {{name}}"
   },
   "empty": {
     "title": "No background tasks",
@@ -29,8 +30,8 @@
     "minute_other": "{{count}} minutes"
   },
   "toast": {
-    "success": "Task \"{{name}}\" finished",
-    "failure": "Task \"{{name}}\" failed"
+    "submitted": "Task \"{{name}}\" submitted for background processing",
+    "submissionFailed": "Could not submit task \"{{name}}\""
   },
   "deadLetters": {
     "title": "Failed durable jobs",

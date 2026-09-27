@@ -79,7 +79,7 @@ export const TasksPage: React.FC = () => {
     mutate: mutateDeadLetters,
   } = useDeadLetterJobs();
   const { addToast } = useToast();
-  const [runningTasks, setRunningTasks] = React.useState<Set<string>>(
+  const [submittingTasks, setSubmittingTasks] = React.useState<Set<string>>(
     new Set(),
   );
   const [mutatingJobs, setMutatingJobs] = React.useState<Set<string>>(
@@ -90,9 +90,9 @@ export const TasksPage: React.FC = () => {
   const onRun = React.useCallback(
     async (id: string) => {
       setTaskAnnouncement(
-        t("tasks:announcements.started", { name: getTaskMetadata(id).name }),
+        t("tasks:announcements.submitting", { name: getTaskMetadata(id).name }),
       );
-      setRunningTasks((prev) => new Set(prev).add(id));
+      setSubmittingTasks((prev) => new Set(prev).add(id));
       try {
         await runTask(
           id,
@@ -100,24 +100,28 @@ export const TasksPage: React.FC = () => {
             ? aiSelection
             : undefined,
         );
-        await mutate();
-        addToast({
-          title: t("tasks:toast.success", { name: getTaskMetadata(id).name }),
-          color: "success",
-        });
       } catch {
         addToast({
-          title: t("tasks:toast.failure", { name: getTaskMetadata(id).name }),
+          title: t("tasks:toast.submissionFailed", {
+            name: getTaskMetadata(id).name,
+          }),
           color: "danger",
         });
+        return;
       } finally {
         setTaskAnnouncement("");
-        setRunningTasks((prev) => {
+        setSubmittingTasks((prev) => {
           const next = new Set(prev);
           next.delete(id);
           return next;
         });
       }
+      addToast({
+        title: t("tasks:toast.submitted", { name: getTaskMetadata(id).name }),
+        color: "success",
+      });
+      // Revalidation errors belong to the task list, not the accepted submission.
+      void mutate().catch(() => undefined);
     },
     [mutate, addToast, t, getTaskMetadata, aiSelection, tasks],
   );
@@ -179,10 +183,10 @@ export const TasksPage: React.FC = () => {
     {
       name: t("tasks:columns.status"),
       render: (_value: any, item: ITask) =>
-        item.isRunning || runningTasks.has(item.id) ? (
+        item.isRunning || submittingTasks.has(item.id) ? (
           <span className="inline-flex items-center gap-1.5 text-sm text-brand">
             <Loader2 size={14} className="animate-spin" />
-            {t("tasks:running")}
+            {t(item.isRunning ? "tasks:running" : "tasks:submitting")}
           </span>
         ) : (
           <span className="text-sm text-success">{t("tasks:idle")}</span>
@@ -195,7 +199,7 @@ export const TasksPage: React.FC = () => {
         <Button
           size="sm"
           variant="outline"
-          disabled={item.isRunning || runningTasks.has(item.id)}
+          disabled={item.isRunning || submittingTasks.has(item.id)}
           onClick={() => onRun(item.id)}
         >
           <Play size={14} />

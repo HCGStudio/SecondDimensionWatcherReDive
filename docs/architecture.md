@@ -259,7 +259,7 @@ The MKV canvas subtitle overlay uses `media-captions`, with its styles imported 
 - Search (`/search`) — Library search with title/detail links, virtual-directory links, per-release file/playback selection and permission-aware download actions, plus release scoring, broadcast-aware completion plans and version upgrades
 - Watchlist (`/watchlist`) — Current profile’s personal states and weekly expected/released/downloaded-unwatched view
 - Metadata review (`/metadata-review`) — Administrator correction/preview/undo and scoped recognition-rule management
-- Tasks (`/tasks`) — Background task dashboard with manual trigger
+- Tasks (`/tasks`) — Background task dashboard with manual trigger. A trigger confirms submission for background processing; request progress is shown as submitting, and running status comes from the polled backend state.
 - Todos (`/todo`) and incidents (`/incidents`) — Administrator queues with filters, batch actions, and deep links
 - Account (`/account`) — Profiles, PINs, users, and sessions
 - Settings (`/settings?section=…`) — AI, downloads, media, health, notifications, access protocols, and plugins; section navigation collapses to a selector below xl
