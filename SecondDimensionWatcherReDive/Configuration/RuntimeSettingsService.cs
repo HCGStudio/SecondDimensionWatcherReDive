@@ -28,9 +28,6 @@ public sealed partial class RuntimeSettingsService : IRuntimeSettingsInitializer
     private const string ProtectorPurpose =
         "SecondDimensionWatcherReDive.RuntimeSettings.Secrets.v1";
 
-    private static readonly JsonSerializerOptions StorageJsonOptions =
-        new(JsonSerializerDefaults.Web);
-
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly RuntimeSettingsConfigurationProvider _configurationProvider;
     private readonly IDataProtector _protector;
@@ -203,7 +200,8 @@ public sealed partial class RuntimeSettingsService : IRuntimeSettingsInitializer
                     CreateState(),
                     validationErrors);
 
-            var valuesJson = JsonSerializer.Serialize(candidateOverrides, StorageJsonOptions);
+            var valuesJson = JsonSerializer.Serialize(
+                candidateOverrides, RuntimeSettingsJsonSerializerContext.Default.RuntimeSettingsOverrides);
             var protectedSecrets = ProtectSecrets(candidateSecrets);
             var updatedAt = DateTimeOffset.UtcNow;
 
@@ -757,7 +755,8 @@ public sealed partial class RuntimeSettingsService : IRuntimeSettingsInitializer
         if (overrides.Values.Count == 0)
             return null;
 
-        var json = JsonSerializer.Serialize(overrides, StorageJsonOptions);
+        var json = JsonSerializer.Serialize(
+            overrides, RuntimeSettingsJsonSerializerContext.Default.RuntimeSecretOverrides);
         return _protector.Protect(json);
     }
 
@@ -769,8 +768,9 @@ public sealed partial class RuntimeSettingsService : IRuntimeSettingsInitializer
         try
         {
             var json = _protector.Unprotect(protectedSecrets);
-            var result = JsonSerializer.Deserialize<RuntimeSecretOverrides>(json, StorageJsonOptions)
-                         ?? throw new InvalidOperationException("The secret settings document is empty.");
+            var result = JsonSerializer.Deserialize(
+                json, RuntimeSettingsJsonSerializerContext.Default.RuntimeSecretOverrides)
+                ?? throw new InvalidOperationException("The secret settings document is empty.");
             var unknownKeys = result.Values.Keys
                 .Where(key => !RuntimeSecretKeys.All.Contains(key, StringComparer.Ordinal)
                     && !RuntimeSecretKeys.IsProviderSecret(key))
@@ -799,8 +799,9 @@ public sealed partial class RuntimeSettingsService : IRuntimeSettingsInitializer
     {
         try
         {
-            var overrides = JsonSerializer.Deserialize<RuntimeSettingsOverrides>(json, StorageJsonOptions)
-                            ?? new();
+            var overrides = JsonSerializer.Deserialize(
+                json, RuntimeSettingsJsonSerializerContext.Default.RuntimeSettingsOverrides)
+                ?? new();
             if (overrides.Ai is { CodexAppServer.PermissionProfile: null } ai)
             {
                 overrides = overrides with

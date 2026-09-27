@@ -22,12 +22,9 @@ internal sealed class TodosController(ITodoRepository todoRepository) : Controll
         CancellationToken cancellationToken = default)
     {
         if (skip < 0 || take is < 1 or > 200)
-            return BadRequest(new
-            {
-                message = "skip must be non-negative and take must be between 1 and 200."
-            });
+            return BadRequest(new External.MessageResponse("skip must be non-negative and take must be between 1 and 200."));
         if (focus is not null && !IsValidKey(focus))
-            return BadRequest(new { message = "focus must be a valid todo resource key." });
+            return BadRequest(new External.MessageResponse("focus must be a valid todo resource key."));
 
         var page = await todoRepository.GetAsync(
             includeRead,

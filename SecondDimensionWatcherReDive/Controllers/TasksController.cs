@@ -50,7 +50,7 @@ internal class TasksController(
             string.Equals(t.Id, id, StringComparison.OrdinalIgnoreCase));
 
         if (task == null)
-            return NotFound(new { message = $"Task '{id}' not found" });
+            return NotFound(new External.MessageResponse($"Task '{id}' not found"));
 
         if (task is IAISelectableTask selectableTask && selection is not null &&
             (!string.IsNullOrWhiteSpace(selection.ProviderId) ||
@@ -69,16 +69,16 @@ internal class TasksController(
             }
             catch (Exception exception) when (exception is ArgumentException or InvalidOperationException)
             {
-                return BadRequest(new { message = exception.Message });
+                return BadRequest(new External.MessageResponse(exception.Message));
             }
 
             if (!selectableTask.TryEnqueue(selection))
-                return Conflict(new { message = "The task already has a pending or running execution." });
+                return Conflict(new External.MessageResponse("The task already has a pending or running execution."));
         }
         else
         {
             task.Enqueue();
         }
-        return Accepted(new { message = $"Task '{id}' enqueued" });
+        return Accepted(new External.MessageResponse($"Task '{id}' enqueued"));
     }
 }

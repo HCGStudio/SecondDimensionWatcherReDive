@@ -148,8 +148,7 @@ public sealed partial class AIEngine : IAIEngineBackend
                 {
                     LogToolCall(_logger, provider.ProviderName, toolCall.Name);
                     var toolResult = await executor.ExecuteAsync(toolCall, cancellationToken);
-                    var json = JsonSerializer.SerializeToElement(
-                        toolResult, toolResult.GetType(), ToolJsonOptions.Options);
+                    var json = toolResult.SerializeToElement();
                     yield return new ToolResultUpdate(toolCall.Id, json);
 
                     conversation.Add(new ToolResultMessage(toolCall.Id, json.GetRawText()));

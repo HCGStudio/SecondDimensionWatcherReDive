@@ -34,7 +34,7 @@ internal sealed class LogicalDataTransferController(
     {
         if (!User.TryGetProfileId(out var profileId)) return Unauthorized();
         if (!TryParseCategories(categories, out var selected))
-            return BadRequest(new { error = "Unknown data category." });
+            return BadRequest(new External.ErrorResponse("Unknown data category."));
 
         LogicalDataBundle bundle;
         try
@@ -47,7 +47,7 @@ internal sealed class LogicalDataTransferController(
         }
         catch (LogicalDataExportLimitException exception)
         {
-            return StatusCode(StatusCodes.Status413PayloadTooLarge, new { error = exception.Message });
+            return StatusCode(StatusCodes.Status413PayloadTooLarge, new External.ErrorResponse(exception.Message));
         }
 
         var digest = Digest(bundle);
@@ -63,7 +63,7 @@ internal sealed class LogicalDataTransferController(
         if (importBytes.Length > LogicalDataTransferLimits.MaximumPayloadBytes)
             return StatusCode(
                 StatusCodes.Status413PayloadTooLarge,
-                new { error = $"Logical export exceeds {LogicalDataTransferLimits.MaximumPayloadBytes} bytes." });
+                new External.ErrorResponse($"Logical export exceeds {LogicalDataTransferLimits.MaximumPayloadBytes} bytes."));
         var bytes = JsonSerializer.SerializeToUtf8Bytes(
             envelope,
             External.AppJsonSerializerContext.Default.LogicalDataExportEnvelope);
@@ -82,18 +82,18 @@ internal sealed class LogicalDataTransferController(
         if (!User.TryGetProfileId(out var profileId)) return Unauthorized();
         if (request.Data is null || request.ConflictStrategy is null ||
             string.IsNullOrWhiteSpace(request.Sha256))
-            return BadRequest(new { error = "Data, sha256 and conflictStrategy are required." });
+            return BadRequest(new External.ErrorResponse("Data, sha256 and conflictStrategy are required."));
         if (!Enum.IsDefined(request.ConflictStrategy.Value))
-            return BadRequest(new { error = "Unknown import conflict strategy." });
+            return BadRequest(new External.ErrorResponse("Unknown import conflict strategy."));
 
         var bundle = LogicalDataTransferFormat.NormalizeLegacyCategories(request.Data);
         var actualDigest = Encoding.ASCII.GetBytes(Digest(bundle));
         var expectedDigest = Encoding.ASCII.GetBytes(request.Sha256.Trim().ToUpperInvariant());
         if (actualDigest.Length != expectedDigest.Length ||
             !CryptographicOperations.FixedTimeEquals(actualDigest, expectedDigest))
-            return BadRequest(new { error = "Logical export checksum mismatch." });
+            return BadRequest(new External.ErrorResponse("Logical export checksum mismatch."));
         if (!IsCompatible(bundle, out var error))
-            return BadRequest(new { error });
+            return BadRequest(new External.ErrorResponse(error));
 
         try
         {
@@ -106,7 +106,7 @@ internal sealed class LogicalDataTransferController(
         }
         catch (LogicalDataImportConflictException exception)
         {
-            return Conflict(new { error = exception.Message });
+            return Conflict(new External.ErrorResponse(exception.Message));
         }
         catch (MetadataReviewServiceException exception)
         {

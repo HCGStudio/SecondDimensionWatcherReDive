@@ -29,7 +29,7 @@ internal class SeasonController(
         if (year != null && !string.IsNullOrEmpty(season))
         {
             if (!MikananiScraper.SeasonMap.ContainsKey(season))
-                return BadRequest(new { message = "Invalid season. Use: 春 (spring), 夏 (summer), 秋 (autumn), 冬 (winter)" });
+                return BadRequest(new External.MessageResponse("Invalid season. Use: 春 (spring), 夏 (summer), 秋 (autumn), 冬 (winter)"));
 
             var httpClient = httpClientFactory.CreateClient("Feed");
             var scraped = await MikananiScraper.ScrapeSeasonAsync(
@@ -114,7 +114,7 @@ internal class SeasonController(
         var recent = await seasonBangumiRepository.GetLatestScrapedAtAsync(cancellationToken);
 
         if (recent != null && DateTimeOffset.UtcNow - recent < TimeSpan.FromMinutes(10))
-            return StatusCode(429, new { message = "Please wait at least 10 minutes between refreshes" });
+            return StatusCode(429, new External.MessageResponse("Please wait at least 10 minutes between refreshes"));
 
         var scraper = scheduledTasks.FirstOrDefault(t => t.Id == "ScrapeSeasonBangumi");
 
@@ -134,7 +134,7 @@ internal class SeasonController(
 
         // Check for duplicate
         var exists = await feedRepository.ExistsByUrlAsync(rssUrl, cancellationToken);
-        if (exists) return Conflict(new { message = "Already subscribed" });
+        if (exists) return Conflict(new External.MessageResponse("Already subscribed"));
 
         // Look up bangumi title for the feed name
         var bangumi = await seasonBangumiRepository.FindByMikanIdAsync(request.MikanId, cancellationToken);

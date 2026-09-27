@@ -32,7 +32,7 @@ internal class FeedController(
         }
         catch (OutboundRequestBlockedException exception)
         {
-            return BadRequest(new { error = exception.Message });
+            return BadRequest(new External.ErrorResponse(exception.Message));
         }
 
         var feed = new Feed(Guid.NewGuid(), request.Url, request.Name, DateTimeOffset.Now);

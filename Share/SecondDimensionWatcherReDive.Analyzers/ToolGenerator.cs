@@ -10,6 +10,11 @@ public sealed class ToolGenerator : IIncrementalGenerator
 {
     private const string ToolAttributeMetadataName = "SecondDimensionWatcherReDive.Framework.Attributes.ToolAttribute`1";
 
+    private static readonly DiagnosticDescriptor MissingMetadata = new(
+        "SDWTOOL001", "Tool JSON metadata must be source generated",
+        "Tool '{0}' must provide a JsonSerializerContext with [JsonSerializable] metadata for '{1}'",
+        "Tools", DiagnosticSeverity.Error, isEnabledByDefault: true);
+
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
         var toolClasses = context.SyntaxProvider
@@ -19,7 +24,16 @@ public sealed class ToolGenerator : IIncrementalGenerator
                 transform: static (ctx, ct) => GetToolInfo(ctx, ct))
             .Where(static info => info is not null);
 
-        context.RegisterSourceOutput(toolClasses, static (spc, info) => Execute(spc, info!.Value));
+        context.RegisterSourceOutput(toolClasses, static (spc, info) =>
+        {
+            if (info!.Value.MissingMetadataType is { } missingType)
+            {
+                spc.ReportDiagnostic(Diagnostic.Create(MissingMetadata, info.Value.Location,
+                    info.Value.ClassName, missingType));
+                return;
+            }
+            Execute(spc, info.Value);
+        });
     }
 
     private static ToolInfo? GetToolInfo(GeneratorAttributeSyntaxContext context, System.Threading.CancellationToken ct)
@@ -50,8 +64,8 @@ public sealed class ToolGenerator : IIncrementalGenerator
         var paramType = attributeClass.TypeArguments[0];
         var paramTypeFqn = paramType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
 
-        // Get constructor arguments: (string name, string description, ToolRiskLevel riskLevel)
-        if (attributeData.ConstructorArguments.Length < 3)
+        // The context must exist in authored source so the System.Text.Json generator can see it.
+        if (attributeData.ConstructorArguments.Length < 4)
             return null;
 
         var toolName = attributeData.ConstructorArguments[0].Value as string;
@@ -83,6 +97,24 @@ public sealed class ToolGenerator : IIncrementalGenerator
             ? null
             : classSymbol.ContainingNamespace.ToDisplayString();
 
+        var contextType = attributeData.ConstructorArguments[3].Value as INamedTypeSymbol;
+        var missingMetadataType = HasMetadata(contextType, paramType) ? null : paramTypeFqn;
+        foreach (var syntaxReference in classSymbol.DeclaringSyntaxReferences)
+        {
+            var declaration = syntaxReference.GetSyntax(ct);
+            var model = context.SemanticModel.Compilation.GetSemanticModel(declaration.SyntaxTree);
+            foreach (var node in declaration.DescendantNodes())
+            {
+                if (node is GenericNameSyntax genericName && genericName.Identifier.ValueText == "Success"
+                    && genericName.TypeArgumentList.Arguments.Count == 1)
+                {
+                    var resultType = model.GetTypeInfo(genericName.TypeArgumentList.Arguments[0], ct).Type;
+                    if (resultType is not null && !HasMetadata(contextType, resultType))
+                        missingMetadataType = resultType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                }
+            }
+        }
+
         return new ToolInfo
         {
             Namespace = namespaceName,
@@ -90,8 +122,31 @@ public sealed class ToolGenerator : IIncrementalGenerator
             ParamTypeFqn = paramTypeFqn,
             ToolName = toolName,
             ToolDescription = toolDescription,
-            RiskLevel = riskLevel.Value
+            RiskLevel = riskLevel.Value,
+            ContextTypeFqn = contextType?.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) ?? "",
+            MissingMetadataType = missingMetadataType,
+            Location = classDecl.Identifier.GetLocation()
         };
+    }
+
+    private static bool HasMetadata(INamedTypeSymbol? contextType, ITypeSymbol type)
+    {
+        if (contextType is null) return false;
+        var baseType = contextType.BaseType;
+        while (baseType is not null
+               && baseType.ToDisplayString() != "System.Text.Json.Serialization.JsonSerializerContext")
+            baseType = baseType.BaseType;
+        if (baseType is null) return false;
+
+        foreach (var attribute in contextType.GetAttributes())
+        {
+            if (attribute.AttributeClass?.ToDisplayString() == "System.Text.Json.Serialization.JsonSerializableAttribute"
+                && attribute.ConstructorArguments.Length == 1
+                && attribute.ConstructorArguments[0].Value is ITypeSymbol registeredType
+                && SymbolEqualityComparer.Default.Equals(registeredType, type))
+                return true;
+        }
+        return false;
     }
 
     private static void Execute(SourceProductionContext context, ToolInfo info)
@@ -116,6 +171,17 @@ public sealed class ToolGenerator : IIncrementalGenerator
         sb.AppendLine(info.ClassName);
         sb.AppendLine("{");
 
+        sb.Append("    private static readonly global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<");
+        sb.Append(info.ParamTypeFqn);
+        sb.Append("> ParameterTypeInfo = (global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<");
+        sb.Append(info.ParamTypeFqn);
+        sb.Append(">)");
+        sb.Append(info.ContextTypeFqn);
+        sb.Append(".Default.GetTypeInfo(typeof(");
+        sb.Append(info.ParamTypeFqn);
+        sb.AppendLine("))!;");
+        sb.AppendLine();
+
         // Generate static Definition property
         sb.AppendLine("    public static global::SecondDimensionWatcherReDive.Framework.AI.ToolDefinition Definition { get; } =");
         sb.Append("        global::SecondDimensionWatcherReDive.Framework.AI.ToolDefinition.Create<");
@@ -128,7 +194,7 @@ public sealed class ToolGenerator : IIncrementalGenerator
         sb.AppendLine("\",");
         sb.Append("            (global::SecondDimensionWatcherReDive.Framework.AI.ToolRiskLevel)");
         sb.Append(info.RiskLevel);
-        sb.AppendLine(");");
+        sb.AppendLine(", ParameterTypeInfo);");
         sb.AppendLine();
 
         // Generate ExecuteAsync method — param deserialization only, no result serialization
@@ -140,7 +206,7 @@ public sealed class ToolGenerator : IIncrementalGenerator
         sb.Append(info.ParamTypeFqn);
         sb.AppendLine(">(");
         sb.AppendLine("            arguments,");
-        sb.AppendLine("            global::SecondDimensionWatcherReDive.AI.Models.ToolJsonOptions.Options);");
+        sb.AppendLine("            ParameterTypeInfo);");
         sb.AppendLine("        if (param is null)");
         sb.Append("            return new global::SecondDimensionWatcherReDive.AI.Models.ToolFailureResult(\"Failed to deserialize parameters for tool '");
         sb.Append(escapedName);
@@ -148,6 +214,13 @@ public sealed class ToolGenerator : IIncrementalGenerator
         sb.AppendLine("        return await ExecuteCoreAsync(param, cancellationToken);");
         sb.AppendLine("    }");
 
+        sb.AppendLine();
+        sb.AppendLine("    private static global::SecondDimensionWatcherReDive.AI.Models.ToolSuccessResult<T> Success<T>(T result) =>");
+        sb.AppendLine("        new(result, (global::System.Text.Json.Serialization.Metadata.JsonTypeInfo<T>?)");
+        sb.Append("            ");
+        sb.Append(info.ContextTypeFqn);
+        sb.AppendLine(".Default.GetTypeInfo(typeof(T))");
+        sb.AppendLine("            ?? throw new global::System.NotSupportedException($\"Tool result '{typeof(T)}' requires source-generated JSON metadata.\"));");
         sb.AppendLine("}");
 
         var hintName = info.Namespace is not null
@@ -174,5 +247,8 @@ public sealed class ToolGenerator : IIncrementalGenerator
         public string ToolName;
         public string ToolDescription;
         public int RiskLevel;
+        public string ContextTypeFqn;
+        public string? MissingMetadataType;
+        public Location Location;
     }
 }

@@ -37,7 +37,6 @@ internal sealed partial class FfmpegProcessRunner(
     ILogger<FfmpegProcessRunner> logger) : IFfmpegProcessRunner
 {
     private readonly TranscodingOptions _options = options.Value;
-    private static readonly JsonSerializerOptions ProbeJsonOptions = new(JsonSerializerDefaults.Web);
 
     public async Task<MediaProbe> ProbeAsync(Stream source, CancellationToken cancellationToken)
     {
@@ -76,7 +75,7 @@ internal sealed partial class FfmpegProcessRunner(
             throw new InvalidOperationException(
                 $"ffprobe exited with code {process.ExitCode}: {TrimError(error)}");
 
-        var document = JsonSerializer.Deserialize<FfprobeDocument>(output, ProbeJsonOptions)
+        var document = JsonSerializer.Deserialize(output, FfprobeJsonSerializerContext.Default.FfprobeDocument)
                        ?? throw new InvalidOperationException("ffprobe returned an empty response.");
         var streams = (document.Streams ?? [])
             .Where(stream => stream.Index is not null && !string.IsNullOrWhiteSpace(stream.CodecType))
@@ -538,11 +537,11 @@ internal sealed partial class FfmpegProcessRunner(
         int exitCode,
         string error);
 
-    private sealed record FfprobeDocument(
+    internal sealed record FfprobeDocument(
         [property: JsonPropertyName("streams")] FfprobeStream[]? Streams,
         [property: JsonPropertyName("format")] FfprobeFormat? Format);
 
-    private sealed record FfprobeStream(
+    internal sealed record FfprobeStream(
         [property: JsonPropertyName("index")] int? Index,
         [property: JsonPropertyName("codec_name")] string? CodecName,
         [property: JsonPropertyName("codec_type")] string? CodecType,
@@ -552,16 +551,16 @@ internal sealed partial class FfmpegProcessRunner(
         [property: JsonPropertyName("disposition")] FfprobeDisposition? Disposition,
         [property: JsonPropertyName("tags")] FfprobeTags? Tags);
 
-    private sealed record FfprobeDisposition(
+    internal sealed record FfprobeDisposition(
         [property: JsonPropertyName("default")] int Default,
         [property: JsonPropertyName("forced")] int Forced,
         [property: JsonPropertyName("attached_pic")] int AttachedPic);
 
-    private sealed record FfprobeTags(
+    internal sealed record FfprobeTags(
         [property: JsonPropertyName("language")] string? Language,
         [property: JsonPropertyName("title")] string? Title);
 
-    private sealed record FfprobeFormat(
+    internal sealed record FfprobeFormat(
         [property: JsonPropertyName("format_name")] string? FormatName,
         [property: JsonPropertyName("duration")] string? Duration);
 }

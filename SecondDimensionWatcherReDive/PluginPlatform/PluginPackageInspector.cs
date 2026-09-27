@@ -9,11 +9,6 @@ namespace SecondDimensionWatcherReDive.PluginPlatform;
 
 internal sealed class PluginPackageInspector(IOptions<PluginPlatformOptions> options)
 {
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
-    {
-        PropertyNameCaseInsensitive = true
-    };
-
     private readonly PluginPlatformOptions _options = options.Value;
     private readonly string _rootPath = Path.GetFullPath(options.Value.RootPath);
     private readonly SemaphoreSlim _stagingGate = new(1, 1);
@@ -211,7 +206,8 @@ internal sealed class PluginPackageInspector(IOptions<PluginPlatformOptions> opt
         if (manifestEntry.Length > 256 * 1024) throw new InvalidDataException("Plugin manifest is too large.");
         PluginManifest? manifest;
         await using (var stream = manifestEntry.Open())
-            manifest = await JsonSerializer.DeserializeAsync<PluginManifest>(stream, JsonOptions, cancellationToken);
+            manifest = await JsonSerializer.DeserializeAsync(
+                stream, PluginWebJsonContext.Default.PluginManifest, cancellationToken);
         if (manifest is null) throw new InvalidDataException("Plugin manifest is invalid.");
         manifest = Normalize(manifest);
 

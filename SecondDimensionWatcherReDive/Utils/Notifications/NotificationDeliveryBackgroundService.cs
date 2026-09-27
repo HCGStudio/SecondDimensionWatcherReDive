@@ -23,7 +23,6 @@ public sealed partial class NotificationDeliveryBackgroundService(
     private const int MaxWebPushPayloadBytes = 3000;
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan LeaseDuration = TimeSpan.FromMinutes(3);
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -487,16 +486,14 @@ public sealed partial class NotificationDeliveryBackgroundService(
             payload = document.RootElement.Clone();
         }
 
-        return JsonSerializer.Serialize(new
-        {
-            eventId = message.EventId,
-            type = char.ToLowerInvariant(message.Type.ToString()[0]) + message.Type.ToString()[1..],
+        return JsonSerializer.Serialize(new NotificationWebhookPayload(
+            message.EventId,
+            char.ToLowerInvariant(message.Type.ToString()[0]) + message.Type.ToString()[1..],
             message.Title,
             message.Body,
             message.DeepLink,
             message.OccurredAt,
-            payload
-        }, JsonOptions);
+            payload), NotificationJsonSerializerContext.Default.NotificationWebhookPayload);
     }
 
     private static string CreateWebPushPayload(NotificationOutboxMessage message)
@@ -536,15 +533,13 @@ public sealed partial class NotificationDeliveryBackgroundService(
         string title,
         string body,
         string deepLink) =>
-        JsonSerializer.Serialize(new
-        {
-            eventId = message.EventId,
-            type = char.ToLowerInvariant(message.Type.ToString()[0]) + message.Type.ToString()[1..],
+        JsonSerializer.Serialize(new NotificationWebPushPayload(
+            message.EventId,
+            char.ToLowerInvariant(message.Type.ToString()[0]) + message.Type.ToString()[1..],
             title,
             body,
             deepLink,
-            message.OccurredAt
-        }, JsonOptions);
+            message.OccurredAt), NotificationJsonSerializerContext.Default.NotificationWebPushPayload);
 
     private static string FitWebPushField(
         string value,

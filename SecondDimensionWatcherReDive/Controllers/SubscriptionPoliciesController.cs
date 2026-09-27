@@ -44,11 +44,11 @@ internal sealed class SubscriptionPoliciesController(
         CancellationToken cancellationToken)
     {
         if (await feedRepository.FindByIdAsync(feedId, cancellationToken) is null)
-            return NotFound(new { error = "Feed does not exist." });
+            return NotFound(new External.ErrorResponse("Feed does not exist."));
 
         var now = DateTimeOffset.UtcNow;
         if (!TryCreatePolicy(feedId, request, now, out var policy, out var error))
-            return BadRequest(new { error });
+            return BadRequest(new External.ErrorResponse(error));
 
         var existing = await policyRepository.FindByFeedIdAsync(feedId, cancellationToken);
         policy = policy with { CreatedAt = existing?.CreatedAt ?? now };
@@ -64,11 +64,11 @@ internal sealed class SubscriptionPoliciesController(
         CancellationToken cancellationToken)
     {
         if (await feedRepository.FindByIdAsync(feedId, cancellationToken) is null)
-            return NotFound(new { error = "Feed does not exist." });
+            return NotFound(new External.ErrorResponse("Feed does not exist."));
 
         var now = DateTimeOffset.UtcNow;
         if (!TryCreatePolicy(feedId, request, now, out var policy, out var error))
-            return BadRequest(new { error });
+            return BadRequest(new External.ErrorResponse(error));
 
         var result = await simulationService.SimulateAsync(policy, cancellationToken);
         return Ok(result.ToExternal());

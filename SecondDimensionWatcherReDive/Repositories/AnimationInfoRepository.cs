@@ -935,7 +935,7 @@ public class AnimationInfoRepository(
             await ResetTodoStateForTransitionAsync(writeContext, entity, entity.MetadataStatus,
                 disposition, cancellationToken);
             var explanation = evaluation is null ? null
-                : JsonSerializer.Serialize(evaluation.Explanations, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+                : JsonSerializer.Serialize(evaluation.Explanations, AutomationJsonSerializerContext.Default.Explanations);
             // Matching is not a failed attempt. Keep durable work until the start
             // transaction authorizes tracking, or a later refresh sees the changed policy.
             var pending = mode == SubscriptionAutomationMode.AutoDownload
@@ -1707,7 +1707,7 @@ public class AnimationInfoRepository(
                         id,
                         storePath,
                         fileStore,
-                        downloadAttemptId)),
+                        downloadAttemptId), RepositoryJsonSerializerContext.Default.DownloadCompletionJobPayload),
                     CreatedAt = completedAt,
                     UpdatedAt = completedAt,
                     NextAttemptAt = completedAt

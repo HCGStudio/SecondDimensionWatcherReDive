@@ -308,8 +308,9 @@ public sealed partial class AnthropicProvider : IAIProvider
                     Type = "tool_use",
                     Id = tc.Id,
                     Name = tc.Name,
-                    Input = JsonSerializer.Deserialize<JsonElement>(
-                        string.IsNullOrEmpty(tc.Arguments) ? "{}" : tc.Arguments)
+                    Input = JsonSerializer.Deserialize(
+                        string.IsNullOrEmpty(tc.Arguments) ? "{}" : tc.Arguments,
+                        ToolJsonContext.Default.JsonElement)
                 });
             }
         }

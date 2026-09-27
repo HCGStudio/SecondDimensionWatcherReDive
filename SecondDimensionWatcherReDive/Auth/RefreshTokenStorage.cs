@@ -233,7 +233,6 @@ internal sealed class RedisRefreshTokenStorage(
     string instanceName) : IRefreshTokenStorage
 {
     private const string HashTag = "{sdw-auth-refresh}:";
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     private const string TryCreateScript = """
         local expiredFamilies = redis.call('ZRANGEBYSCORE', KEYS[3], '-inf', ARGV[2], 'LIMIT', 0, 64)
@@ -367,7 +366,7 @@ internal sealed class RedisRefreshTokenStorage(
                 TryCreateScript,
                 [ActiveKey(fingerprint), RevokedHashKey(), RevokedExpirationKey()],
                 [
-                    JsonSerializer.Serialize(state, JsonOptions),
+                    JsonSerializer.Serialize(state, RefreshTokenJsonSerializerContext.Default.RefreshTokenState),
                     now.ToUnixTimeMilliseconds(),
                     state.ExpiresAtUnixTimeMilliseconds,
                     state.FamilyId
@@ -409,7 +408,8 @@ internal sealed class RedisRefreshTokenStorage(
             (result[0].ToString() != "rotated" && result[0].ToString() != "duplicate"))
             return null;
 
-        return JsonSerializer.Deserialize<RefreshTokenReplacement>(result[1].ToString(), JsonOptions);
+        return JsonSerializer.Deserialize(
+            result[1].ToString(), RefreshTokenJsonSerializerContext.Default.RefreshTokenReplacement);
     }
 
     public async Task RevokeAsync(

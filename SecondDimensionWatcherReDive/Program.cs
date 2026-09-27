@@ -81,9 +81,19 @@ builder.Host.UseSystemd();
 
 // Add services to the container.
 
+builder.Services.ConfigureHttpJsonOptions(options =>
+{
+    options.SerializerOptions.TypeInfoResolverChain.Clear();
+    options.SerializerOptions.TypeInfoResolverChain.Add(SecondDimensionWatcherReDive.Controllers.External
+        .AppJsonSerializerContext.Default);
+    options.SerializerOptions.TypeInfoResolverChain.Add(SecondDimensionWatcherReDive.Chat.External
+        .ChatJsonSerializerContext.Default);
+});
+
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
+        options.JsonSerializerOptions.TypeInfoResolverChain.Clear();
         options.JsonSerializerOptions.TypeInfoResolverChain.Add(SecondDimensionWatcherReDive.Controllers.External
             .AppJsonSerializerContext.Default);
         options.JsonSerializerOptions.TypeInfoResolverChain.Add(SecondDimensionWatcherReDive.Chat.External

@@ -20,12 +20,9 @@ internal sealed class DurableJobsController(IDurableJobRepository repository) : 
         CancellationToken cancellationToken = default)
     {
         if (skip < 0 || take is < 1 or > 200)
-            return BadRequest(new
-            {
-                message = "skip must be non-negative and take must be between 1 and 200."
-            });
+            return BadRequest(new External.MessageResponse("skip must be non-negative and take must be between 1 and 200."));
         if (!TryParseStatus(status, out var parsedStatus))
-            return BadRequest(new { message = $"Unknown job status '{status}'." });
+            return BadRequest(new External.MessageResponse($"Unknown job status '{status}'."));
 
         var page = await repository.GetPageAsync(
             parsedStatus,
@@ -43,7 +40,7 @@ internal sealed class DurableJobsController(IDurableJobRepository repository) : 
         CancellationToken cancellationToken)
     {
         if (request.Ids is null || request.Ids.Count is < 1 or > 200)
-            return BadRequest(new { message = "ids must contain between 1 and 200 jobs." });
+            return BadRequest(new External.MessageResponse("ids must contain between 1 and 200 jobs."));
 
         var affected = await repository.RetryAsync(
             request.Ids.Distinct().ToList(),
@@ -58,7 +55,7 @@ internal sealed class DurableJobsController(IDurableJobRepository repository) : 
         CancellationToken cancellationToken)
     {
         if (request.Ids is null || request.Ids.Count is < 1 or > 200)
-            return BadRequest(new { message = "ids must contain between 1 and 200 jobs." });
+            return BadRequest(new External.MessageResponse("ids must contain between 1 and 200 jobs."));
 
         var affected = await repository.ResolveAsync(
             request.Ids.Distinct().ToList(),

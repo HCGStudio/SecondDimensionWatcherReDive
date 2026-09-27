@@ -685,7 +685,7 @@ internal sealed partial class HlsTranscodingService : BackgroundService, IHlsTra
         try
         {
             await using var stream = File.OpenRead(path);
-            var manifest = await JsonSerializer.DeserializeAsync<CacheManifest>(stream, cancellationToken: cancellationToken);
+            var manifest = await JsonSerializer.DeserializeAsync(stream, TranscodingCacheJsonSerializerContext.Default.CacheManifest, cancellationToken);
             return manifest?.Version == CacheManifestVersion ? manifest : null;
         }
         catch (Exception exception) when (exception is IOException or JsonException)
@@ -709,7 +709,7 @@ internal sealed partial class HlsTranscodingService : BackgroundService, IHlsTra
                          FileShare.None,
                          4096,
                          FileOptions.Asynchronous | FileOptions.WriteThrough))
-            await JsonSerializer.SerializeAsync(stream, manifest, cancellationToken: cancellationToken);
+            await JsonSerializer.SerializeAsync(stream, manifest, TranscodingCacheJsonSerializerContext.Default.CacheManifest, cancellationToken);
         File.Move(temporaryPath, path, overwrite: true);
         TouchCache(job, null);
     }
@@ -991,7 +991,7 @@ internal sealed partial class HlsTranscodingService : BackgroundService, IHlsTra
 
     private sealed record CacheDirectory(string Key, string Path, DateTimeOffset LastAccess, long Size);
 
-    private sealed record CacheManifest(
+    internal sealed record CacheManifest(
         int Version,
         TranscodingStrategy Strategy,
         string VideoCodec,

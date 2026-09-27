@@ -4,6 +4,7 @@ using System.Text.Json;
 using BencodeNET.Objects;
 using BencodeNET.Parsing;
 using SecondDimensionWatcherReDive.Exceptions;
+using SecondDimensionWatcherReDive.Repositories;
 using SecondDimensionWatcherReDive.Framework.Feed;
 using SecondDimensionWatcherReDive.Framework.FileDownload;
 using SecondDimensionWatcherReDive.Framework.DataRepository;
@@ -30,7 +31,6 @@ internal partial class SyncFeed(
     INotificationPublisher? notificationPublisher = null)
     : ScheduledTaskBase
 {
-    private static readonly JsonSerializerOptions ExplanationJsonOptions = new(JsonSerializerDefaults.Web);
     private static readonly TimeSpan DownloadSubmissionLeaseDuration = TimeSpan.FromMinutes(3);
     private static readonly TimeSpan DownloadSubmissionRemoteBudget = TimeSpan.FromSeconds(90);
     private static readonly TimeSpan DownloadCancellationLeaseDuration = TimeSpan.FromMinutes(3);
@@ -239,7 +239,7 @@ internal partial class SyncFeed(
                     },
                     AutomationExplanationJson: evaluation is null
                         ? null
-                        : JsonSerializer.Serialize(evaluation.Explanations, ExplanationJsonOptions),
+                        : JsonSerializer.Serialize(evaluation.Explanations, AutomationJsonSerializerContext.Default.Explanations),
                     ReleaseIdentity: ReleaseIdentity.Create(
                         request.FeedId,
                         request.FeedItemGuid,
@@ -254,7 +254,7 @@ internal partial class SyncFeed(
                     ReleaseCodec: metadata.Codec,
                     ReleaseLanguages: metadata.Languages,
                     ReleaseScore: score.Value,
-                    ReleaseScoreReasonsJson: JsonSerializer.Serialize(score.Reasons, ExplanationJsonOptions));
+                    ReleaseScoreReasonsJson: JsonSerializer.Serialize(score.Reasons, AutomationJsonSerializerContext.Default.Reasons));
             try
             {
                 await animationInfoRepository.AddAsync(info, cancellationToken);

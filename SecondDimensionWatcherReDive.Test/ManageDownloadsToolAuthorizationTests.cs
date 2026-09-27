@@ -162,5 +162,5 @@ public class ManageDownloadsToolAuthorizationTests
                 ManageDownloadsAction.Cancel,
                 animationId.ToString(),
                 removeFile),
-            ToolJsonOptions.Options);
+            ChatToolJsonContext.Default.ManageDownloadsParams);
 }

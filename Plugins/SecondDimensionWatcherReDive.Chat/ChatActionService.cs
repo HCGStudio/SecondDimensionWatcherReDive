@@ -25,6 +25,9 @@ internal sealed record ApprovalRequiredToolResult(ApprovalRequiredPayload Result
 {
     object? IToolResult.Result => Result;
     public bool IsSuccess => true;
+
+    public JsonElement SerializeToElement() => JsonSerializer.SerializeToElement(
+        this, Tools.ChatToolJsonContext.Default.ApprovalRequiredToolResult);
 }
 
 internal sealed record ChatActionDetails(
@@ -97,10 +100,8 @@ internal sealed class ChatActionService : IChatActionService
     private static readonly TimeSpan ExecutionAbandonmentAge = ExecutionTimeout + TimeSpan.FromMinutes(1);
     private const string AbandonedExecutionSummary =
         "Execution owner stopped before recording completion; the side-effect outcome is unknown.";
-    private static readonly string AbandonedToolResultJson = JsonSerializer.Serialize(
-        new ToolFailureResult(
-            "Approved tool execution was interrupted. Verify the current system state before retrying."),
-        ToolJsonOptions.Options);
+    private static readonly string AbandonedToolResultJson = new ToolFailureResult(
+        "Approved tool execution was interrupted. Verify the current system state before retrying.").SerializeToElement().GetRawText();
     private readonly IChatActionRepository _repository;
     private readonly IChatRawToolExecutorFactory _toolExecutorFactory;
     private readonly IDataProtector _parameterProtector;
@@ -237,9 +238,7 @@ internal sealed class ChatActionService : IChatActionService
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            var failedResult = JsonSerializer.SerializeToElement(
-                new ToolFailureResult("Approved tool execution failed."),
-                ToolJsonOptions.Options);
+            var failedResult = new ToolFailureResult("Approved tool execution failed.").SerializeToElement();
             await _repository.CompleteExecutionAsync(
                 actionId,
                 false,
@@ -257,9 +256,7 @@ internal sealed class ChatActionService : IChatActionService
         }
         catch (OperationCanceledException)
         {
-            var timedOutResult = JsonSerializer.SerializeToElement(
-                new ToolFailureResult("Approved tool execution timed out."),
-                ToolJsonOptions.Options);
+            var timedOutResult = new ToolFailureResult("Approved tool execution timed out.").SerializeToElement();
             await _repository.CompleteExecutionAsync(
                 actionId,
                 false,
@@ -277,8 +274,7 @@ internal sealed class ChatActionService : IChatActionService
         }
 
         var succeeded = toolResult.IsSuccess;
-        var serializedResult = JsonSerializer.SerializeToElement(
-            toolResult, toolResult.GetType(), ToolJsonOptions.Options);
+        var serializedResult = toolResult.SerializeToElement();
         var completed = await _repository.CompleteExecutionAsync(
             actionId,
             succeeded,

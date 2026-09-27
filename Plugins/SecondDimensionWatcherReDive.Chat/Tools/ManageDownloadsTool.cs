@@ -13,7 +13,7 @@ namespace SecondDimensionWatcherReDive.Chat.Tools;
 [Tool<ManageDownloadsParams>(
     "manage_downloads",
     "Control download tasks. Start, pause, resume, or cancel downloads for a specified animation.",
-    ToolRiskLevel.Destructive)]
+    ToolRiskLevel.Destructive, typeof(ChatToolJsonContext))]
 internal sealed partial class ManageDownloadsTool(
     IAnimationInfoRepository animationInfoRepository,
     IFileMappingRepository fileMappingRepository,
@@ -142,7 +142,7 @@ internal sealed partial class ManageDownloadsTool(
             throw;
         }
 
-        return new ToolSuccessResult<string>("Download started");
+        return Success<string>("Download started");
     }
 
     private async Task<IToolResult> PauseDownloadAsync(
@@ -151,7 +151,7 @@ internal sealed partial class ManageDownloadsTool(
         var success = await client.PauseDownloadTaskAsync(info.Id, info.DownloadUrl,
             info.CachedDownloadData, info.AdditionalDownloadInfo, cancellationToken);
         return success
-            ? new ToolSuccessResult<bool>(true)
+            ? Success<bool>(true)
             : new ToolFailureResult("Download client failed to pause the task");
     }
 
@@ -161,7 +161,7 @@ internal sealed partial class ManageDownloadsTool(
         var success = await client.ResumeDownloadTaskAsync(info.Id, info.DownloadUrl,
             info.CachedDownloadData, info.AdditionalDownloadInfo, cancellationToken);
         return success
-            ? new ToolSuccessResult<bool>(true)
+            ? Success<bool>(true)
             : new ToolFailureResult("Download client failed to resume the task");
     }
 
@@ -198,7 +198,7 @@ internal sealed partial class ManageDownloadsTool(
         }
 
         if (cancellationLease.SubmissionPending)
-            return new ToolSuccessResult<string>(
+            return Success<string>(
                 "Download cancellation accepted and pending background recovery");
 
         var remainingRemoteBudget = DownloadCancellationRemoteBudget -
@@ -235,7 +235,7 @@ internal sealed partial class ManageDownloadsTool(
             finalizeCancellation.Token);
         if (!cancelled)
             return new ToolFailureResult("Download state changed during cancellation");
-        return new ToolSuccessResult<bool>(true);
+        return Success<bool>(true);
     }
 
     private async Task CompensateFailedStartAsync(

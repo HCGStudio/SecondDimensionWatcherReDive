@@ -86,7 +86,7 @@ public sealed partial class MigrateFileMappings(
             // Mapping writes are idempotent and committed before this checkpoint.
             // A crash between them safely replays at most one batch.
             await context.SaveCheckpointAsync(
-                JsonSerializer.Serialize(checkpoint),
+                JsonSerializer.Serialize(checkpoint, MigrationJsonSerializerContext.Default.FileMappingCheckpoint),
                 cancellationToken);
             LogCheckpoint(logger, processed, migrated, skipped);
         }
@@ -99,7 +99,7 @@ public sealed partial class MigrateFileMappings(
         if (value is null) return null;
         try
         {
-            return JsonSerializer.Deserialize<FileMappingCheckpoint>(value)
+            return JsonSerializer.Deserialize(value, MigrationJsonSerializerContext.Default.FileMappingCheckpoint)
                    ?? throw new JsonException("Checkpoint was null.");
         }
         catch (JsonException exception)
@@ -110,7 +110,7 @@ public sealed partial class MigrateFileMappings(
         }
     }
 
-    private sealed record FileMappingCheckpoint(
+    internal sealed record FileMappingCheckpoint(
         DateTimeOffset PublishTime,
         Guid Id,
         int Processed,

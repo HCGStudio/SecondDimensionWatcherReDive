@@ -47,10 +47,10 @@ internal partial class WebDavTokenController(
             : requested;
 
         if (!UsernamePattern().IsMatch(username))
-            return BadRequest(new { error = "Username must be 3-32 characters of letters, digits, '.', '_' or '-'." });
+            return BadRequest(new External.ErrorResponse("Username must be 3-32 characters of letters, digits, '.', '_' or '-'."));
 
         if (await repository.ExistsByUsernameAsync(username, cancellationToken))
-            return Conflict(new { error = "Username already exists." });
+            return Conflict(new External.ErrorResponse("Username already exists."));
 
         if (!User.TryGetUserId(out var currentUserId)) return Unauthorized();
         var userId = request.UserId ?? currentUserId;
@@ -59,14 +59,14 @@ internal partial class WebDavTokenController(
 
         if (!DevicePathScope.TryNormalizeAbsolutePath(
                 request.VirtualRoot, out var virtualRoot))
-            return BadRequest(new { error = "VirtualRoot must be an absolute path without traversal segments." });
+            return BadRequest(new External.ErrorResponse("VirtualRoot must be an absolute path without traversal segments."));
         if (!await IsDirectoryAsync(virtualRoot, cancellationToken))
-            return BadRequest(new { error = "VirtualRoot must identify an existing directory." });
+            return BadRequest(new External.ErrorResponse("VirtualRoot must identify an existing directory."));
 
         var now = DateTimeOffset.UtcNow;
         var expiresAt = request.ExpiresAt ?? now + DefaultLifetime;
         if (expiresAt <= now || expiresAt > now + MaximumLifetime)
-            return BadRequest(new { error = "ExpiresAt must be in the future and no more than five years away." });
+            return BadRequest(new External.ErrorResponse("ExpiresAt must be in the future and no more than five years away."));
 
         var plaintext = GenerateToken();
         var hash = tokenHasher.Hash(plaintext);

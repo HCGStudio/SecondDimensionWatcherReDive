@@ -237,7 +237,7 @@ public sealed partial class NotificationPublisher(
             throw new InvalidDataException("The notification payload is larger than allowed.");
 
         using var document = JsonDocument.Parse(payloadJson);
-        var normalized = JsonSerializer.Serialize(document.RootElement);
+        var normalized = JsonSerializer.Serialize(document.RootElement, NotificationJsonSerializerContext.Default.JsonElement);
         if (Encoding.UTF8.GetByteCount(normalized) > MaxPayloadBytes)
             throw new InvalidDataException("The normalized notification payload is larger than allowed.");
         return normalized;

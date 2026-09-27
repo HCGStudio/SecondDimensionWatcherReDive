@@ -108,7 +108,7 @@ internal sealed class JavaScriptNotificationProvider(
     {
         if (!declaration.Handlers.TryGetValue("send", out var handler))
             throw new InvalidOperationException($"Notification provider '{Name}' has no send handler.");
-        var input = JsonSerializer.SerializeToElement(notification);
+        var input = JsonSerializer.SerializeToElement(notification, PluginWorkerJsonContext.Default.PluginNotification);
         var result = await manager.InvokeAsync(pluginId, handler, input, cancellationToken);
         if (result.ValueKind == JsonValueKind.Object &&
             result.TryGetProperty("success", out var success) && success.ValueKind == JsonValueKind.False)
@@ -121,7 +121,6 @@ internal sealed class JavaScriptFileStore(
     PluginProviderDeclaration declaration,
     IPluginManager manager) : IFileStore
 {
-    private static readonly JsonSerializerOptions WebJsonOptions = new(JsonSerializerDefaults.Web);
     public string Name => PluginProviderIdentity.Create(pluginId, declaration.Name);
 
     public async Task<Stream> OpenReadStreamAsync(string path, CancellationToken cancellationToken)
@@ -135,7 +134,7 @@ internal sealed class JavaScriptFileStore(
     public async Task<FileStoreInfo> FileInfoAsync(string path, CancellationToken cancellationToken)
     {
         var result = await InvokeAsync("info", path, cancellationToken);
-        return result.Deserialize<FileStoreInfo>(WebJsonOptions)
+        return result.Deserialize(PluginWebJsonContext.Default.FileStoreInfo)
                ?? throw new InvalidDataException("Storage provider returned invalid file information.");
     }
 
@@ -153,7 +152,7 @@ internal sealed class JavaScriptFileStore(
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         var result = await InvokeAsync("list", path, cancellationToken);
-        var entries = result.Deserialize<FileStoreInfo[]>(WebJsonOptions)
+        var entries = result.Deserialize(PluginWebJsonContext.Default.FileStoreInfoArray)
                       ?? throw new InvalidDataException("Storage provider returned an invalid directory listing.");
         foreach (var entry in entries) yield return entry;
     }
@@ -162,6 +161,8 @@ internal sealed class JavaScriptFileStore(
     {
         if (!declaration.Handlers.TryGetValue(operation, out var handler))
             throw new InvalidOperationException($"Storage provider '{Name}' has no {operation} handler.");
-        return manager.InvokeAsync(pluginId, handler, JsonSerializer.SerializeToElement(new { path }), cancellationToken);
+        return manager.InvokeAsync(pluginId, handler,
+            JsonSerializer.SerializeToElement(new PluginPathRequest(path), PluginWebJsonContext.Default.PluginPathRequest),
+            cancellationToken);
     }
 }

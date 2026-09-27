@@ -8,7 +8,7 @@ namespace SecondDimensionWatcherReDive.Inference.AI.Tools;
 [Tool<SearchTmdbParams>(
     "search_tmdb",
     "Search TMDB (The Movie Database) for an anime by name to get its TMDB ID and metadata.",
-    ToolRiskLevel.ReadOnly)]
+    ToolRiskLevel.ReadOnly, typeof(InferenceToolJsonContext))]
 internal sealed partial class SearchTmdbTool(TmdbTool tmdbTool) : ITool
 {
     public async Task<IToolResult> ExecuteCoreAsync(
@@ -16,6 +16,6 @@ internal sealed partial class SearchTmdbTool(TmdbTool tmdbTool) : ITool
     {
         var result = await tmdbTool.SearchAsync(param.Query, cancellationToken);
         using var doc = JsonDocument.Parse(result);
-        return new ToolSuccessResult<JsonElement>(doc.RootElement.Clone());
+        return Success<JsonElement>(doc.RootElement.Clone());
     }
 }

@@ -25,9 +25,9 @@ internal sealed class IncidentsController(
         [FromQuery] Guid? focus = null)
     {
         if (skip < 0 || take is < 1 or > 200)
-            return BadRequest(new { message = "skip must be non-negative and take must be between 1 and 200." });
+            return BadRequest(new External.MessageResponse("skip must be non-negative and take must be between 1 and 200."));
         if (!TryParseType(type, out var parsedType))
-            return BadRequest(new { message = $"Unknown incident type '{type}'." });
+            return BadRequest(new External.MessageResponse($"Unknown incident type '{type}'."));
 
         var page = await incidentRepository.GetPageAsync(
             parsedType,

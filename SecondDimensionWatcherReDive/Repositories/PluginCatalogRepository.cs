@@ -7,11 +7,6 @@ namespace SecondDimensionWatcherReDive.Repositories;
 
 internal sealed class PluginCatalogRepository : IPluginCatalogRepository
 {
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
-    {
-        WriteIndented = true
-    };
-
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly string _catalogPath;
     private readonly string _retainedPath;
@@ -38,7 +33,7 @@ internal sealed class PluginCatalogRepository : IPluginCatalogRepository
             foreach (var path in Directory.EnumerateFiles(_catalogPath, "*.json", SearchOption.TopDirectoryOnly))
             {
                 await using var stream = File.OpenRead(path);
-                var entry = await JsonSerializer.DeserializeAsync<PluginCatalogEntry>(stream, JsonOptions,
+                var entry = await JsonSerializer.DeserializeAsync(stream, PluginCatalogJsonSerializerContext.Default.PluginCatalogEntry,
                     cancellationToken);
                 if (entry is not null) result.Add(entry);
             }
@@ -59,7 +54,7 @@ internal sealed class PluginCatalogRepository : IPluginCatalogRepository
         {
             if (!File.Exists(path)) return null;
             await using var stream = File.OpenRead(path);
-            return await JsonSerializer.DeserializeAsync<PluginCatalogEntry>(stream, JsonOptions, cancellationToken);
+            return await JsonSerializer.DeserializeAsync(stream, PluginCatalogJsonSerializerContext.Default.PluginCatalogEntry, cancellationToken);
         }
         finally
         {
@@ -83,7 +78,7 @@ internal sealed class PluginCatalogRepository : IPluginCatalogRepository
                              16 * 1024,
                              FileOptions.Asynchronous | FileOptions.WriteThrough))
             {
-                await JsonSerializer.SerializeAsync(stream, entry, JsonOptions, cancellationToken);
+                await JsonSerializer.SerializeAsync(stream, entry, PluginCatalogJsonSerializerContext.Default.PluginCatalogEntry, cancellationToken);
                 await stream.FlushAsync(cancellationToken);
             }
 
@@ -119,7 +114,7 @@ internal sealed class PluginCatalogRepository : IPluginCatalogRepository
         {
             if (!File.Exists(path)) return null;
             await using var stream = File.OpenRead(path);
-            return await JsonSerializer.DeserializeAsync<RetainedPluginData>(stream, JsonOptions, cancellationToken);
+            return await JsonSerializer.DeserializeAsync(stream, PluginCatalogJsonSerializerContext.Default.RetainedPluginData, cancellationToken);
         }
         finally
         {
@@ -137,7 +132,7 @@ internal sealed class PluginCatalogRepository : IPluginCatalogRepository
             await using (var stream = new FileStream(temporaryPath, FileMode.CreateNew, FileAccess.Write,
                              FileShare.None, 16 * 1024, FileOptions.Asynchronous | FileOptions.WriteThrough))
             {
-                await JsonSerializer.SerializeAsync(stream, retained, JsonOptions, cancellationToken);
+                await JsonSerializer.SerializeAsync(stream, retained, PluginCatalogJsonSerializerContext.Default.RetainedPluginData, cancellationToken);
                 await stream.FlushAsync(cancellationToken);
             }
 

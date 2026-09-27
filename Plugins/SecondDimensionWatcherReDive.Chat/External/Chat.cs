@@ -93,3 +93,6 @@ internal sealed record ToolCallRecord(
     [property: JsonPropertyName("id")] string Id,
     [property: JsonPropertyName("name")] string Name,
     [property: JsonPropertyName("arguments")] string Arguments);
+
+internal sealed record ChatActionRejectResponse(string Outcome);
+internal sealed record ChatRequestError(string Message);

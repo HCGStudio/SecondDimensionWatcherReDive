@@ -137,7 +137,7 @@ internal partial class FileController(
             FileToken f => new External.FileStoreListResult(f.FileName, false, null),
             DirectoryToken d => new External.FileStoreListResult(d.FileName, true, d.FileName),
             _ => throw new InvalidOperationException()
-        });
+        }).ToArray();
         return Ok(results);
     }
 

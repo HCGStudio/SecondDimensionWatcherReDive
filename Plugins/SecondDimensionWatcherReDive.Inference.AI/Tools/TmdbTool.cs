@@ -52,16 +52,10 @@ public partial class TmdbTool
             if (tvResults?.Results is { Count: > 0 })
             {
                 LogFoundTvResults(_logger, tvResults.Results.Count, query);
-                var results = tvResults.Results.Take(5).Select(r => new
-                {
-                    tmdb_id = r.Id.ToString(),
-                    name = r.Name,
-                    original_name = r.OriginalName,
-                    first_air_date = r.FirstAirDate?.ToString("yyyy-MM-dd"),
-                    overview = r.Overview,
-                    media_type = "tv"
-                });
-                return JsonSerializer.Serialize(results);
+                var results = tvResults.Results.Take(5).Select(r => new TmdbTvSearchResult(
+                    r.Id.ToString(), r.Name, r.OriginalName, r.FirstAirDate?.ToString("yyyy-MM-dd"),
+                    r.Overview, "tv")).ToArray();
+                return JsonSerializer.Serialize(results, InferenceToolJsonContext.Default.TmdbTvSearchResultArray);
             }
 
             var movieResults = await tmdbClient.SearchMovieAsync(query, cancellationToken: cancellationToken);
@@ -69,16 +63,10 @@ public partial class TmdbTool
             if (movieResults?.Results is { Count: > 0 })
             {
                 LogFoundMovieResults(_logger, movieResults.Results.Count, query);
-                var results = movieResults.Results.Take(5).Select(r => new
-                {
-                    tmdb_id = r.Id.ToString(),
-                    name = r.Title,
-                    original_name = r.OriginalTitle,
-                    release_date = r.ReleaseDate?.ToString("yyyy-MM-dd"),
-                    overview = r.Overview,
-                    media_type = "movie"
-                });
-                return JsonSerializer.Serialize(results);
+                var results = movieResults.Results.Take(5).Select(r => new TmdbMovieSearchResult(
+                    r.Id.ToString(), r.Title, r.OriginalTitle, r.ReleaseDate?.ToString("yyyy-MM-dd"),
+                    r.Overview, "movie")).ToArray();
+                return JsonSerializer.Serialize(results, InferenceToolJsonContext.Default.TmdbMovieSearchResultArray);
             }
 
             LogNoResultsFound(_logger, query);
@@ -108,26 +96,14 @@ public partial class TmdbTool
 
             var seasons = show.Seasons?
                 .Where(s => s.SeasonNumber > 0) // exclude specials (season 0)
-                .Select(s => new
-                {
-                    season_number = s.SeasonNumber,
-                    episode_count = s.EpisodeCount,
-                    name = s.Name,
-                    air_date = s.AirDate?.ToString("yyyy-MM-dd")
-                })
+                .Select(s => new TmdbSeasonSummary(
+                    s.SeasonNumber, s.EpisodeCount, s.Name, s.AirDate?.ToString("yyyy-MM-dd")))
                 .ToList() ?? [];
 
-            var result = new
-            {
-                tmdb_id = show.Id,
-                name = show.Name,
-                original_name = show.OriginalName,
-                total_seasons = seasons.Count,
-                seasons
-            };
+            var result = new TmdbSeasonsResult(show.Id, show.Name, show.OriginalName, seasons.Count, seasons);
 
             LogShowSeasonCount(_logger, tmdbId, seasons.Count);
-            return JsonSerializer.Serialize(result);
+            return JsonSerializer.Serialize(result, InferenceToolJsonContext.Default.TmdbSeasonsResult);
         }
         catch (Exception ex)
         {
@@ -153,25 +129,14 @@ public partial class TmdbTool
             }
 
             var episodes = season.Episodes?
-                .Select(e => new
-                {
-                    episode_number = e.EpisodeNumber,
-                    name = e.Name,
-                    air_date = e.AirDate?.ToString("yyyy-MM-dd"),
-                    overview = e.Overview
-                })
+                .Select(e => new TmdbEpisodeSummary(
+                    e.EpisodeNumber, e.Name, e.AirDate?.ToString("yyyy-MM-dd"), e.Overview))
                 .ToList() ?? [];
 
-            var result = new
-            {
-                tmdb_id = tmdbId,
-                season_number = seasonNumber,
-                episode_count = episodes.Count,
-                episodes
-            };
+            var result = new TmdbSeasonEpisodesResult(tmdbId, seasonNumber, episodes.Count, episodes);
 
             LogSeasonEpisodeCount(_logger, tmdbId, seasonNumber, episodes.Count);
-            return JsonSerializer.Serialize(result);
+            return JsonSerializer.Serialize(result, InferenceToolJsonContext.Default.TmdbSeasonEpisodesResult);
         }
         catch (Exception ex)
         {
@@ -329,3 +294,14 @@ public partial class TmdbTool
     [LoggerMessage(Level = LogLevel.Warning, Message = "TMDB GetSeasonEpisodes failed for show {TmdbId} season {SeasonNumber}")]
     private static partial void LogGetSeasonEpisodesFailed(ILogger logger, Exception ex, int tmdbId, int seasonNumber);
 }
+
+internal sealed record TmdbTvSearchResult(
+    string TmdbId, string? Name, string? OriginalName, string? FirstAirDate, string? Overview, string MediaType);
+internal sealed record TmdbMovieSearchResult(
+    string TmdbId, string? Name, string? OriginalName, string? ReleaseDate, string? Overview, string MediaType);
+internal sealed record TmdbSeasonSummary(int SeasonNumber, int EpisodeCount, string? Name, string? AirDate);
+internal sealed record TmdbSeasonsResult(
+    int TmdbId, string? Name, string? OriginalName, int TotalSeasons, List<TmdbSeasonSummary> Seasons);
+internal sealed record TmdbEpisodeSummary(long EpisodeNumber, string? Name, string? AirDate, string? Overview);
+internal sealed record TmdbSeasonEpisodesResult(
+    int TmdbId, int SeasonNumber, int EpisodeCount, List<TmdbEpisodeSummary> Episodes);

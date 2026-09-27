@@ -6,8 +6,10 @@ namespace SecondDimensionWatcherReDive.Framework.Attributes;
 public sealed class ToolAttribute<TParam>(
     string name,
     string description,
-    ToolRiskLevel riskLevel) : Attribute
+    ToolRiskLevel riskLevel,
+    Type jsonSerializerContextType) : Attribute
 {
+    public Type JsonSerializerContextType { get; } = jsonSerializerContextType;
     public string Name { get; } = name;
     public string Description { get; } = description;
     public ToolRiskLevel RiskLevel { get; } = riskLevel;

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using SecondDimensionWatcherReDive.Framework.Plugin;
 
 namespace SecondDimensionWatcherReDive.PluginPlatform;
 
@@ -31,4 +32,6 @@ internal sealed record PluginWorkerBridgeResponse
 [JsonSerializable(typeof(PluginWorkerInvocation))]
 [JsonSerializable(typeof(PluginWorkerMessage))]
 [JsonSerializable(typeof(PluginWorkerBridgeResponse))]
+[JsonSerializable(typeof(PluginNotification))]
+[JsonSerializable(typeof(string))]
 internal partial class PluginWorkerJsonContext : JsonSerializerContext;
