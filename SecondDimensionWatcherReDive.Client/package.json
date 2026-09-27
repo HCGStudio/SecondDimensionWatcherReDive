@@ -33,6 +33,7 @@
     "@parcel/config-default": "2.16.4",
     "@parcel/core": "^2.16.4",
     "@parcel/packager-raw": "2.16.4",
+    "@parcel/transformer-inline-string": "2.16.4",
     "@parcel/transformer-raw": "2.16.4",
     "@playwright/test": "^1.62.1",
     "@trivago/prettier-plugin-sort-imports": "^6.0.2",

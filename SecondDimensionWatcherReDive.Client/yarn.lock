@@ -375,6 +375,7 @@ __metadata:
     "@parcel/config-default": "npm:2.16.4"
     "@parcel/core": "npm:^2.16.4"
     "@parcel/packager-raw": "npm:2.16.4"
+    "@parcel/transformer-inline-string": "npm:2.16.4"
     "@parcel/transformer-raw": "npm:2.16.4"
     "@playwright/test": "npm:^1.62.1"
     "@radix-ui/react-dialog": "npm:^1.1.23"
@@ -1273,6 +1274,15 @@ __metadata:
   peerDependencies:
     "@parcel/core": ^2.16.4
   checksum: 10/6f0010656201c1362e40b256e71e6a082c135c9cb3d562b444094a22fed74fc88e500fecd881fd06a356ace2aab0b8128e25ad92c05f872ed14a14bf848df430
+  languageName: node
+  linkType: hard
+
+"@parcel/transformer-inline-string@npm:2.16.4":
+  version: 2.16.4
+  resolution: "@parcel/transformer-inline-string@npm:2.16.4"
+  dependencies:
+    "@parcel/plugin": "npm:2.16.4"
+  checksum: 10/bb8cd93780d9c106d44512b07c6c6ed22316efa398278e95ca8f41ca9e8e420c171d907c03ea0f2939fbf14d5fbcd629ecb31fdd63659c15ff54e716f9394dc8
   languageName: node
   linkType: hard
 
