@@ -999,7 +999,10 @@ export const PlayerPage: React.FC = () => {
       lang: artplayerLang,
       autoplay:
         isReload || playbackMode === "mkvProxy" ? false : shouldAutoplay,
-      fullscreen: true,
+      // Keep the MKV canvas in the page on iOS/iPadOS: entering system
+      // fullscreen can interrupt proxy playback and trigger HLS fallback.
+      // Artplayer's isIOS13 also detects iPads using a desktop Macintosh UA.
+      fullscreen: playbackMode !== "mkvProxy" || !Artplayer.utils.isIOS13,
       fullscreenWeb: true,
       pip: playbackMode !== "mkvProxy",
       playbackRate: true,
