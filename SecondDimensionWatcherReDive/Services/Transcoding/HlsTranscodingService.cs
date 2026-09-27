@@ -867,7 +867,9 @@ internal sealed partial class HlsTranscodingService : BackgroundService, IHlsTra
         try
         {
             var marker = Path.Combine(job.CacheDirectory, ".access");
-            if (!File.Exists(marker)) File.WriteAllText(marker, string.Empty);
+            // Match the eviction timestamp without creating files while a
+            // failed worker or another replica may be deleting this directory.
+            if (!File.Exists(marker)) marker = Path.Combine(job.CacheDirectory, "complete.json");
             File.SetLastWriteTimeUtc(marker, DateTime.UtcNow);
             session?.MarkCacheTouched();
         }

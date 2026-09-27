@@ -398,7 +398,7 @@ __metadata:
     i18next: "npm:^26.4.0"
     i18next-browser-languagedetector: "npm:^8.2.1"
     lucide-react: "npm:^1.34.0"
-    matroska-subtitles: "npm:3.3.2"
+    matroska-subtitles: "patch:matroska-subtitles@npm%3A3.3.2#~/.yarn/patches/matroska-subtitles-npm-3.3.2-a5b3763e92.patch"
     media-captions: "npm:^0.0.18"
     mediabunny: "npm:^1.55.3"
     parcel: "npm:^2.16.4"
@@ -4288,6 +4288,17 @@ __metadata:
     pako: "npm:^2.0.4"
     readable-stream: "npm:^3.6.0"
   checksum: 10/ff0ce112cf40a28c4494738ef757835d20167a3b1c1ffc9afcfab10ff60592f7855e8cfae6c19552057275fa7fdb8be1591e326d6d9f3a6bd1c3155f352f27fd
+  languageName: node
+  linkType: hard
+
+"matroska-subtitles@patch:matroska-subtitles@npm%3A3.3.2#~/.yarn/patches/matroska-subtitles-npm-3.3.2-a5b3763e92.patch":
+  version: 3.3.2
+  resolution: "matroska-subtitles@patch:matroska-subtitles@npm%3A3.3.2#~/.yarn/patches/matroska-subtitles-npm-3.3.2-a5b3763e92.patch::version=3.3.2&hash=7ac04d"
+  dependencies:
+    ebml-stream: "npm:^1.0.3"
+    pako: "npm:^2.0.4"
+    readable-stream: "npm:^3.6.0"
+  checksum: 10/4149f8b9e066ec8c3d918d7d702dd24c6ac66502bd3b8d31bcedafaedee74e2034c92ef2f9fb8dc1ab032370f07f9f53cd8be5b8a051148bfd3af102666fdf39
   languageName: node
   linkType: hard
 
