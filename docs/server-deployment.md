@@ -217,6 +217,28 @@ sudo chmod 0640 /etc/sdw-redive/appsettings.yml
 sudo install -d -m 0700 -o sdw-redive -g sdw-redive /var/lib/sdw-redive/data-protection-keys
 ```
 
+如果 systemd 日志出现 `UnauthorizedAccessException` 或 `Data Protection key ring initialization failed`，且路径为 `/var/lib/sdw-redive/data-protection-keys`，先检查目录属主：
+
+```bash
+sudo stat -c '%U:%G %a %n' /var/lib/sdw-redive /var/lib/sdw-redive/data-protection-keys
+systemctl show sdw-redive -p User -p Group -p ReadWritePaths
+```
+
+默认服务以 `sdw-redive:sdw-redive` 运行。属主为 `root` 的 `0700` 密钥目录会阻止服务访问；即使另行授予了读写权限，启动时设置目录权限也需要目录所有权。使用默认账号和路径时，可以保留现有密钥并修复权限：
+
+```bash
+sudo systemctl stop sdw-redive
+sudo install -d -m 0755 -o sdw-redive -g sdw-redive /var/lib/sdw-redive
+sudo install -d -m 0700 -o sdw-redive -g sdw-redive /var/lib/sdw-redive/data-protection-keys
+sudo chown -R sdw-redive:sdw-redive /var/lib/sdw-redive/data-protection-keys
+sudo find /var/lib/sdw-redive/data-protection-keys -type d -exec chmod 0700 {} +
+sudo find /var/lib/sdw-redive/data-protection-keys -type f -exec chmod 0600 {} +
+sudo systemctl restart sdw-redive
+sudo journalctl -u sdw-redive -n 30 --no-pager
+```
+
+自定义服务账号或 `DataProtection:KeyRingPath` 时，将命令中的账号和路径替换为实际值，并确认自定义路径在 systemd 的 `ReadWritePaths` 内。不要删除密钥目录或换用空目录，否则数据库中已保存的敏感设置将无法解密。系统包在运行配置迁移前修复状态目录权限；Arch Linux 包升级也执行同一安装钩子。
+
 ### 网页运行时设置
 
 登录后可在「设置」中修改 AI/TMDB、qBittorrent、媒体库扫描、异常阈值和 NFS。网页值保存在 PostgreSQL并覆盖 YAML 默认值；API key 和密码使用 Data Protection 加密，接口不回显明文。请备份 `/var/lib/sdw-redive/data-protection-keys/`，丢失密钥环后已保存的敏感值无法恢复。
