@@ -343,7 +343,7 @@ export const AiSettingsSection: React.FC<AiSettingsSectionProps> = ({
     if (!options.has(provider.model))
       options.set(provider.model, {
         id: provider.model,
-        name: provider.model || t("system.ai.codex.modelPlaceholder"),
+        name: provider.model || t("system.ai.codex.defaultModel"),
         providerId: provider.id,
         provider: provider.name,
         reasoningEfforts: defaultEfforts(provider.protocol, provider.model),
@@ -608,13 +608,9 @@ export const AiSettingsSection: React.FC<AiSettingsSectionProps> = ({
                 )}
               </FormRow>
               <FormRow label={t("system.ai.builtIn.model")}>
-                <Input
-                  list={`models-${provider.id}`}
+                <Select
                   value={provider.model}
-                  isInvalid={!codex && !provider.model.trim()}
-                  placeholder={
-                    codex ? t("system.ai.codex.modelPlaceholder") : undefined
-                  }
+                  aria-invalid={!codex && !provider.model.trim()}
                   onChange={(event) =>
                     updateProvider(provider.id, {
                       model: event.target.value,
@@ -624,16 +620,29 @@ export const AiSettingsSection: React.FC<AiSettingsSectionProps> = ({
                       ),
                     })
                   }
-                />
-                <datalist id={`models-${provider.id}`}>
+                >
+                  {(codex || !provider.model.trim()) && (
+                    <option value="" disabled={!codex}>
+                      {t(
+                        codex
+                          ? "system.ai.codex.defaultModel"
+                          : "system.ai.builtIn.model",
+                      )}
+                    </option>
+                  )}
                   {models
-                    .filter((model) => model.providerId === provider.id)
+                    .filter(
+                      (model) =>
+                        model.providerId === provider.id && model.id.trim(),
+                    )
                     .map((model) => (
                       <option key={model.id} value={model.id}>
-                        {model.name}
+                        {model.name && model.name !== model.id
+                          ? `${model.name} · ${model.id}`
+                          : model.id}
                       </option>
                     ))}
-                </datalist>
+                </Select>
               </FormRow>
               {codex ? (
                 <>

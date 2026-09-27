@@ -71,7 +71,6 @@
   "selectProvider": "Provider",
   "configuredDefault": "Use configured default",
   "providerDefault": "Provider default model",
-  "customModel": "Select or enter model ID",
   "reasoningEffort": "Reasoning effort",
   "efforts": {
     "none": "None",
