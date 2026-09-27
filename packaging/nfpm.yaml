@@ -34,6 +34,11 @@ overrides:
     recommends:
       - valkey
 
+# Pacman uses a separate hook for upgrades; generic postinstall is first-install only.
+archlinux:
+  scripts:
+    postupgrade: ./packaging/postinstall.sh
+
 contents:
   - src: ./publish/
     dst: /usr/lib/sdw-redive

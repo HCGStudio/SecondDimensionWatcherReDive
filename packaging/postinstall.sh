@@ -13,6 +13,25 @@ if ! getent passwd sdw-redive >/dev/null 2>&1; then
         --gid sdw-redive --home-dir /var/lib/sdw-redive sdw-redive
 fi
 
+# Repair package-extracted ownership before configuration migration can fail.
+# In particular, an interrupted upgrade must not leave a root-owned key ring.
+chown -R sdw-redive:sdw-redive /var/lib/sdw-redive
+
+# Data Protection keys and the password hash are service-owned secrets. The
+# private directory also protects keys created by future application runs.
+install -d -m 0700 -o sdw-redive -g sdw-redive \
+    /var/lib/sdw-redive/data-protection-keys \
+    /var/lib/sdw-redive/backups
+install -d -m 0750 -o sdw-redive -g sdw-redive \
+    /var/lib/sdw-redive/transcode-cache
+if [ -f /var/lib/sdw-redive/password.json ]; then
+    chown sdw-redive:sdw-redive /var/lib/sdw-redive/password.json
+    chmod 0600 /var/lib/sdw-redive/password.json
+fi
+find /var/lib/sdw-redive/data-protection-keys -type f \
+    -exec chown sdw-redive:sdw-redive {} + \
+    -exec chmod 0600 {} +
+
 # appsettings.yml contains database, JWT and upstream credentials. Protect an
 # existing conffile before reading, migrating or adding generated secrets.
 if [ -f "$CONFIG" ]; then
@@ -46,24 +65,6 @@ if ! /usr/bin/sdw-migrate --config "$CONFIG" --working-directory /usr/lib/sdw-re
     echo "Configuration upgrade failed or requires a decision. Run sudo sdw-migrate --config $CONFIG --working-directory /usr/lib/sdw-redive ${migration_context[*]} in a terminal, adding any custom lower-priority configuration snapshots, then retry the package installation." >&2
     exit 1
 fi
-
-# Ensure data directory ownership
-chown -R sdw-redive:sdw-redive /var/lib/sdw-redive
-
-# Data Protection keys and the password hash are service-owned secrets. The
-# private directory also protects keys created by future application runs.
-install -d -m 0700 -o sdw-redive -g sdw-redive \
-    /var/lib/sdw-redive/data-protection-keys \
-    /var/lib/sdw-redive/backups
-install -d -m 0750 -o sdw-redive -g sdw-redive \
-    /var/lib/sdw-redive/transcode-cache
-if [ -f /var/lib/sdw-redive/password.json ]; then
-    chown sdw-redive:sdw-redive /var/lib/sdw-redive/password.json
-    chmod 0600 /var/lib/sdw-redive/password.json
-fi
-find /var/lib/sdw-redive/data-protection-keys -type f \
-    -exec chown sdw-redive:sdw-redive {} + \
-    -exec chmod 0600 {} +
 
 # Package images and CI install roots do not always boot systemd as PID 1. Skip
 # the reload only there; a real systemd host must surface malformed units and

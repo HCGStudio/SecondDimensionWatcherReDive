@@ -112,11 +112,23 @@ var dataProtectionKeyRingPath = builder.Configuration["DataProtection:KeyRingPat
                                 ?? Path.Combine(
                                     stateDirectory,
                                     "data-protection-keys");
-Directory.CreateDirectory(dataProtectionKeyRingPath);
-if (!OperatingSystem.IsWindows())
-    File.SetUnixFileMode(
-        dataProtectionKeyRingPath,
-        UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+try
+{
+    Directory.CreateDirectory(dataProtectionKeyRingPath);
+    if (!OperatingSystem.IsWindows())
+        File.SetUnixFileMode(
+            dataProtectionKeyRingPath,
+            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+}
+catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+{
+    Console.Error.WriteLine($"Data Protection key ring initialization failed at '{dataProtectionKeyRingPath}': {exception.Message}");
+    Console.Error.WriteLine(
+        $"Ensure the service account '{Environment.UserName}' can read and write this directory and, on Unix, owns it so permissions can be set. " +
+        "For systemd installations, restore ownership to the service's configured User and Group. Preserve the existing key files.");
+    Environment.ExitCode = 1;
+    return;
+}
 builder.Services.AddDataProtection()
     .SetApplicationName("SecondDimensionWatcherReDive")
     .PersistKeysToFileSystem(new DirectoryInfo(dataProtectionKeyRingPath));
