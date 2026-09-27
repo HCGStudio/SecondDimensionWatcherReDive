@@ -67,12 +67,6 @@ public partial class FetchRemoteTorrentBackgroundService(
                 StringComparison.OrdinalIgnoreCase))
             return null;
 
-        if (scope.ServiceProvider.GetService<IDownloadCapacityRepository>() is { } capacity)
-        {
-            var queued = (await capacity.ListAsync(cancellationToken)).FirstOrDefault(entry => entry.ItemId == info.Id);
-            if (queued is not null && queued.State != "Submitted") return null;
-        }
-
         return request with { DownloadAttemptId = info.DownloadAttemptId };
     }
 
@@ -83,7 +77,6 @@ public partial class FetchRemoteTorrentBackgroundService(
         var observations = new ConcurrentDictionary<string, DownloadObservation>(StringComparer.OrdinalIgnoreCase);
         var nextDatabaseRefreshAt = DateTimeOffset.MinValue;
         var schedules = new Dictionary<string, PollSchedule>(StringComparer.OrdinalIgnoreCase);
-        var capacityWaiting = new HashSet<Guid>();
         var activeInterval = TimeSpan.FromMilliseconds(Math.Clamp(configuration.GetValue("Torrent:Polling:ActiveMilliseconds", 1000), 500, 5000));
         var pausedInterval = TimeSpan.FromSeconds(Math.Clamp(configuration.GetValue("Torrent:Polling:PausedSeconds", 30), 5, 120));
         var idleInterval = TimeSpan.FromSeconds(Math.Clamp(configuration.GetValue("Torrent:Polling:IdleSeconds", 10), 2, 60));
@@ -99,15 +92,9 @@ public partial class FetchRemoteTorrentBackgroundService(
                 {
                     // Periodic refresh recovers requests whose initial channel
                     // binding happened during a temporary database outage.
-                    await using var capacityScope = scopeFactory.CreateAsyncScope();
-                    var capacityRepository = capacityScope.ServiceProvider.GetService<IDownloadCapacityRepository>();
-                    capacityWaiting = capacityRepository is null ? [] :
-                        (await capacityRepository.ListAsync(cancellationToken))
-                        .Where(entry => entry.State != "Submitted").Select(entry => entry.ItemId).ToHashSet();
                     var recovered = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                     await foreach (var request in FetchUnfinishedTaskFromDb(cancellationToken))
                     {
-                        if (capacityWaiting.Contains(request.ItemId)) continue;
                         recovered.Add(request.Hash);
                         if (tracked.TryGetValue(request.Hash, out var previous) && previous.DownloadAttemptId != request.DownloadAttemptId)
                         {
@@ -116,8 +103,7 @@ public partial class FetchRemoteTorrentBackgroundService(
                         }
                         tracked[request.Hash] = request;
                     }
-                    // A tracked attempt can return to the capacity queue. Only
-                    // reconcile removals after a complete successful DB refresh.
+                    // Reconcile removals only after a complete successful DB refresh.
                     foreach (var hash in tracked.Keys.Where(hash => !recovered.Contains(hash)))
                     {
                         tracked.TryRemove(hash, out _);
@@ -158,7 +144,6 @@ public partial class FetchRemoteTorrentBackgroundService(
                             tracked[request.Hash] = currentRequest;
                             // Submission and user resume wake a slow/paused schedule.
                             schedules[request.Hash] = new PollSchedule();
-                            capacityWaiting.Remove(request.ItemId);
                         }
                     }
                     catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

@@ -47,9 +47,9 @@
     "browseFiles": "Browse files and play",
     "download": "Download this release",
     "startingDownload": "Submitting…",
-    "downloadQueued": "Added to the download queue",
+    "downloadQueued": "Download task submitted",
     "downloadFailed": "Could not start the download. Refresh its status and try again.",
-    "viewDownload": "View download queue"
+    "viewDownload": "View downloads"
   },
   "integrity": {
     "title": "Completeness and upgrades",
@@ -69,7 +69,7 @@
     "previewReady": "Dry run passed; candidate files are ready",
     "failed": "The upgrade could not be started",
     "outcomes": {
-      "download_queued": "Candidate download queued",
+      "download_queued": "Candidate download submitted",
       "applied": "Upgrade applied",
       "already_applied": "Upgrade was already applied"
     }
@@ -120,7 +120,7 @@
       "mapping_pending": "The release completed but its live file mappings are not ready; another download is held."
     },
     "outcomes": {
-      "submitted": "Added to the download queue",
+      "submitted": "Download task submitted",
       "already_present_or_busy": "Already present or in progress; skipped",
       "state_changed": "State changed; refresh and retry",
       "submission_failed": "Submission failed; retry this episode",

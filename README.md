@@ -25,7 +25,7 @@
 - [x] 自动同步 RSS 源，创建动画信息记录
 - [x] 通过 qBittorrent 进行下载 / 暂停 / 恢复 / 取消管理
 - [x] 自适应下载进度追踪：活跃/暂停/无变化分频、分批查询与故障退避
-- [x] 持久容量预留与可暂停/取消的等待队列，统一覆盖手动、订阅和版本升级下载
+- [x] 手动、订阅、缺集补全和版本升级下载直接提交 qBittorrent，由下载器管理排队与磁盘空间
 - [x] 虚拟文件系统：磁盘文件不重命名，按 `S##E##` 规则映射虚拟路径（含字幕语言后缀）
 - [x] 现有媒体库原地导入（手动扫描或周期监控，不移动/删除原文件）
 - [x] 多集种子通过 AI 推断逐文件拆分集数
@@ -114,7 +114,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/HCGStudio/SecondDimensionWat
 | `DataProtection:KeyRingPath` | 网页保存的 API key/密码所用加密密钥环；必须位于持久化目录 |
 | `Torrent:Remote:Url` | qBittorrent API 地址 |
 | `FileStore:Local` | 下载文件存储根目录 |
-| `DownloadCapacity:Enabled` / `SafetyBytes` / `LocalVolumePath` | 默认启用容量准入；安全余量默认 5 GiB；本地卷路径仅能指向下载器实际写入卷的共享挂载，详见[容量边界](docs/library-workflows.md#容量与等待队列) |
+| `Transcoding:SafetyBytes` | 本地 HLS 缓存的磁盘安全余量，默认 5 GiB；下载排队与空间管理交给 qBittorrent，详见[下载与缓存管理](docs/library-workflows.md#下载与缓存管理) |
 | `Torrent:Polling` / `DownloadCompletion:Workers` | 自适应轮询周期/分批/退避；完成处理默认 2 个独立 worker |
 | `MediaLibrary:AllowedRoots` / `ScanInterval` / `SettlingPeriod` / `MissingGracePeriod` | 必须显式配置的导入根目录白名单、监控间隔、文件写入稳定等待时间与缺失记录保留期 |
 | `MikananiFeeds` | RSS 源 URL 数组 |

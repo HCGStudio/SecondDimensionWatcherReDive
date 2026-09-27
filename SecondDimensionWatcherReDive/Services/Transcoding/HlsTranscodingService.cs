@@ -720,7 +720,7 @@ internal sealed partial class HlsTranscodingService : BackgroundService, IHlsTra
         try
         {
             await using var scope = _scopeFactory.CreateAsyncScope();
-            var capacity = scope.ServiceProvider.GetService<IDownloadCapacityRepository>();
+            var capacity = scope.ServiceProvider.GetService<ITranscodeCapacityRepository>();
             if (capacity is null)
             {
                 CleanupCacheCore(removeIncomplete, new HashSet<string>(StringComparer.Ordinal), cancellationToken);
@@ -729,10 +729,9 @@ internal sealed partial class HlsTranscodingService : BackgroundService, IHlsTra
             {
                 // Preserve work owned by another replica, including during startup cleanup.
                 await using var transaction = await capacity.BeginAsync(cancellationToken);
-                var cacheRepository = scope.ServiceProvider.GetRequiredService<ITranscodeCapacityRepository>();
-                await cacheRepository.PruneExpiredAsync(cancellationToken);
-                var reservations = await cacheRepository.ListActiveAsync(cancellationToken);
-                var readers = await cacheRepository.ListActiveReadersAsync(cancellationToken);
+                await capacity.PruneExpiredAsync(cancellationToken);
+                var reservations = await capacity.ListActiveAsync(cancellationToken);
+                var readers = await capacity.ListActiveReadersAsync(cancellationToken);
                 var protectedKeys = reservations.Select(row => Path.GetFileName(row.DirectoryPath))
                     .Concat(readers.Select(row => Path.GetFileName(row.DirectoryPath)))
                     .ToHashSet(StringComparer.Ordinal);

@@ -128,6 +128,7 @@ podman logs qbittorrent 2>&1 | grep "temporary password"
 | `Transcoding__QueueCapacity` | 等待队列容量；满时返回 429 | `8` |
 | `Transcoding__MaxMemoryBytesPerJob` | 单个 FFmpeg 工作集上限 | `2147483648` |
 | `Transcoding__MaxCacheBytes` | HLS 缓存总上限 | `107374182400` |
+| `Transcoding__SafetyBytes` | 本地 HLS 缓存卷的磁盘安全余量 | `5368709120` |
 | `Torrent__Remote__Url` | qBittorrent API 地址 | `http://qbittorrent:8080` |
 | `Valkey__ConnectionString` | Valkey 连接字符串 | 空（使用内存缓存） |
 | `Authentication__RefreshTokenReuseGraceSeconds` | 并发 refresh 返回同一轮换结果的短宽限（秒） | `3` |

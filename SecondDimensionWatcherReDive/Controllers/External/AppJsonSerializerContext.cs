@@ -24,7 +24,6 @@ namespace SecondDimensionWatcherReDive.Controllers.External;
 [JsonSerializable(typeof(MetadataRecognitionRulePreview))]
 [JsonSerializable(typeof(MetadataRecognitionRuleSeed))]
 [JsonSerializable(typeof(MetadataRecognitionHistoryRequest))]
-[JsonSerializable(typeof(List<DownloadCapacityEntryResponse>))]
 [JsonSerializable(typeof(WatchlistRequest))]
 [JsonSerializable(typeof(WatchlistEntry[]))]
 [JsonSerializable(typeof(MultiSourceSubscription))]

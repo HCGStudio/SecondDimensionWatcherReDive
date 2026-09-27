@@ -73,6 +73,6 @@ HTTP 指标使用显式标签白名单：服务端只保留方法、状态码、
 SQL 文本和查询参数不会作为指标标签或导出的链路标签。定时任务指标的 `task.id` 也只
 允许四个内置任务值，未知扩展统一归为 `other`。
 
-## 容量与完成处理并发
+## 下载提交与完成处理并发
 
-启用 `DownloadCapacity:Enabled`（默认开启）时，下载接受后先进入持久容量队列，空间预留提交后才向下载器提交。关闭时，新下载直接提交到 qBittorrent，不经过容量准入。`DownloadCompletion:Workers` 默认 2，每个 worker 具有独立作用域、领取身份和续租生命周期；插件回调在单实例内串行，跨实例幂等要求继续有效。新增 `sdw.durable_job.queue_wait`（秒）记录任务可领取后等待 worker 的时间，已有 duration 记录处理耗时。轮询按批退避，未查询的 hash 不参与缺失判断。配置与异常恢复入口见 [下载使用指南](library-workflows.md)。
+新下载直接提交到 qBittorrent，应用不设置等待队列或下载容量检查。旧容量队列及其恢复机制已移除；提交结果不明时仍通过持久状态与下载器对账。`DownloadCompletion:Workers` 默认 2，每个 worker 具有独立作用域、领取身份和续租生命周期；插件回调在单实例内串行，跨实例幂等要求继续有效。新增 `sdw.durable_job.queue_wait`（秒）记录任务可领取后等待 worker 的时间，已有 duration 记录处理耗时。轮询按批退避，未查询的 hash 不参与缺失判断。配置与异常恢复入口见 [下载使用指南](library-workflows.md)。
