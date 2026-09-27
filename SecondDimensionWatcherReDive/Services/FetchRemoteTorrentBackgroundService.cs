@@ -61,6 +61,7 @@ public partial class FetchRemoteTorrentBackgroundService(
         var info = await repository.FindByIdAsync(request.ItemId, cancellationToken);
         if (info is null
             || !info.IsDownloadTracked
+            || info.DownloadCancellationId is not null
             || !string.Equals(
                 info.AdditionalDownloadInfo,
                 request.Hash,

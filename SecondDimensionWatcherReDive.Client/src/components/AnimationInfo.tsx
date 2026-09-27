@@ -15,6 +15,7 @@ import {
   Play,
   RefreshCw,
   Trash2,
+  X,
 } from "lucide-react";
 
 import {
@@ -119,22 +120,34 @@ const automationDispositionClasses: Record<
 
 const AutomationDispositionBadge: React.FC<{
   disposition: SubscriptionAutomationDisposition;
-}> = ({ disposition }) => {
+  cancellationRequested: boolean;
+}> = ({ disposition, cancellationRequested }) => {
   const { t } = useTranslation("animation");
   return (
     <span
       className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${automationDispositionClasses[disposition]}`}
     >
-      {t(`automation.${disposition}`)}
+      {t(
+        cancellationRequested
+          ? "actions.cancelling"
+          : `automation.${disposition}`,
+      )}
     </span>
   );
 };
 
-const ActionButtons: React.FC<{ value: IAnimationInfo }> = ({ value }) => {
+const ActionButtons: React.FC<{
+  value: IAnimationInfo;
+  cancellationRequested: boolean;
+}> = ({ value, cancellationRequested }) => {
   const { t } = useTranslation(["animation", "settings"]);
   const { canContentWrite, isAdministrator } = useAccess();
   const { data: status } = useAnimationDownloadStatus(
-    value.isDownloadTracked && !value.isDownloadFinished ? value.id : null,
+    value.isDownloadTracked &&
+      !value.isDownloadFinished &&
+      !cancellationRequested
+      ? value.id
+      : null,
   );
   const { addToast } = useToast();
   const [isSheetOpen, setIsSheetOpen] = React.useState(false);
@@ -156,6 +169,10 @@ const ActionButtons: React.FC<{ value: IAnimationInfo }> = ({ value }) => {
     value.animation != null &&
     value.season != null &&
     value.episode == null;
+  const canCancelDownload =
+    canContentWrite && value.isDownloadTracked && !value.isDownloadFinished;
+  const canDeleteDownload =
+    isAdministrator && value.isDownloadTracked && !value.isMediaLibraryImport;
   const retryLabel = value.animation
     ? t("actions.reinfer")
     : t("actions.inferAi");
@@ -226,16 +243,27 @@ const ActionButtons: React.FC<{ value: IAnimationInfo }> = ({ value }) => {
       setIsCancelling(true);
       try {
         const operation = () => cancelDownload(value.id, removeFile);
-        if (removeFile) {
-          await retryAfterReauthentication(
-            operation,
-            t("settings:system.reauthenticatePrompt"),
-          );
-        } else {
-          await operation();
-        }
+        const result = removeFile
+          ? await retryAfterReauthentication(
+              operation,
+              t("settings:system.reauthenticatePrompt"),
+            )
+          : await operation();
+        addToast({
+          title: t(
+            result.pending
+              ? "toast.cancelRequested"
+              : removeFile
+                ? "toast.deleted"
+                : "toast.cancelled",
+          ),
+          color: "success",
+        });
       } catch {
-        addToast({ title: t("toast.deleteFailed"), color: "danger" });
+        addToast({
+          title: t(removeFile ? "toast.deleteFailed" : "toast.cancelFailed"),
+          color: "danger",
+        });
       } finally {
         setIsCancelling(false);
       }
@@ -244,10 +272,18 @@ const ActionButtons: React.FC<{ value: IAnimationInfo }> = ({ value }) => {
   );
 
   const onDelete = React.useCallback(() => {
-    if (window.confirm(t("confirm.deleteFile"))) {
+    if (
+      window.confirm(
+        t(
+          value.isDownloadFinished
+            ? "confirm.deleteFile"
+            : "confirm.cancelAndDelete",
+        ),
+      )
+    ) {
       void onCancelDownload(true);
     }
-  }, [onCancelDownload, t]);
+  }, [onCancelDownload, t, value.isDownloadFinished]);
 
   const onToggleAllWatched = React.useCallback(async () => {
     if (!playbackStates || playbackStates.length === 0) return;
@@ -281,14 +317,8 @@ const ActionButtons: React.FC<{ value: IAnimationInfo }> = ({ value }) => {
   const hasOverflowItems =
     showRetryItem ||
     showAiReidentifyItem ||
-    (canContentWrite &&
-      value.isDownloadTracked &&
-      !value.isDownloadFinished &&
-      status) ||
-    (value.isDownloadTracked &&
-      value.isDownloadFinished &&
-      !value.isMediaLibraryImport &&
-      isAdministrator);
+    canCancelDownload ||
+    canDeleteDownload;
 
   return (
     <>
@@ -310,6 +340,7 @@ const ActionButtons: React.FC<{ value: IAnimationInfo }> = ({ value }) => {
         {canContentWrite &&
         value.isDownloadTracked &&
         !value.isDownloadFinished &&
+        !cancellationRequested &&
         status ? (
           <>
             {status.state === "Downloading" ? (
@@ -319,6 +350,7 @@ const ActionButtons: React.FC<{ value: IAnimationInfo }> = ({ value }) => {
                 className="px-2 py-2"
                 title={t("actions.pause")}
                 aria-label={t("actions.pause")}
+                disabled={isCancelling}
                 onClick={() =>
                   pauseDownload(value.id).catch(() =>
                     addToast({
@@ -338,6 +370,7 @@ const ActionButtons: React.FC<{ value: IAnimationInfo }> = ({ value }) => {
                 className="px-2 py-2"
                 title={t("actions.resume")}
                 aria-label={t("actions.resume")}
+                disabled={isCancelling}
                 onClick={() =>
                   resumeDownload(value.id).catch(() =>
                     addToast({
@@ -434,45 +467,37 @@ const ActionButtons: React.FC<{ value: IAnimationInfo }> = ({ value }) => {
               ) : null}
 
               {(showRetryItem || showAiReidentifyItem) &&
-              ((value.isDownloadTracked && !value.isDownloadFinished) ||
-                (value.isDownloadTracked && value.isDownloadFinished)) ? (
+              (canCancelDownload || canDeleteDownload) ? (
                 <DropdownMenuSeparator />
               ) : null}
 
-              {value.isDownloadTracked &&
-              !value.isDownloadFinished &&
-              status &&
-              canContentWrite ? (
+              {canCancelDownload ? (
                 <DropdownMenuItem
                   color="danger"
-                  disabled={isReidentifyingFiles || isCancelling}
+                  disabled={
+                    isReidentifyingFiles ||
+                    isCancelling ||
+                    cancellationRequested
+                  }
                   onSelect={() => {
-                    const removeFile = isAdministrator;
-                    if (
-                      window.confirm(
-                        t(
-                          removeFile
-                            ? "confirm.cancelAndDelete"
-                            : "confirm.cancel",
-                        ),
-                      )
-                    ) {
-                      void onCancelDownload(removeFile);
+                    if (window.confirm(t("confirm.cancel"))) {
+                      void onCancelDownload(false);
                     }
                   }}
                 >
-                  <Trash2 size={14} />
-                  {t(isAdministrator ? "actions.delete" : "actions.cancel")}
+                  <X size={14} />
+                  {t("actions.cancel")}
                 </DropdownMenuItem>
               ) : null}
 
-              {value.isDownloadTracked &&
-              value.isDownloadFinished &&
-              !value.isMediaLibraryImport &&
-              isAdministrator ? (
+              {canDeleteDownload ? (
                 <DropdownMenuItem
                   color="danger"
-                  disabled={isReidentifyingFiles || isCancelling}
+                  disabled={
+                    isReidentifyingFiles ||
+                    isCancelling ||
+                    cancellationRequested
+                  }
                   onSelect={onDelete}
                 >
                   <Trash2 size={14} />
@@ -529,6 +554,8 @@ export const AnimationInfo: React.FC<IAnimationInfoProps> = ({
   const { t, i18n } = useTranslation("animation");
   const tag = formatEpisodeTag(value.season, value.episode);
   const isDownloading = value.isDownloadTracked && !value.isDownloadFinished;
+  const cancellationRequested =
+    isDownloading && value.automationDisposition === "DownloadCancelled";
   const publishTime = new Date(value.publishTime);
   const formattedPublishTime = showTimeOfDay
     ? publishTime.toLocaleString(i18n.resolvedLanguage, {
@@ -550,6 +577,7 @@ export const AnimationInfo: React.FC<IAnimationInfoProps> = ({
             {value.automationDisposition ? (
               <AutomationDispositionBadge
                 disposition={value.automationDisposition}
+                cancellationRequested={cancellationRequested}
               />
             ) : null}
           </div>
@@ -589,10 +617,19 @@ export const AnimationInfo: React.FC<IAnimationInfoProps> = ({
           ) : null}
         </div>
 
-        <ActionButtons value={value} />
+        <ActionButtons
+          value={value}
+          cancellationRequested={cancellationRequested}
+        />
       </div>
 
-      {isDownloading ? <DownloadProgress id={value.id} /> : null}
+      {cancellationRequested ? (
+        <p role="status" className="mt-3 text-xs text-muted">
+          {t("cancellationPending")}
+        </p>
+      ) : isDownloading ? (
+        <DownloadProgress id={value.id} />
+      ) : null}
     </article>
   );
 };

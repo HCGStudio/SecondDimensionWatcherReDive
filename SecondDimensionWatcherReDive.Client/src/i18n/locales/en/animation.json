@@ -42,6 +42,7 @@
     }
   },
   "finished": "Finished",
+  "cancellationPending": "Cancelling in the background. This may take a few minutes.",
   "automation": {
     "Notified": "Matched · notify only",
     "PendingConfirmation": "Matched · confirmation needed",
@@ -58,6 +59,7 @@
     "pause": "Pause",
     "resume": "Resume",
     "cancel": "Cancel task",
+    "cancelling": "Cancelling",
     "browse": "Browse files",
     "markAllWatched": "Mark every video in this release watched",
     "markAllUnwatched": "Mark every video in this release unwatched",
@@ -83,6 +85,10 @@
     "downloadQueued": "Download task submitted",
     "pauseFailed": "Failed to pause",
     "resumeFailed": "Failed to resume",
+    "cancelled": "Task cancelled",
+    "cancelRequested": "Cancellation requested. The system will finish cancelling in the background.",
+    "cancelFailed": "Failed to cancel",
+    "deleted": "Downloaded files deleted",
     "deleteFailed": "Failed to delete",
     "filesReidentified": "Filenames re-identified with AI",
     "fileReidentifyFailed": "Failed to re-identify filenames with AI",
