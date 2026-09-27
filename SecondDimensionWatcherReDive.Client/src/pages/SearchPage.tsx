@@ -21,6 +21,7 @@ import { useToast } from "../components/ToastProvider";
 import { Button } from "../components/ui/Button";
 import { EmptyPrompt } from "../components/ui/EmptyPrompt";
 import { Input } from "../components/ui/Input";
+import { Select, SelectItem } from "../components/ui/Select";
 import {
   Sheet,
   SheetBody,
@@ -29,6 +30,7 @@ import {
   SheetTitle,
 } from "../components/ui/Sheet";
 import { Spinner } from "../components/ui/Spinner";
+import { confirmDialog } from "../components/ui/dialogService";
 import { ApiError } from "../errors/apiError";
 import { cn } from "../lib/cn";
 import { CompletionPlanButton } from "../library/CompletionPlanButton";
@@ -114,9 +116,10 @@ export const SearchPage: React.FC = () => {
     candidate: ReleaseUpgradeCandidate,
     dryRun: boolean,
   ) => {
-    if (!dryRun && !window.confirm(t("upgrade.confirm"))) return;
+    if (runningUpgrade) return;
     setRunningUpgrade(candidate.candidateReleaseId);
     try {
+      if (!dryRun && !(await confirmDialog(t("upgrade.confirm")))) return;
       const result = await executeReleaseUpgrade(candidate, dryRun);
       addToast({
         title: dryRun
@@ -662,22 +665,20 @@ const FilterSelect: React.FC<{
 }> = ({ label, name, params, onChange, options, t }) => (
   <label className="text-xs text-muted">
     {label}
-    <select
+    <Select
       className={`${selectClass} mt-1`}
       value={params.get(name) ?? options[0]}
-      onChange={(event) =>
-        onChange(
-          name,
-          event.target.value === options[0] ? "" : event.target.value,
-        )
+      aria-label={label}
+      onValueChange={(value) =>
+        onChange(name, value === options[0] ? "" : value)
       }
     >
       {options.map((option) => (
-        <option key={option} value={option}>
+        <SelectItem key={option} value={option}>
           {t(`values.${option}`)}
-        </option>
+        </SelectItem>
       ))}
-    </select>
+    </Select>
   </label>
 );
 

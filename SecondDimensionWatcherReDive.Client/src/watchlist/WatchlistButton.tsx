@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 
 import { useAccess } from "../auth/hooks";
 import { useToast } from "../components/ToastProvider";
+import { Select, SelectItem } from "../components/ui/Select";
 import { saveWatchlist, useWatchlist, watchlistStatuses } from "./hooks";
 
 export const WatchlistButton: React.FC<{
@@ -22,18 +23,18 @@ export const WatchlistButton: React.FC<{
   );
   if (!canPlaybackWrite) return null;
   return (
-    <select
-      className="max-w-full rounded-md border border-border bg-surface px-2 py-1 text-xs"
+    <Select
+      className="w-auto rounded-md px-2 py-1 text-xs"
       aria-label={t("add")}
       value={item?.status ?? ""}
       disabled={busy}
-      onChange={async (event) => {
+      onValueChange={async (value) => {
         setBusy(true);
         try {
           await saveWatchlist({
             ...props,
             id: item?.id,
-            status: event.target.value,
+            status: value,
           });
         } catch {
           addToast({ title: t("failed"), color: "danger" });
@@ -42,14 +43,14 @@ export const WatchlistButton: React.FC<{
         }
       }}
     >
-      <option value="" disabled>
+      <SelectItem value="" disabled>
         {t("add")}
-      </option>
+      </SelectItem>
       {watchlistStatuses.map((status) => (
-        <option key={status} value={status}>
+        <SelectItem key={status} value={status}>
           {t(`statuses.${status}`)}
-        </option>
+        </SelectItem>
       ))}
-    </select>
+    </Select>
   );
 };

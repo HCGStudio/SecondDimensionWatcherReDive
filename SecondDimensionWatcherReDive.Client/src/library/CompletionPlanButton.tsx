@@ -5,6 +5,7 @@ import useSWR from "swr";
 import { useAccess } from "../auth/hooks";
 import fetcher from "../auth/httpClient";
 import { Button } from "../components/ui/Button";
+import { Select, SelectItem } from "../components/ui/Select";
 import {
   Sheet,
   SheetBody,
@@ -248,7 +249,7 @@ export const CompletionPlanButton: React.FC<{
                       {episode.candidates.length > 0 ? (
                         <label className="mt-3 block text-xs text-muted">
                           {t("completion.candidate")}
-                          <select
+                          <Select
                             className="mt-1 w-full rounded-md border border-border bg-surface p-2 text-foreground"
                             value={selected[episode.episode] ?? ""}
                             disabled={
@@ -261,17 +262,19 @@ export const CompletionPlanButton: React.FC<{
                                 "mapping_pending",
                               ].includes(episode.state)
                             }
-                            onChange={(event) => {
+                            onValueChange={(value) => {
                               editedSelections.current.add(episode.episode);
                               setSelected((old) => ({
                                 ...old,
-                                [episode.episode]: event.target.value,
+                                [episode.episode]: value,
                               }));
                             }}
                           >
-                            <option value="">{t("completion.skip")}</option>
+                            <SelectItem value="">
+                              {t("completion.skip")}
+                            </SelectItem>
                             {episode.candidates.map((c) => (
-                              <option
+                              <SelectItem
                                 key={c.releaseId}
                                 value={c.releaseId}
                                 disabled={!c.eligible}
@@ -283,9 +286,9 @@ export const CompletionPlanButton: React.FC<{
                                 {c.unavailableReason
                                   ? ` · ${t(`completion.reasons.${c.unavailableReason}`)}`
                                   : ""}
-                              </option>
+                              </SelectItem>
                             ))}
-                          </select>
+                          </Select>
                         </label>
                       ) : null}
                       {candidate ? (

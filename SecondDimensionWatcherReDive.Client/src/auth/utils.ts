@@ -1,3 +1,4 @@
+import { promptDialog } from "../components/ui/dialogService";
 import { IAuthResult } from "./IAuthResult";
 import fetcher, {
   clearAuthForSession,
@@ -64,7 +65,10 @@ export const retryAfterReauthentication = async <T>(
     return await operation();
   } catch (error) {
     if (!(error instanceof Error) || error.message !== "403") throw error;
-    const password = window.prompt(promptMessage);
+    const password = await promptDialog(promptMessage, {
+      inputType: "password",
+      autoComplete: "current-password",
+    });
     if (!password) throw error;
     await reauthenticate(password);
     return operation();

@@ -1,19 +1,13 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
 
-import {
-  ArrowUpDown,
-  ChevronDown,
-  Hash,
-  SearchX,
-  Users,
-  X,
-} from "lucide-react";
+import { ArrowUpDown, Hash, SearchX, Users, X } from "lucide-react";
 
 import { IAnimationInfo } from "../animation/IAnimationInfo";
 import { AnimationInfo } from "./AnimationInfo";
 import { Button } from "./ui/Button";
 import { EmptyPrompt } from "./ui/EmptyPrompt";
+import { Select, SelectItem } from "./ui/Select";
 
 type EpisodeSort =
   "published-desc" | "published-asc" | "episode-asc" | "episode-desc";
@@ -151,7 +145,7 @@ interface SelectControlProps {
   label: string;
   icon: React.ReactNode;
   value: string;
-  onChange: React.ChangeEventHandler<HTMLSelectElement>;
+  onValueChange: (value: string) => void;
   children: React.ReactNode;
 }
 
@@ -159,7 +153,7 @@ const SelectControl: React.FC<SelectControlProps> = ({
   label,
   icon,
   value,
-  onChange,
+  onValueChange,
   children,
 }) => (
   <label className="block min-w-0">
@@ -168,18 +162,14 @@ const SelectControl: React.FC<SelectControlProps> = ({
       <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-subtle">
         {icon}
       </span>
-      <select
+      <Select
         value={value}
-        onChange={onChange}
-        className="w-full cursor-pointer appearance-none truncate rounded-lg border border-border bg-surface py-2 pl-9 pr-9 text-sm text-foreground transition-colors focus:border-focus focus:outline-hidden focus:ring-2 focus:ring-focus"
+        onValueChange={onValueChange}
+        aria-label={label}
+        className="pl-9"
       >
         {children}
-      </select>
-      <ChevronDown
-        size={15}
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-y-0 right-3 my-auto text-subtle"
-      />
+      </Select>
     </span>
   </label>
 );
@@ -280,15 +270,11 @@ export const EpisodeList: React.FC<{ episodes: IAnimationInfo[] }> = ({
     setGroupFilter(ALL_GROUPS);
   }, []);
 
-  const onSortChange = React.useCallback(
-    (event: React.ChangeEvent<HTMLSelectElement>) => {
-      const value = event.target.value;
-      if (!isEpisodeSort(value)) return;
-      setSort(value);
-      storeEpisodeSort(value);
-    },
-    [],
-  );
+  const onSortChange = React.useCallback((value: string) => {
+    if (!isEpisodeSort(value)) return;
+    setSort(value);
+    storeEpisodeSort(value);
+  }, []);
 
   return (
     <>
@@ -301,15 +287,17 @@ export const EpisodeList: React.FC<{ episodes: IAnimationInfo[] }> = ({
             label={t("episodeList.episodeFilter")}
             icon={<Hash size={15} aria-hidden="true" />}
             value={episodeFilter}
-            onChange={(event) => setEpisodeFilter(event.target.value)}
+            onValueChange={setEpisodeFilter}
           >
-            <option value={ALL_EPISODES}>{t("episodeList.allEpisodes")}</option>
+            <SelectItem value={ALL_EPISODES}>
+              {t("episodeList.allEpisodes")}
+            </SelectItem>
             {episodeOptions.map(([key, value]) => (
-              <option key={key} value={key}>
+              <SelectItem key={key} value={key}>
                 {value.episode == null
                   ? t("episodeList.unknownEpisode")
                   : formatEpisodeTag(value.season, value.episode)}
-              </option>
+              </SelectItem>
             ))}
           </SelectControl>
 
@@ -317,18 +305,20 @@ export const EpisodeList: React.FC<{ episodes: IAnimationInfo[] }> = ({
             label={t("episodeList.groupFilter")}
             icon={<Users size={15} aria-hidden="true" />}
             value={groupFilter}
-            onChange={(event) => setGroupFilter(event.target.value)}
+            onValueChange={setGroupFilter}
           >
-            <option value={ALL_GROUPS}>{t("episodeList.allGroups")}</option>
+            <SelectItem value={ALL_GROUPS}>
+              {t("episodeList.allGroups")}
+            </SelectItem>
             {groupNames.map((group) => (
-              <option key={group} value={group}>
+              <SelectItem key={group} value={group}>
                 {group}
-              </option>
+              </SelectItem>
             ))}
             {hasUnknownGroup ? (
-              <option value={UNKNOWN_GROUP}>
+              <SelectItem value={UNKNOWN_GROUP}>
                 {t("episodeList.unknownGroup")}
-              </option>
+              </SelectItem>
             ) : null}
           </SelectControl>
 
@@ -336,18 +326,20 @@ export const EpisodeList: React.FC<{ episodes: IAnimationInfo[] }> = ({
             label={t("episodeList.sortLabel")}
             icon={<ArrowUpDown size={15} aria-hidden="true" />}
             value={sort}
-            onChange={onSortChange}
+            onValueChange={onSortChange}
           >
-            <option value="published-desc">
+            <SelectItem value="published-desc">
               {t("episodeList.sortNewest")}
-            </option>
-            <option value="published-asc">{t("episodeList.sortOldest")}</option>
-            <option value="episode-asc">
+            </SelectItem>
+            <SelectItem value="published-asc">
+              {t("episodeList.sortOldest")}
+            </SelectItem>
+            <SelectItem value="episode-asc">
               {t("episodeList.sortEpisodeAscending")}
-            </option>
-            <option value="episode-desc">
+            </SelectItem>
+            <SelectItem value="episode-desc">
               {t("episodeList.sortEpisodeDescending")}
-            </option>
+            </SelectItem>
           </SelectControl>
         </div>
 

@@ -12,6 +12,7 @@ import {
 import { Button } from "../ui/Button";
 import { FormRow } from "../ui/FormRow";
 import { PasswordInput } from "../ui/PasswordInput";
+import { Select, SelectItem } from "../ui/Select";
 import { Spinner } from "../ui/Spinner";
 
 export const inputClassName = cn(
@@ -46,11 +47,8 @@ export const SettingsSectionHeader: React.FC<SettingsSectionHeaderProps> = ({
   </header>
 );
 
-export interface SelectProps extends React.SelectHTMLAttributes<HTMLSelectElement> {}
-
-export const Select: React.FC<SelectProps> = ({ className, ...props }) => (
-  <select className={cn(inputClassName, className)} {...props} />
-);
+export { Select, SelectItem } from "../ui/Select";
+export type { SelectProps } from "../ui/Select";
 
 export interface ToggleFieldProps {
   checked: boolean;
@@ -142,26 +140,26 @@ export const SecretField: React.FC<SecretFieldProps> = ({
             <span className="text-xs text-subtle">
               {t(`system.secret.source.${state.source}`)}
             </span>
-            <select
+            <Select
               aria-label={t("system.secret.operationLabel", { label })}
-              className="rounded-md border border-border bg-surface px-2 py-1 text-xs text-foreground focus:border-focus focus:outline-hidden focus:ring-2 focus:ring-focus"
+              className="w-auto rounded-md px-2 py-1 text-xs"
               value={effectiveOperation}
               disabled={disabled}
-              onChange={(event) => {
-                const operation = event.target.value as SecretOperation;
+              onValueChange={(value) => {
+                const operation = value as SecretOperation;
                 if (operation === "set") return;
                 onChange({ operation, value: "" });
               }}
             >
-              <option value="keep">{t("system.secret.keep")}</option>
+              <SelectItem value="keep">{t("system.secret.keep")}</SelectItem>
               {draft.value ? (
-                <option value="set">{t("system.secret.set")}</option>
+                <SelectItem value="set">{t("system.secret.set")}</SelectItem>
               ) : null}
-              <option value="clear">{t("system.secret.clear")}</option>
-              <option value="reset" disabled={state.source !== "runtime"}>
+              <SelectItem value="clear">{t("system.secret.clear")}</SelectItem>
+              <SelectItem value="reset" disabled={state.source !== "runtime"}>
                 {t("system.secret.reset")}
-              </option>
-            </select>
+              </SelectItem>
+            </Select>
           </div>
         </div>
       </div>

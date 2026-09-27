@@ -25,6 +25,7 @@ import { EmptyPrompt } from "../ui/EmptyPrompt";
 import { FormRow } from "../ui/FormRow";
 import { Input } from "../ui/Input";
 import { Table, TableColumn } from "../ui/Table";
+import { confirmDialog } from "../ui/dialogService";
 
 export const MediaLibrarySourcesSection: React.FC = () => {
   const { t } = useTranslation(["settings", "errors"]);
@@ -123,11 +124,12 @@ export const MediaLibrarySourcesSection: React.FC = () => {
   const remove = React.useCallback(
     async (source: IMediaLibrarySource) => {
       if (
-        !window.confirm(
+        !(await confirmDialog(
           t("settings:mediaLibrary.list.deleteConfirm", {
             path: source.path,
           }),
-        )
+          { destructive: true },
+        ))
       )
         return;
       setPending(source.id, true);

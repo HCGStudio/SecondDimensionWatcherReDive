@@ -8,6 +8,7 @@ import { PreviewPanel } from "../components/MetadataReviewSheet";
 import { Button } from "../components/ui/Button";
 import { FormRow } from "../components/ui/FormRow";
 import { Input } from "../components/ui/Input";
+import { Select, SelectItem } from "../components/ui/Select";
 import {
   Sheet,
   SheetBody,
@@ -377,27 +378,25 @@ export const MetadataRulesPanel: React.FC<{
               />
             </FormRow>
             <FormRow label={t("rules.source")}>
-              <select
+              <Select
                 className="w-full rounded-lg border border-border bg-canvas px-3 py-2 text-sm"
                 aria-label={t("rules.source")}
                 value={draft.sourceFeedId ?? ""}
-                onChange={(event) =>
-                  update("sourceFeedId", event.target.value || null)
-                }
+                onValueChange={(value) => update("sourceFeedId", value || null)}
               >
-                <option value="">{t("rules.anySource")}</option>
+                <SelectItem value="">{t("rules.anySource")}</SelectItem>
                 {feeds?.map((feed) => (
-                  <option key={feed.id} value={feed.id}>
+                  <SelectItem key={feed.id} value={feed.id}>
                     {feed.name || feed.url}
-                  </option>
+                  </SelectItem>
                 ))}
                 {draft.sourceFeedId &&
                   !feeds?.some((feed) => feed.id === draft.sourceFeedId) && (
-                    <option value={draft.sourceFeedId}>
+                    <SelectItem value={draft.sourceFeedId}>
                       {draft.sourceFeedId}
-                    </option>
+                    </SelectItem>
                   )}
-              </select>
+              </Select>
             </FormRow>
             <FormRow label={t("rules.pattern")} className="sm:col-span-2">
               <Input

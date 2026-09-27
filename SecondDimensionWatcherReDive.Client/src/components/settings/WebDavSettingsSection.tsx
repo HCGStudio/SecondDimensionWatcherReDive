@@ -21,10 +21,13 @@ import { createWebDavToken, deleteWebDavToken } from "../../settings/utils";
 import { useToast } from "../ToastProvider";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
+import { DatePicker } from "../ui/DatePicker";
 import { EmptyPrompt } from "../ui/EmptyPrompt";
 import { FormRow } from "../ui/FormRow";
 import { Input } from "../ui/Input";
+import { Select, SelectItem } from "../ui/Select";
 import { Table, TableColumn } from "../ui/Table";
+import { confirmDialog } from "../ui/dialogService";
 
 export const WebDavSettingsSection: React.FC = () => {
   const { t } = useTranslation(["settings", "errors"]);
@@ -88,11 +91,12 @@ export const WebDavSettingsSection: React.FC = () => {
   const remove = React.useCallback(
     async (token: IWebDavToken) => {
       if (
-        !window.confirm(
+        !(await confirmDialog(
           t("settings:webdav.list.deleteConfirm", {
             username: token.username,
           }),
-        )
+          { destructive: true },
+        ))
       )
         return;
       try {
@@ -212,20 +216,20 @@ export const WebDavSettingsSection: React.FC = () => {
       >
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 xl:items-end">
           <FormRow label={t("settings:webdav.create.userLabel")}>
-            <select
+            <Select
               className="rounded-lg border border-border bg-surface px-3 py-2 text-sm"
               value={userId}
-              onChange={(event) => setUserId(event.target.value)}
+              onValueChange={setUserId}
             >
-              <option value="">
+              <SelectItem value="">
                 {t("settings:webdav.create.currentUser")}
-              </option>
+              </SelectItem>
               {users?.map((user) => (
-                <option key={user.id} value={user.id}>
+                <SelectItem key={user.id} value={user.id}>
                   {user.username}
-                </option>
+                </SelectItem>
               ))}
-            </select>
+            </Select>
           </FormRow>
           <FormRow
             className="flex-1"
@@ -246,11 +250,7 @@ export const WebDavSettingsSection: React.FC = () => {
             />
           </FormRow>
           <FormRow label={t("settings:webdav.create.expiresAtLabel")}>
-            <Input
-              type="date"
-              value={expiresAt}
-              onChange={(event) => setExpiresAt(event.target.value)}
-            />
+            <DatePicker value={expiresAt} onValueChange={setExpiresAt} />
           </FormRow>
           <FormRow
             className="flex-1"

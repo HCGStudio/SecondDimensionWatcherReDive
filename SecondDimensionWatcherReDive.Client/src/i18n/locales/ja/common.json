@@ -70,5 +70,22 @@
     "unavailableFor": "{{name}} の画像を読み込めません",
     "retry": "{{name}} の画像を再読み込み"
   },
-  "appTitle": "二次元観測器 Re:Dive"
+  "appTitle": "二次元観測器 Re:Dive",
+  "dialogs": {
+    "confirmTitle": "操作の確認",
+    "inputTitle": "入力してください",
+    "confirm": "確認",
+    "cancel": "キャンセル"
+  },
+  "datePicker": {
+    "placeholder": "日付を選択（任意）",
+    "title": "日付を選択",
+    "keyboardHelp": "矢印キーで日付を移動し、Home または End で週の最初または最後へ、PageUp または PageDown で月を切り替え、Enter で選択します。",
+    "previousMonth": "前の月",
+    "nextMonth": "次の月",
+    "month": "月",
+    "year": "年",
+    "clear": "日付をクリア",
+    "today": "今日"
+  }
 }
