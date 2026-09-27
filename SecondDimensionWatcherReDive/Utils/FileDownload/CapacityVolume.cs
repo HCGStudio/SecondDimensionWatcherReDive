@@ -27,39 +27,17 @@ internal static class CapacityVolume
     public static string NormalizeDirectoryIdentity(string canonicalPath) =>
         canonicalPath.Replace('\\', '/').TrimEnd('/').ToUpperInvariant();
 
-    public static string? Identity(string path)
+    public static DriveInfo? FindDrive(string path)
     {
-        try
-        {
-            var canonical = CanonicalPath(path);
-            if (!OperatingSystem.IsLinux())
-                return DownloadCapacityService.FindDrive(canonical)?.Name;
-            // Device IDs identify a filesystem across bind mounts. Mount paths alone do not.
-            return File.ReadLines("/proc/self/mountinfo")
-                .Select(line => line.Split(' '))
-                .Where(fields => fields.Length > 5)
-                .Select(fields => new { Device = fields[2], Root = Decode(fields[4]) })
-                .Where(mount => Contains(mount.Root, canonical))
-                .OrderByDescending(mount => mount.Root.Length)
-                .Select(mount => "linux:" + mount.Device)
-                .FirstOrDefault();
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException)
-        {
-            return null;
-        }
+        var fullPath = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        return DriveInfo.GetDrives().Where(drive => drive.IsReady)
+            .Where(drive =>
+            {
+                var root = Path.TrimEndingDirectorySeparator(drive.RootDirectory.FullName);
+                var prefix = Path.EndsInDirectorySeparator(root) ? root : root + Path.DirectorySeparatorChar;
+                return string.Equals(fullPath, root, comparison) || fullPath.StartsWith(prefix, comparison);
+            })
+            .OrderByDescending(drive => drive.RootDirectory.FullName.Length).FirstOrDefault();
     }
-
-    public static bool MayShare(string? first, string? second) =>
-        first is null || second is null || string.Equals(first, second, StringComparison.Ordinal);
-
-    private static bool Contains(string parent, string path) =>
-        path == Path.TrimEndingDirectorySeparator(parent)
-        || path.StartsWith(Path.TrimEndingDirectorySeparator(parent) + Path.DirectorySeparatorChar,
-            StringComparison.Ordinal)
-        || parent == Path.DirectorySeparatorChar.ToString();
-
-    private static string Decode(string path) => path.Replace("\\040", " ", StringComparison.Ordinal)
-        .Replace("\\011", "\t", StringComparison.Ordinal).Replace("\\012", "\n", StringComparison.Ordinal)
-        .Replace("\\134", "\\", StringComparison.Ordinal);
 }

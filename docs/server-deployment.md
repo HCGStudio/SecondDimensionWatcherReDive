@@ -134,6 +134,7 @@ Transcoding:
   MaxMemoryBytesPerJob: 2147483648 # 2 GiB
   MaxDiskBytesPerJob: 21474836480 # 20 GiB / job
   MaxCacheBytes: 107374182400 # 100 GiB total
+  SafetyBytes: 5368709120 # 5 GiB，本地 HLS 缓存卷的磁盘安全余量
   CacheTtl: "14.00:00:00"
   SessionTtl: "00:15:00"
   SegmentDurationSeconds: 6

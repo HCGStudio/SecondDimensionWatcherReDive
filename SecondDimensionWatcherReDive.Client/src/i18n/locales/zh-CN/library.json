@@ -47,9 +47,9 @@
     "browseFiles": "浏览文件与播放",
     "download": "下载此版本",
     "startingDownload": "正在提交…",
-    "downloadQueued": "已加入下载队列",
+    "downloadQueued": "已提交下载任务",
     "downloadFailed": "未能开始下载，请刷新状态后重试",
-    "viewDownload": "查看下载队列"
+    "viewDownload": "查看下载任务"
   },
   "integrity": {
     "title": "完整性与版本升级",
@@ -69,7 +69,7 @@
     "previewReady": "预演通过；候选文件已就绪",
     "failed": "无法启动版本升级",
     "outcomes": {
-      "download_queued": "候选版本已加入下载",
+      "download_queued": "已提交候选版本下载",
       "applied": "版本升级已应用",
       "already_applied": "版本升级已应用"
     }
@@ -120,7 +120,7 @@
       "mapping_pending": "资源已完成，但有效文件映射尚未就绪；暂不重复下载。"
     },
     "outcomes": {
-      "submitted": "已进入下载队列",
+      "submitted": "已提交下载任务",
       "already_present_or_busy": "已存在或正在处理，已跳过",
       "state_changed": "资源状态已变更，请刷新后重试",
       "submission_failed": "提交失败，可重试此集",

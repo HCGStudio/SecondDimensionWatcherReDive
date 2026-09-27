@@ -47,9 +47,9 @@
     "browseFiles": "ファイルを開いて再生",
     "download": "このリリースをダウンロード",
     "startingDownload": "送信中…",
-    "downloadQueued": "ダウンロードキューに追加しました",
+    "downloadQueued": "ダウンロードタスクを送信しました",
     "downloadFailed": "ダウンロードを開始できませんでした。状態を更新して再試行してください。",
-    "viewDownload": "ダウンロードキューを開く"
+    "viewDownload": "ダウンロードを開く"
   },
   "integrity": {
     "title": "完全性とアップグレード",
@@ -69,7 +69,7 @@
     "previewReady": "ドライラン成功：候補ファイルは準備済みです",
     "failed": "更新を開始できませんでした",
     "outcomes": {
-      "download_queued": "候補をダウンロード待ちに追加しました",
+      "download_queued": "候補のダウンロードを送信しました",
       "applied": "更新を適用しました",
       "already_applied": "更新は適用済みです"
     }
@@ -120,7 +120,7 @@
       "mapping_pending": "取得済みですが有効なファイル対応が未準備のため、再取得を保留します。"
     },
     "outcomes": {
-      "submitted": "ダウンロードキューに追加しました",
+      "submitted": "ダウンロードタスクを送信しました",
       "already_present_or_busy": "取得済みまたは処理中のためスキップ",
       "state_changed": "状態が変更されました。更新して再試行してください",
       "submission_failed": "送信に失敗しました。この話を再試行できます",

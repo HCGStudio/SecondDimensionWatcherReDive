@@ -1,15 +1,16 @@
 namespace SecondDimensionWatcherReDive.Framework.DataRepository;
 
 public sealed record TranscodeCapacityReservation(
-    Guid Id, string DirectoryPath, string? VolumeIdentity, bool CountsAgainstDownloads, long BudgetBytes,
+    Guid Id, string DirectoryPath, long BudgetBytes,
     long WrittenBytes, DateTimeOffset LeaseUntil);
 
 public sealed record TranscodeCacheReader(Guid Id, string DirectoryPath);
 
 public interface ITranscodeCapacityRepository
 {
+    Task<ICapacityTransaction> BeginAsync(CancellationToken cancellationToken);
     Task<IReadOnlyList<TranscodeCapacityReservation>> ListActiveAsync(CancellationToken cancellationToken);
-    Task AddAsync(Guid id, string directoryPath, string? volumeIdentity, bool countsAgainstDownloads, long budgetBytes,
+    Task AddAsync(Guid id, string directoryPath, long budgetBytes,
         int leaseSeconds, CancellationToken cancellationToken);
     Task<bool> RenewAsync(Guid id, long writtenBytes, int leaseSeconds, CancellationToken cancellationToken);
     Task<bool> ExtendLeaseAsync(Guid id, int leaseSeconds, CancellationToken cancellationToken);

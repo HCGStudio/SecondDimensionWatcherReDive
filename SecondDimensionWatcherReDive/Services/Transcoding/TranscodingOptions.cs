@@ -13,6 +13,7 @@ internal sealed class TranscodingOptions
     public int MaxThreadsPerJob { get; set; } = 2;
     public long MaxMemoryBytesPerJob { get; set; } = 2L * 1024 * 1024 * 1024;
     public long MaxDiskBytesPerJob { get; set; } = 20L * 1024 * 1024 * 1024;
+    public long SafetyBytes { get; set; } = 5L * 1024 * 1024 * 1024;
     public long MaxCacheBytes { get; set; } = 100L * 1024 * 1024 * 1024;
     public TimeSpan JobTimeout { get; set; } = TimeSpan.FromHours(6);
     public TimeSpan CacheTtl { get; set; } = TimeSpan.FromDays(14);
