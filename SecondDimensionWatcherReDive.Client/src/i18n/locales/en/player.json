@@ -43,6 +43,10 @@
   },
   "tracks": {
     "subtitle": "Subtitle track",
+    "subtitleMenu": "Subtitles",
+    "loadingSubtitles": "Finding subtitles…",
+    "externalSubtitle": "External",
+    "embeddedSubtitle": "Embedded",
     "audio": "Audio track",
     "off": "Off",
     "available_one": "{{count}} subtitle track available (sidecar or embedded)",

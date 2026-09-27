@@ -42,6 +42,10 @@
   },
   "tracks": {
     "subtitle": "字幕轨道",
+    "subtitleMenu": "字幕",
+    "loadingSubtitles": "正在查找字幕…",
+    "externalSubtitle": "外挂",
+    "embeddedSubtitle": "内封",
     "audio": "音频轨道",
     "off": "关闭",
     "available": "共 {{count}} 条可用字幕（外挂与内封）",
