@@ -39,6 +39,7 @@
     }
   },
   "finished": "已完成",
+  "cancellationPending": "正在后台取消任务，可能需要几分钟。",
   "automation": {
     "Notified": "策略命中 · 仅通知",
     "PendingConfirmation": "策略命中 · 待确认",
@@ -55,6 +56,7 @@
     "pause": "暂停",
     "resume": "恢复",
     "cancel": "取消任务",
+    "cancelling": "正在取消",
     "browse": "浏览文件",
     "markAllWatched": "将此版本的全部视频标记为已看",
     "markAllUnwatched": "将此版本的全部视频标记为未看",
@@ -80,6 +82,10 @@
     "downloadQueued": "已提交下载任务",
     "pauseFailed": "暂停失败",
     "resumeFailed": "恢复失败",
+    "cancelled": "已取消任务",
+    "cancelRequested": "已提交取消请求，系统将在后台完成取消",
+    "cancelFailed": "取消失败",
+    "deleted": "已删除下载文件",
     "deleteFailed": "删除失败",
     "filesReidentified": "已使用 AI 重新识别文件名",
     "fileReidentifyFailed": "AI 文件名识别失败",

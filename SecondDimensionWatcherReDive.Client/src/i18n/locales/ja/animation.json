@@ -39,6 +39,7 @@
     }
   },
   "finished": "完了",
+  "cancellationPending": "バックグラウンドで中止処理中です。数分かかる場合があります。",
   "automation": {
     "Notified": "一致 · 通知のみ",
     "PendingConfirmation": "一致 · 確認待ち",
@@ -55,6 +56,7 @@
     "pause": "一時停止",
     "resume": "再開",
     "cancel": "タスクを中止",
+    "cancelling": "中止処理中",
     "browse": "ファイルを開く",
     "markAllWatched": "このリリースの全動画を視聴済みにする",
     "markAllUnwatched": "このリリースの全動画を未視聴に戻す",
@@ -80,6 +82,10 @@
     "downloadQueued": "ダウンロードタスクを送信しました",
     "pauseFailed": "一時停止に失敗しました",
     "resumeFailed": "再開に失敗しました",
+    "cancelled": "タスクを中止しました",
+    "cancelRequested": "中止リクエストを受け付けました。バックグラウンドで中止処理を完了します。",
+    "cancelFailed": "中止に失敗しました",
+    "deleted": "ダウンロードファイルを削除しました",
     "deleteFailed": "削除に失敗しました",
     "filesReidentified": "AI でファイル名を再識別しました",
     "fileReidentifyFailed": "AI によるファイル名の再識別に失敗しました",

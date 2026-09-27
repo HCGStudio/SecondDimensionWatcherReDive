@@ -3,7 +3,8 @@ namespace SecondDimensionWatcherReDive.Framework.DataRepository;
 public sealed record DownloadCancellationLease(
     Guid Id,
     DateTimeOffset ExpiresAt,
-    bool RemoveFile);
+    bool RemoveFile,
+    bool SubmissionPending = false);
 
 public sealed record DownloadSubmissionLease(
     Guid Id,

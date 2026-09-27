@@ -398,8 +398,22 @@ internal class AnimationInfoController(
                     SubscriptionAutomationDisposition.DownloadCancelled,
                     beginCancellation.Token);
             if (cancellationLease is null)
+            {
+                // A repeated request can arrive while the accepted cancellation
+                // still owns its lease. Report that persisted intent as pending.
+                var current = await animationInfoRepository.FindByIdAsync(id, beginCancellation.Token);
+                if (!removeFile
+                    && current is { IsDownloadTracked: true, DownloadCancellationId: not null }
+                    && current.DownloadAttemptId == info.DownloadAttemptId)
+                    return Accepted();
                 return Conflict();
+            }
         }
+
+        // The durable intent prevents resubmission and completion. Recovery
+        // deletes any late remote submission once its existing lease expires.
+        if (cancellationLease.SubmissionPending)
+            return Accepted();
 
         var remainingRemoteBudget = DownloadCancellationRemoteBudget -
                                     Stopwatch.GetElapsedTime(leaseRequestStartedAt);

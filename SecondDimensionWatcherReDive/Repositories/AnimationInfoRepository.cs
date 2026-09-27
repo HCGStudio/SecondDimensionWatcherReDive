@@ -647,6 +647,7 @@ public class AnimationInfoRepository(
         await foreach (var info in context.AnimationInfo
                            .Where(i => i.IsDownloadTracked
                                        && !i.IsDownloadFinished
+                                       && i.DownloadCancellationId == null
                                        && i.DownloadType == FileDownloadTypes.TorrentDownload)
                            .AsAsyncEnumerable()
                            .WithCancellation(cancellationToken))
@@ -1431,9 +1432,9 @@ public class AnimationInfoRepository(
                 entity.DownloadSubmissionLeaseId is not null &&
                 (entity.DownloadSubmissionLeaseUntil is null ||
                  entity.DownloadSubmissionLeaseUntil > databaseNow);
-            if (hasLiveOrdinarySubmissionLease &&
-                entity.DownloadSubmissionLeaseId != cancellationLeaseId)
-                return null;
+            // Accept cancellation while submission is in flight. Preserve its
+            // lease so finalization cannot race a late remote submission;
+            // recovery will delete the remote task after that lease expires.
 
             if (!entity.IsDownloadTracked)
             {
@@ -1581,7 +1582,9 @@ public class AnimationInfoRepository(
             return new DownloadCancellationLease(
                 cancellationLeaseId,
                 cancellationLeaseUntil,
-                effectiveRemoveFile);
+                effectiveRemoveFile,
+                hasLiveOrdinarySubmissionLease && entity.DownloadSubmissionLeaseId != cancellationLeaseId
+                    || activeSubmissionOperations.Count > 0);
         });
     }
 
