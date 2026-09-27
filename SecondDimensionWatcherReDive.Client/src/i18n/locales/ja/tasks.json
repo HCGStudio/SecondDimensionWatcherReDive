@@ -10,9 +10,10 @@
   },
   "runNow": "今すぐ実行",
   "running": "実行中",
+  "submitting": "送信中",
   "idle": "待機中",
   "announcements": {
-    "started": "タスク「{{name}}」を開始しました"
+    "submitting": "タスク「{{name}}」を送信しています"
   },
   "empty": {
     "title": "バックグラウンドタスクがありません",
@@ -26,8 +27,8 @@
     "minute": "{{count}} 分"
   },
   "toast": {
-    "success": "タスク「{{name}}」を完了しました",
-    "failure": "タスク「{{name}}」が失敗しました"
+    "submitted": "タスク「{{name}}」のバックグラウンド処理をリクエストしました",
+    "submissionFailed": "タスク「{{name}}」を送信できませんでした"
   },
   "deadLetters": {
     "title": "失敗した永続ジョブ",
