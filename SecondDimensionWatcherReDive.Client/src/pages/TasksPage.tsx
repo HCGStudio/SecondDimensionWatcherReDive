@@ -100,6 +100,13 @@ export const TasksPage: React.FC = () => {
             ? aiSelection
             : undefined,
         );
+        addToast({
+          title: t("tasks:toast.submitted", { name: getTaskMetadata(id).name }),
+          color: "success",
+        });
+        // Keep the trigger disabled until refreshed task state is available.
+        // Revalidation errors belong to the task list, not the accepted submission.
+        await mutate().catch(() => undefined);
       } catch {
         addToast({
           title: t("tasks:toast.submissionFailed", {
@@ -107,7 +114,6 @@ export const TasksPage: React.FC = () => {
           }),
           color: "danger",
         });
-        return;
       } finally {
         setTaskAnnouncement("");
         setSubmittingTasks((prev) => {
@@ -116,12 +122,6 @@ export const TasksPage: React.FC = () => {
           return next;
         });
       }
-      addToast({
-        title: t("tasks:toast.submitted", { name: getTaskMetadata(id).name }),
-        color: "success",
-      });
-      // Revalidation errors belong to the task list, not the accepted submission.
-      void mutate().catch(() => undefined);
     },
     [mutate, addToast, t, getTaskMetadata, aiSelection, tasks],
   );
