@@ -34,6 +34,10 @@ import { EmptyPrompt } from "../components/ui/EmptyPrompt";
 import { Spinner } from "../components/ui/Spinner";
 import { generatePlaybackLink } from "../file/utils";
 import {
+  SubtitleMenu,
+  type SubtitleMenuTarget,
+} from "../playback/SubtitleMenu";
+import {
   type EndingProgressGuard,
   TimelineControls,
 } from "../playback/TimelineControls";
@@ -291,6 +295,8 @@ export const PlayerPage: React.FC = () => {
 
   const playerContainerRef = React.useRef<HTMLDivElement>(null);
   const artRef = React.useRef<Artplayer | null>(null);
+  const [subtitleMenuTarget, setSubtitleMenuTarget] =
+    React.useState<SubtitleMenuTarget | null>(null);
   const sourceRefreshRef = React.useRef<(() => Promise<void>) | null>(null);
   const sourceExpiresAtRef = React.useRef(0);
   const wantsPlaybackRef = React.useRef(shouldAutoplay);
@@ -304,6 +310,9 @@ export const PlayerPage: React.FC = () => {
     audio: Pick<AudioTrackOption, "key" | "label" | "language"> | null;
   } | null>(null);
   const captionsRendererRef = React.useRef<CaptionsRenderer | null>(null);
+  const nativeSubtitleSwitchesRef = React.useRef(
+    new WeakMap<Artplayer, Promise<void>>(),
+  );
   const contextRef = React.useRef(playbackContext);
   const preferencesRef = React.useRef(playbackContext?.preferences);
   const lastSyncedTimeRef = React.useRef(-1);
@@ -1014,6 +1023,16 @@ export const PlayerPage: React.FC = () => {
     });
 
     artRef.current = art;
+    const subtitleMenuContainer = document.createElement("div");
+    subtitleMenuContainer.style.height = "100%";
+    art.controls.add({
+      name: "subtitles",
+      position: "right",
+      index: 5,
+      html: subtitleMenuContainer,
+      style: { padding: "0" },
+    });
+    setSubtitleMenuTarget({ player: art, container: subtitleMenuContainer });
     let autoplayAfterSeek = false;
     const startPlayback = () => {
       if (playbackMode === "mkvProxy" && art.video.seeking) {
@@ -1233,6 +1252,9 @@ export const PlayerPage: React.FC = () => {
         captionsRendererRef.current = null;
       }
       art.destroy(false);
+      setSubtitleMenuTarget((current) =>
+        current?.player === art ? null : current,
+      );
       if (artRef.current === art) artRef.current = null;
     };
   }, [
@@ -1248,19 +1270,15 @@ export const PlayerPage: React.FC = () => {
   React.useEffect(() => {
     const art = artRef.current;
     if (!art) return;
-    if (selectedSubtitle === OFF_TRACK) {
-      art.subtitle.show = false;
-      captionsRendererRef.current?.reset();
-      return;
-    }
+    art.subtitle.show = false;
+    captionsRendererRef.current?.reset();
+    if (selectedSubtitle === OFF_TRACK) return;
     const subtitle = subtitles.find((item) => item.path === selectedSubtitle);
     if (!subtitle) return;
 
     if (playbackMode === "mkvProxy") {
-      art.subtitle.show = false;
       const renderer = captionsRendererRef.current;
       if (!renderer) return;
-      renderer.reset();
       const controller = new AbortController();
       void parseResponse(fetch(subtitle.url, { signal: controller.signal }), {
         type: normalizeCaptionFormat(subtitle.format),
@@ -1277,7 +1295,11 @@ export const PlayerPage: React.FC = () => {
           renderer.currentTime = art.currentTime;
         })
         .catch((error: unknown) => {
-          if (!isAbortError(error)) {
+          if (
+            !controller.signal.aborted &&
+            captionsRendererRef.current === renderer &&
+            !isAbortError(error)
+          ) {
             addToast({
               title: t("tracks.subtitleLoadFailed"),
               color: "warning",
@@ -1287,22 +1309,50 @@ export const PlayerPage: React.FC = () => {
       return () => controller.abort();
     }
 
-    captionsRendererRef.current?.reset();
-    void art.subtitle
-      .switch(subtitle.url, {
-        name: subtitle.label,
-        type:
-          subtitle.format.toLowerCase() === "ssa"
-            ? "ass"
-            : subtitle.format.toLowerCase(),
-        encoding: "utf-8",
-      })
-      .then(() => {
-        if (artRef.current === art) art.subtitle.show = true;
-      })
-      .catch(() => {
-        addToast({ title: t("tracks.subtitleLoadFailed"), color: "warning" });
-      });
+    const controller = new AbortController();
+    const isCurrent = () =>
+      !controller.signal.aborted && artRef.current === art;
+    const loadSubtitle = async () => {
+      let downloadedUrl: string | null = null;
+      try {
+        const response = await fetch(subtitle.url, {
+          signal: controller.signal,
+        });
+        if (!response.ok) {
+          throw new Error(`Subtitle request failed: ${response.status}`);
+        }
+        const content = await response.blob();
+        if (!isCurrent()) return;
+        const localUrl = URL.createObjectURL(content);
+        downloadedUrl = localUrl;
+        const previous =
+          nativeSubtitleSwitchesRef.current.get(art) ?? Promise.resolve();
+        // Artplayer cannot cancel switch(): serialize its local conversions so
+        // an older request cannot replace a newer track after it has loaded.
+        const pending = previous.then(async () => {
+          if (!isCurrent()) return;
+          const format = normalizeCaptionFormat(subtitle.format);
+          await art.subtitle.switch(localUrl, {
+            type: format === "ssa" ? "ass" : format,
+            encoding: "utf-8",
+          });
+          if (isCurrent()) art.subtitle.show = true;
+        });
+        nativeSubtitleSwitchesRef.current.set(
+          art,
+          pending.catch(() => undefined),
+        );
+        await pending;
+      } catch (error: unknown) {
+        if (isCurrent() && !isAbortError(error)) {
+          addToast({ title: t("tracks.subtitleLoadFailed"), color: "warning" });
+        }
+      } finally {
+        if (downloadedUrl) URL.revokeObjectURL(downloadedUrl);
+      }
+    };
+    void loadSubtitle();
+    return () => controller.abort();
   }, [addToast, playbackMode, playbackUrl, selectedSubtitle, subtitles, t]);
 
   const flushPreferenceQueue = React.useCallback(async () => {
@@ -1500,6 +1550,18 @@ export const PlayerPage: React.FC = () => {
 
   return (
     <PageTemplate>
+      {subtitleMenuTarget ? (
+        <SubtitleMenu
+          key={subtitleMenuTarget.player.id}
+          target={subtitleMenuTarget}
+          subtitles={subtitles}
+          selectedSubtitle={selectedSubtitle}
+          offValue={OFF_TRACK}
+          discoveryComplete={subtitleDiscoveryComplete}
+          skippedSubtitleCount={skippedSubtitleCount}
+          onSelect={onSubtitleChange}
+        />
+      ) : null}
       <Button variant="ghost" size="sm" onClick={goBack} className="mb-4">
         <ArrowLeft size={16} />
         {t("back")}
