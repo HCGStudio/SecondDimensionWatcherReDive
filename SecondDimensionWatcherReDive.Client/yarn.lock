@@ -375,6 +375,7 @@ __metadata:
     "@parcel/config-default": "npm:2.16.4"
     "@parcel/core": "npm:^2.16.4"
     "@parcel/packager-raw": "npm:2.16.4"
+    "@parcel/transformer-inline-string": "npm:2.16.4"
     "@parcel/transformer-raw": "npm:2.16.4"
     "@playwright/test": "npm:^1.62.1"
     "@radix-ui/react-dialog": "npm:^1.1.23"
@@ -1273,6 +1274,15 @@ __metadata:
   peerDependencies:
     "@parcel/core": ^2.16.4
   checksum: 10/6f0010656201c1362e40b256e71e6a082c135c9cb3d562b444094a22fed74fc88e500fecd881fd06a356ace2aab0b8128e25ad92c05f872ed14a14bf848df430
+  languageName: node
+  linkType: hard
+
+"@parcel/transformer-inline-string@npm:2.16.4":
+  version: 2.16.4
+  resolution: "@parcel/transformer-inline-string@npm:2.16.4"
+  dependencies:
+    "@parcel/plugin": "npm:2.16.4"
+  checksum: 10/bb8cd93780d9c106d44512b07c6c6ed22316efa398278e95ca8f41ca9e8e420c171d907c03ea0f2939fbf14d5fbcd629ecb31fdd63659c15ff54e716f9394dc8
   languageName: node
   linkType: hard
 
@@ -2925,10 +2935,10 @@ __metadata:
 
 "artplayer-proxy-mediabunny@patch:artplayer-proxy-mediabunny@npm%3A1.2.0#~/.yarn/patches/artplayer-proxy-mediabunny-npm-1.2.0-44361bb6c9.patch":
   version: 1.2.0
-  resolution: "artplayer-proxy-mediabunny@patch:artplayer-proxy-mediabunny@npm%3A1.2.0#~/.yarn/patches/artplayer-proxy-mediabunny-npm-1.2.0-44361bb6c9.patch::version=1.2.0&hash=5ffcd4"
+  resolution: "artplayer-proxy-mediabunny@patch:artplayer-proxy-mediabunny@npm%3A1.2.0#~/.yarn/patches/artplayer-proxy-mediabunny-npm-1.2.0-44361bb6c9.patch::version=1.2.0&hash=367801"
   dependencies:
     mediabunny: "npm:^1.43.1"
-  checksum: 10/5c84a1d41c8a87ff84efd9484e89f693fb8603e2283ac0651840d67f04749ae96a59684f5337eaeef0987de054fe7b1e2b195eef54ba26bfee59ece309ac7280
+  checksum: 10/40e431d1a9e2320e0d6e506adadd5705c1f7b45cb22321eddd35440d419ebf0ae9def1166411ea3b2208eebc42b30b179c252425cb0eee8ed58698eb23e9535d
   languageName: node
   linkType: hard
 

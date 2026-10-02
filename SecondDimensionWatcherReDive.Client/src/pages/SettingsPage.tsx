@@ -13,6 +13,7 @@ import { DownloadSettingsSection } from "../components/settings/DownloadSettings
 import { HealthSettingsSection } from "../components/settings/HealthSettingsSection";
 import { MediaSettingsSection } from "../components/settings/MediaSettingsSection";
 import { NotificationSettingsSection } from "../components/settings/NotificationSettingsSection";
+import { PlaybackSettingsSection } from "../components/settings/PlaybackSettingsSection";
 import { PluginSettingsSection } from "../components/settings/PluginSettingsSection";
 import {
   SettingsNavigation,
@@ -42,13 +43,19 @@ export const SettingsPage: React.FC = () => {
   const { isAdministrator } = useAccess();
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedSection = searchParams.get("section");
-  const activeSection: SettingsSectionId = !isAdministrator
-    ? "appearance"
-    : isSectionId(requestedSection)
+  const sections: readonly SettingsSectionId[] = isAdministrator
+    ? settingsSectionIds
+    : ["appearance", "playback"];
+  const activeSection: SettingsSectionId =
+    isSectionId(requestedSection) && sections.includes(requestedSection)
       ? requestedSection
-      : "ai";
+      : isAdministrator
+        ? "ai"
+        : "appearance";
+  const isPersonalSection =
+    activeSection === "appearance" || activeSection === "playback";
   const { data, error, mutate } = useSystemSettings(
-    isAdministrator && activeSection !== "appearance",
+    isAdministrator && !isPersonalSection,
   );
 
   const selectSection = React.useCallback(
@@ -97,19 +104,19 @@ export const SettingsPage: React.FC = () => {
           {t(
             isAdministrator
               ? "settings:pageTitle"
-              : "settings:appearance.pageTitle",
+              : "settings:personalPageTitle",
           )}
         </h1>
         <p className="mt-2 max-w-3xl text-sm leading-body text-muted">
           {t(
-            activeSection === "appearance"
-              ? "settings:appearance.pageDescription"
+            isPersonalSection
+              ? `settings:${activeSection}.pageDescription`
               : "settings:system.pageDescription",
           )}
         </p>
       </header>
 
-      {data?.pendingRestart ? (
+      {!isPersonalSection && data?.pendingRestart ? (
         <div className="mb-6 flex items-start gap-3 rounded-lg border border-warning/30 bg-warning/10 px-4 py-3 text-sm leading-body text-muted">
           <RotateCw size={17} className="mt-0.5 shrink-0 text-warning" />
           <div>
@@ -127,13 +134,15 @@ export const SettingsPage: React.FC = () => {
         <aside>
           <SettingsNavigation
             active={activeSection}
-            sections={isAdministrator ? settingsSectionIds : ["appearance"]}
+            sections={sections}
             onChange={selectSection}
           />
         </aside>
         <div className="min-w-0">
           {activeSection === "appearance" ? (
             <AppearanceSettingsSection />
+          ) : activeSection === "playback" ? (
+            <PlaybackSettingsSection />
           ) : error ? (
             <EmptyPrompt
               role="alert"
