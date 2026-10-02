@@ -3,13 +3,14 @@ import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router";
 import { mutate as mutateAll } from "swr";
 
-import { KeyRound, Monitor, Plus, Shield, UserRound } from "lucide-react";
+import { KeyRound, Monitor, Plus, Shield } from "lucide-react";
 
+import { ProfileAvatar } from "../accounts/ProfileAvatar";
+import { ProfileSettings } from "../accounts/ProfileSettings";
 import {
   createProfile,
   createUser,
   revokeSession,
-  updateProfile,
   updateUserAccess,
 } from "../accounts/api";
 import {
@@ -29,7 +30,7 @@ import { FormRow } from "../components/ui/FormRow";
 import { Input } from "../components/ui/Input";
 import { PasswordInput } from "../components/ui/PasswordInput";
 import { Select, SelectItem } from "../components/ui/Select";
-import { confirmDialog, promptDialog } from "../components/ui/dialogService";
+import { promptDialog } from "../components/ui/dialogService";
 import { PageTemplate } from "./PageTemplate";
 
 const roles: UserRole[] = ["Admin", "Member", "Viewer"];
@@ -48,7 +49,6 @@ export const AccountPage: React.FC = () => {
     useAllSessions(isAdmin);
 
   const [profileName, setProfileName] = React.useState("");
-  const [profileAvatar, setProfileAvatar] = React.useState("");
   const [profilePin, setProfilePin] = React.useState("");
   const [username, setUsername] = React.useState("");
   const [password, setPassword] = React.useState("");
@@ -102,57 +102,13 @@ export const AccountPage: React.FC = () => {
       window.location.assign("/");
     });
 
-  const saveCurrentProfile = (profile: IAuthProfile) =>
-    run(async () => {
-      const name = await promptDialog(t("profileName"), {
-        defaultValue: profile.name,
-      });
-      if (!name) return;
-      const avatar = await promptDialog(t("avatar"), {
-        defaultValue: profile.avatar ?? "",
-      });
-      if (avatar === null) return;
-      const replacePin = await confirmDialog(t("replacePinPrompt"));
-      let currentPin: string | undefined;
-      let pin: string | undefined;
-      if (replacePin) {
-        if (profile.hasPin) {
-          const value = await promptDialog(t("currentPin"), {
-            inputType: "password",
-            inputMode: "numeric",
-          });
-          if (value === null) return;
-          currentPin = value;
-        } else if (!(await stepUp())) {
-          return;
-        }
-        const value = await promptDialog(t("newPin"), {
-          inputType: "password",
-          inputMode: "numeric",
-          autoComplete: "new-password",
-        });
-        if (value === null) return;
-        pin = value;
-      }
-      await updateProfile(profile.id, {
-        name,
-        avatar: avatar || undefined,
-        currentPin,
-        pin,
-        replacePin,
-      });
-      await Promise.all([mutateProfiles(), mutateStatus()]);
-    });
-
   const addProfile = () =>
     run(async () => {
       await createProfile({
         name: profileName,
-        avatar: profileAvatar || undefined,
         pin: profilePin || undefined,
       });
       setProfileName("");
-      setProfileAvatar("");
       setProfilePin("");
       await Promise.all([mutateProfiles(), mutateStatus()]);
     });
@@ -206,34 +162,13 @@ export const AccountPage: React.FC = () => {
             return (
               <Card
                 key={profile.id}
-                icon={
-                  profile.avatar ? (
-                    <img
-                      src={profile.avatar}
-                      alt=""
-                      className="h-9 w-9 rounded-full object-cover"
-                    />
-                  ) : (
-                    <UserRound size={22} />
-                  )
-                }
+                icon={<ProfileAvatar src={profile.avatar} />}
                 title={profile.name}
                 description={`${active ? t("active") : t("available")} · ${
                   profile.hasPin ? t("pinProtected") : t("noPin")
                 }`}
                 footer={
-                  active ? (
-                    canCreateProfile ? (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={busy}
-                        onClick={() => void saveCurrentProfile(profile)}
-                      >
-                        {t("editProfile")}
-                      </Button>
-                    ) : null
-                  ) : (
+                  active ? null : (
                     <Button
                       size="sm"
                       disabled={busy}
@@ -248,23 +183,28 @@ export const AccountPage: React.FC = () => {
           })}
         </div>
 
+        {canCreateProfile &&
+        profiles?.find((profile) => profile.id === status?.profileId) ? (
+          <ProfileSettings
+            key={status?.profileId}
+            profile={profiles.find(
+              (profile) => profile.id === status?.profileId,
+            )!}
+            onSaved={() => Promise.all([mutateProfiles(), mutateStatus()])}
+          />
+        ) : null}
+
         {canCreateProfile ? (
           <Card
             className="mt-5"
             icon={<Plus size={18} />}
             title={t("createProfile")}
           >
-            <div className="grid gap-3 md:grid-cols-4 md:items-end">
+            <div className="grid gap-3 md:grid-cols-3 md:items-end">
               <FormRow label={t("profileName")}>
                 <Input
                   value={profileName}
                   onChange={(event) => setProfileName(event.target.value)}
-                />
-              </FormRow>
-              <FormRow label={t("avatar")}>
-                <Input
-                  value={profileAvatar}
-                  onChange={(event) => setProfileAvatar(event.target.value)}
                 />
               </FormRow>
               <FormRow label={t("pinOptional")}>
