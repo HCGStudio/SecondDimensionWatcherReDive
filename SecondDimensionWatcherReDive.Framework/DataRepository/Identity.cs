@@ -17,6 +17,8 @@ public enum UpdateUserAccessResult
 public sealed class IdentityConflictException(string message, Exception? innerException = null)
     : Exception(message, innerException);
 
+public sealed class IdentityAuthenticationException() : Exception("The account authentication state changed.");
+
 public static class IdentityDefaults
 {
     public static readonly Guid UserId = Guid.Parse("00000000-0000-0000-0000-000000000001");
@@ -32,7 +34,10 @@ public sealed record UserAccount(
     UserRole Role,
     bool IsDisabled,
     DateTimeOffset CreatedAt,
-    DateTimeOffset UpdatedAt);
+    DateTimeOffset UpdatedAt)
+{
+    public bool PasswordRemoved { get; init; }
+}
 
 public sealed record UserProfile(
     Guid Id,

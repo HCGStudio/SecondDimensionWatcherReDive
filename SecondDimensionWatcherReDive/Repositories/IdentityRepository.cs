@@ -75,7 +75,7 @@ public sealed class IdentityRepository(Models.ApplicationContext context) : IIde
         CancellationToken cancellationToken)
     {
         var affected = await context.Users
-            .Where(user => user.Id == userId && !user.IsDisabled)
+            .Where(user => user.Id == userId && !user.IsDisabled && !user.PasswordRemoved)
             .ExecuteUpdateAsync(setters => setters
                 .SetProperty(user => user.PasswordHash, passwordHash)
                 .SetProperty(user => user.UpdatedAt, now), cancellationToken);
@@ -206,10 +206,28 @@ public sealed class IdentityRepository(Models.ApplicationContext context) : IIde
 
     public async Task AddSessionAsync(
         UserSession session,
+        bool requirePassword,
         CancellationToken cancellationToken)
     {
-        context.LoginSessions.Add(session.ToEntity());
-        await context.SaveChangesAsync(cancellationToken);
+        await context.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
+        {
+            await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+            await context.Database.ExecuteSqlInterpolatedAsync(
+                $"SELECT 1 FROM \"Users\" WHERE \"Id\" = {session.UserId} FOR UPDATE", cancellationToken);
+            if (!await context.Users.AnyAsync(user => user.Id == session.UserId && !user.IsDisabled
+                && (!requirePassword || !user.PasswordRemoved && user.PasswordHash != null), cancellationToken))
+                throw new IdentityAuthenticationException();
+            await context.Database.ExecuteSqlInterpolatedAsync($"""
+                INSERT INTO "LoginSessions"
+                    ("Id", "UserId", "ActiveProfileId", "RefreshTokenHash", "DeviceName", "AuthenticatedAt",
+                     "CreatedAt", "LastSeenAt", "ExpiresAt", "RevokedAt")
+                VALUES ({session.Id}, {session.UserId}, {session.ActiveProfileId}, {session.RefreshTokenHash},
+                    {session.DeviceName}, {session.AuthenticatedAt}, {session.CreatedAt}, {session.LastSeenAt},
+                    {session.ExpiresAt}, {session.RevokedAt})
+                ON CONFLICT ("Id") DO NOTHING
+                """, cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        });
     }
 
     public async Task<AuthenticatedSession?> GetAuthenticatedSessionAsync(
@@ -241,24 +259,41 @@ public sealed class IdentityRepository(Models.ApplicationContext context) : IIde
         DateTimeOffset? authenticatedAt,
         DateTimeOffset now,
         DateTimeOffset expiresAt,
+        bool requirePassword,
         CancellationToken cancellationToken)
     {
-        var affected = await context.LoginSessions
-            .Where(session => session.Id == sessionId
-                              && session.RefreshTokenHash == expectedRefreshTokenHash
-                              && session.RevokedAt == null
-                              && session.ExpiresAt > now
-                              && context.Profiles.Any(profile =>
-                                  profile.Id == activeProfileId
-                                  && profile.UserId == session.UserId))
-            .ExecuteUpdateAsync(setters => setters
-                .SetProperty(session => session.RefreshTokenHash, newRefreshTokenHash)
-                .SetProperty(session => session.ActiveProfileId, activeProfileId)
-                .SetProperty(session => session.AuthenticatedAt,
-                    session => authenticatedAt ?? session.AuthenticatedAt)
-                .SetProperty(session => session.LastSeenAt, now)
-                .SetProperty(session => session.ExpiresAt, expiresAt), cancellationToken);
-        return affected == 1;
+        async Task<bool> RotateAsync()
+        {
+            var affected = await context.LoginSessions
+                .Where(session => session.Id == sessionId
+                                  && session.RefreshTokenHash == expectedRefreshTokenHash
+                                  && session.RevokedAt == null
+                                  && session.ExpiresAt > now
+                                  && (!requirePassword || !session.User.PasswordRemoved && session.User.PasswordHash != null)
+                                  && context.Profiles.Any(profile =>
+                                      profile.Id == activeProfileId
+                                      && profile.UserId == session.UserId))
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(session => session.RefreshTokenHash, newRefreshTokenHash)
+                    .SetProperty(session => session.ActiveProfileId, activeProfileId)
+                    .SetProperty(session => session.AuthenticatedAt,
+                        session => authenticatedAt ?? session.AuthenticatedAt)
+                    .SetProperty(session => session.LastSeenAt, now)
+                    .SetProperty(session => session.ExpiresAt, expiresAt), cancellationToken);
+            return affected == 1;
+        }
+        if (!requirePassword) return await RotateAsync();
+        return await context.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
+        {
+            await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+            await context.Database.ExecuteSqlInterpolatedAsync($"""
+                SELECT 1 FROM "Users" WHERE "Id" =
+                    (SELECT "UserId" FROM "LoginSessions" WHERE "Id" = {sessionId}) FOR UPDATE
+                """, cancellationToken);
+            var rotated = await RotateAsync();
+            await transaction.CommitAsync(cancellationToken);
+            return rotated;
+        });
     }
 
     public async Task<IReadOnlyList<UserSessionSummary>> GetSessionsAsync(
@@ -318,7 +353,7 @@ internal static class IdentityRepositoryConverter
         entity.Role,
         entity.IsDisabled,
         entity.CreatedAt,
-        entity.UpdatedAt);
+        entity.UpdatedAt) { PasswordRemoved = entity.PasswordRemoved };
 
     internal static UserProfile ToRecord(this ProfileEntity entity) => new(
         entity.Id,
@@ -347,6 +382,7 @@ internal static class IdentityRepositoryConverter
         Id = record.Id,
         Username = record.Username,
         PasswordHash = record.PasswordHash,
+        PasswordRemoved = record.PasswordRemoved,
         Role = record.Role,
         IsDisabled = record.IsDisabled,
         CreatedAt = record.CreatedAt,

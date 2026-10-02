@@ -23,4 +23,6 @@ export interface IAuthState {
   sessionId: string;
   profileId: string;
   profiles: IAuthProfile[];
+  hasPassword?: boolean;
+  hasPasskeys?: boolean;
 }

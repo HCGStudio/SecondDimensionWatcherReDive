@@ -16,6 +16,7 @@
         <PackageReference Include="AspSpaService" Version="1.0.6" />
         <PackageReference Include="BCrypt.Net-Next" Version="4.2.0" />
         <PackageReference Include="BencodeNET" Version="5.0.0" />
+        <PackageReference Include="Fido2" Version="4.1.0" />
         <PackageReference Include="HtmlAgilityPack" Version="1.13.0" />
 
         <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.11" />

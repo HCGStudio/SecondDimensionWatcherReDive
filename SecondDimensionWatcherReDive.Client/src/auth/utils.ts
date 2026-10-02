@@ -1,6 +1,8 @@
-import { promptDialog } from "../components/ui/dialogService";
+import { ApiError } from "../errors/apiError";
 import { IAuthResult } from "./IAuthResult";
 import fetcher, {
+  AuthIdentityChangedError,
+  beginAuthBoundRequest,
   clearAuthForSession,
   getAuthResult,
   rotateAuthenticatedSession,
@@ -51,27 +53,47 @@ export const switchProfile = (profileId: string, pin?: string) =>
     refreshToken: auth.refreshToken,
   }));
 
-export const reauthenticate = (password: string) =>
-  rotateAuthenticatedSession("/api/auth/reauthenticate", (auth) => ({
-    password,
-    refreshToken: auth.refreshToken,
-  }));
+export const reauthenticateInteractively = async (
+  promptMessage: string,
+  signal?: AbortSignal,
+): Promise<boolean> => {
+  const bound = beginAuthBoundRequest(true, signal);
+  try {
+    const reauthentication = await import("./reauthentication");
+    if (!bound.isCurrent()) throw new AuthIdentityChangedError();
+    return await reauthentication.reauthenticateInteractively(
+      promptMessage,
+      bound.signal,
+    );
+  } finally {
+    bound.dispose();
+  }
+};
 
 export const retryAfterReauthentication = async <T>(
   operation: () => Promise<T>,
   promptMessage: string,
+  signal?: AbortSignal,
 ): Promise<T> => {
+  const bound = beginAuthBoundRequest(true, signal);
   try {
-    return await operation();
-  } catch (error) {
-    if (!(error instanceof Error) || error.message !== "403") throw error;
-    const password = await promptDialog(promptMessage, {
-      inputType: "password",
-      autoComplete: "current-password",
-    });
-    if (!password) throw error;
-    await reauthenticate(password);
-    return operation();
+    try {
+      return await operation();
+    } catch (error) {
+      if (
+        !(error instanceof Error) ||
+        error.message !== "403" ||
+        (error instanceof ApiError && error.code === "httpsRequired")
+      )
+        throw error;
+      if (!bound.isCurrent()) throw new AuthIdentityChangedError();
+      if (!(await reauthenticateInteractively(promptMessage, bound.signal)))
+        throw error;
+      if (!bound.isCurrent()) throw new AuthIdentityChangedError();
+      return await operation();
+    }
+  } finally {
+    bound.dispose();
   }
 };
 

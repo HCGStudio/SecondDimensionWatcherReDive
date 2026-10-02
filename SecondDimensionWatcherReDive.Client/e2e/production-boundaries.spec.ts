@@ -124,7 +124,7 @@ test.describe("production boundary journeys", () => {
         .fill("correct horse battery staple");
       await page
         .getByRole("main")
-        .getByRole("button", { name: "Sign in" })
+        .getByRole("button", { name: "Sign in", exact: true })
         .click();
     }
     await expect(
@@ -141,7 +141,7 @@ test.describe("production boundary journeys", () => {
       .fill("correct horse battery staple");
     await page
       .getByRole("main")
-      .getByRole("button", { name: "Sign in" })
+      .getByRole("button", { name: "Sign in", exact: true })
       .click();
     await expect(
       page.getByRole("heading", { name: "Pick up a good story." }),

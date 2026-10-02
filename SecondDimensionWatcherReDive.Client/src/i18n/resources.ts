@@ -1,6 +1,5 @@
 import enAccounts from "./locales/en/accounts.json";
 import enAnimation from "./locales/en/animation.json";
-import enAuth from "./locales/en/auth.json";
 import enCommon from "./locales/en/common.json";
 import enErrors from "./locales/en/errors.json";
 import enFeeds from "./locales/en/feeds.json";
@@ -14,7 +13,6 @@ import enTodos from "./locales/en/todos.json";
 import enWatchlist from "./locales/en/watchlist.json";
 import jaAccounts from "./locales/ja/accounts.json";
 import jaAnimation from "./locales/ja/animation.json";
-import jaAuth from "./locales/ja/auth.json";
 import jaCommon from "./locales/ja/common.json";
 import jaErrors from "./locales/ja/errors.json";
 import jaFeeds from "./locales/ja/feeds.json";
@@ -28,7 +26,6 @@ import jaTodos from "./locales/ja/todos.json";
 import jaWatchlist from "./locales/ja/watchlist.json";
 import zhCnAccounts from "./locales/zh-CN/accounts.json";
 import zhCnAnimation from "./locales/zh-CN/animation.json";
-import zhCnAuth from "./locales/zh-CN/auth.json";
 import zhCnCommon from "./locales/zh-CN/common.json";
 import zhCnErrors from "./locales/zh-CN/errors.json";
 import zhCnFeeds from "./locales/zh-CN/feeds.json";
@@ -46,7 +43,6 @@ export const resources = {
     common: zhCnCommon,
     watchlist: zhCnWatchlist,
     accounts: zhCnAccounts,
-    auth: zhCnAuth,
     errors: zhCnErrors,
     animation: zhCnAnimation,
     files: zhCnFiles,
@@ -65,7 +61,6 @@ export const resources = {
     common: enCommon,
     watchlist: enWatchlist,
     accounts: enAccounts,
-    auth: enAuth,
     errors: enErrors,
     animation: enAnimation,
     files: enFiles,
@@ -87,7 +82,6 @@ export const resources = {
     common: jaCommon,
     watchlist: jaWatchlist,
     accounts: jaAccounts,
-    auth: jaAuth,
     errors: jaErrors,
     animation: jaAnimation,
     files: jaFiles,

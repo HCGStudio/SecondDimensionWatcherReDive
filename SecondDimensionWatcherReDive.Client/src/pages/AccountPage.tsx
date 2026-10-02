@@ -23,7 +23,7 @@ import { IAccountSession } from "../accounts/types";
 import { IAuthProfile, UserRole } from "../auth/IAuthResult";
 import { useLoginStatus } from "../auth/hooks";
 import { clearAuthForSession } from "../auth/httpClient";
-import { reauthenticate, switchProfile } from "../auth/utils";
+import { reauthenticateInteractively, switchProfile } from "../auth/utils";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { FormRow } from "../components/ui/FormRow";
@@ -78,12 +78,7 @@ export const AccountPage: React.FC = () => {
   );
 
   const stepUp = React.useCallback(async (): Promise<boolean> => {
-    const value = await promptDialog(t("reauthPrompt"), {
-      inputType: "password",
-      autoComplete: "current-password",
-    });
-    if (!value) return false;
-    await reauthenticate(value);
+    if (!(await reauthenticateInteractively(t("reauthPrompt")))) return false;
     await mutateStatus();
     return true;
   }, [mutateStatus, t]);

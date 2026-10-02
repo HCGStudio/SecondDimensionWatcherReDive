@@ -15,6 +15,7 @@ import { MediaSettingsSection } from "../components/settings/MediaSettingsSectio
 import { NotificationSettingsSection } from "../components/settings/NotificationSettingsSection";
 import { PlaybackSettingsSection } from "../components/settings/PlaybackSettingsSection";
 import { PluginSettingsSection } from "../components/settings/PluginSettingsSection";
+import { SecuritySettingsSection } from "../components/settings/SecuritySettingsSection";
 import {
   SettingsNavigation,
   SettingsSectionId,
@@ -45,7 +46,7 @@ export const SettingsPage: React.FC = () => {
   const requestedSection = searchParams.get("section");
   const sections: readonly SettingsSectionId[] = isAdministrator
     ? settingsSectionIds
-    : ["appearance", "playback"];
+    : ["appearance", "playback", "security"];
   const activeSection: SettingsSectionId =
     isSectionId(requestedSection) && sections.includes(requestedSection)
       ? requestedSection
@@ -53,7 +54,9 @@ export const SettingsPage: React.FC = () => {
         ? "ai"
         : "appearance";
   const isPersonalSection =
-    activeSection === "appearance" || activeSection === "playback";
+    activeSection === "appearance" ||
+    activeSection === "playback" ||
+    activeSection === "security";
   const { data, error, mutate } = useSystemSettings(
     isAdministrator && !isPersonalSection,
   );
@@ -102,9 +105,11 @@ export const SettingsPage: React.FC = () => {
       <header className="mb-8">
         <h1 className="font-sans text-2xl font-medium text-foreground">
           {t(
-            isAdministrator
-              ? "settings:pageTitle"
-              : "settings:personalPageTitle",
+            activeSection === "security"
+              ? "settings:security.title"
+              : isAdministrator
+                ? "settings:pageTitle"
+                : "settings:personalPageTitle",
           )}
         </h1>
         <p className="mt-2 max-w-3xl text-sm leading-body text-muted">
@@ -143,6 +148,8 @@ export const SettingsPage: React.FC = () => {
             <AppearanceSettingsSection />
           ) : activeSection === "playback" ? (
             <PlaybackSettingsSection />
+          ) : activeSection === "security" ? (
+            <SecuritySettingsSection />
           ) : error ? (
             <EmptyPrompt
               role="alert"

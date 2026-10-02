@@ -20,7 +20,8 @@ internal partial class AuthController(
     IIdentityRepository identityRepository,
     SessionTokenIssuer tokenIssuer,
     ILogger<AuthController> logger,
-    IAuthenticationStateRepository? authenticationStateRepository = null) : ControllerBase
+    IAuthenticationStateRepository? authenticationStateRepository = null,
+    IPasskeyRepository? passkeyRepository = null) : ControllerBase
 {
     [GeneratedRegex("^[a-z0-9._-]{3,64}$")]
     private static partial Regex UsernamePattern();
@@ -91,8 +92,15 @@ internal partial class AuthController(
                       ?? profiles.FirstOrDefault();
         if (profile is null) return Unauthorized();
 
-        return Ok(ToResult(await tokenIssuer.CreateSessionAsync(
-            user, profile, data.DeviceName, cancellationToken)));
+        try
+        {
+            return Ok(ToResult(await tokenIssuer.CreateSessionAsync(
+                user, profile, data.DeviceName, cancellationToken, passwordAuthentication: true)));
+        }
+        catch (IdentityAuthenticationException)
+        {
+            return Unauthorized();
+        }
     }
 
     [HttpPost("refresh")]
@@ -140,7 +148,8 @@ internal partial class AuthController(
             authenticated.Profile,
             request.RefreshToken,
             reauthenticated: true,
-            cancellationToken);
+            cancellationToken,
+            passwordAuthentication: true);
         return rotated is null ? Unauthorized() : Ok(ToResult(rotated));
     }
 
@@ -180,7 +189,13 @@ internal partial class AuthController(
             authenticated.User.Role.ToString(),
             authenticated.Session.Id,
             authenticated.Profile.Id,
-            profiles.Select(ToProfileResponse).ToList()));
+            profiles.Select(ToProfileResponse).ToList(),
+            !authenticated.User.PasswordRemoved && (authenticated.User.PasswordHash is not null
+                || authenticated.User.Id == IdentityDefaults.UserId && await HasLegacyPasswordAsync(cancellationToken)),
+            passkeyRepository is not null && (await passkeyRepository.GetCredentialsAsync(
+                authenticated.User.Id,
+                Uri.TryCreate($"https://{Request.Host.Value}", UriKind.Absolute, out var origin)
+                    ? origin.IdnHost : Request.Host.Host, cancellationToken)).Count > 0));
     }
 
     [HttpGet("allowRegister")]
@@ -261,6 +276,7 @@ internal partial class AuthController(
         string password,
         CancellationToken cancellationToken)
     {
+        if (user.PasswordRemoved) return false;
         if (user.PasswordHash is not null)
             return VerifyHash(password, user.PasswordHash);
         if (user.Id != IdentityDefaults.UserId || !await VerifyLegacyPasswordAsync(password, cancellationToken))

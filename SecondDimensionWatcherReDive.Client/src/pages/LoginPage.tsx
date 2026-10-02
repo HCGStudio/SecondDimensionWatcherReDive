@@ -4,13 +4,26 @@ import { useNavigate } from "react-router";
 import { mutate } from "swr";
 
 import { useAllowRegister, useLoginStatus } from "../auth/hooks";
-import { getAuthResult, setAuthResult } from "../auth/httpClient";
+import {
+  getAuthIdentityKey,
+  getAuthResult,
+  setAuthResult,
+  subscribeToAuthChanges,
+} from "../auth/httpClient";
+import {
+  isPasskeyCancellation,
+  isPasskeyHttps,
+  isPasskeySupported,
+  loginWithPasskey,
+} from "../auth/passkeys";
 import { login, register } from "../auth/utils";
 import { BrandIcon } from "../components/BrandIcon";
 import { Button } from "../components/ui/Button";
 import { FormRow } from "../components/ui/FormRow";
 import { Input } from "../components/ui/Input";
 import { PasswordInput } from "../components/ui/PasswordInput";
+import { ApiError } from "../errors/apiError";
+import "../i18n/authResources";
 import { PageTemplate } from "./PageTemplate";
 
 export const LoginPage: React.FC = () => {
@@ -26,6 +39,55 @@ export const LoginPage: React.FC = () => {
   const [registerFailed, setRegisterFailed] = React.useState(false);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const navigate = useNavigate();
+  const [passkeyError, setPasskeyError] = React.useState<string | null>(null);
+  const passkeyRequest = React.useRef<AbortController | null>(null);
+  React.useEffect(() => {
+    const unsubscribe = subscribeToAuthChanges(() =>
+      passkeyRequest.current?.abort(),
+    );
+    return () => {
+      unsubscribe();
+      passkeyRequest.current?.abort();
+    };
+  }, []);
+
+  const onPasskeyLogin = async () => {
+    if (isSubmitting) return;
+    const controller = new AbortController();
+    passkeyRequest.current = controller;
+    const identity = getAuthIdentityKey();
+    setIsSubmitting(true);
+    setPasskeyError(null);
+    setLoginFailed(false);
+    try {
+      const result = await loginWithPasskey(username.trim(), controller.signal);
+      if (controller.signal.aborted || getAuthIdentityKey() !== identity)
+        return;
+      if (!result.success) throw new Error("Passkey sign-in failed");
+      setAuthResult(result);
+      await mutate("/api/auth/verify");
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        setPasskeyError(
+          t(
+            isPasskeyCancellation(error)
+              ? "passkeys.canceled"
+              : error instanceof ApiError &&
+                  error.code === "passkeys_mock_unavailable"
+                ? "passkeys.mockUnavailable"
+                : error instanceof ApiError && error.status === 429
+                  ? "passkeys.rateLimited"
+                  : "passkeys.failed",
+          ),
+        );
+      }
+    } finally {
+      if (passkeyRequest.current === controller) {
+        passkeyRequest.current = null;
+        setIsSubmitting(false);
+      }
+    }
+  };
 
   const onPasswordChange: React.ChangeEventHandler<HTMLInputElement> = (ev) => {
     setPassword(ev.target.value);
@@ -110,6 +172,7 @@ export const LoginPage: React.FC = () => {
               <FormRow label={t("username")}>
                 <Input
                   autoComplete="username"
+                  disabled={isSubmitting}
                   value={username}
                   onChange={(event) => setUsername(event.target.value)}
                 />
@@ -123,6 +186,7 @@ export const LoginPage: React.FC = () => {
               <FormRow label={t("password")}>
                 <PasswordInput
                   placeholder={t("passwordPlaceholder")}
+                  disabled={isSubmitting}
                   value={password}
                   onChange={onPasswordChange}
                 />
@@ -167,6 +231,7 @@ export const LoginPage: React.FC = () => {
               <FormRow label={t("username")}>
                 <Input
                   autoComplete="username"
+                  disabled={isSubmitting}
                   value={username}
                   onChange={(event) => setUsername(event.target.value)}
                 />
@@ -178,6 +243,7 @@ export const LoginPage: React.FC = () => {
               >
                 <PasswordInput
                   placeholder={t("passwordPlaceholder")}
+                  disabled={isSubmitting}
                   value={password}
                   onChange={onPasswordChange}
                   isInvalid={loginFailed}
@@ -190,6 +256,31 @@ export const LoginPage: React.FC = () => {
               >
                 {isSubmitting ? t("loggingIn") : t("login")}
               </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                disabled={
+                  isSubmitting || !username.trim() || !isPasskeySupported()
+                }
+                onClick={() => void onPasskeyLogin()}
+              >
+                {t("passkeys.login")}
+              </Button>
+              {!isPasskeySupported() ? (
+                <p className="text-xs leading-body text-muted">
+                  {t(
+                    isPasskeyHttps()
+                      ? "passkeys.unsupported"
+                      : "passkeys.httpsRequired",
+                  )}
+                </p>
+              ) : null}
+              {passkeyError ? (
+                <p role="alert" className="text-sm text-error">
+                  {passkeyError}
+                </p>
+              ) : null}
             </div>
           </form>
         )}

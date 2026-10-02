@@ -106,7 +106,7 @@ const mockSessionFor = (req) =>
 const mockAuthState = (req) => ({
   userId: mockUserId, username: "admin", role: "Admin",
   sessionId: mockSessionFor(req).id, profileId: mockSessionFor(req).profileId,
-  profiles: mockProfiles,
+  profiles: mockProfiles, hasPassword: true, hasPasskeys: false,
 });
 function issueAuth(session = { id: randomUUID(), profileId: mockProfiles[0].id }) {
   const refreshToken = fakeToken();
@@ -2021,6 +2021,16 @@ async function route(method, pathname, searchParams, req, res) {
   if (method === "GET" && pathname === "/api/auth/verify") {
     if (!hasAuth(req)) return empty(res, 401);
     return json(res, mockAuthState(req));
+  }
+
+  // WebAuthn requires real server-side cryptographic verification. The HTTP
+  // development mock exposes state but never pretends to enroll or verify keys.
+  if (pathname === "/api/auth/passkeys" && method === "GET") {
+    if (!hasAuth(req)) return empty(res, 401);
+    return json(res, { hasPassword: true, passkeys: [] });
+  }
+  if (pathname.startsWith("/api/auth/passkeys/")) {
+    return json(res, { code: "passkeys_mock_unavailable" }, 501);
   }
 
   if (pathname === "/api/auth/reauthenticate" && method === "POST") {

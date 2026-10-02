@@ -32,6 +32,18 @@ JWT 现在强制校验签名算法、`exp`、issuer 与 audience。Refresh token
 
 注销成功时浏览器播放 cookie 会被删除。由于视频 Range 请求需要在有效期内重复读取，自包含票据不能做一次性消费；已经复制出的完整 URL+cookie 组合仍可能使用到其各自的最早过期时间（默认不超过 15 分钟），随后 fail closed。需要更短窗口时可降低 `Authentication:PlaybackLinkMinutes`。
 
+## Passkey 与无密码登录
+
+设置中的账户安全页面支持通过浏览器 WebAuthn 添加 Passkey，服务端使用固定版本的 [Fido2 .NET 验证库](https://github.com/passwordless-lib/fido2-net-lib/tree/4.1.0) 校验注册证明、签名、challenge、RP ID、origin 和用户验证标志。私钥由验证器保管；数据库仅保存凭据 ID、公钥、签名计数和显示信息。同一个凭据 ID 不能重复注册；每个账户最多保存 20 个 Passkey。
+
+所有 Passkey 端点和密码删除操作只接受 HTTPS，HTTP localhost 也不例外。RP ID 来自当前 HTTPS 请求的主机名，origin 精确绑定协议、主机及端口，不接受客户端自行指定 origin；不允许跨 origin 嵌入式认证。代理后的 HTTPS 识别仍仅信任下文列明的 `ReverseProxy` 地址配置，并要求代理保留外部 Host。建议长期保持访问域名不变，变更主机名后旧 Passkey 不能用于新域名。
+
+注册与认证 challenge 存在 PostgreSQL，五分钟过期，绑定用户、用途、适用时的登录会话，以及 `Secure` / `HttpOnly` / `SameSite=Strict` 浏览器 cookie；数据库原子消费阻止跨副本或并发重放。每次开始新操作会替换浏览器绑定，未完成的旧操作应重新发起。注册要求最近五分钟内认证；删除密码必须单独使用已有 Passkey 完成一次新的用户验证和签名，不会仅凭已登录状态删除。密码删除与凭据确认在事务中完成，保留当前会话并撤销该用户的其他会话。删除后通过持久标志禁止重新启用旧 bootstrap 密码；账户锁使并发的旧密码登录或重新认证不能绕过删除。
+
+匿名登录选项统一使用可发现凭据，不返回账户的凭据 ID 或数量；用户名只绑定在服务端 challenge 中，选择其他账户的 Passkey 仍会被拒绝。会话创建时若账户已被禁用，登录返回 `401`。
+
+Passkey 登录及敏感操作的重新认证支持无密码账户。当前不提供 Passkey 删除或密码恢复入口；删除密码前应确认验证器及其同步/备份方式在后续设备上仍可使用。
+
 ## WebDAV/FUSE 设备 token
 
 新设备 token 使用带 pepper 的 HMAC-SHA-256，不再为每次 Range 请求执行 BCrypt。旧 BCrypt token 仍可使用，并会在第一次成功鉴权后原地迁移。请长期保存 `WebDavTokens:Pepper`；未配置时会回退到 `JwtSecret`。更换 pepper 会使已经迁移的设备 token 失效，需要重新签发。
