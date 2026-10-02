@@ -51,7 +51,8 @@
       "notifications": "Notifications",
       "access": "Access protocols",
       "plugins": "Plugins",
-      "security": "Account security"
+      "security": "Account security",
+      "playback": "Playback preferences"
     },
     "pendingRestart": {
       "title": "Some settings are waiting for a restart",
@@ -508,5 +509,29 @@
     "passwordRemoved": "Password removed",
     "passwordlessHelp": "Use a saved passkey to sign in and confirm sensitive actions. Passkeys are available only over HTTPS.",
     "loadFailed": "Unable to load account security settings."
+  },
+  "personalPageTitle": "Settings",
+  "playback": {
+    "pageDescription": "Set continuous playback, intro and outro skipping, and your preferred language for the current profile.",
+    "eyebrow": "Personal preferences",
+    "title": "Playback preferences",
+    "description": "Settings are saved to the current profile and apply the next time you open a video.",
+    "readOnly": "Your account can view playback preferences. Member or administrator access is required to change them.",
+    "loadFailed": "Could not load playback preferences for the current profile. Please try again.",
+    "saveFailed": "Could not save playback preferences. Your changes are still on this page; please try again.",
+    "behaviorTitle": "Playback behavior",
+    "autoPlayNext": "Automatically play the next episode",
+    "autoPlayNextHelp": "Start the next available episode when the current video ends.",
+    "autoSkip": "Automatically skip intros and outros",
+    "autoSkipHelp": "Skip only marked or accepted intro and outro ranges. Nothing is skipped without an available timeline.",
+    "languageTitle": "Subtitle and audio language",
+    "preferredLanguage": "Preferred language",
+    "languageHelp": "Prefer available subtitles and audio in this language. If no audio track matches, keep the default audio; subtitles fall back to an available track.",
+    "languages": {
+      "auto": "Follow interface language",
+      "zh": "Chinese",
+      "ja": "Japanese",
+      "en": "English"
+    }
   }
 }

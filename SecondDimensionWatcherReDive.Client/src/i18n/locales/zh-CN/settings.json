@@ -51,7 +51,8 @@
       "notifications": "通知",
       "access": "访问协议",
       "plugins": "插件",
-      "security": "账户安全"
+      "security": "账户安全",
+      "playback": "播放偏好"
     },
     "pendingRestart": {
       "title": "存在等待重启生效的设置",
@@ -508,5 +509,29 @@
     "passwordRemoved": "密码已删除",
     "passwordlessHelp": "使用已保存的通行密钥登录及确认敏感操作。通行密钥仅限 HTTPS 使用。",
     "loadFailed": "无法加载账户安全设置。"
+  },
+  "personalPageTitle": "设置",
+  "playback": {
+    "pageDescription": "为当前个人资料设置连续播放、片头片尾跳过和偏好语言。",
+    "eyebrow": "个人偏好",
+    "title": "播放偏好",
+    "description": "设置保存在当前个人资料中，并在下次打开视频时使用。",
+    "readOnly": "当前账户可以查看播放偏好；修改需要成员或管理员权限。",
+    "loadFailed": "无法加载当前个人资料的播放偏好，请重试。",
+    "saveFailed": "播放偏好保存失败。更改仍保留在此页面，请重试。",
+    "behaviorTitle": "播放行为",
+    "autoPlayNext": "自动播放下一集",
+    "autoPlayNextHelp": "当前视频播放结束后，自动开始可用的下一集。",
+    "autoSkip": "自动跳过片头片尾",
+    "autoSkipHelp": "仅跳过已标记或已接受的片头片尾时间范围。没有可用时间轴时不会跳过。",
+    "languageTitle": "字幕与音轨语言",
+    "preferredLanguage": "偏好语言",
+    "languageHelp": "优先加载所选语言的可用字幕和音轨。没有匹配音轨时保留默认音轨，字幕按可用轨道回退。",
+    "languages": {
+      "auto": "跟随界面语言",
+      "zh": "中文",
+      "ja": "日语",
+      "en": "英语"
+    }
   }
 }
