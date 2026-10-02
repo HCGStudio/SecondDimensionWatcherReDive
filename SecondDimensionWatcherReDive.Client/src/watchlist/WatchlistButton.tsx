@@ -1,10 +1,37 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
 
+import {
+  Bookmark,
+  BookmarkCheck,
+  BookmarkPlus,
+  Check,
+  CircleCheck,
+  CircleX,
+  Eye,
+  Loader2,
+  Pause,
+} from "lucide-react";
+
 import { useAccess } from "../auth/hooks";
 import { useToast } from "../components/ToastProvider";
-import { Select, SelectItem } from "../components/ui/Select";
+import { Button } from "../components/ui/Button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "../components/ui/DropdownMenu";
 import { saveWatchlist, useWatchlist, watchlistStatuses } from "./hooks";
+
+const statusIcons = {
+  planned: Bookmark,
+  watching: Eye,
+  onHold: Pause,
+  dropped: CircleX,
+  completed: CircleCheck,
+};
 
 export const WatchlistButton: React.FC<{
   tmdbId?: string;
@@ -22,35 +49,72 @@ export const WatchlistButton: React.FC<{
       (props.mikanId && x.mikanId === props.mikanId),
   );
   if (!canPlaybackWrite) return null;
+  const label = item
+    ? `${t("status")}: ${t(`statuses.${item.status}`)}`
+    : t("add");
+
   return (
-    <Select
-      className="w-auto rounded-md px-2 py-1 text-xs"
-      aria-label={t("add")}
-      value={item?.status ?? ""}
-      disabled={busy}
-      onValueChange={async (value) => {
-        setBusy(true);
-        try {
-          await saveWatchlist({
-            ...props,
-            id: item?.id,
-            status: value,
-          });
-        } catch {
-          addToast({ title: t("failed"), color: "danger" });
-        } finally {
-          setBusy(false);
-        }
-      }}
-    >
-      <SelectItem value="" disabled>
-        {t("add")}
-      </SelectItem>
-      {watchlistStatuses.map((status) => (
-        <SelectItem key={status} value={status}>
-          {t(`statuses.${status}`)}
-        </SelectItem>
-      ))}
-    </Select>
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="icon"
+          size="sm"
+          className={`h-8 w-8 ${item ? "text-brand" : "text-muted"}`}
+          aria-label={label}
+          title={label}
+          aria-busy={busy}
+          disabled={busy}
+        >
+          {busy ? (
+            <Loader2 size={16} className="animate-spin" aria-hidden="true" />
+          ) : item ? (
+            <BookmarkCheck size={16} aria-hidden="true" />
+          ) : (
+            <BookmarkPlus size={16} aria-hidden="true" />
+          )}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" collisionPadding={12}>
+        <DropdownMenuRadioGroup
+          aria-label={t("status")}
+          value={item?.status ?? ""}
+          onValueChange={async (value) => {
+            if (busy || value === item?.status) return;
+            setBusy(true);
+            try {
+              await saveWatchlist({
+                ...props,
+                id: item?.id,
+                status: value,
+              });
+            } catch {
+              addToast({ title: t("failed"), color: "danger" });
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          {watchlistStatuses.map((status) => {
+            const StatusIcon = statusIcons[status];
+            return (
+              <DropdownMenuRadioItem
+                key={status}
+                value={status}
+                disabled={busy}
+              >
+                <StatusIcon size={16} className="shrink-0" aria-hidden="true" />
+                <span className="flex-1">{t(`statuses.${status}`)}</span>
+                <span
+                  className="h-4 w-4 shrink-0 text-brand"
+                  aria-hidden="true"
+                >
+                  {item?.status === status ? <Check size={16} /> : null}
+                </span>
+              </DropdownMenuRadioItem>
+            );
+          })}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 };
