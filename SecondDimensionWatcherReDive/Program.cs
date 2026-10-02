@@ -840,6 +840,7 @@ builder.Services.AddScoped<IMigrationLock, PostgreSqlMigrationLock>();
 builder.Services.AddScoped<IWebDavTokenRepository, WebDavTokenRepository>();
 builder.Services.AddScoped<IPlaybackRepository, PlaybackRepository>();
 builder.Services.AddScoped<IIdentityRepository, IdentityRepository>();
+builder.Services.AddScoped<IProfileSettingsRepository, ProfileSettingsRepository>();
 builder.Services.AddScoped<SessionTokenIssuer>();
 builder.Services.AddScoped<IIncidentRepository, IncidentRepository>();
 builder.Services.AddScoped<IMediaLibrarySourceRepository, MediaLibrarySourceRepository>();

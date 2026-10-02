@@ -1,3 +1,4 @@
+import { getBrandIconUrl } from "./brandIcon";
 import {
   ColorScheme,
   ThemeId,
@@ -102,4 +103,7 @@ export function applyTheme(
   document
     .querySelector('meta[name="theme-color"]')
     ?.setAttribute("content", colors.canvas);
+  document
+    .querySelector('link[rel="icon"]')
+    ?.setAttribute("href", getBrandIconUrl(id, scheme));
 }
