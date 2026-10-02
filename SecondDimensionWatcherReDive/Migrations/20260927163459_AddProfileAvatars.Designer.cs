@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using SecondDimensionWatcherReDive.Models;
@@ -11,9 +12,11 @@ using SecondDimensionWatcherReDive.Models;
 namespace SecondDimensionWatcherReDive.Migrations
 {
     [DbContext(typeof(ApplicationContext))]
-    partial class ApplicationContextModelSnapshot : ModelSnapshot
+    [Migration("20260927163459_AddProfileAvatars")]
+    partial class AddProfileAvatars
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1671,109 +1674,6 @@ namespace SecondDimensionWatcherReDive.Migrations
                     b.ToTable("NotificationOutboxMessages");
                 });
 
-            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.PasskeyCeremony", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("BrowserBindingHash")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<DateTimeOffset>("ExpiresAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("OptionsJson")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("Origin")
-                        .IsRequired()
-                        .HasMaxLength(512)
-                        .HasColumnType("character varying(512)");
-
-                    b.Property<string>("Purpose")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
-
-                    b.Property<string>("RelyingPartyId")
-                        .IsRequired()
-                        .HasMaxLength(253)
-                        .HasColumnType("character varying(253)");
-
-                    b.Property<Guid?>("SessionId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid?>("UserId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ExpiresAt");
-
-                    b.HasIndex("SessionId");
-
-                    b.HasIndex("UserId");
-
-                    b.ToTable("PasskeyCeremonies", (string)null);
-                });
-
-            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.PasskeyCredential", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<byte[]>("CredentialId")
-                        .IsRequired()
-                        .HasMaxLength(1024)
-                        .HasColumnType("bytea");
-
-                    b.Property<bool>("IsBackedUp")
-                        .HasColumnType("boolean");
-
-                    b.Property<bool>("IsBackupEligible")
-                        .HasColumnType("boolean");
-
-                    b.Property<DateTimeOffset?>("LastUsedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<byte[]>("PublicKey")
-                        .IsRequired()
-                        .HasColumnType("bytea");
-
-                    b.Property<string>("RelyingPartyId")
-                        .IsRequired()
-                        .HasMaxLength(253)
-                        .HasColumnType("character varying(253)");
-
-                    b.Property<long>("SignCount")
-                        .HasColumnType("bigint");
-
-                    b.Property<Guid>("UserId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("CredentialId")
-                        .IsUnique();
-
-                    b.HasIndex("UserId", "RelyingPartyId");
-
-                    b.ToTable("PasskeyCredentials", (string)null);
-                });
-
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.PlaybackCatalogState", b =>
                 {
                     b.Property<Guid>("UserId")
@@ -2262,9 +2162,6 @@ namespace SecondDimensionWatcherReDive.Migrations
                         .HasMaxLength(128)
                         .HasColumnType("character varying(128)");
 
-                    b.Property<bool>("PasswordRemoved")
-                        .HasColumnType("boolean");
-
                     b.Property<string>("Role")
                         .IsRequired()
                         .HasMaxLength(16)
@@ -2665,28 +2562,6 @@ namespace SecondDimensionWatcherReDive.Migrations
                     b.HasOne("SecondDimensionWatcherReDive.Models.MultiSourceSubscription", null)
                         .WithMany("Sources")
                         .HasForeignKey("SubscriptionId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-                });
-
-            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.PasskeyCeremony", b =>
-                {
-                    b.HasOne("SecondDimensionWatcherReDive.Models.LoginSession", null)
-                        .WithMany()
-                        .HasForeignKey("SessionId")
-                        .OnDelete(DeleteBehavior.Cascade);
-
-                    b.HasOne("SecondDimensionWatcherReDive.Models.UserAccount", null)
-                        .WithMany()
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade);
-                });
-
-            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.PasskeyCredential", b =>
-                {
-                    b.HasOne("SecondDimensionWatcherReDive.Models.UserAccount", null)
-                        .WithMany()
-                        .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });

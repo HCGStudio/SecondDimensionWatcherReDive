@@ -8,6 +8,8 @@ import { handleMetadataRules, isMetadataRulePreviewCurrent } from "./mock-metada
 import { handleWatchlistPlayback } from "./mock-watchlist-playback.mjs";
 import { handleMultiSourceSubscriptions, multiSourcePolicyForFeed, removeMultiSourceFeed } from "./mock-multi-source.mjs";
 
+import { handleProfileSettings } from "./mock-profile-settings.mjs";
+
 const PORT = parseInt(process.env.MOCK_PORT ?? "5097", 10);
 
 // ---------------------------------------------------------------------------
@@ -2048,6 +2050,8 @@ async function route(method, pathname, searchParams, req, res) {
   ) {
     return empty(res, 401);
   }
+
+  if (await handleProfileSettings(req, res, pathname, mockProfiles, json, empty)) return;
 
   if (pathname === "/api/accounts/profiles" && method === "GET") return json(res, mockProfiles);
   if (pathname === "/api/accounts/profiles" && method === "POST") {

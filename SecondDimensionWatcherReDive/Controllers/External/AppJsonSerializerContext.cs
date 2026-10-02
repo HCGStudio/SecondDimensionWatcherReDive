@@ -77,6 +77,8 @@ namespace SecondDimensionWatcherReDive.Controllers.External;
 [JsonSerializable(typeof(AuthStateResponse))]
 [JsonSerializable(typeof(CreateProfileRequest))]
 [JsonSerializable(typeof(UpdateProfileRequest))]
+[JsonSerializable(typeof(RenameProfileRequest))]
+[JsonSerializable(typeof(SetProfilePinRequest))]
 [JsonSerializable(typeof(SwitchProfileRequest))]
 [JsonSerializable(typeof(SessionResponse))]
 [JsonSerializable(typeof(List<SessionResponse>))]

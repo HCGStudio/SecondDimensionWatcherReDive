@@ -1877,6 +1877,25 @@ namespace SecondDimensionWatcherReDive.Migrations
                         });
                 });
 
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.ProfileAvatar", b =>
+                {
+                    b.Property<Guid>("ProfileId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ContentType")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<byte[]>("Data")
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.HasKey("ProfileId");
+
+                    b.ToTable("ProfileAvatars", (string)null);
+                });
+
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.ReleaseUpgradeMappingSnapshot", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2703,6 +2722,15 @@ namespace SecondDimensionWatcherReDive.Migrations
                     b.Navigation("AnimationInfo");
 
                     b.Navigation("Profile");
+                });
+
+            modelBuilder.Entity("SecondDimensionWatcherReDive.Models.ProfileAvatar", b =>
+                {
+                    b.HasOne("SecondDimensionWatcherReDive.Models.UserProfile", null)
+                        .WithOne()
+                        .HasForeignKey("SecondDimensionWatcherReDive.Models.ProfileAvatar", "ProfileId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("SecondDimensionWatcherReDive.Models.ReleaseUpgradeMappingSnapshot", b =>
