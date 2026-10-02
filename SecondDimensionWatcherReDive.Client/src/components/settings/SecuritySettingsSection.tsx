@@ -18,6 +18,7 @@ import {
 } from "../../auth/passkeys";
 import { retryAfterReauthentication } from "../../auth/utils";
 import { ApiError } from "../../errors/apiError";
+import "../../i18n/authResources";
 import { useToast } from "../ToastProvider";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";

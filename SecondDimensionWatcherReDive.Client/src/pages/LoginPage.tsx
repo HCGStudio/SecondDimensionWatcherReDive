@@ -23,6 +23,7 @@ import { FormRow } from "../components/ui/FormRow";
 import { Input } from "../components/ui/Input";
 import { PasswordInput } from "../components/ui/PasswordInput";
 import { ApiError } from "../errors/apiError";
+import "../i18n/authResources";
 import { PageTemplate } from "./PageTemplate";
 
 export const LoginPage: React.FC = () => {

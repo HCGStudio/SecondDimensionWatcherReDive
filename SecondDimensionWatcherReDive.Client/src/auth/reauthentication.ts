@@ -1,6 +1,7 @@
 import i18next from "i18next";
 
 import { promptDialog } from "../components/ui/dialogService";
+import "../i18n/authResources";
 import { IAuthState } from "./IAuthResult";
 import fetcher, {
   AuthIdentityChangedError,
