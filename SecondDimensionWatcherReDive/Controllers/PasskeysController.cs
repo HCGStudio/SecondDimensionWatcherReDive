@@ -136,7 +136,14 @@ internal sealed class PasskeysController(
         var profiles = await identities.GetProfilesAsync(user.Id, cancellationToken);
         var profile = profiles.FirstOrDefault(value => value.IsDefault) ?? profiles.FirstOrDefault();
         if (profile is null) return Unauthorized();
-        return Ok(ToResult(await tokenIssuer.CreateSessionAsync(user, profile, request.DeviceName, cancellationToken)));
+        try
+        {
+            return Ok(ToResult(await tokenIssuer.CreateSessionAsync(user, profile, request.DeviceName, cancellationToken)));
+        }
+        catch (IdentityAuthenticationException)
+        {
+            return Unauthorized();
+        }
     }
 
     [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
@@ -187,15 +194,13 @@ internal sealed class PasskeysController(
     private async Task<IActionResult> AssertionOptionsAsync(string purpose, Guid? userId, Guid? sessionId,
         CancellationToken cancellationToken)
     {
-        IReadOnlyList<PasskeyCredential> credentials = userId.HasValue
+        IReadOnlyList<PasskeyCredential> credentials = purpose != LoginPurpose && userId.HasValue
             ? await passkeys.GetCredentialsAsync(userId.Value, RelyingPartyId, cancellationToken) : [];
         if (credentials.Count == 0 && purpose != LoginPurpose) return Failure(409, "passkeyRequired");
         var options = Verifier(Origin, RelyingPartyId).GetAssertionOptions(new GetAssertionOptionsParams
         {
-            // An unknown account gets an unusable allow-list instead of a discoverable credential prompt.
-            AllowedCredentials = credentials.Count == 0
-                ? [new PublicKeyCredentialDescriptor(RandomNumberGenerator.GetBytes(32))]
-                : credentials.Select(value => new PublicKeyCredentialDescriptor(value.CredentialId)).ToList(),
+            // Public login always uses discoverable credentials; only the stored ceremony binds the username.
+            AllowedCredentials = credentials.Select(value => new PublicKeyCredentialDescriptor(value.CredentialId)).ToList(),
             UserVerification = UserVerificationRequirement.Required
         });
         return await SaveOptionsAsync(purpose, userId, sessionId, options.ToJson(), cancellationToken);
